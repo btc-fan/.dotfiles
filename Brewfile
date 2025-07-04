@@ -6,6 +6,7 @@ brew "stow"
 brew "zsh"
 brew "ripgrep"
 brew "pyenv"
+brew "xz"
 
 # Applications
 cask "intellij-idea"
@@ -17,4 +18,5 @@ cask "whatsapp"
 cask "bitwarden"
 cask "docker"
 cask "postman"
+cask "simplenote"
 cask "telegram"
