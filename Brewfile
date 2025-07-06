@@ -8,6 +8,10 @@ brew "ripgrep"
 brew "pyenv"
 brew "xz"
 brew "starship"
+brew "node"
+brew "yarn"
+cask "veracrypt"
+cask "little-snitch"
 
 # Applications
 cask "intellij-idea"
@@ -32,3 +36,4 @@ cask "openlens"
 cask "visual-studio-code"
 cask "cursor"
 cask "tailscale"
+# Note: klogg may need manual installation or different source
