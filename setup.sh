@@ -54,6 +54,22 @@ else
     log_error "git directory not found. Make sure git/.gitconfig exists"
 fi
 
+# Setup all other dotfiles with stow
+echo -e "${YELLOW}Setting up additional dotfiles with stow...${NC}"
+DOTFILE_DIRS=("zsh" "vim" "tmux" "ssh" "vscode" "scripts")
+
+for dir in "${DOTFILE_DIRS[@]}"; do
+    if [ -d "$dir" ]; then
+        if stow "$dir" 2>/dev/null; then
+            echo -e "${GREEN}✓ $dir configuration linked${NC}"
+        else
+            log_error "$dir configuration linking failed"
+        fi
+    else
+        echo -e "${YELLOW}⚠ $dir directory not found, skipping...${NC}"
+    fi
+done
+
 # Setup pyenv and install latest Python
 echo -e "${YELLOW}Setting up Python with pyenv...${NC}"
 if command -v pyenv &> /dev/null; then
@@ -74,22 +90,16 @@ if command -v pyenv &> /dev/null; then
     LATEST_PYTHON=$(pyenv install --list 2>/dev/null | grep -E "^\s*3\.[0-9]+\.[0-9]+$" | tail -1 | tr -d ' ')
     
     if [ ! -z "$LATEST_PYTHON" ]; then
-        # Check if Python version is already installed
-        if pyenv versions | grep -q "$LATEST_PYTHON" 2>/dev/null; then
-            echo -e "${GREEN}✓ Python $LATEST_PYTHON already installed${NC}"
+        echo -e "${YELLOW}Installing Python $LATEST_PYTHON with proper lzma support...${NC}"
+        if pyenv install $LATEST_PYTHON --skip-existing 2>/dev/null; then
             pyenv global $LATEST_PYTHON 2>/dev/null || log_error "Failed to set Python as global"
+            
+            # Upgrade pip
+            pip install --upgrade pip 2>/dev/null || log_error "Failed to upgrade pip"
+            echo -e "${GREEN}✓ Python $LATEST_PYTHON installed and set as global${NC}"
         else
-            echo -e "${YELLOW}Installing Python $LATEST_PYTHON with proper lzma support...${NC}"
-            if yes | pyenv install $LATEST_PYTHON 2>/dev/null; then
-                pyenv global $LATEST_PYTHON 2>/dev/null || log_error "Failed to set Python as global"
-                echo -e "${GREEN}✓ Python $LATEST_PYTHON installed and set as global${NC}"
-            else
-                log_error "Python installation failed"
-            fi
+            log_error "Python installation failed"
         fi
-        
-        # Upgrade pip
-        pip install --upgrade pip 2>/dev/null || log_error "Failed to upgrade pip"
     else
         log_error "Could not determine latest Python version"
     fi
