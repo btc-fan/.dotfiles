@@ -10,6 +10,8 @@ brew "xz"
 brew "starship"
 brew "node"
 brew "yarn"
+brew "gnupg"
+brew "pinentry-mac"
 
 # Applications
 cask "intellij-idea"
