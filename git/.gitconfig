@@ -52,3 +52,4 @@
 	autocorrect = prompt
 [commit]
 	verbose = true
+	gpgsign = false
