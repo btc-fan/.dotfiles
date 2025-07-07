@@ -54,22 +54,6 @@ else
     log_error "git directory not found. Make sure git/.gitconfig exists"
 fi
 
-# Setup all other dotfiles with stow
-echo -e "${YELLOW}Setting up additional dotfiles with stow...${NC}"
-DOTFILE_DIRS=("zsh" "vim" "tmux" "ssh" "vscode" "scripts")
-
-for dir in "${DOTFILE_DIRS[@]}"; do
-    if [ -d "$dir" ]; then
-        if stow "$dir" 2>/dev/null; then
-            echo -e "${GREEN}✓ $dir configuration linked${NC}"
-        else
-            log_error "$dir configuration linking failed"
-        fi
-    else
-        echo -e "${YELLOW}⚠ $dir directory not found, skipping...${NC}"
-    fi
-done
-
 # Setup pyenv and install latest Python
 echo -e "${YELLOW}Setting up Python with pyenv...${NC}"
 if command -v pyenv &> /dev/null; then
