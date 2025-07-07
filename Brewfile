@@ -12,6 +12,7 @@ brew "node"
 brew "yarn"
 brew "gnupg"
 brew "pinentry-mac"
+brew "zoxide"  # Smarter cd command
 
 # Applications
 cask "intellij-idea"
