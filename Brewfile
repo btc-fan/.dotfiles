@@ -13,6 +13,7 @@ brew "yarn"
 brew "gnupg"
 brew "pinentry-mac"
 brew "zoxide"  # Smarter cd command
+brew "zsh-completions" # Git completions
 
 # Applications
 cask "intellij-idea"

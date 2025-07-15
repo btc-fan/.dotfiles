@@ -3,7 +3,7 @@
 	email = lungumihai25@gmail.com
 
 [includeIf "gitdir:~/work/"]
-  path = ~/work/.gitconfig_work
+	path = ~/work/.gitconfig_work
 
 ; https://blog.gitbutler.com/how-git-core-devs-configure-git/
 [rebase]
@@ -52,4 +52,3 @@
 	autocorrect = prompt
 [commit]
 	verbose = true
-	gpgsign = false

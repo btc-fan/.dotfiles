@@ -54,21 +54,43 @@ else
     log_error "git directory not found. Make sure git/.gitconfig exists"
 fi
 
-# Setup all other dotfiles with stow
-echo -e "${YELLOW}Setting up additional dotfiles with stow...${NC}"
-DOTFILE_DIRS=("zsh" "vim" "tmux" "ssh" "vscode" "scripts")
-
-for dir in "${DOTFILE_DIRS[@]}"; do
-    if [ -d "$dir" ]; then
-        if stow "$dir" 2>/dev/null; then
-            echo -e "${GREEN}✓ $dir configuration linked${NC}"
-        else
-            log_error "$dir configuration linking failed"
-        fi
+# Setup zsh configuration with stow
+echo -e "${YELLOW}Setting up zsh configuration...${NC}"
+if [ -d "zsh" ]; then
+    if stow zsh 2>/dev/null; then
+        echo -e "${GREEN}✓ Zsh configuration linked${NC}"
     else
-        echo -e "${YELLOW}⚠ $dir directory not found, skipping...${NC}"
+        log_error "Zsh configuration linking failed"
     fi
-done
+else
+    log_error "zsh directory not found. Make sure zsh/.zshrc exists"
+fi
+
+# Add zsh completions configuration
+echo -e "${YELLOW}Configuring zsh completions...${NC}"
+
+# Check if completions are already configured to avoid duplicates
+if ! grep -q "zsh-completions" ~/.zshrc 2>/dev/null; then
+    # Use Homebrew prefix for better compatibility (works on both Intel and Apple Silicon)
+    if command -v brew &> /dev/null; then
+        BREW_PREFIX=$(brew --prefix)
+        echo "fpath=($BREW_PREFIX/share/zsh-completions \$fpath)" >> ~/.zshrc || log_error "Failed to add completions to fpath"
+    else
+        # Fallback to standard path
+        echo 'fpath=(/usr/local/share/zsh-completions $fpath)' >> ~/.zshrc || log_error "Failed to add completions to fpath"
+    fi
+    echo -e "${GREEN}✓ Zsh completions fpath configured${NC}"
+else
+    echo -e "${GREEN}✓ Zsh completions already configured${NC}"
+fi
+
+# Add compinit if not already present
+if ! grep -q "compinit" ~/.zshrc 2>/dev/null; then
+    echo 'autoload -Uz compinit && compinit' >> ~/.zshrc || log_error "Failed to add compinit"
+    echo -e "${GREEN}✓ Compinit configured${NC}"
+else
+    echo -e "${GREEN}✓ Compinit already configured${NC}"
+fi
 
 # Setup pyenv and install latest Python
 echo -e "${YELLOW}Setting up Python with pyenv...${NC}"
@@ -76,24 +98,24 @@ if command -v pyenv &> /dev/null; then
     # Add pyenv to PATH for this script
     export PATH="$HOME/.pyenv/bin:$PATH"
     eval "$(pyenv init -)" 2>/dev/null || true
-    
+
     # Install dependencies for Python compilation (fixes lzma module issue)
     echo -e "${YELLOW}Installing Python dependencies...${NC}"
     brew install xz 2>/dev/null || log_error "Failed to install xz dependency"
-    
+
     # Set compiler flags for proper Python compilation
     export LDFLAGS="-L$(brew --prefix xz)/lib $LDFLAGS"
     export CPPFLAGS="-I$(brew --prefix xz)/include $CPPFLAGS"
     export PKG_CONFIG_PATH="$(brew --prefix xz)/lib/pkgconfig:$PKG_CONFIG_PATH"
-    
+
     # Get latest Python 3.x version
     LATEST_PYTHON=$(pyenv install --list 2>/dev/null | grep -E "^\s*3\.[0-9]+\.[0-9]+$" | tail -1 | tr -d ' ')
-    
+
     if [ ! -z "$LATEST_PYTHON" ]; then
         echo -e "${YELLOW}Installing Python $LATEST_PYTHON with proper lzma support...${NC}"
         if pyenv install $LATEST_PYTHON --skip-existing 2>/dev/null; then
             pyenv global $LATEST_PYTHON 2>/dev/null || log_error "Failed to set Python as global"
-            
+
             # Upgrade pip
             pip install --upgrade pip 2>/dev/null || log_error "Failed to upgrade pip"
             echo -e "${GREEN}✓ Python $LATEST_PYTHON installed and set as global${NC}"
@@ -124,7 +146,7 @@ if ! command -v gvm &> /dev/null; then
         echo -e "${YELLOW}Removing existing GVM installation...${NC}"
         rm -rf "$HOME/.gvm"
     fi
-    
+
     # Install GVM
     if bash < <(curl -s -S -L https://raw.githubusercontent.com/moovweb/gvm/master/binscripts/gvm-installer) 2>/dev/null; then
         # Source GVM in current session
@@ -139,7 +161,7 @@ fi
 if command -v gvm &> /dev/null; then
     source "$HOME/.gvm/scripts/gvm" 2>/dev/null || true
     export GOROOT_BOOTSTRAP=$(brew --prefix go)/libexec 2>/dev/null || true
-    
+
     echo -e "${YELLOW}Installing Go 1.23 with GVM...${NC}"
     if gvm install go1.23 2>/dev/null && gvm use go1.23 --default 2>/dev/null; then
         echo -e "${GREEN}✓ Go 1.23 installed and set as default${NC}"
@@ -155,17 +177,17 @@ fi
 echo -e "${YELLOW}Setting up Node.js and TypeScript environment...${NC}"
 if command -v node &> /dev/null && command -v npm &> /dev/null; then
     echo -e "${GREEN}✓ Node.js $(node --version 2>/dev/null || echo 'unknown') and npm $(npm --version 2>/dev/null || echo 'unknown') installed${NC}"
-    
+
     # Install global TypeScript and Playwright dependencies
     echo -e "${YELLOW}Installing TypeScript and Playwright dependencies...${NC}"
     npm install -g typescript ts-node @types/node 2>/dev/null || log_error "Failed to install TypeScript dependencies"
     npm install -g @playwright/test 2>/dev/null || log_error "Failed to install Playwright"
-    
+
     # Install Playwright browsers
     echo -e "${YELLOW}Installing Playwright browsers...${NC}"
     npx playwright install 2>/dev/null || log_error "Failed to install Playwright browsers"
     npx playwright install-deps 2>/dev/null || log_error "Failed to install Playwright system dependencies"
-    
+
     echo -e "${GREEN}✓ TypeScript and Playwright environment configured${NC}"
 else
     log_error "Node.js not found"
@@ -184,7 +206,7 @@ if command -v starship &> /dev/null; then
     else
         echo -e "${GREEN}✓ Starship already configured${NC}"
     fi
-    
+
     # Activate starship for current session
     eval "$(starship init zsh)" 2>/dev/null || true
     echo -e "${GREEN}✓ Starship prompt activated${NC}"
