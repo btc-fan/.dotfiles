@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Privacy and telemetry controls. Complements Win11Debloat.
 .DESCRIPTION
@@ -44,7 +44,7 @@ param(
     [Parameter(ParameterSetName = "Apply")][switch]$Apply,
     [Parameter(ParameterSetName = "Revert")][switch]$Revert,
     [ValidateSet("Telemetry","Advertising","Suggestions","AI","Location","Services")]
-    [string]$Category
+    [string[]]$Category
 )
 
 $RepoRoot   = Split-Path -Parent $PSScriptRoot
@@ -197,10 +197,10 @@ function Get-Current {
 }
 
 function Select-Tweaks {
-    if ($Category) { $tweaks | Where-Object { $_.Category -eq $Category } } else { $tweaks }
+    if ($Category) { $tweaks | Where-Object { $Category -contains $_.Category } } else { $tweaks }
 }
 function Select-Services {
-    if ($Category -and $Category -ne "Services") { @() }
+    if ($Category -and ($Category -notcontains "Services")) { @() }
     else { $services }
 }
 

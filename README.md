@@ -48,7 +48,7 @@ Then it prints an inventory table of every tool and its actual version, a machin
 ## Flags
 
 ```powershell
-.\setup.ps1 [-SkipPreflight] [-SkipSelfUpdate] [-SkipPackages]
+.\setup.ps1 [-SkipPreflight] [-SelfUpdate] [-SkipPackages]
             [-SkipVisualStudio] [-SkipRuntimes] [-SkipWsl] [-SkipLinks]
             [-SkipTerminal] [-SkipTweaks] [-SkipHealth]
             [-RetryFailed] [-ResetState]
@@ -57,7 +57,7 @@ Then it prints an inventory table of every tool and its actual version, a machin
 | Flag | Effect |
 |------|--------|
 | `-SkipPreflight` | Do not run `bootstrap.ps1` first. |
-| `-SkipSelfUpdate` | Skip stage 1. Use this: it is the slowest stage and rarely what you want during setup. |
+| `-SelfUpdate` | Also upgrade every already-installed package first. Off by default: slow, and `update.ps1` is the right place for it. |
 | `-SkipPackages` | Skip winget and Scoop installs. Useful for re-linking configs only. |
 | `-SkipVisualStudio` | Skip the 20-40 minute Visual Studio install. |
 | `-SkipRuntimes` | Skip Python, Node, and Azure CLI configuration. |
@@ -73,16 +73,16 @@ Then it prints an inventory table of every tool and its actual version, a machin
 
 ```powershell
 # Fast validation pass. Catches bad package IDs in ~5 minutes.
-.\setup.ps1 -SkipSelfUpdate -SkipVisualStudio -SkipWsl
+.\setup.ps1 -SelfUpdate -SkipVisualStudio -SkipWsl
 
 # Full run. Go make coffee.
-.\setup.ps1 -SkipSelfUpdate
+.\setup.ps1 -SelfUpdate
 
 # After fixing package IDs in packages/.
-.\setup.ps1 -SkipSelfUpdate -RetryFailed
+.\setup.ps1 -SelfUpdate -RetryFailed
 
 # Re-apply configs only, no installs.
-.\setup.ps1 -SkipPreflight -SkipSelfUpdate -SkipPackages -SkipRuntimes -SkipWsl
+.\setup.ps1 -SkipPreflight -SelfUpdate -SkipPackages -SkipRuntimes -SkipWsl
 ```
 
 ---
@@ -247,7 +247,7 @@ Windows Update, Defender, and security patching are unaffected.
 ```powershell
 .\windows\privacy.ps1 -Status                    # read-only
 .\windows\privacy.ps1 -Apply                     # elevated
-.\windows\privacy.ps1 -Apply -Category AI        # one category only
+.\windows\privacy.ps1 -Apply -Category Telemetry,AI   # selected categories
 .\windows\privacy.ps1 -Revert                    # elevated
 ```
 
@@ -374,12 +374,12 @@ On a fresh machine, after `PRECONDITIONS.md`:
 
 ```powershell
 .\bootstrap.ps1                                        # verify
-.\setup.ps1 -SkipSelfUpdate -SkipVisualStudio -SkipWsl # validate package IDs, ~5 min
+.\setup.ps1 -SelfUpdate -SkipVisualStudio -SkipWsl # validate package IDs, ~5 min
 # fix any failed IDs in packages/, then:
 .\windows\privacy.ps1 -Apply                           # elevated, fast
 .\windows\debloat.ps1                                  # elevated, pick apps, reboot
-.\setup.ps1 -SkipSelfUpdate                            # full run, ~40 min
-.\setup.ps1 -SkipSelfUpdate -SkipPackages              # re-apply tweaks debloat may have reset
+.\setup.ps1 -SelfUpdate                            # full run, ~40 min
+.\setup.ps1 -SelfUpdate -SkipPackages              # re-apply tweaks debloat may have reset
 .\windows\block-mdm.ps1 -Block                         # elevated, personal devices only
 ```
 

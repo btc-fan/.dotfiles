@@ -1,4 +1,4 @@
-#Requires -Version 7.0
+﻿#Requires -Version 7.0
 <#
 .SYNOPSIS
     Autonomous Windows development environment setup.
@@ -30,7 +30,7 @@
 [CmdletBinding()]
 param(
     [switch]$SkipPreflight,
-    [switch]$SkipSelfUpdate,
+    [switch]$SelfUpdate,
     [switch]$SkipPackages,
     [switch]$SkipVisualStudio,
     [switch]$SkipRuntimes,
@@ -87,7 +87,7 @@ if (-not $SkipPreflight) {
 }
 
 # ---------------------------------------------------------------- 1. self-update
-if (-not $SkipSelfUpdate) {
+if ($SelfUpdate) {
     Write-Stage "Updating the toolchain itself"
 
     winget source update 2>&1 | Out-Null
