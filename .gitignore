@@ -22,3 +22,9 @@ git/.gitconfig.local
 packages/*.exported.json
 packages/installed-report.md
 *.bak-*
+
+# Install state, machine-local
+.setup-state.json
+
+# Privacy revert capture, machine-local
+.privacy-original.json

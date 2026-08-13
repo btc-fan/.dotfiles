@@ -39,3 +39,6 @@ RARLab.WinRAR
 Logitech.OptionsPlus
 Automattic.Simplenote
 Grammarly.Grammarly
+# ---------- Disk and file forensics ----------
+WinDirStat.WinDirStat
+CrystalRich.LockHunter

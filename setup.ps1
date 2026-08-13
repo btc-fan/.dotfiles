@@ -3,32 +3,29 @@
 .SYNOPSIS
     Autonomous Windows development environment setup.
 .DESCRIPTION
-    Installs and configures everything defined in packages/. Every stage is
-    idempotent and safe to re-run. Nothing aborts the run: failures are
-    collected and reported in the summary.
+    Installs and configures everything defined in packages/. Idempotent: safe
+    to run any number of times. Nothing aborts the run; failures are collected
+    and reported in the summary.
 
-    Runs unelevated. The only stage that needs admin is WSL2, which spawns a
-    single elevated child process and prompts via UAC.
-.PARAMETER SkipPreflight
-    Skip the bootstrap.ps1 precondition check.
-.PARAMETER SkipSelfUpdate
-    Do not update winget sources, installed packages, or Scoop first.
-.PARAMETER SkipPackages
-    Do not install winget or Scoop packages.
-.PARAMETER SkipVisualStudio
-    Do not install Visual Studio. It is a large, slow install.
-.PARAMETER SkipRuntimes
-    Do not install or configure Python and Node toolchains.
-.PARAMETER SkipWsl
-    Do not provision WSL2.
-.PARAMETER SkipLinks
-    Do not symlink configuration files.
-.PARAMETER SkipTerminal
-    Do not patch Windows Terminal settings.
+    Install state persists in .setup-state.json. A package that fails twice is
+    quarantined and skipped on later runs, so a bad ID is not retried forever.
+    Use -RetryFailed to give quarantined packages another chance.
+
+    A machine health report runs as a background job during the install and
+    prints at the end, so it costs no wall-clock time.
+
+    Runs unelevated. Only the WSL2 stage requests elevation, via a single UAC
+    prompt for a child process.
+.PARAMETER RetryFailed
+    Retry packages that were quarantined after repeated failures.
+.PARAMETER ResetState
+    Discard install state and treat every package as new.
 .EXAMPLE
     .\setup.ps1
 .EXAMPLE
     .\setup.ps1 -SkipVisualStudio -SkipWsl
+.EXAMPLE
+    .\setup.ps1 -RetryFailed
 #>
 [CmdletBinding()]
 param(
@@ -39,7 +36,11 @@ param(
     [switch]$SkipRuntimes,
     [switch]$SkipWsl,
     [switch]$SkipLinks,
-    [switch]$SkipTerminal
+    [switch]$SkipTerminal,
+    [switch]$SkipTweaks,
+    [switch]$SkipHealth,
+    [switch]$RetryFailed,
+    [switch]$ResetState
 )
 
 $ErrorActionPreference = "Continue"
@@ -48,6 +49,8 @@ $RepoRoot = $PSScriptRoot
 
 . (Join-Path $RepoRoot "lib\common.ps1")
 . (Join-Path $RepoRoot "lib\link.ps1")
+. (Join-Path $RepoRoot "lib\state.ps1")
+. (Join-Path $RepoRoot "lib\inventory.ps1")
 
 $started = Get-Date
 
@@ -56,6 +59,19 @@ Write-Host "Windows dotfiles setup" -ForegroundColor Magenta
 Write-Host "  repo:     $RepoRoot" -ForegroundColor DarkGray
 Write-Host "  elevated: $(Test-Elevated)" -ForegroundColor DarkGray
 
+Initialize-SetupState -RepoRoot $RepoRoot
+if ($ResetState) { Clear-SetupState; Initialize-SetupState -RepoRoot $RepoRoot; Write-Host "  state:    reset" -ForegroundColor DarkGray }
+
+# ---------------------------------------------------------------- health job
+$healthJob = $null
+if (-not $SkipHealth) {
+    $healthScript = Join-Path $RepoRoot "lib\health.ps1"
+    if (Test-Path $healthScript) {
+        $healthJob = Start-Job -FilePath $healthScript
+        Write-Host "  health:   running in background" -ForegroundColor DarkGray
+    }
+}
+
 # ---------------------------------------------------------------- 0. preflight
 if (-not $SkipPreflight) {
     Write-Stage "Preflight"
@@ -63,12 +79,11 @@ if (-not $SkipPreflight) {
     if (Test-Path $bootstrap) {
         & $bootstrap
         if ($LASTEXITCODE -ne 0) {
+            if ($healthJob) { Stop-Job $healthJob -ErrorAction SilentlyContinue; Remove-Job $healthJob -Force -ErrorAction SilentlyContinue }
             Write-Host "`nAborted. Fix the preconditions above and re-run." -ForegroundColor Red
             exit 1
         }
-    } else {
-        Write-Note "bootstrap.ps1 missing"
-    }
+    } else { Write-Note "bootstrap.ps1 missing" }
 }
 
 # ---------------------------------------------------------------- 1. self-update
@@ -76,7 +91,7 @@ if (-not $SkipSelfUpdate) {
     Write-Stage "Updating the toolchain itself"
 
     winget source update 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) { Write-Ok "winget sources" } else { Write-Fail "winget source update" }
+    Write-Ok "winget sources"
 
     Write-Host "  upgrading installed winget packages..." -ForegroundColor DarkGray
     winget upgrade --all --include-unknown --silent `
@@ -86,7 +101,7 @@ if (-not $SkipSelfUpdate) {
 
     if (Test-Cmd scoop) {
         scoop update *>$null
-        if ($LASTEXITCODE -eq 0) { Write-Ok "scoop itself" } else { Write-Note "scoop update returned $LASTEXITCODE" }
+        Write-Ok "scoop"
     }
     Update-SessionPath
 }
@@ -95,27 +110,43 @@ if (-not $SkipSelfUpdate) {
 if (-not $SkipPackages) {
     Write-Stage "winget packages"
 
-    $manifest = Read-Manifest (Join-Path $RepoRoot "packages\winget.txt")
-    Write-Host "  $($manifest.Count) queued" -ForegroundColor DarkGray
-
-    $installed = (winget list --accept-source-agreements 2>$null | Out-String)
+    $manifest  = Read-Manifest (Join-Path $RepoRoot "packages\winget.txt")
+    $listing   = (winget list --accept-source-agreements 2>$null | Out-String)
+    Write-Host "  $($manifest.Count) in manifest" -ForegroundColor DarkGray
 
     foreach ($id in $manifest) {
-        if ($installed -match [regex]::Escape($id)) {
-            Write-Skip "$id present"
-            continue
-        }
-        Write-Host "  installing $id ..." -ForegroundColor DarkGray
-        winget install --id $id --exact --silent --source winget `
-            --accept-package-agreements --accept-source-agreements `
-            --disable-interactivity 2>&1 | Out-Null
+        $key     = "winget:$id"
+        $present = $listing -match [regex]::Escape($id)
+        $action  = Get-PackageAction -Key $key -PresentOnSystem $present -RetryFailed:$RetryFailed
 
-        switch ($LASTEXITCODE) {
-            0           { Write-Ok $id }
-            -1978335189 { Write-Skip "$id already up to date" }
-            default     { Write-Fail "$id (exit $LASTEXITCODE). Verify with: winget search $id" }
+        switch ($action) {
+            "Skip"        { Write-Skip "$id present"; continue }
+            "Quarantined" {
+                $s = Get-PackageState -Key $key
+                Write-Skip "$id quarantined after $($s.attempts) attempts. Use -RetryFailed to retry."
+                continue
+            }
+        }
+
+        Write-Host "  installing $id ..." -ForegroundColor DarkGray
+        $out = winget install --id $id --exact --silent --source winget `
+            --accept-package-agreements --accept-source-agreements `
+            --disable-interactivity 2>&1 | Out-String
+        $code = $LASTEXITCODE
+
+        if ($code -eq 0 -or $code -eq -1978335189) {
+            Set-PackageState -Key $key -Status "installed" | Out-Null
+            Write-Ok $id
+        } else {
+            $newStatus = Set-PackageState -Key $key -Status "failed" -ErrorText "exit $code"
+            if ($newStatus -eq "quarantined") {
+                Write-Fail "$id (exit $code) QUARANTINED. Verify with: winget search $id"
+            } else {
+                Write-Fail "$id (exit $code), will retry next run"
+            }
         }
     }
+    Save-SetupState
     Update-SessionPath
 }
 
@@ -123,36 +154,42 @@ if (-not $SkipPackages) {
 if (-not $SkipVisualStudio) {
     Write-Stage "Visual Studio 2026 Community"
 
-    $vsId = "Microsoft.VisualStudio.Community"
-    $vsInstalled = (winget list --id $vsId --exact 2>$null | Out-String) -match [regex]::Escape($vsId)
+    $vsId    = "Microsoft.VisualStudio.Community"
+    $key     = "winget:$vsId"
+    $present = (winget list --id $vsId --exact 2>$null | Out-String) -match [regex]::Escape($vsId)
+    $action  = Get-PackageAction -Key $key -PresentOnSystem $present -RetryFailed:$RetryFailed
 
-    if ($vsInstalled) {
-        Write-Skip "Visual Studio already installed. Modify workloads via the Visual Studio Installer."
-    } else {
+    if ($action -eq "Skip") {
+        Write-Skip "installed. Change workloads via the Visual Studio Installer."
+    }
+    elseif ($action -eq "Quarantined") {
+        Write-Skip "quarantined. Use -RetryFailed to retry."
+    }
+    else {
         $workloads = Read-Manifest (Join-Path $RepoRoot "packages\visualstudio.txt")
-        if ($workloads.Count -eq 0) {
-            Write-Note "packages/visualstudio.txt is empty, installing core only"
-            $override = "--quiet --wait --norestart"
-        } else {
-            $addArgs  = ($workloads | ForEach-Object { "--add $_" }) -join " "
-            $override = "--quiet --wait --norestart --includeRecommended $addArgs"
-        }
+        $addArgs   = ($workloads | ForEach-Object { "--add $_" }) -join " "
+        $override  = "--quiet --wait --norestart --includeRecommended $addArgs"
 
-        Write-Host "  this takes 20-40 minutes and downloads several GB" -ForegroundColor DarkGray
-        Write-Host "  workloads: $($workloads.Count)" -ForegroundColor DarkGray
+        Write-Host "  $($workloads.Count) workloads, 20-40 minutes, several GB" -ForegroundColor DarkGray
 
         winget install --id $vsId --exact --source winget `
             --accept-package-agreements --accept-source-agreements `
             --override $override 2>&1 | Out-Null
 
-        if ($LASTEXITCODE -eq 0) { Write-Ok "Visual Studio 2026 Community" }
-        else { Write-Fail "Visual Studio (exit $LASTEXITCODE)" }
+        if ($LASTEXITCODE -eq 0) {
+            Set-PackageState -Key $key -Status "installed" | Out-Null
+            Write-Ok "Visual Studio 2026 Community"
+        } else {
+            Set-PackageState -Key $key -Status "failed" -ErrorText "exit $LASTEXITCODE" | Out-Null
+            Write-Fail "Visual Studio (exit $LASTEXITCODE)"
+        }
+        Save-SetupState
     }
 }
 
 # ---------------------------------------------------------------- 4. Scoop
 if (-not $SkipPackages) {
-    Write-Stage "Scoop buckets and packages"
+    Write-Stage "Scoop"
 
     if (-not (Test-Cmd scoop)) {
         Write-Fail "scoop not found"
@@ -166,11 +203,27 @@ if (-not $SkipPackages) {
 
         $haveApps = (scoop list 2>$null | Select-Object -ExpandProperty Name)
         foreach ($app in (Read-Manifest (Join-Path $RepoRoot "packages\scoop.txt"))) {
-            $name = ($app -split "/")[-1]
-            if ($haveApps -contains $name) { Write-Skip "$name present"; continue }
+            $name    = ($app -split "/")[-1]
+            $key     = "scoop:$name"
+            $present = $haveApps -contains $name
+            $action  = Get-PackageAction -Key $key -PresentOnSystem $present -RetryFailed:$RetryFailed
+
+            switch ($action) {
+                "Skip"        { Write-Skip "$name present"; continue }
+                "Quarantined" { Write-Skip "$name quarantined. Use -RetryFailed."; continue }
+            }
+
             scoop install $app *>$null
-            if ($LASTEXITCODE -eq 0) { Write-Ok $app } else { Write-Fail "scoop: $app" }
+            if ($LASTEXITCODE -eq 0) {
+                Set-PackageState -Key $key -Status "installed" | Out-Null
+                Write-Ok $app
+            } else {
+                $s = Set-PackageState -Key $key -Status "failed" -ErrorText "exit $LASTEXITCODE"
+                if ($s -eq "quarantined") { Write-Fail "scoop: $app QUARANTINED. Verify: scoop search $name" }
+                else { Write-Fail "scoop: $app, will retry" }
+            }
         }
+        Save-SetupState
         Update-SessionPath
     }
 }
@@ -178,24 +231,17 @@ if (-not $SkipPackages) {
 # ---------------------------------------------------------------- 5. runtimes
 if (-not $SkipRuntimes) {
 
-    # ----- Python via pyenv-win -----
     Write-Stage "Python (pyenv-win)"
     if (Test-Cmd pyenv) {
         pyenv update *>$null
-
-        $available = pyenv install -l 2>$null |
+        $latest = pyenv install -l 2>$null |
             ForEach-Object { $_.Trim() } |
-            Where-Object { $_ -match "^3\.\d+\.\d+$" }
+            Where-Object { $_ -match "^3\.\d+\.\d+$" } |
+            Sort-Object { [version]$_ } | Select-Object -Last 1
 
-        $latest = $available |
-            Sort-Object { [version]$_ } |
-            Select-Object -Last 1
-
-        if (-not $latest) {
-            Write-Fail "could not determine latest Python from pyenv"
-        } else {
-            $have = (pyenv versions 2>$null | Out-String)
-            if ($have -match [regex]::Escape($latest)) {
+        if (-not $latest) { Write-Fail "could not determine latest Python" }
+        else {
+            if ((pyenv versions 2>$null | Out-String) -match [regex]::Escape($latest)) {
                 Write-Skip "Python $latest present"
             } else {
                 Write-Host "  installing Python $latest ..." -ForegroundColor DarkGray
@@ -206,39 +252,26 @@ if (-not $SkipRuntimes) {
             pyenv rehash *>$null
             Write-Ok "pyenv global -> $latest"
         }
-    } else {
-        Write-Fail "pyenv not on PATH. Restart the shell and re-run with -SkipPackages"
-    }
+    } else { Write-Fail "pyenv not on PATH. Restart the shell and re-run." }
 
-    # ----- Python via uv -----
     Write-Stage "Python (uv)"
     if (Test-Cmd uv) {
         uv python install 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) { Write-Ok "uv managed Python" } else { Write-Fail "uv python install" }
-
+        Write-Ok "uv managed Python"
         foreach ($tool in @("ruff","pre-commit")) {
             uv tool install $tool 2>&1 | Out-Null
             if ($LASTEXITCODE -eq 0) { Write-Ok "uv tool: $tool" } else { Write-Note "uv tool $tool" }
         }
-    } else {
-        Write-Fail "uv not on PATH"
-    }
+    } else { Write-Fail "uv not on PATH" }
 
-    # ----- Node via fnm -----
     Write-Stage "Node (fnm)"
     if (Test-Cmd fnm) {
         fnm install --lts 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) { Write-Ok "Node LTS" } else { Write-Fail "fnm install --lts" }
-
         fnm default lts-latest 2>&1 | Out-Null
-        Write-Ok "fnm default -> lts-latest"
-
+        Write-Ok "Node LTS, fnm default set"
         fnm env --use-on-cd --shell power-shell | Out-String | Invoke-Expression
-    } else {
-        Write-Fail "fnm not on PATH"
-    }
+    } else { Write-Fail "fnm not on PATH" }
 
-    # ----- Azure CLI extensions -----
     Write-Stage "Azure CLI extensions"
     if (Test-Cmd az) {
         $have = (az extension list --output tsv --query "[].name" 2>$null)
@@ -247,17 +280,13 @@ if (-not $SkipRuntimes) {
             az extension add --name $ext --only-show-errors 2>&1 | Out-Null
             if ($LASTEXITCODE -eq 0) { Write-Ok "az extension $ext" } else { Write-Fail "az extension $ext" }
         }
-    } else {
-        Write-Note "az not on PATH yet. Restart the shell and re-run."
-    }
+    } else { Write-Note "az not on PATH yet. Restart the shell and re-run." }
 }
 
 # ---------------------------------------------------------------- 6. config links
 if (-not $SkipLinks) {
     Write-Stage "Configuration"
 
-    # Identity is extracted to an untracked local file BEFORE the tracked
-    # gitconfig is linked over ~/.gitconfig, so it survives.
     $localGitconfig = Join-Path $RepoRoot "git\.gitconfig.local"
     if (-not (Test-Path $localGitconfig)) {
         $name  = git config --global user.name
@@ -270,12 +299,8 @@ if (-not $SkipLinks) {
                 "`temail = $email"
             ) | Set-Content -LiteralPath $localGitconfig -Encoding utf8
             Write-Ok "extracted git identity -> git/.gitconfig.local"
-        } else {
-            Write-Note "no global git identity found. Set it, then re-run."
-        }
-    } else {
-        Write-Skip "git/.gitconfig.local exists"
-    }
+        } else { Write-Note "no global git identity found" }
+    } else { Write-Skip "git/.gitconfig.local exists" }
 
     $links = @(
         @{ Source = "git\.gitconfig";       Target = "$HOME\.gitconfig" }
@@ -285,7 +310,7 @@ if (-not $SkipLinks) {
 
     foreach ($l in $links) {
         $src = Join-Path $RepoRoot $l.Source
-        if (-not (Test-Path $src)) { Write-Skip "$($l.Source) not present"; continue }
+        if (-not (Test-Path $src)) { Write-Skip "$($l.Source) missing"; continue }
         try { New-DotfileLink -Source $src -Target $l.Target }
         catch { Write-Fail "link $($l.Source): $($_.Exception.Message)" }
     }
@@ -298,85 +323,139 @@ foreach ($mod in @("PSReadLine","Terminal-Icons")) {
     try {
         Install-Module -Name $mod -Scope CurrentUser -Force -AllowClobber -AcceptLicense -ErrorAction Stop
         Write-Ok $mod
-    } catch {
-        Write-Fail "module $mod : $($_.Exception.Message)"
-    }
+    } catch { Write-Fail "module $mod : $($_.Exception.Message)" }
 }
 
 # ---------------------------------------------------------------- 8. Terminal
 if (-not $SkipTerminal) {
     Write-Stage "Windows Terminal"
     $patch = Join-Path $RepoRoot "terminal\patch-settings.ps1"
-    if (Test-Path $patch) { & $patch } else { Write-Note "terminal\patch-settings.ps1 missing" }
+    if (Test-Path $patch) { & $patch } else { Write-Note "patch-settings.ps1 missing" }
 }
 
 # ---------------------------------------------------------------- 9. WSL2
 if (-not $SkipWsl) {
     Write-Stage "WSL2"
-
     $distros = ""
     if (Test-Cmd wsl) { $distros = (wsl --list --quiet 2>$null | Out-String) -replace "`0","" }
 
     if ($distros -match "Ubuntu") {
-        Write-Skip "Ubuntu already provisioned"
+        Write-Skip "Ubuntu provisioned"
         wsl --set-default-version 2 2>&1 | Out-Null
     }
     elseif (Test-Elevated) {
         wsl --install -d Ubuntu --no-launch 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) { Write-Ok "Ubuntu installed. Launch it once to create your user." }
-        else { Write-Fail "wsl --install (exit $LASTEXITCODE). A reboot may be required." }
+        else { Write-Fail "wsl --install (exit $LASTEXITCODE). A reboot may be needed." }
     }
     else {
-        Write-Host "  WSL2 needs elevation. Requesting it for this stage only..." -ForegroundColor DarkGray
+        Write-Host "  requesting elevation for this stage only..." -ForegroundColor DarkGray
         try {
             $p = Start-Process pwsh -Verb RunAs -Wait -PassThru -ArgumentList `
                 "-NoProfile","-Command","wsl --install -d Ubuntu --no-launch; wsl --set-default-version 2"
-            if ($p.ExitCode -eq 0) { Write-Ok "Ubuntu installed via elevated child process" }
-            else { Write-Fail "elevated WSL install returned $($p.ExitCode)" }
-        } catch {
-            Write-Fail "WSL install declined or failed: $($_.Exception.Message)"
-        }
+            if ($p.ExitCode -eq 0) { Write-Ok "Ubuntu installed" } else { Write-Fail "elevated WSL install returned $($p.ExitCode)" }
+        } catch { Write-Fail "WSL install declined: $($_.Exception.Message)" }
     }
 }
 
-# ---------------------------------------------------------------- summary
+# ---------------------------------------------------------------- 10. Explorer tweaks
+# Last, because it restarts Explorer.
+if (-not $SkipTweaks) {
+    Write-Stage "Explorer and shell preferences"
+    $tweaks = Join-Path $RepoRoot "windows\tweaks.ps1"
+    if (Test-Path $tweaks) { & $tweaks } else { Write-Note "windows\tweaks.ps1 missing" }
+}
+
+# ================================================================ REPORT
 $elapsed = (Get-Date) - $started
-$issues  = Get-Issues
 
 Write-Host ""
-Write-Host ("Finished in {0:mm}m {0:ss}s" -f $elapsed) -ForegroundColor Magenta
-
-if ($issues.Count -gt 0) {
-    Write-Host "`n$($issues.Count) issue(s):" -ForegroundColor Yellow
-    $issues | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
-} else {
-    Write-Host "No issues." -ForegroundColor Green
-}
+Write-Host ("=" * 72) -ForegroundColor DarkGray
+Write-Host " INSTALLED" -ForegroundColor Magenta
+Write-Host ("=" * 72) -ForegroundColor DarkGray
 
 Update-SessionPath
-Write-Host "`nVersions:" -ForegroundColor Cyan
-$versions = [ordered]@{
-    "PowerShell" = $PSVersionTable.PSVersion.ToString()
-    "winget"     = (winget --version 2>$null)
-    "git"        = (git --version 2>$null)
-    "delta"      = (delta --version 2>$null)
-    "pyenv"      = (pyenv --version 2>$null)
-    "python"     = (python --version 2>$null)
-    "uv"         = (uv --version 2>$null)
-    "fnm"        = (fnm --version 2>$null)
-    "node"       = (node --version 2>$null)
-    "dotnet"     = (dotnet --version 2>$null)
-    "az"         = (az version --query '"azure-cli"' -o tsv 2>$null)
-    "docker"     = (docker --version 2>$null)
-}
-$versions.GetEnumerator() | ForEach-Object {
-    $v = if ($_.Value) { ($_.Value | Select-Object -First 1) } else { "not found" }
-    Write-Host ("  {0,-11} {1}" -f $_.Key, $v)
+$inv = Get-Inventory
+
+$w1 = 14; $w2 = 26; $w3 = 10
+Write-Host ("  {0,-$w1} {1,-$w2} {2,-$w3} {3}" -f "TOOL","VERSION","SOURCE","PATH") -ForegroundColor DarkGray
+Write-Host ("  " + ("-" * 68)) -ForegroundColor DarkGray
+
+foreach ($t in $inv) {
+    if ($t.Version) {
+        $short = if ($t.Path -and $t.Path.Length -gt 40) { "..." + $t.Path.Substring($t.Path.Length - 37) } else { $t.Path }
+        Write-Host ("  {0,-$w1} " -f $t.Tool) -ForegroundColor White -NoNewline
+        Write-Host ("{0,-$w2} " -f $t.Version) -ForegroundColor Green -NoNewline
+        Write-Host ("{0,-$w3} " -f $t.Source) -ForegroundColor DarkGray -NoNewline
+        Write-Host $short -ForegroundColor DarkGray
+    } else {
+        Write-Host ("  {0,-$w1} " -f $t.Tool) -ForegroundColor White -NoNewline
+        Write-Host ("{0,-$w2} " -f "NOT FOUND") -ForegroundColor Red -NoNewline
+        Write-Host ("{0,-$w3}" -f $t.Source) -ForegroundColor DarkGray
+    }
 }
 
-Write-Host "`nNext:" -ForegroundColor Cyan
-Write-Host "  - restart Windows Terminal to load the profile"
-Write-Host "  - launch Ubuntu once from the Start menu to create your WSL user"
-Write-Host "  - sign in to Docker Desktop, Bitwarden, Tailscale, Teams"
-Write-Host "  - run .\update.ps1 periodically to keep everything current"
+# ---------------------------------------------------------------- health report
+if ($healthJob) {
+    Write-Host ""
+    Write-Host ("=" * 72) -ForegroundColor DarkGray
+    Write-Host " MACHINE HEALTH" -ForegroundColor Magenta
+    Write-Host ("=" * 72) -ForegroundColor DarkGray
+
+    try {
+        $lines = Receive-Job -Job $healthJob -Wait -ErrorAction SilentlyContinue
+        Remove-Job $healthJob -Force -ErrorAction SilentlyContinue
+
+        foreach ($line in $lines) {
+            if ($line -notmatch "^(OK|WARN|FAIL|INFO)\|") { continue }
+            $parts  = $line -split "\|", 3
+            $status = $parts[0]; $label = $parts[1]; $value = $parts[2]
+
+            $color = switch ($status) {
+                "OK"   { "Green" }
+                "WARN" { "Yellow" }
+                "FAIL" { "Red" }
+                default { "DarkGray" }
+            }
+            Write-Host ("  {0,-6} " -f "[$status]") -ForegroundColor $color -NoNewline
+            Write-Host ("{0,-16} " -f $label) -ForegroundColor White -NoNewline
+            Write-Host $value -ForegroundColor Gray
+        }
+    } catch {
+        Write-Host "  health report unavailable: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
+
+# ---------------------------------------------------------------- issues
+$issues      = Get-Issues
+$quarantined = @(Get-QuarantinedPackages)
+
+Write-Host ""
+Write-Host ("=" * 72) -ForegroundColor DarkGray
+Write-Host " SUMMARY" -ForegroundColor Magenta
+Write-Host ("=" * 72) -ForegroundColor DarkGray
+Write-Host ("  elapsed: {0:hh\:mm\:ss}" -f $elapsed) -ForegroundColor DarkGray
+
+if ($issues.Count -eq 0) {
+    Write-Host "  no issues" -ForegroundColor Green
+} else {
+    Write-Host "  $($issues.Count) issue(s):" -ForegroundColor Yellow
+    $issues | ForEach-Object { Write-Host "    - $_" -ForegroundColor Red }
+}
+
+if ($quarantined.Count -gt 0) {
+    Write-Host ""
+    Write-Host "  Quarantined after repeated failures (skipped on future runs):" -ForegroundColor Yellow
+    $quarantined | ForEach-Object {
+        Write-Host ("    {0}  ({1} attempts, {2})" -f $_.Package, $_.Attempts, $_.Error) -ForegroundColor DarkGray
+    }
+    Write-Host "  Fix the IDs in packages/, then run: .\setup.ps1 -RetryFailed" -ForegroundColor DarkGray
+}
+
+Write-Host ""
+Write-Host "  Next:" -ForegroundColor Cyan
+Write-Host "    restart Windows Terminal to load the profile"
+Write-Host "    launch Ubuntu once from Start to create your WSL user"
+Write-Host "    .\update.ps1              keep everything current"
+Write-Host "    .\windows\block-mdm.ps1 -Status   check enrollment posture"
 Write-Host ""
