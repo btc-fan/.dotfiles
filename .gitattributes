@@ -1,0 +1,12 @@
+﻿* text=auto
+
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+
+*.sh   text eol=lf
+*.md   text eol=lf
+*.toml text eol=lf
+*.json text eol=lf

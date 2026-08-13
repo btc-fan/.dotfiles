@@ -1,47 +1,41 @@
-# 🚀 Dotfiles Setup
+﻿# Dotfiles (Windows)
 
-Automated macOS development environment with 28+ applications and development tools.
+Windows development environment, scripted. This is the `windows` branch; `main`
+is the macOS equivalent and is not merged into this one.
 
-## Quick Install
+## Install
 
-```bash
-# Clone repo
-git clone https://github.com/yourusername/dotfiles.git ~/.dotfiles
-cd ~/.dotfiles
-brew bundle install
+    git clone https://github.com/btc-fan/.dotfiles.git C:\work\.dotfiles
+    cd C:\work\.dotfiles
+    git checkout windows
 
-# Run setup script
-chmod +x setup.sh
-./setup.sh
-```
+Read `PRECONDITIONS.md` and complete it once per machine, then:
 
-## What Gets Installed
+    .\bootstrap.ps1    # verify, read-only
+    .\setup.ps1        # install and link, idempotent
 
-### Development
-- IntelliJ IDEA Ultimate, VS Code, Cursor
-- Python 3.13.5, Go 1.23, Node.js, TypeScript
-- Docker, Playwright browsers
+Both run unelevated. Only the preconditions need admin.
 
-### Apps
-- Chrome, Raycast, Slack, Teams, Discord
-- Bitwarden, VeraCrypt, Little Snitch
-- Steam, Spotify, Telegram, WhatsApp
+## Layout
 
-### Tools
-- Git config, Starship prompt, Tailscale VPN
+    bootstrap.ps1               precondition checker, read-only, exit 1 on failure
+    setup.ps1                   installer, idempotent, collects errors
+    PRECONDITIONS.md            one-time manual machine setup
+    docs/DECISIONS.md           every design decision and why
+    lib/link.ps1                symlink helper, replaces GNU stow
+    terminal/patch-settings.ps1 Windows Terminal settings patcher
 
-## Manual Installs (Mac App Store)
+## Principles
 
-```bash
-brew install mas
-mas install 1160374471  # PiPifier
-mas install 899247664   # TestFlight
-```
+- `setup.ps1` is safe to run any number of times
+- Nothing aborts the run; failures are collected and reported at the end
+- Elevation is a precondition, never a runtime requirement
+- Config files are symlinked from the repo, except where an app rewrites its
+  own config (Windows Terminal), which is patched instead
+- Package manifests are curated by hand, not exported wholesale
 
-## Set Chrome as Default
+## Status
 
-```bash
-open -a 'Google Chrome' --args --make-default-browser
-```
-
-That's it! 🎉
+Foundation complete: package managers, shell, symlink capability, long paths.
+Package manifests and config files are pending agreement on the tool list.
+See the Open section of `docs/DECISIONS.md`.

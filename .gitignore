@@ -1,0 +1,24 @@
+﻿# Windows
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# macOS leftovers
+.DS_Store
+
+# IDE
+.idea/
+.vs/
+*.suo
+*.user
+
+# Local overrides, never committed
+*.local.ps1
+git/.gitconfig.local
+
+# Generated
+packages/*.exported.json
+packages/installed-report.md
+*.bak-*
