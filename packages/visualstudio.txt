@@ -1,0 +1,17 @@
+# Visual Studio 2026 Community workloads and components.
+# One ID per line. Passed to the installer via --override.
+#
+# Why this file exists: `winget install Microsoft.VisualStudio.Community`
+# installs the core shell only. No .NET, no test tooling, no Azure. The
+# result is an IDE that cannot open a DataExtraction solution.
+
+# ---------- Workloads ----------
+Microsoft.VisualStudio.Workload.ManagedDesktop
+Microsoft.VisualStudio.Workload.NetWeb
+Microsoft.VisualStudio.Workload.Azure
+Microsoft.VisualStudio.Workload.Data
+
+# ---------- Individual components ----------
+Microsoft.NetCore.Component.SDK
+Microsoft.VisualStudio.Component.NuGet
+Microsoft.VisualStudio.Component.Git

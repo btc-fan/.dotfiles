@@ -1,54 +1,76 @@
-[user]
-	name = Mihail Lungu 
-	email = lungumihai25@gmail.com
+# Tracked git config. Contains NO identity.
+# Identity lives in git/.gitconfig.local, which is gitignored and written
+# by setup.ps1 from your existing global config.
 
-[includeIf "gitdir:~/work/"]
-	path = ~/work/.gitconfig_work
+[include]
+    path = ~/.gitconfig.local
+
+# Work-specific overrides, if C:\work\.gitconfig_work exists
+[includeIf "gitdir:C:/work/"]
+    path = C:/work/.gitconfig_work
 
 ; https://blog.gitbutler.com/how-git-core-devs-configure-git/
 [rebase]
-	updateRefs = true
-	autoSquash = true
-	autoStash = true
+    updateRefs = true
+    autoSquash = true
+    autoStash = true
+
 [pull]
-  rebase = true
+    rebase = true
+
 [push]
-	autoSetupRemote = true
-	followTags = true
+    autoSetupRemote = true
+    followTags = true
+
 [core]
-  pager = delta
-	fsmonitor = true
-	untrackedCache = true
+    pager = delta
+    fsmonitor = true
+    untrackedCache = true
+    autocrlf = input
+    longpaths = true
+    symlinks = true
+
 [interactive]
-  diffFilter = delta --color-only
+    diffFilter = delta --color-only
+
 [delta]
-  navigate = true    # use n and N to move between diff sections
-  light = true      # set to true if you're in a terminal w/ a light background color (e.g. the default macOS terminal)
-  line-numbers = true
-  side-by-side = false
+    navigate = true
+    light = false
+    line-numbers = true
+    side-by-side = false
+
 [merge]
-	conflictstyle = zdiff3
+    conflictstyle = zdiff3
+
 [diff]
-	colorMoved = plain
-	algorithm = histogram
-	mnemonicPrefix = true
-	renames = true
+    colorMoved = plain
+    algorithm = histogram
+    mnemonicPrefix = true
+    renames = true
+
 [rerere]
-  enabled = true
-  autoUpdate = true
+    enabled = true
+    autoUpdate = true
+
 [column]
-	ui = auto
+    ui = auto
+
 [branch]
-	sort = -committerdate
+    sort = -committerdate
+
 [tag]
-	sort = version:refname
+    sort = version:refname
+
 [init]
-	defaultBranch = master
+    defaultBranch = main
+
 [fetch]
-	prune = true
-	pruneTags = true
-	all = true
+    prune = true
+    pruneTags = true
+    all = true
+
 [help]
-	autocorrect = prompt
+    autocorrect = prompt
+
 [commit]
-	verbose = true
+    verbose = true

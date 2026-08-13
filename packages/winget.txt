@@ -1,0 +1,41 @@
+# winget package IDs. One per line. Blank lines and # comments ignored.
+# No version pins: latest stable always.
+# Verify an ID with: winget search "<name>"
+
+# ---------- Shell and terminal ----------
+Microsoft.PowerShell
+Microsoft.WindowsTerminal
+
+# ---------- Dev core ----------
+Git.Git
+Microsoft.DotNet.SDK.10
+Microsoft.AzureCLI
+
+# ---------- IDEs ----------
+# Visual Studio is NOT listed here. winget installs only the core workload,
+# which cannot open .NET solutions. It is handled separately in setup.ps1
+# with an explicit workload override. See packages/visualstudio.txt.
+Microsoft.VisualStudioCode
+
+# ---------- QA and containers ----------
+Postman.Postman
+Docker.DockerDesktop
+
+# ---------- Security ----------
+Bitwarden.Bitwarden
+tailscale.tailscale
+
+# ---------- Browsers ----------
+Google.Chrome
+
+# ---------- Comms ----------
+Microsoft.Teams
+Telegram.TelegramDesktop
+
+# ---------- Utilities ----------
+liule.Snipaste
+Ditto.Ditto
+RARLab.WinRAR
+Logitech.OptionsPlus
+Automattic.Simplenote
+Grammarly.Grammarly

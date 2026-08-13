@@ -1,0 +1,11 @@
+# Scoop apps. Format: bucket/app. One per line.
+# Scoop is used for version managers and single-binary CLI tools that
+# update faster than winget carries them.
+
+# ---------- Version managers ----------
+main/pyenv
+main/uv
+main/fnm
+
+# ---------- Git tooling ----------
+main/delta
