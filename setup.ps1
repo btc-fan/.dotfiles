@@ -1,4 +1,4 @@
-﻿#Requires -Version 7.0
+#Requires -Version 7.0
 <#
 .SYNOPSIS
     Autonomous Windows development environment setup.
@@ -40,7 +40,8 @@ param(
     [switch]$SkipTweaks,
     [switch]$SkipHealth,
     [switch]$RetryFailed,
-    [switch]$ResetState
+    [switch]$ResetState,
+    [switch]$NoElevate
 )
 
 $ErrorActionPreference = "Continue"
@@ -107,7 +108,45 @@ if ($SelfUpdate) {
 }
 
 # ---------------------------------------------------------------- 2. winget packages
-if (-not $SkipPackages) {
+$elevationDone = $false
+if (-not $SkipPackages -and -not $NoElevate -and -not (Test-Elevated)) {
+    Write-Stage "Elevated package installation"
+    Write-Host "  Machine-scope installers each raise their own UAC prompt." -ForegroundColor DarkGray
+    Write-Host "  Approving once here avoids clicking Yes twenty times." -ForegroundColor DarkGray
+
+    $resultPath = Join-Path $env:TEMP "dotfiles-install-results.json"
+    Remove-Item $resultPath -Force -ErrorAction SilentlyContinue
+
+    $childArgs = @(
+        "-NoProfile","-ExecutionPolicy","Bypass"
+        "-File", (Join-Path $RepoRoot "lib\install-elevated.ps1")
+        "-RepoRoot", $RepoRoot
+        "-ResultPath", $resultPath
+    )
+    if (-not $SkipVisualStudio -and -not $elevationDone) { $childArgs += "-IncludeVisualStudio" }
+    if ($RetryFailed)           { $childArgs += "-RetryFailed" }
+
+    try {
+        $proc = Start-Process pwsh -Verb RunAs -Wait -PassThru -ArgumentList $childArgs
+        if (Test-Path $resultPath) {
+            $res = Get-Content $resultPath -Raw | ConvertFrom-Json
+            foreach ($p in $res.packages.PSObject.Properties) {
+                Set-PackageState -Key $p.Name -Status $p.Value.status -ErrorText $p.Value.error | Out-Null
+                if ($p.Value.status -eq "failed") { Write-Fail "$($p.Name) ($($p.Value.error))" }
+            }
+            Save-SetupState
+            Write-Ok "elevated stage complete"
+            $elevationDone = $true
+        } else {
+            Write-Note "no results returned. Falling back to unelevated installs."
+        }
+    } catch {
+        Write-Note "elevation declined. Falling back to unelevated installs (expect UAC prompts)."
+    }
+    Remove-Item $resultPath -Force -ErrorAction SilentlyContinue
+}
+
+if (-not $SkipPackages -and -not $elevationDone) {
     Write-Stage "winget packages"
 
     $manifest  = Read-Manifest (Join-Path $RepoRoot "packages\winget.txt")
@@ -119,13 +158,11 @@ if (-not $SkipPackages) {
         $present = $listing -match [regex]::Escape($id)
         $action  = Get-PackageAction -Key $key -PresentOnSystem $present -RetryFailed:$RetryFailed
 
-        switch ($action) {
-            "Skip"        { Write-Skip "$id present"; continue }
-            "Quarantined" {
-                $s = Get-PackageState -Key $key
-                Write-Skip "$id quarantined after $($s.attempts) attempts. Use -RetryFailed to retry."
-                continue
-            }
+        if ($action -eq "Skip") { Write-Skip "$id present"; continue }
+        if ($action -eq "Quarantined") {
+            $s = Get-PackageState -Key $key
+            Write-Skip "$id quarantined after $($s.attempts) attempts. Use -RetryFailed to retry."
+            continue
         }
 
         Write-Host "  installing $id ..." -ForegroundColor DarkGray
@@ -151,7 +188,7 @@ if (-not $SkipPackages) {
 }
 
 # ---------------------------------------------------------------- 3. Visual Studio
-if (-not $SkipVisualStudio) {
+if (-not $SkipVisualStudio -and -not $elevationDone) {
     Write-Stage "Visual Studio 2026 Community"
 
     $vsId    = "Microsoft.VisualStudio.Community"
@@ -208,10 +245,8 @@ if (-not $SkipPackages) {
             $present = $haveApps -contains $name
             $action  = Get-PackageAction -Key $key -PresentOnSystem $present -RetryFailed:$RetryFailed
 
-            switch ($action) {
-                "Skip"        { Write-Skip "$name present"; continue }
-                "Quarantined" { Write-Skip "$name quarantined. Use -RetryFailed."; continue }
-            }
+            if ($action -eq "Skip") { Write-Skip "$name present"; continue }
+            if ($action -eq "Quarantined") { Write-Skip "$name quarantined. Use -RetryFailed."; continue }
 
             scoop install $app *>$null
             if ($LASTEXITCODE -eq 0) {
