@@ -1,4 +1,4 @@
-# winget package IDs. One per line. Blank lines and # comments ignored.
+﻿# winget package IDs. One per line. Blank lines and # comments ignored.
 # No version pins: latest stable always.
 # Verify an ID with: winget search "<name>"
 
@@ -23,7 +23,7 @@ Docker.DockerDesktop
 
 # ---------- Security ----------
 Bitwarden.Bitwarden
-tailscale.tailscale
+Tailscale.Tailscale
 
 # ---------- Browsers ----------
 Google.Chrome

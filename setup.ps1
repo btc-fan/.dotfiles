@@ -1,4 +1,4 @@
-#Requires -Version 7.0
+﻿#Requires -Version 7.0
 <#
 .SYNOPSIS
     Autonomous Windows development environment setup.
@@ -108,6 +108,37 @@ if ($SelfUpdate) {
 }
 
 # ---------------------------------------------------------------- 2. winget packages
+# ---------------------------------------------------------------- running apps
+# Installers cannot replace files locked by a running process, so they raise
+# their own UI asking you to close the app. That is the vendor's installer, not
+# winget, so --silent does not suppress it. Warn up front instead of letting it
+# block an unattended run halfway through.
+if (-not $SkipPackages) {
+    $conflicts = @(
+        @{ Process = "chrome";   App = "Google Chrome" }
+        @{ Process = "ms-teams"; App = "Microsoft Teams" }
+        @{ Process = "Teams";    App = "Microsoft Teams" }
+        @{ Process = "Docker Desktop"; App = "Docker Desktop" }
+        @{ Process = "Telegram"; App = "Telegram" }
+        @{ Process = "Discord";  App = "Discord" }
+        @{ Process = "Postman";  App = "Postman" }
+        @{ Process = "Code";     App = "VS Code" }
+    )
+
+    $running = foreach ($c2 in $conflicts) {
+        if (Get-Process -Name $c2.Process -ErrorAction SilentlyContinue) { $c2.App }
+    }
+    $running = $running | Select-Object -Unique
+
+    if ($running) {
+        Write-Stage "Running applications"
+        Write-Note "these are open and their installers will prompt you to close them:"
+        $running | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
+        Write-Host "  Close them now for an unattended run, or accept the prompts as they appear." -ForegroundColor DarkGray
+        Write-Host "  Continuing in 10 seconds..." -ForegroundColor DarkGray
+        Start-Sleep -Seconds 10
+    }
+}
 $elevationDone = $false
 if (-not $SkipPackages -and -not $NoElevate -and -not (Test-Elevated)) {
     Write-Stage "Elevated package installation"
