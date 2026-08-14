@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Verifies every manual precondition. Read-only, changes nothing.
 .DESCRIPTION
@@ -65,7 +65,7 @@ Test-Precondition -Name "Git available" `
     -Fix "winget install --id Git.Git -e"
 
 Test-Precondition -Name "Git identity configured" `
-    -Check { (git config --global user.email) -and (git config --global user.name) } `
+    -Check { (git config --includes --global user.email) -and (git config --includes --global user.name) } `
     -Fix "git config --global user.email ... ; git config --global user.name ..."
 
 Test-Precondition -Name "Developer Mode registry flag set" `

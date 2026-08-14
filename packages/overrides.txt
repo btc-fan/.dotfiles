@@ -1,0 +1,20 @@
+# Per-package installer overrides.
+# Format: PackageId = override string
+#
+# Why: winget --silent only works when the package manifest declares a silent
+# switch. Many do not, so the vendor installer UI appears anyway. This is a
+# known winget limitation, not something a wrapper script can fix generically.
+# For those packages we pass the vendor's real switches via --override.
+#
+# NOTE: --override REPLACES all installer arguments, so the string must be
+# complete. Find the right switches on the vendor's docs or wingetly.io.
+#
+# Installer type cheat sheet:
+#   MSI          /quiet /norestart
+#   Inno Setup   /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+#   NSIS         /S
+#   InstallShield /s /v"/qn"
+#   Squirrel     --silent
+
+Logitech.OptionsPlus = /quiet /norestart
+Grammarly.Grammarly = /S

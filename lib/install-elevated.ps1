@@ -58,6 +58,19 @@ Write-Host "  It closes automatically when finished." -ForegroundColor DarkGray
 Write-Stage "winget packages"
 
 $manifest = Read-Manifest (Join-Path $RepoRoot "packages\winget.txt")
+
+# Per-package installer overrides for packages whose manifest lacks a working
+# silent switch. See packages/overrides.txt for why this is necessary.
+$overrides = @{}
+$ovFile = Join-Path $RepoRoot "packages\overrides.txt"
+if (Test-Path $ovFile) {
+    foreach ($line in (Read-Manifest $ovFile)) {
+        if ($line -match "^\s*([^=]+?)\s*=\s*(.+)$") {
+            $overrides[$Matches[1].Trim()] = $Matches[2].Trim()
+        }
+    }
+    if ($overrides.Count -gt 0) { Write-Host "  $($overrides.Count) override(s) loaded" -ForegroundColor DarkGray }
+}
 $listing  = (winget list --accept-source-agreements 2>$null | Out-String)
 Write-Host "  $($manifest.Count) in manifest" -ForegroundColor DarkGray
 
@@ -78,9 +91,16 @@ foreach ($id in $manifest) {
     }
 
     Write-Host "  installing $id ..." -ForegroundColor DarkGray
-    winget install --id $id --exact --silent --source winget `
-        --accept-package-agreements --accept-source-agreements `
-        --disable-interactivity 2>&1 | Out-Null
+    if ($overrides.ContainsKey($id)) {
+        Write-Host "    override: $($overrides[$id])" -ForegroundColor DarkGray
+        winget install --id $id --exact --source winget `
+            --accept-package-agreements --accept-source-agreements `
+            --disable-interactivity --override $overrides[$id] 2>&1 | Out-Null
+    } else {
+        winget install --id $id --exact --silent --source winget `
+            --accept-package-agreements --accept-source-agreements `
+            --disable-interactivity 2>&1 | Out-Null
+    }
     $code = $LASTEXITCODE
 
     if ($code -eq 0 -or $code -eq -1978335189) {
