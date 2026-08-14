@@ -1,4 +1,4 @@
-﻿#Requires -Version 7.0
+#Requires -Version 7.0
 <#
 .SYNOPSIS
     Autonomous Windows development environment setup.
@@ -41,7 +41,8 @@ param(
     [switch]$SkipHealth,
     [switch]$RetryFailed,
     [switch]$ResetState,
-    [switch]$NoElevate
+    [switch]$NoElevate,
+    [switch]$SkipMdmGuard
 )
 
 $ErrorActionPreference = "Continue"
@@ -297,39 +298,65 @@ if (-not $SkipPackages) {
 # ---------------------------------------------------------------- 5. runtimes
 if (-not $SkipRuntimes) {
 
+    Write-Stage "Store Python aliases"
+    $aliasScript = Join-Path $RepoRoot "windows\python-alias.ps1"
+    if (Test-Path $aliasScript) { & $aliasScript -Disable } else { Write-Note "python-alias.ps1 missing" }
+
+    # ----- pyenv-win -----
+    # Installed and kept current, but no Python version is installed
+    # automatically. Pick one yourself:  pyenv install 3.13.1
+    #
+    # Note: pyenv-win's own `pyenv update` is broken on Windows 11. It parses
+    # python.org with the deprecated htmlfile COM object and fails with "This
+    # command is not supported", leaving the version list frozen at 2022.
+    # lib/pyenv-update.ps1 rebuilds the cache directly instead.
     Write-Stage "Python (pyenv-win)"
     if (Test-Cmd pyenv) {
-        pyenv update *>$null
-        $latest = pyenv install -l 2>$null |
-            ForEach-Object { $_.Trim() } |
-            Where-Object { $_ -match "^3\.\d+\.\d+$" } |
-            Sort-Object { [version]$_ } | Select-Object -Last 1
-
-        if (-not $latest) { Write-Fail "could not determine latest Python" }
-        else {
-            if ((pyenv versions 2>$null | Out-String) -match [regex]::Escape($latest)) {
-                Write-Skip "Python $latest present"
-            } else {
-                Write-Host "  installing Python $latest ..." -ForegroundColor DarkGray
-                pyenv install $latest *>$null
-                if ($LASTEXITCODE -eq 0) { Write-Ok "Python $latest" } else { Write-Fail "pyenv install $latest" }
-            }
-            pyenv global $latest *>$null
-            pyenv rehash *>$null
-            Write-Ok "pyenv global -> $latest"
+        $updater = Join-Path $RepoRoot "lib\pyenv-update.ps1"
+        if (Test-Path $updater) {
+            $newest = (& $updater -MinVersion 3.12 -Quiet | Select-Object -Last 1)
+            if ($newest) { Write-Ok "version cache rebuilt, newest available $newest" }
+            else { Write-Note "cache rebuild returned nothing" }
+        } else {
+            Write-Note "lib\pyenv-update.ps1 missing, version list will be stale"
         }
-    } else { Write-Fail "pyenv not on PATH. Restart the shell and re-run." }
 
-    Write-Stage "Python (uv)"
+        $installed = (pyenv versions 2>$null | Out-String).Trim()
+        if ($installed) {
+            Write-Ok "installed: $(($installed -split "`n" | ForEach-Object { $_.Trim() }) -join ', ')"
+        } else {
+            Write-Note "no Python installed. Install one with: pyenv install <version>"
+        }
+    } else {
+        Write-Fail "pyenv not on PATH. Restart the shell and re-run."
+    }
+
+    # ----- uv -----
+    # A peer to pyenv, not a replacement. Provides fast dependency resolution
+    # and tool installs. Does not take over `python`.
+    Write-Stage "uv"
     if (Test-Cmd uv) {
-        uv python install 2>&1 | Out-Null
-        Write-Ok "uv managed Python"
+        uv self update 2>&1 | Out-Null
+        Write-Ok "uv $(uv --version 2>$null)"
+
         foreach ($tool in @("ruff","pre-commit")) {
-            uv tool install $tool 2>&1 | Out-Null
+            uv tool install $tool --quiet 2>&1 | Out-Null
             if ($LASTEXITCODE -eq 0) { Write-Ok "uv tool: $tool" } else { Write-Note "uv tool $tool" }
         }
-    } else { Write-Fail "uv not on PATH" }
+    } else {
+        Write-Fail "uv not on PATH"
+    }
 
+    # ----- pip -----
+    # Only meaningful once a Python is active.
+    Write-Stage "pip"
+    if (Test-Cmd python) {
+        python -m pip install --upgrade pip --quiet 2>&1 | Out-Null
+        $pipV = (python -m pip --version 2>$null)
+        if ($pipV) { Write-Ok $pipV } else { Write-Note "pip not available in the active Python" }
+    } else {
+        Write-Skip "no active Python. Run: pyenv install <version> ; pyenv global <version>"
+    }
     Write-Stage "Node (fnm)"
     if (Test-Cmd fnm) {
         fnm install --lts 2>&1 | Out-Null
@@ -430,6 +457,33 @@ if (-not $SkipTweaks) {
     Write-Stage "Explorer and shell preferences"
     $tweaks = Join-Path $RepoRoot "windows\tweaks.ps1"
     if (Test-Path $tweaks) { & $tweaks } else { Write-Note "windows\tweaks.ps1 missing" }
+}
+
+# ---------------------------------------------------------------- 11. MDM guard
+# Windows feature updates re-enable the Automatic-Device-Join task and can clear
+# the policy key, so this verifies on every run rather than trusting a one-shot.
+if (-not $SkipMdmGuard) {
+    Write-Stage "MDM enrollment posture"
+    . (Join-Path $RepoRoot "lib\mdm.ps1")
+
+    if (Test-CorporateDevice) {
+        Write-Skip "device is Entra or domain joined. Leaving management alone."
+    } else {
+        $blockState = Get-WorkplaceJoinBlockState
+        if ($blockState.RegistryBlocked -and $blockState.TriggersDisabled) {
+            Write-Skip "protection active"
+        } else {
+            Write-Note "protection has drifted. Re-applying."
+            $blockScript = Join-Path $RepoRoot "windows\block-mdm.ps1"
+            try {
+                $bp = Start-Process pwsh -Verb RunAs -Wait -PassThru -ArgumentList `
+                    "-NoProfile","-ExecutionPolicy","Bypass","-File",$blockScript,"-Block"
+                if ($bp.ExitCode -eq 0) { Write-Ok "re-applied" } else { Write-Fail "block-mdm returned $($bp.ExitCode)" }
+            } catch {
+                Write-Note "elevation declined. Run: .\windows\block-mdm.ps1 -Block"
+            }
+        }
+    }
 }
 
 # ================================================================ REPORT

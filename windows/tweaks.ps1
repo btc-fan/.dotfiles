@@ -25,7 +25,7 @@ function Set-Pref {
         return
     }
     try {
-        if (-not (Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
+        if (-not (Test-Path $Path)) { New-Item -Path $Path -Force -ErrorAction Stop | Out-Null }
         New-ItemProperty -Path $Path -Name $Name -Value $Value -PropertyType $Type -Force | Out-Null
         Write-Host "  [OK]   $Label" -ForegroundColor Green
         $script:changed++
@@ -52,9 +52,17 @@ Set-Pref -Path $adv -Name ShowTaskViewButton    -Value 0 -Label "Hide the Task V
 Set-Pref -Path $personal -Name AppsUseLightTheme   -Value 0 -Label "Dark mode (apps)"
 Set-Pref -Path $personal -Name SystemUsesLightTheme -Value 0 -Label "Dark mode (system)"
 
-# Stop the Start menu searching the web
-Set-Pref -Path "HKCU:\SOFTWARE\Policies\Microsoft\Windows\Explorer" `
-    -Name DisableSearchBoxSuggestions -Value 1 -Label "Disable Start menu web search"
+# Stop the Start menu searching the web.
+# HKCU\SOFTWARE\Policies is write-protected for standard users even though it
+# lives under HKCU, so this only works elevated. Skip rather than fail.
+$isElevatedTweaks = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+                    ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($isElevatedTweaks) {
+    Set-Pref -Path "HKCU:\SOFTWARE\Policies\Microsoft\Windows\Explorer" `
+        -Name DisableSearchBoxSuggestions -Value 1 -Label "Disable Start menu web search"
+} else {
+    Write-Host "  [SKIP] Disable Start menu web search (needs elevation)" -ForegroundColor DarkGray
+}
 
 # NOT enabled by default: showing protected OS files clutters every folder with
 # desktop.ini and pagefile.sys. Uncomment if you want it.

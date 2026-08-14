@@ -16,5 +16,4 @@
 #   InstallShield /s /v"/qn"
 #   Squirrel     --silent
 
-Logitech.OptionsPlus = /quiet /norestart
 Grammarly.Grammarly = /S

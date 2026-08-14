@@ -40,7 +40,8 @@ Update-SessionPath
 if (-not $SkipRuntimes) {
     Write-Stage "Python"
     if (Test-Cmd pyenv) {
-        pyenv update *>$null
+        $updater = Join-Path $RepoRoot "lib\pyenv-update.ps1"
+        if (Test-Path $updater) { & $updater -MinVersion 3.12 -Quiet | Out-Null }
         $latest = pyenv install -l 2>$null |
             ForEach-Object { $_.Trim() } |
             Where-Object { $_ -match "^3\.\d+\.\d+$" } |

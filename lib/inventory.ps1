@@ -23,6 +23,8 @@ function Get-ToolVersion {
     $raw = $null
     try {
         $raw = (& $Command @Args 2>&1 | Out-String).Trim()
+        # Some tools print banners or multi-line reports. Keep only what the
+        # pattern matches so the table stays a table.
     } catch {
         $raw = $null
     }
@@ -37,7 +39,11 @@ function Get-ToolVersion {
             $m = [regex]::Match($raw, "(\d+\.\d+(\.\d+)?(\.\d+)?)")
             if ($m.Success) { $version = $m.Groups[1].Value }
         }
-        if (-not $version) { $version = ($raw -split "`n")[0].Trim() }
+        if (-not $version) {
+            $first = ($raw -split "`n")[0].Trim()
+            # Never let an error message or banner into the version column.
+            $version = if ($first.Length -gt 40) { $first.Substring(0, 37) + "..." } else { $first }
+        }
     }
 
     [pscustomobject]@{
@@ -52,17 +58,17 @@ function Get-Inventory {
     $tools = @(
         @{ Name = "PowerShell";    Command = "pwsh";    Args = @("--version");  Source = "winget" }
         @{ Name = "winget";        Command = "winget";  Args = @("--version");  Source = "builtin" }
-        @{ Name = "Scoop";         Command = "scoop";   Args = @("--version");  Source = "installer" }
+        @{ Name = "Scoop";         Command = "scoop";   Args = @("--version");  Source = "installer"; Pattern = "tag:\s*v(\d+\.\d+\.\d+)" }
         @{ Name = "Git";           Command = "git";     Args = @("--version");  Source = "winget" }
         @{ Name = "delta";         Command = "delta";   Args = @("--version");  Source = "scoop" }
-        @{ Name = "pyenv";         Command = "pyenv";   Args = @("--version");  Source = "scoop" }
         @{ Name = "Python";        Command = "python";  Args = @("--version");  Source = "pyenv" }
+        @{ Name = "pyenv";         Command = "pyenv";   Args = @("--version");  Source = "scoop" }
         @{ Name = "uv";            Command = "uv";      Args = @("--version");  Source = "scoop" }
         @{ Name = "fnm";           Command = "fnm";     Args = @("--version");  Source = "scoop" }
         @{ Name = "Node";          Command = "node";    Args = @("--version");  Source = "fnm" }
         @{ Name = "npm";           Command = "npm";     Args = @("--version");  Source = "fnm" }
         @{ Name = ".NET SDK";      Command = "dotnet";  Args = @("--version");  Source = "winget" }
-        @{ Name = "Azure CLI";     Command = "az";      Args = @("version","--query",'"azure-cli"',"-o","tsv"); Source = "winget" }
+        @{ Name = "Azure CLI";     Command = "az";      Args = @("version"); Source = "winget" }
         @{ Name = "Docker";        Command = "docker";  Args = @("--version");  Source = "winget" }
         @{ Name = "VS Code";       Command = "code";    Args = @("--version");  Source = "winget" }
     )

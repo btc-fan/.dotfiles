@@ -34,7 +34,19 @@ function Test-Cmd {
 # Refresh PATH from the registry so tools installed in this session are usable
 # without restarting the shell.
 function Update-SessionPath {
+    # Merge registry PATH into the current session rather than replacing it.
+    # Replacing wipes session-only entries that fnm and pyenv inject, which
+    # then makes node and python look uninstalled to anything that runs after.
     $machine = [System.Environment]::GetEnvironmentVariable("Path","Machine")
     $user    = [System.Environment]::GetEnvironmentVariable("Path","User")
-    $env:Path = ($machine, $user | Where-Object { $_ }) -join ";"
+    $current = $env:Path
+
+    $seen  = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $merged = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($part in (($current, $machine, $user) -join ";") -split ";") {
+        $p = $part.Trim()
+        if ($p -and $seen.Add($p)) { $merged.Add($p) }
+    }
+    $env:Path = $merged -join ";"
 }

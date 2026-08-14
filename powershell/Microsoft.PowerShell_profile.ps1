@@ -6,13 +6,18 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 # ---------- PATH ordering ----------
 # pyenv-win and uv both provide a `python` shim. pyenv must win, otherwise
 # `python` resolves unpredictably depending on install order.
-$pyenvRoot = "$HOME\.pyenv\pyenv-win"
-if (Test-Path $pyenvRoot) {
+# pyenv-win. Scoop installs under scoop\apps, the official installer under
+# ~\.pyenv, so probe both. Shims go first so `python` resolves to pyenv.
+$pyenvRoot = $null
+foreach ($cand in @("$HOME\scoop\apps\pyenv\current\pyenv-win", "$HOME\.pyenv\pyenv-win")) {
+    if (Test-Path $cand) { $pyenvRoot = $cand; break }
+}
+if ($pyenvRoot) {
     $env:PYENV      = "$pyenvRoot\"
     $env:PYENV_ROOT = "$pyenvRoot\"
     $env:PYENV_HOME = "$pyenvRoot\"
-    foreach ($p in @("$pyenvRoot\bin","$pyenvRoot\shims")) {
-        if ($env:Path -notlike "*$p*") { $env:Path = "$p;$env:Path" }
+    foreach ($dir in @("$pyenvRoot\bin", "$pyenvRoot\shims")) {
+        if ($env:Path -notlike "*$dir*") { $env:Path = "$dir;$env:Path" }
     }
 }
 
