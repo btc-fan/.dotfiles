@@ -88,17 +88,22 @@ function Show-Status {
     Write-Host ("  {0,-22} {1}" -f "3 MDM registration", $(if ($block.MdmRegistrationBlocked) { "ON" } else { "off" })) `
         -ForegroundColor $(if ($block.MdmRegistrationBlocked) { "Green" } else { "Yellow" })
     if ($block.TaskPresent) {
-        Write-Host ("  {0,-18} {1}" -f "Task triggers", $(if ($block.TriggersDisabled) { "disabled" } else { "ENABLED" })) `
+        Write-Host ("  {0,-22} {1}" -f "2 Device-join task", $(if ($block.TriggersDisabled) { "disabled" } else { "ENABLED" })) `
             -ForegroundColor $(if ($block.TriggersDisabled) { "Green" } else { "Yellow" })
     } else {
-        Write-Host ("  {0,-18} {1}" -f "Task triggers", "task not present") -ForegroundColor DarkGray
+        Write-Host ("  {0,-22} {1}" -f "2 Device-join task", "not present") -ForegroundColor DarkGray
     }
     Write-Host ""
 }
 
 if ($PSCmdlet.ParameterSetName -eq "Status" -or (-not $Block -and -not $Unblock)) {
     Show-Status
-    Write-Host "Apply with:  .\windows\block-mdm.ps1 -Block   (elevated)" -ForegroundColor DarkGray
+    $st = Get-WorkplaceJoinBlockState
+    if ($st.RegistryBlocked -and $st.TriggersDisabled -and $st.MdmRegistrationBlocked) {
+        Write-Host "All three layers active. Nothing to do." -ForegroundColor Green
+    } else {
+        Write-Host "Apply with:  .\windows\block-mdm.ps1 -Block   (elevated)" -ForegroundColor DarkGray
+    }
     Write-Host ""
     return
 }
