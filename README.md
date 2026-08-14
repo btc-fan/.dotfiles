@@ -1,4 +1,4 @@
-﻿# Windows Dotfiles
+# Windows Dotfiles
 
 Scripted setup for a Windows development environment. Clone, run two commands, walk away. Safe to re-run any time.
 
@@ -163,7 +163,9 @@ To change workloads after install, use the Visual Studio Installer app. The scri
 
 ### Runtimes configured by stage 5
 
-- **Python**: pyenv-win installs the latest stable 3.x and sets it global. uv installs its own managed Python plus `ruff` and `pre-commit` as tools. Both are present deliberately: pyenv for habit, uv for project work.
+- **Python**: pyenv-win is installed and its version cache refreshed, but no version is installed automatically. Choose one with `pyenv install <version>` then `pyenv global <version>`. uv is installed alongside as a peer and provides `ruff` and `pre-commit`; it does not take over `python`. pip upgrades only when a Python is active.
+
+  pyenv-win's own `pyenv update` is broken on Windows 11: it parses python.org using the deprecated `htmlfile` COM object and fails with "This command is not supported", freezing the version list at 2022. `lib/pyenv-update.ps1` rebuilds the cache directly.
 - **Node**: fnm installs the latest LTS and sets it default. The PowerShell profile enables `--use-on-cd`, so entering a directory with an `.nvmrc` or `.node-version` switches automatically.
 - **Azure CLI**: adds the `azure-devops` extension.
 
