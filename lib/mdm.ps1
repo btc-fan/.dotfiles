@@ -60,6 +60,17 @@ function Test-CorporateDevice {
     return ($j.AzureAdJoined -or $j.DomainJoined -or $j.EnterpriseJoined)
 }
 
+# Layer 3: the official "Disable MDM Enrollment" Group Policy.
+# Computer Configuration > Administrative Templates > Windows Components > MDM
+# This blocks the enrollment stage itself, not just the registration path that
+# normally leads to it. Layers 1 and 2 stop the usual route; this stops the
+# destination.
+function Get-MdmRegistrationBlockState {
+    $path = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\MDM"
+    $val  = (Get-ItemProperty -Path $path -Name DisableRegistration -ErrorAction SilentlyContinue).DisableRegistration
+    return ($val -eq 1)
+}
+
 function Get-WorkplaceJoinBlockState {
     $path = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WorkplaceJoin"
     $val  = (Get-ItemProperty -Path $path -Name BlockAADWorkplaceJoin -ErrorAction SilentlyContinue).BlockAADWorkplaceJoin
@@ -73,8 +84,9 @@ function Get-WorkplaceJoinBlockState {
     }
 
     [pscustomobject]@{
-        RegistryBlocked  = ($val -eq 1)
-        TaskPresent      = ($null -ne $task)
-        TriggersDisabled = $triggersDisabled
+        RegistryBlocked   = ($val -eq 1)
+        TaskPresent       = ($null -ne $task)
+        TriggersDisabled  = $triggersDisabled
+        MdmRegistrationBlocked = (Get-MdmRegistrationBlockState)
     }
 }

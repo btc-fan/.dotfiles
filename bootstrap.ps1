@@ -100,6 +100,25 @@ Test-Precondition -Name "Long path support (git)" `
     -Check { (git config --system core.longpaths) -eq "true" } `
     -Fix "Elevated: git config --system core.longpaths true"
 
+# MDM posture. A warning, not a failure: a corporate machine is legitimately
+# enrolled, and setup.ps1 handles the personal-device case automatically.
+Test-Precondition -Name "Device not Entra or domain joined" `
+    -Check {
+        $raw = (dsregcmd /status 2>$null | Out-String)
+        -not ($raw -match "AzureAdJoined\s*:\s*YES" -or $raw -match "DomainJoined\s*:\s*YES" -or $raw -match "EnterpriseJoined\s*:\s*YES")
+    } `
+    -Fix "This looks like corporate hardware. setup.ps1 will leave its management alone." `
+    -AsWarning
+
+Test-Precondition -Name "MDM enrollment protection active" `
+    -Check {
+        $wp  = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WorkplaceJoin" -Name BlockAADWorkplaceJoin -ErrorAction SilentlyContinue).BlockAADWorkplaceJoin
+        $mdm = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\MDM" -Name DisableRegistration -ErrorAction SilentlyContinue).DisableRegistration
+        ($wp -eq 1) -and ($mdm -eq 1)
+    } `
+    -Fix "setup.ps1 applies this automatically, or run: .\windows\block-mdm.ps1 -Block" `
+    -AsWarning
+
 Test-Precondition -Name "Windows Terminal installed" `
     -Check { $null -ne (Get-Command wt -ErrorAction SilentlyContinue) } `
     -Fix "winget install --id Microsoft.WindowsTerminal -e" `

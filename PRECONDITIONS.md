@@ -1,10 +1,25 @@
-﻿# Manual Preconditions (Windows)
+# Manual Preconditions (Windows)
 
 One time per machine. These cannot live in `setup.ps1` because they require
 elevation, require a reboot, or install the shell that runs the script.
 
 `bootstrap.ps1` verifies every item and prints the exact fix for anything
 missing. Run it before `setup.ps1`.
+
+## Step zero, on a brand new machine
+
+During Windows setup (OOBE), sign in with a **personal Microsoft account or a
+local account**. Never a work account.
+
+Signing into OOBE with a work account joins the device to your employer's Entra
+tenant before any script exists to prevent it. Nothing in this repo can undo
+that cleanly; the fix is a reinstall.
+
+If the device is already joined and you own it, see `windows/block-mdm.ps1` and
+Settings > Accounts > Access work or school > Disconnect.
+
+Once setup.ps1 has run, MDM enrollment protection is applied and verified on
+every subsequent run.
 
 ## 1. OS baseline
 

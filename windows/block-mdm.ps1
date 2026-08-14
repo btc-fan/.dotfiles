@@ -83,8 +83,10 @@ function Show-Status {
     }
 
     Write-Host "`nProtection" -ForegroundColor Cyan
-    Write-Host ("  {0,-18} {1}" -f "Registry block", $(if ($block.RegistryBlocked) { "ON" } else { "off" })) `
+    Write-Host ("  {0,-22} {1}" -f "1 WorkplaceJoin block", $(if ($block.RegistryBlocked) { "ON" } else { "off" })) `
         -ForegroundColor $(if ($block.RegistryBlocked) { "Green" } else { "Yellow" })
+    Write-Host ("  {0,-22} {1}" -f "3 MDM registration", $(if ($block.MdmRegistrationBlocked) { "ON" } else { "off" })) `
+        -ForegroundColor $(if ($block.MdmRegistrationBlocked) { "Green" } else { "Yellow" })
     if ($block.TaskPresent) {
         Write-Host ("  {0,-18} {1}" -f "Task triggers", $(if ($block.TriggersDisabled) { "disabled" } else { "ENABLED" })) `
             -ForegroundColor $(if ($block.TriggersDisabled) { "Green" } else { "Yellow" })
@@ -140,6 +142,19 @@ if ($Block) {
         Write-Host "  [WARN] scheduled task: $($_.Exception.Message)" -ForegroundColor Yellow
     }
 
+    # Layer 3: official Disable MDM Enrollment policy.
+    # Blocks the enrollment stage outright. Matters because a second work
+    # account from a different tenant has been observed enrolling a device
+    # silently, with no prompt at all, and gaining remote wipe capability.
+    try {
+        $mdmPolicy = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\MDM"
+        if (-not (Test-Path $mdmPolicy)) { New-Item -Path $mdmPolicy -Force | Out-Null }
+        New-ItemProperty -Path $mdmPolicy -Name DisableRegistration -PropertyType DWord -Value 1 -Force | Out-Null
+        Write-Host "  [OK]   MDM enrollment disabled by policy" -ForegroundColor Green
+    } catch {
+        Write-Host "  [FAIL] MDM policy: $($_.Exception.Message)" -ForegroundColor Red
+    }
+
     Write-Host "`nDone. Teams and Outlook still work: choose 'Sign in to this app only'." -ForegroundColor Green
     Write-Host "If your employer requires a registered device for Conditional Access," -ForegroundColor DarkGray
     Write-Host "work resources will be blocked on this machine. That is expected.`n" -ForegroundColor DarkGray
@@ -160,6 +175,14 @@ if ($Unblock) {
     } catch {
         Write-Host "  [FAIL] registry: $($_.Exception.Message)" -ForegroundColor Red
     }
+
+    try {
+        $mdmPolicy = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\MDM"
+        if (Test-Path $mdmPolicy) {
+            Remove-ItemProperty -Path $mdmPolicy -Name DisableRegistration -Force -ErrorAction SilentlyContinue
+            Write-Host "  [OK]   MDM enrollment policy removed" -ForegroundColor Green
+        }
+    } catch { }
 
     try {
         $task = Get-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction Stop

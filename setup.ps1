@@ -140,6 +140,37 @@ if (-not $SkipPackages) {
         Start-Sleep -Seconds 10
     }
 }
+# ---------------------------------------------------------------- 1a. MDM guard
+# Runs BEFORE any package installs. On a fresh machine the winget stage puts
+# Teams and Outlook on disk, and signing into either is exactly how a personal
+# device gets silently registered and enrolled. Protection has to exist first.
+# Windows feature updates re-enable the Automatic-Device-Join task and can clear
+# the policy key, so this verifies on every run rather than trusting a one-shot.
+if (-not $SkipMdmGuard) {
+    Write-Stage "MDM enrollment posture"
+    . (Join-Path $RepoRoot "lib\mdm.ps1")
+
+    if (Test-CorporateDevice) {
+        Write-Skip "device is Entra or domain joined. Leaving management alone."
+    } else {
+        $blockState = Get-WorkplaceJoinBlockState
+        if ($blockState.RegistryBlocked -and $blockState.TriggersDisabled -and $blockState.MdmRegistrationBlocked) {
+            Write-Skip "protection active"
+        } else {
+            Write-Note "protection has drifted. Re-applying."
+            $blockScript = Join-Path $RepoRoot "windows\block-mdm.ps1"
+            try {
+                $bp = Start-Process pwsh -Verb RunAs -Wait -PassThru -ArgumentList `
+                    "-NoProfile","-ExecutionPolicy","Bypass","-File",$blockScript,"-Block"
+                if ($bp.ExitCode -eq 0) { Write-Ok "re-applied" } else { Write-Fail "block-mdm returned $($bp.ExitCode)" }
+            } catch {
+                Write-Note "elevation declined. Run: .\windows\block-mdm.ps1 -Block"
+            }
+        }
+    }
+}
+
+
 $elevationDone = $false
 if (-not $SkipPackages -and -not $NoElevate -and -not (Test-Elevated)) {
     Write-Stage "Elevated package installation"
@@ -457,33 +488,6 @@ if (-not $SkipTweaks) {
     Write-Stage "Explorer and shell preferences"
     $tweaks = Join-Path $RepoRoot "windows\tweaks.ps1"
     if (Test-Path $tweaks) { & $tweaks } else { Write-Note "windows\tweaks.ps1 missing" }
-}
-
-# ---------------------------------------------------------------- 11. MDM guard
-# Windows feature updates re-enable the Automatic-Device-Join task and can clear
-# the policy key, so this verifies on every run rather than trusting a one-shot.
-if (-not $SkipMdmGuard) {
-    Write-Stage "MDM enrollment posture"
-    . (Join-Path $RepoRoot "lib\mdm.ps1")
-
-    if (Test-CorporateDevice) {
-        Write-Skip "device is Entra or domain joined. Leaving management alone."
-    } else {
-        $blockState = Get-WorkplaceJoinBlockState
-        if ($blockState.RegistryBlocked -and $blockState.TriggersDisabled) {
-            Write-Skip "protection active"
-        } else {
-            Write-Note "protection has drifted. Re-applying."
-            $blockScript = Join-Path $RepoRoot "windows\block-mdm.ps1"
-            try {
-                $bp = Start-Process pwsh -Verb RunAs -Wait -PassThru -ArgumentList `
-                    "-NoProfile","-ExecutionPolicy","Bypass","-File",$blockScript,"-Block"
-                if ($bp.ExitCode -eq 0) { Write-Ok "re-applied" } else { Write-Fail "block-mdm returned $($bp.ExitCode)" }
-            } catch {
-                Write-Note "elevation declined. Run: .\windows\block-mdm.ps1 -Block"
-            }
-        }
-    }
 }
 
 # ================================================================ REPORT
