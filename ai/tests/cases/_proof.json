@@ -1,0 +1,48 @@
+{
+ "rule": "_proof",
+ "cases": [
+  {
+   "name": "Skill call recorded",
+   "expect": "allow",
+   "event": "PostToolUse",
+   "payload": {
+    "tool_name": "Skill",
+    "tool_input": {
+     "skill": "claude-blog:blog"
+    }
+   },
+   "state_contains": {
+    "fired.jsonl": "\"skill\": \"claude-blog:blog\""
+   }
+  },
+  {
+   "name": "typed /skill recorded",
+   "expect": "allow",
+   "event": "UserPromptExpansion",
+   "payload": {
+    "command_name": "claude-seo:seo"
+   },
+   "state_contains": {
+    "fired.jsonl": "\"via\": \"expansion\""
+   }
+  },
+  {
+   "name": "Stop runs claude-notify",
+   "expect": "allow",
+   "event": "Stop",
+   "payload": {},
+   "state_contains": {
+    "notify.dry": "finished"
+   }
+  },
+  {
+   "name": "SessionStart injects the L0 table",
+   "expect": "allow",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "contains": "Routing table (L0)"
+  }
+ ]
+}

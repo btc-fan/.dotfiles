@@ -1,0 +1,30 @@
+{
+ "rule": "domain-docs",
+ "cases": [
+  {
+   "name": "enabled in project",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "update the glossary"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "domain-docs\n"
+    }
+   }
+  },
+  {
+   "name": "not enabled",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "update the glossary"
+   },
+   "project": {
+    "git": true
+   }
+  }
+ ]
+}

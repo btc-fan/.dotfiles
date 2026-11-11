@@ -1,0 +1,21 @@
+{
+ "rule": "docs-lookup",
+ "cases": [
+  {
+   "name": "sdk question",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "how do I use the stripe sdk for refunds"
+   }
+  },
+  {
+   "name": "rename",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "rename this variable"
+   }
+  }
+ ]
+}

@@ -1,0 +1,30 @@
+{
+ "rule": "tracker-flow",
+ "cases": [
+  {
+   "name": "enabled in project",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "triage the backlog"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tracker-flow\n"
+    }
+   }
+  },
+  {
+   "name": "not enabled",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "triage the backlog"
+   },
+   "project": {
+    "git": true
+   }
+  }
+ ]
+}

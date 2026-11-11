@@ -1,0 +1,6 @@
+#!/bin/sh
+# Run the vendor serena-hooks (activate at session start, cleanup at session end) when installed.
+# Silent no-op without Serena. Vendor `remind` is NOT used (issues #2251, #2204): the router's
+# serena-first nudge replaces it.
+command -v serena-hooks >/dev/null 2>&1 || exit 0
+exec serena-hooks "$@"

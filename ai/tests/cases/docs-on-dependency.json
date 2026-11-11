@@ -1,0 +1,106 @@
+{
+ "rule": "docs-on-dependency",
+ "cases": [
+  {
+   "name": "npm install",
+   "expect": "fire",
+   "event": "PostToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "npm install zod@3.23.8"
+    }
+   },
+   "project": {
+    "git": true
+   },
+   "contains": "zod"
+  },
+  {
+   "name": "package.json edit",
+   "expect": "fire",
+   "event": "PostToolUse",
+   "payload": {
+    "tool_name": "Edit",
+    "tool_input": {
+     "file_path": "{{PROJ}}/package.json",
+     "old_string": "{",
+     "new_string": "{\n  \"zod\": \"^3.23.8\","
+    }
+   },
+   "project": {
+    "git": true
+   },
+   "contains": "zod"
+  },
+  {
+   "name": "npm test",
+   "expect": "nofire",
+   "event": "PostToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "npm test"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "quiet after a docs lookup for the library",
+   "expect": "nofire",
+   "project": {
+    "git": true
+   },
+   "steps": [
+    {
+     "event": "PostToolUse",
+     "payload": {
+      "tool_name": "mcp__plugin_ai-core_context7__query-docs",
+      "tool_input": {
+       "libraryId": "/colinhacks/zod",
+       "query": "schemas"
+      }
+     }
+    },
+    {
+     "event": "PostToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "npm install zod@3.23.8"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "once per library per session",
+   "expect": "nofire",
+   "project": {
+    "git": true
+   },
+   "steps": [
+    {
+     "event": "PostToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "uv add httpx"
+      }
+     }
+    },
+    {
+     "event": "PostToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "uv add httpx==0.28.1"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

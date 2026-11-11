@@ -1,0 +1,48 @@
+{
+ "rule": "prompting-others",
+ "cases": [
+  {
+   "name": "codex exec",
+   "expect": "fire",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "codex exec 'fix the failing tests'"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "Agent tool",
+   "expect": "fire",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Agent",
+    "tool_input": {
+     "prompt": "find the bug",
+     "subagent_type": "Explore"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ls",
+   "expect": "nofire",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ls"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  }
+ ]
+}

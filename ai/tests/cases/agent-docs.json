@@ -1,0 +1,52 @@
+{
+ "rule": "agent-docs",
+ "cases": [
+  {
+   "name": "AGENTS.md edit",
+   "expect": "fire",
+   "event": "PostToolUse",
+   "payload": {
+    "tool_name": "Edit",
+    "tool_input": {
+     "file_path": "{{PROJ}}/AGENTS.md",
+     "old_string": "a",
+     "new_string": "b"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "SKILL.md write",
+   "expect": "fire",
+   "event": "PostToolUse",
+   "payload": {
+    "tool_name": "Write",
+    "tool_input": {
+     "file_path": "{{PROJ}}/skills/x/SKILL.md",
+     "content": "x"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "README edit",
+   "expect": "nofire",
+   "event": "PostToolUse",
+   "payload": {
+    "tool_name": "Edit",
+    "tool_input": {
+     "file_path": "{{PROJ}}/README.md",
+     "old_string": "a",
+     "new_string": "b"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  }
+ ]
+}

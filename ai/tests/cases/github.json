@@ -1,0 +1,21 @@
+{
+ "rule": "github",
+ "cases": [
+  {
+   "name": "pr review comments",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "answer the review comments on pull request 12"
+   }
+  },
+  {
+   "name": "generic",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "make it faster"
+   }
+  }
+ ]
+}

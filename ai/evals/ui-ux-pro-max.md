@@ -1,0 +1,9 @@
+## Appendix 3. ui-ux-pro-max eval prompts (run only in a project that enabled the plugin; expected Skill = `ui-ux-pro-max:<skill>`; in a project that did not enable it, ALL of these must NOT fire)
+
+- ui-ux-pro-max | "Build a landing page for my SaaS product" ; "Fă o pagină de aterizare modernă pentru aplicația mea, cu temă întunecată" ; "Сделай дизайн дашборда для клиники, с адаптивной вёрсткой" | NOT "Optimize this SQL query" [none] ; "Write a cron job for backups" [none]
+- design | "Design a logo for my brand" ; "Creează un logo pentru firma mea" ; "Сделай логотип для моего бренда" | NOT "Draw an ER diagram of the DB" [none] ; "Edit this PDF" [anthropic-skills:pdf]
+- design-system | "Set up design tokens, primitive to semantic, as CSS variables" ; "Creează tokeni de design și variabile CSS pentru proiect" ; "Сделай дизайн-токены и CSS-переменные для проекта" | NOT "Rotate the API token" [none] ; "Cut our prompt token budget" [none]
+- ui-styling | "Add a shadcn dialog and dark mode with Tailwind" ; "Adaugă un dialog shadcn și temă întunecată cu Tailwind" ; "Добавь диалог shadcn и тёмную тему на Tailwind" | NOT "Format Python with ruff" [none] ; "Color the cells of an Excel sheet" [anthropic-skills:xlsx]
+- brand | "Define the brand voice and style guide for our startup" ; "Definește tonul brandului și ghidul de stil" ; "Опиши голос бренда и гайдлайн по стилю" | NOT "Brand voice file for my blog posts" [claude-blog:blog-brand] ; "Rename a git branch" [none]
+- banner-design | "Create a LinkedIn banner for the launch" ; "Fă un banner pentru Facebook cu oferta" ; "Сделай баннер для Instagram с акцией" | NOT "OG image for the SEO page" [claude-seo:seo-image-gen] ; "Print a banner message in the CLI output" [none]
+- slides | "Create an HTML pitch deck with Chart.js" ; "Fă o prezentare HTML cu grafice" ; "Сделай HTML-презентацию с графиками" | NOT "Make a .pptx for finance" [anthropic-skills:pptx] ; "Slide the sidebar in with CSS" [ui-styling]

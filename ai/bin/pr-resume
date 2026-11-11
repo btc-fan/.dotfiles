@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""pr-resume: resume the agent sessions that wrote a PR, from its author-sessions block (SPEC A.5).
+
+Usage:
+  pr-resume [<pr number|url>]           list the sessions and the command that resumes each
+  pr-resume [<pr>] --run main|<n>       resume one of them (cd to its dir, start the agent)
+  pr-resume [<pr>] --json               machine output
+  pr-resume --body-file <file|->        read the PR body from a file or stdin instead of gh
+
+Without a PR argument, gh picks the PR of the current branch.
+Block format (one ID, dir:, one path without spaces):
+  <!-- author-sessions
+  updated: <YYYY-MM-DD>
+  main:   <session-id>  dir: <path>  # <what>
+  herdr:  <session-id>  dir: <path>  # <what>
+  -->
+Agent per session: found by its session file (~/.claude/projects, ~/.codex/sessions), else Claude.
+"""
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+
+LINE = re.compile(r"^\s*(main|herdr)\s*:\s+(\S+)(?:\s+dir:\s+(\S+))?\s*(?:#\s*(.*))?$")
+
+
+def main(argv):
+    opts = parse(argv)
+    body = read_body(opts)
+    if body is None:
+        return 1
+    sessions, updated = parse_block(body)
+    if sessions is None:
+        print("pr-resume: no <!-- author-sessions block in the PR body", file=sys.stderr)
+        return 1
+    for s in sessions:
+        s["agent"] = agent_of(s["id"])
+        s["resume"] = resume_cmd(s)
+    if opts["json"]:
+        print(json.dumps({"updated": updated, "sessions": sessions}, indent=1))
+        return 0
+    if opts["run"]:
+        return run(sessions, opts["run"])
+    print("updated: %s" % (updated or "?"))
+    for i, s in enumerate(sessions, 1):
+        print("%d. %-5s %s  %s" % (i, s["role"], s["resume"], ("# " + s["note"]) if s["note"] else ""))
+    return 0
+
+
+def parse(argv):
+    opts = {"pr": None, "run": None, "json": False, "body_file": None}
+    args = list(argv)
+    while args:
+        a = args.pop(0)
+        if a == "--run" and args:
+            opts["run"] = args.pop(0)
+        elif a == "--json":
+            opts["json"] = True
+        elif a == "--body-file" and args:
+            opts["body_file"] = args.pop(0)
+        elif a in ("-h", "--help"):
+            print(__doc__)
+            sys.exit(0)
+        else:
+            opts["pr"] = a
+    return opts
+
+
+def read_body(opts):
+    if opts["body_file"]:
+        if opts["body_file"] == "-":
+            return sys.stdin.read()
+        with open(opts["body_file"], encoding="utf-8") as fh:
+            return fh.read()
+    cmd = ["gh", "pr", "view"] + ([opts["pr"]] if opts["pr"] else []) + ["--json", "body", "-q", ".body"]
+    try:
+        return subprocess.run(cmd, check=True, stdout=subprocess.PIPE).stdout.decode("utf-8")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        print("pr-resume: gh pr view failed: %s" % exc, file=sys.stderr)
+        return None
+
+
+def parse_block(body):
+    m = re.search(r"<!--\s*author-sessions\s*\n(.*?)-->", body, re.S)
+    if not m:
+        return None, None
+    sessions, updated = [], None
+    for raw in m.group(1).splitlines():
+        if raw.strip().startswith("updated:"):
+            updated = raw.split(":", 1)[1].strip()
+            continue
+        lm = LINE.match(raw)
+        if not lm:
+            continue
+        role, sid, path, note = lm.groups()
+        sessions.append({"role": role, "id": sid, "dir": path or "", "note": (note or "").strip()})
+    return sessions, updated
+
+
+def agent_of(sid):
+    if sid == "unknown":
+        return "unknown"
+    home = os.path.expanduser("~")
+    if glob.glob(os.path.join(home, ".claude", "projects", "*", sid + ".jsonl")):
+        return "claude"
+    if glob.glob(os.path.join(home, ".codex", "sessions", "**", "*%s*.jsonl" % sid), recursive=True):
+        return "codex"
+    return "claude"
+
+
+def resume_cmd(s):
+    if s["agent"] == "unknown":
+        return "(no session id recorded)"
+    agent = "codex resume %s" % s["id"] if s["agent"] == "codex" else "claude --resume %s" % s["id"]
+    return "cd %s && %s" % (s["dir"] or ".", agent)
+
+
+def run(sessions, which):
+    if which.isdigit():
+        idx = int(which) - 1
+        pick = sessions[idx] if 0 <= idx < len(sessions) else None
+    else:
+        pick = next((s for s in sessions if s["role"] == which), None)
+    if not pick or pick["agent"] == "unknown":
+        print("pr-resume: no resumable session %r" % which, file=sys.stderr)
+        return 1
+    if pick["dir"]:
+        os.chdir(os.path.expanduser(pick["dir"]))
+    argv = ["codex", "resume", pick["id"]] if pick["agent"] == "codex" else ["claude", "--resume", pick["id"]]
+    os.execvp(argv[0], argv)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

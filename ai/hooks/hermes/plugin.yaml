@@ -1,0 +1,5 @@
+# ai-core Hermes plugin (dotfiles ai branch). UNVERIFIED key set: name/version/description are the
+# common plugin.yaml fields; check `hermes plugins list` after install and adjust if Hermes wants more.
+name: ai-core
+version: 1.0.0
+description: Routing table, per-turn routing hints and install/secret/PR gates from ai/routing.yaml.

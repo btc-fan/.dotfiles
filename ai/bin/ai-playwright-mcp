@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# ai-playwright-mcp: start the pinned Playwright MCP that ai-start installed once on this machine
+# (~/.local/share/ai/npm/playwright-mcp-<PLAYWRIGHT_MCP_VERSION>). Project .mcp.json and
+# .codex/config.toml run this command, so no npx and no download happen at runtime.
+set -euo pipefail
+
+self=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$0")
+pins="$(cd "$(dirname "$self")/.." && pwd -P)/pins.env"
+ver=$(sed -n 's/^PLAYWRIGHT_MCP_VERSION=\([^ #]*\).*/\1/p' "$pins" | head -n 1)
+bin="$HOME/.local/share/ai/npm/playwright-mcp-$ver/node_modules/.bin/mcp-server-playwright"
+
+if [ -z "$ver" ] || [ ! -x "$bin" ]; then
+    echo "ai-playwright-mcp: @playwright/mcp ${ver:-?} is not installed on this machine." >&2
+    echo "Run ai-start in the project (it installs the pinned, audited version once)." >&2
+    exit 1
+fi
+exec "$bin" "$@"

@@ -1,0 +1,30 @@
+{
+ "rule": "browser",
+ "cases": [
+  {
+   "name": "project has playwright",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "take a screenshot of the login page"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".mcp.json": "{\"mcpServers\": {\"playwright\": {}}}"
+    }
+   }
+  },
+  {
+   "name": "no playwright",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "take a screenshot of the login page"
+   },
+   "project": {
+    "git": true
+   }
+  }
+ ]
+}

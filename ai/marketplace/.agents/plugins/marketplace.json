@@ -1,0 +1,10 @@
+{
+  "name": "ai",
+  "plugins": [
+    {
+      "name": "ai-core",
+      "source": "./plugins/ai-core",
+      "category": "Productivity"
+    }
+  ]
+}

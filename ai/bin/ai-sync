@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# ai-sync: refresh the COPIED rules after a pull. Fast: no package installs, no network.
+#
+#   ai-sync                       ai-render, then refresh the copies below
+#   ai-sync --check               exit 1 when a copy differs from the current ai/AGENTS.md (ai-doctor)
+#   ai-sync --install-hook [dir]  git post-merge + post-rewrite hooks in the repo of [dir] (default
+#                                 $AI_HOME), so `git -C ~/.dotfiles-ai pull` runs ai-sync
+#   ai-sync --uninstall-hook [dir]
+#   ai-sync --dry-run             print what would change
+#
+# Copies (agents that cannot @import ~/.config/ai/AGENTS.md):
+#   Codex   ~/.codex/AGENTS.md block AI:core          (same block-upsert as install.sh, base_rules)
+#   Hermes  ~hermes/.hermes/SOUL.md block AI:core     (hermes_rules) and the Hermes plugin copy
+#           ~hermes/.hermes/plugins/ai-core (hermes_hooks: routing.json, router code). Needs sudo -n.
+# Claude and opencode read ~/.config/ai/AGENTS.md (a link), so ai-render alone updates them.
+set -euo pipefail
+
+SELF=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$0")
+AI_HOME=${AI_HOME:-$(cd "$(dirname "$SELF")/../.." && pwd -P)}
+export AI_HOME
+HOOK_MARK="ai-sync-hook v1"
+
+main() {
+    case "${1:-}" in
+        --install-hook) install_hooks "${2:-$AI_HOME}"; return ;;
+        --uninstall-hook) uninstall_hooks "${2:-$AI_HOME}"; return ;;
+        --check) check_copies; return ;;
+        --dry-run) export AI_DRY_RUN=1 ;;
+        --quiet|"") ;;
+        -h|--help) sed -n '2,16p' "$SELF" | sed 's/^# \{0,1\}//'; return 0 ;;
+        *) echo "unknown option: $1" >&2; return 2 ;;
+    esac
+    load_libs
+    python3 "$AI_HOME/ai/bin/ai-render" >/dev/null || die "ai-render failed: copies not refreshed"
+    [ -f "$AI_HOME/ai/AGENTS.md" ] || die "ai/AGENTS.md missing after ai-render"
+
+    if [ -d "$CODEX_DIR" ]; then
+        local tmp; tmp=$(rules_text_file)
+        aiconf block-upsert "$CODEX_DIR/AGENTS.md" core 1 "$tmp"
+        rm -f "$tmp"
+    fi
+    if hermes_exists; then
+        if [ "${AI_DRY_RUN:-0}" = 1 ] || sudo -n -u "$HERMES_USER" true 2>/dev/null; then
+            hermes_rules
+            hermes_hooks
+        else
+            warn "Hermes copies not refreshed: needs sudo -n to user $HERMES_USER. Run ai-sync by hand."
+        fi
+    fi
+    return 0
+}
+
+load_libs() {
+    # shellcheck disable=SC1090
+    . "$AI_HOME/ai/lib/common.sh"
+    for f in base tools hermes; do . "$AI_HOME/ai/adapters/$f.sh"; done
+    detect_os
+}
+
+# ---------------------------------------------------------------- check (ai-doctor)
+
+check_copies() {
+    load_libs >/dev/null
+    local rc=0 soul=""
+    if [ -f "$CODEX_DIR/AGENTS.md" ]; then
+        block_matches "$CODEX_DIR/AGENTS.md" "Codex ~/.codex/AGENTS.md" || rc=1
+    fi
+    if hermes_exists; then
+        soul=$(sudo -n -u "$HERMES_USER" -H sh -c 'cat ~/.hermes/SOUL.md' 2>/dev/null || true)
+        if [ -z "$soul" ]; then
+            echo "WARN Hermes SOUL.md not readable (needs sudo -n to $HERMES_USER)"
+        else
+            printf '%s' "$soul" | block_matches - "Hermes SOUL.md" || rc=1
+            plugin_matches || rc=1
+        fi
+    fi
+    return "$rc"
+}
+
+# The copied block must start with the current ai/AGENTS.md (Hermes appends the i-have-adhd rules,
+# and servers append the hosting doc, after it).
+block_matches() {
+    python3 - "$1" "$2" "$AI_HOME/ai/AGENTS.md" <<'EOF'
+import re, sys
+src, label, agents = sys.argv[1:4]
+text = sys.stdin.read() if src == "-" else open(src, encoding="utf-8").read()
+want = open(agents, encoding="utf-8").read().rstrip("\n")
+m = re.search(r"<!-- AI:core v\d+ START -->\n(.*?)\n<!-- AI:core v\d+ END -->", text, re.S)
+if not m:
+    print("FAIL %s: no AI:core block (run ai-sync)" % label); sys.exit(1)
+if not m.group(1).startswith(want):
+    print("FAIL %s: AI:core block differs from ai/AGENTS.md (run ai-sync)" % label); sys.exit(1)
+print("PASS %s: AI:core block is current" % label)
+EOF
+}
+
+plugin_matches() {
+    local want got
+    want=$(cksum < "$AI_HOME/ai/build/routing.json")
+    got=$(sudo -n -u "$HERMES_USER" -H sh -c 'cksum < ~/.hermes/plugins/ai-core/routing.json' 2>/dev/null || true)
+    if [ "$want" = "$got" ]; then echo "PASS Hermes plugin routing.json is current"; return 0; fi
+    echo "FAIL Hermes plugin routing.json differs or is missing (run ai-sync)"
+    return 1
+}
+
+# ---------------------------------------------------------------- git hooks
+
+install_hooks() {
+    local repo=$1 dir name path
+    dir=$(git -C "$repo" rev-parse --git-path hooks) || { echo "not a git repo: $repo" >&2; return 1; }
+    case "$dir" in /*) ;; *) dir="$repo/$dir" ;; esac
+    mkdir -p "$dir"
+    for name in post-merge post-rewrite; do
+        path="$dir/$name"
+        if [ -f "$path" ] && ! grep -q "$HOOK_MARK" "$path"; then
+            echo "skip $path: a hook that is not ours exists. Add this line to it: ai/bin/ai-sync --quiet" >&2
+            continue
+        fi
+        hook_text > "$path.tmp"
+        chmod 755 "$path.tmp"
+        mv "$path.tmp" "$path"
+        echo "hook: $path"
+    done
+}
+
+uninstall_hooks() {
+    local repo=$1 dir name
+    dir=$(git -C "$repo" rev-parse --git-path hooks) || return 0
+    case "$dir" in /*) ;; *) dir="$repo/$dir" ;; esac
+    for name in post-merge post-rewrite; do
+        if [ -f "$dir/$name" ] && grep -q "$HOOK_MARK" "$dir/$name"; then rm -f "$dir/$name"; echo "removed $dir/$name"; fi
+    done
+}
+
+# Shared by all worktrees of the repo: only a worktree that has ai/bin/ai-sync (branch ai) runs it.
+hook_text() {
+    cat <<EOF
+#!/bin/sh
+# $HOOK_MARK: refresh copied AI rules after pull (installed by ai-sync --install-hook).
+top=\$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+[ -x "\$top/ai/bin/ai-sync" ] || exit 0
+"\$top/ai/bin/ai-sync" --quiet || echo "ai-sync failed: run \$top/ai/bin/ai-sync by hand" >&2
+exit 0
+EOF
+}
+
+main "$@"

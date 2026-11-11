@@ -1,0 +1,49 @@
+{
+ "rule": "no-ai-base",
+ "cases": [
+  {
+   "name": "git repo without .ai/base-version",
+   "expect": "fire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "repo with base version",
+   "expect": "nofire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/base-version": "2\n"
+    }
+   }
+  },
+  {
+   "name": "not a git repo",
+   "expect": "nofire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   }
+  },
+  {
+   "name": "re-injected after compaction",
+   "expect": "fire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "compact"
+   },
+   "project": {
+    "git": true
+   }
+  }
+ ]
+}

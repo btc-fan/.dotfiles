@@ -1,0 +1,13 @@
+{
+  "name": "ai-core",
+  "version": "1.0.0",
+  "description": "Always-on base of the dotfiles ai branch: routing hooks, gates and usage-contract skills.",
+  "skills": "./skills/",
+  "hooks": "./hooks/codex-hooks.json",
+  "interface": {
+    "displayName": "ai-core",
+    "shortDescription": "Routing hooks, gates and skills of the dotfiles ai branch",
+    "category": "Productivity",
+    "capabilities": ["Instructions", "Lifecycle hooks"]
+  }
+}

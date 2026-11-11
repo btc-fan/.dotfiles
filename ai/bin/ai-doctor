@@ -1,0 +1,268 @@
+#!/usr/bin/env python3
+"""ai-doctor: check that the AI setup on this machine is complete and current.
+
+  ai-doctor           all checks (plugin validate, router tests, evals when present)
+  ai-doctor --quick   fast checks only (install.sh runs this at the end)
+
+Exit 1 when any check FAILs. WARN does not fail.
+Checks: rendered routing up to date; AGENTS.md size (30 KB cap) and no em dash; plugin files and hooks
+JSON; router smoke run; plugin installed in Claude/Codex; a usage contract (ai/rules/<tool>.md with
+the five sections and a verify command) for every MCP server of ai-core; copied rule blocks (Codex
+AGENTS.md, Hermes SOUL.md, Hermes plugin) equal the current ai/AGENTS.md (ai-sync --check); secrets.env mode 600;
+gate skips and misses of the last 7 days; full mode: claude plugin validate, router tests,
+manual-eval report for ai/evals (markdown prompt lists, run by hand), omx doctor, mise ls.
+ai/rules/vendor/ holds byte copies of vendor templates and is not checked as contracts.
+"""
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+BIN = os.path.dirname(os.path.realpath(__file__))
+AI_DIR = os.path.dirname(BIN)
+PLUGIN = os.path.join(AI_DIR, "marketplace", "plugins", "ai-core")
+STATE = os.environ.get("AI_STATE_DIR") or os.path.expanduser("~/.local/state/ai")
+CAP = 30 * 1024
+SECTIONS = ["vendor rules", "when", "enforcement", "proof", "setup checklist"]
+RESULTS = {"PASS": 0, "WARN": 0, "FAIL": 0}
+
+
+def main(argv):
+    quick = "--quick" in argv
+    check_render()
+    check_agents_md()
+    check_plugin_files()
+    check_router_smoke()
+    check_installed()
+    check_contracts()
+    check_copies()
+    check_secrets()
+    report_logs()
+    if not quick:
+        check_validate()
+        check_tests()
+        check_evals()
+        check_optional("omx", ["omx", "doctor"])
+        check_optional("mise", ["mise", "ls"])
+    print("\nai-doctor: %d pass, %d warn, %d fail" % (RESULTS["PASS"], RESULTS["WARN"], RESULTS["FAIL"]))
+    return 1 if RESULTS["FAIL"] else 0
+
+
+# ---------------------------------------------------------------- checks
+
+def check_render():
+    code, out = run([os.path.join(BIN, "ai-render"), "--check"])
+    say("PASS" if code == 0 else "FAIL", "routing.json, L0.md, AGENTS.md rendered and current", out if code else "")
+
+
+def check_agents_md():
+    path = os.path.join(AI_DIR, "AGENTS.md")
+    if not os.path.isfile(path):
+        say("FAIL", "ai/AGENTS.md exists", "run ai-render")
+        return
+    data = open(path, "rb").read()
+    say("PASS" if len(data) <= CAP else "FAIL", "AGENTS.md size %d of %d bytes" % (len(data), CAP))
+    say("PASS" if chr(0x2014).encode() not in data else "FAIL", "AGENTS.md has no em dash")
+    link = os.path.expanduser("~/.config/ai/AGENTS.md")
+    say("PASS" if os.path.exists(link) else "WARN", "~/.config/ai/AGENTS.md present")
+
+
+def check_plugin_files():
+    for rel in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json", "hooks/hooks.json",
+                "hooks/codex-hooks.json", ".mcp.json"):
+        p = os.path.join(PLUGIN, rel)
+        try:
+            with open(p) as fh:
+                json.load(fh)
+            say("PASS", "ai-core %s valid JSON" % rel)
+        except (OSError, ValueError) as exc:
+            say("FAIL", "ai-core %s valid JSON" % rel, str(exc))
+    for rel in ("hooks/router.py", "hooks/claude-notify"):
+        p = os.path.join(PLUGIN, rel)
+        say("PASS" if os.access(p, os.X_OK) else "FAIL", "ai-core %s executable" % rel)
+
+
+def check_router_smoke():
+    router = os.path.join(PLUGIN, "hooks", "router.py")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "ai-doctor",
+                          "cwd": os.path.expanduser("~"), "prompt": "run an seo audit of the site"})
+    env = dict(os.environ, AI_STATE_DIR=os.path.join(STATE, "doctor"))
+    t0 = time.time()
+    try:
+        res = subprocess.run(["python3", router, "UserPromptSubmit"], input=payload.encode(), env=env,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+        ok = res.returncode == 0 and "claude-seo" in res.stdout.decode()
+    except (OSError, subprocess.SubprocessError):
+        ok = False
+    ms = int((time.time() - t0) * 1000)
+    say("PASS" if ok and ms < 1000 else "FAIL", "router answers a prompt in %d ms (limit 1000)" % ms)
+
+
+def check_installed():
+    if shutil.which("claude"):
+        code, out = run(["claude", "plugin", "list"])
+        say("PASS" if "ai-core" in out else "FAIL", "Claude: plugin ai-core installed")
+    else:
+        say("WARN", "Claude Code not found")
+    if shutil.which("codex"):
+        code, out = run(["codex", "plugin", "list"])
+        say("PASS" if "ai-core" in out else "WARN", "Codex: plugin ai-core installed",
+            "" if code == 0 else "codex plugin list failed")
+
+
+def check_contracts():
+    try:
+        with open(os.path.join(PLUGIN, ".mcp.json")) as fh:
+            servers = sorted(json.load(fh).get("mcpServers", {}))
+    except (OSError, ValueError):
+        servers = []
+    rules_dir = os.path.join(AI_DIR, "rules")
+    files = {f[:-3].lower(): os.path.join(rules_dir, f) for f in os.listdir(rules_dir)
+             if f.endswith(".md")} if os.path.isdir(rules_dir) else {}
+    for name in servers:
+        n = name.lower()
+        key = next((k for k in files if k in (n, n + "-mcp", "mcp-" + n) or k.replace("-", "") == n.replace("-", "")),
+                   None)
+        say("PASS" if key else "FAIL", "contract ai/rules/<tool>.md for MCP server %s" % name)
+    for key, path in sorted(files.items()):
+        text = open(path, encoding="utf-8").read()
+        heads = [h.lower() for h in re.findall(r"^##+\s*(.+)$", text, re.M)]
+        missing = [s for s in SECTIONS if not any(h.startswith(s) for h in heads)]
+        verify = re.search(r"(?i)verify", text) is not None
+        if missing or not verify:
+            say("FAIL", "contract %s complete" % key,
+                "missing: " + ", ".join(missing + ([] if verify else ["verify command"])))
+        else:
+            say("PASS", "contract %s complete" % key)
+
+
+def check_copies():
+    """Copied rule blocks (Codex AGENTS.md, Hermes SOUL.md, Hermes plugin) must match ai/AGENTS.md: ai-sync --check."""
+    code, out = run(["bash", os.path.join(BIN, "ai-sync"), "--check"])
+    lines = [ln for ln in out.splitlines() if ln[:4] in ("PASS", "FAIL", "WARN")]
+    for ln in lines:
+        level, _sp, what = ln.partition(" ")
+        say(level, what)
+    if code != 0 and not any(ln.startswith("FAIL") for ln in lines):
+        say("FAIL", "ai-sync --check failed", out[-300:])
+    if not lines and code == 0:
+        say("PASS", "no copied rule blocks on this machine (no ~/.codex, no hermes user)")
+
+
+def check_secrets():
+    p = os.path.expanduser("~/.config/ai/secrets.env")
+    if not os.path.exists(p):
+        say("WARN", "~/.config/ai/secrets.env present")
+        return
+    mode = os.stat(p).st_mode & 0o777
+    say("PASS" if mode == 0o600 else "FAIL", "secrets.env mode %o (want 600)" % mode)
+
+
+def report_logs():
+    since = time.time() - 7 * 86400
+    misses = count_jsonl(os.path.join(STATE, "misses.jsonl"), "rule", since)
+    fired = count_jsonl(os.path.join(STATE, "fired.jsonl"), "rule", since)
+    skills = count_jsonl(os.path.join(STATE, "fired.jsonl"), "skill", since)
+    print("\nlast 7 days: rules fired %s" % fmt(fired))
+    print("last 7 days: skills used %s" % fmt(skills))
+    print("last 7 days: misses %s" % fmt(misses))
+    skips = [ln for ln in read_lines(os.path.join(STATE, "gates.log")) if " SKIP " in ln]
+    if skips:
+        say("WARN", "%d gate skip(s) logged (last: %s)" % (len(skips), skips[-1][:120]))
+    errors = read_lines(os.path.join(STATE, "router-errors.log"))
+    if errors:
+        say("WARN", "%d router error(s) logged (last: %s)" % (len(errors), errors[-1][:120]))
+
+
+def check_validate():
+    if not shutil.which("claude"):
+        return
+    code, out = run(["claude", "plugin", "validate", PLUGIN])
+    say("PASS" if code == 0 else "FAIL", "claude plugin validate ai-core", out[-400:] if code else "")
+
+
+def check_tests():
+    runner = os.path.join(AI_DIR, "tests", "run.sh")
+    if os.path.isfile(runner):
+        code, out = run(["bash", runner])
+        say("PASS" if code == 0 else "FAIL", "router tests (ai/tests/run.sh)", out[-600:] if code else "")
+
+
+def check_evals():
+    """ai/evals/*.md are prompt lists for people (HOWTO.md Appendix 5), not machine-readable: report them
+    as manual evals with their size. Automatic proof comes from the router tests and the fired/misses logs."""
+    evals = os.path.join(AI_DIR, "evals")
+    files = sorted(f for f in os.listdir(evals) if f.endswith(".md") and f != "HOWTO.md") if os.path.isdir(evals) else []
+    if not files:
+        say("WARN", "no evals in ai/evals")
+        return
+    prompts = 0
+    for f in files:
+        prompts += sum(1 for ln in read_lines(os.path.join(evals, f)) if re.match(r"^\s*(?:[-*]|\d+\.|\|)\s*\S", ln))
+    say("WARN", "manual evals: %d files, about %d prompt lines in ai/evals (run them per ai/evals/HOWTO.md)"
+        % (len(files), prompts))
+
+
+def check_optional(name, cmd):
+    if shutil.which(cmd[0]):
+        code, out = run(cmd, timeout=120)
+        say("PASS" if code == 0 else "WARN", " ".join(cmd), out[-300:] if code else "")
+
+
+# ---------------------------------------------------------------- helpers
+
+def say(level, what, detail=""):
+    RESULTS[level] += 1
+    print("%-4s %s%s" % (level, what, ("\n     " + detail.strip().replace("\n", "\n     ")) if detail else ""))
+
+
+def run(cmd, timeout=60):
+    try:
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
+        return res.returncode, res.stdout.decode("utf-8", "replace")
+    except (OSError, subprocess.SubprocessError) as exc:
+        return 1, str(exc)
+
+
+def count_jsonl(path, kind, since):
+    counts = {}
+    for line in read_lines(path):
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        row_kind = row.get("kind", "rule")
+        if row_kind != kind or row.get("log_only") or parse_ts(row.get("ts", "")) < since:
+            continue
+        key = row.get("rule") or row.get("skill") or "?"
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def parse_ts(ts):
+    import calendar
+    try:
+        return calendar.timegm(time.strptime(ts, "%Y-%m-%dT%H:%M:%SZ"))
+    except ValueError:
+        return 0
+
+
+def fmt(counts):
+    if not counts:
+        return "none"
+    return ", ".join("%s %d" % (k, v) for k, v in sorted(counts.items(), key=lambda kv: -kv[1])[:15])
+
+
+def read_lines(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return fh.read().splitlines()
+    except OSError:
+        return []
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

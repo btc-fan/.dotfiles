@@ -1,0 +1,25 @@
+#!/bin/sh
+# caffeinate for Linux: a systemd-inhibit wrapper that accepts the macOS flags used by the owner's
+# SessionStart hook (`caffeinate -s -w <pid>`). It blocks sleep and idle until <pid> exits.
+# Flags -d -i -m -s -u are accepted and ignored (one inhibitor covers them). Without -w it holds
+# the lock until killed, or runs a given command under the lock.
+pid=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -w) pid="$2"; shift 2 ;;
+        -t) shift 2 ;;
+        -[dimsu]*) shift ;;
+        --) shift; break ;;
+        -*) shift ;;
+        *) break ;;
+    esac
+done
+why="agent session"
+if [ -n "$pid" ]; then
+    exec systemd-inhibit --what=sleep:idle --who=caffeinate --why="$why" --mode=block \
+        tail --pid="$pid" -f /dev/null
+elif [ $# -gt 0 ]; then
+    exec systemd-inhibit --what=sleep:idle --who=caffeinate --why="$why" --mode=block "$@"
+else
+    exec systemd-inhibit --what=sleep:idle --who=caffeinate --why="$why" --mode=block sleep infinity
+fi

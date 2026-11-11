@@ -1,0 +1,22 @@
+{
+ "rule": "blog",
+ "cases": [
+  {
+   "name": "blog post",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "write a blog post about eSIMs"
+   },
+   "contains": "tie-break"
+  },
+  {
+   "name": "unit test",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "write a unit test for the parser"
+   }
+  }
+ ]
+}

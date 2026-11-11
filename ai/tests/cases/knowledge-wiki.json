@@ -1,0 +1,30 @@
+{
+ "rule": "knowledge-wiki",
+ "cases": [
+  {
+   "name": "enabled in project",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "compile the docs into a wiki"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "knowledge-wiki\n"
+    }
+   }
+  },
+  {
+   "name": "not enabled",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "compile the docs into a wiki"
+   },
+   "project": {
+    "git": true
+   }
+  }
+ ]
+}

@@ -1,0 +1,121 @@
+{
+ "rule": "seo",
+ "cases": [
+  {
+   "name": "seo audit",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "run an seo audit of example.com"
+   }
+  },
+  {
+   "name": "db audit is not seo",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "audit the database indexes"
+   }
+  },
+  {
+   "name": "miss logged when no seo skill ran",
+   "expect": "miss",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "check the meta description of our homepage"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {},
+     "transcript_append": [
+      {
+       "type": "assistant",
+       "message": {
+        "role": "assistant",
+        "content": [
+         {
+          "type": "text",
+          "text": "Done, I edited the HTML."
+         }
+        ]
+       }
+      },
+      {
+       "type": "assistant",
+       "message": {
+        "role": "assistant",
+        "content": [
+         {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+           "file_path": "index.html"
+          }
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "no miss when the skill ran",
+   "expect": "nomiss",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "check the meta description of our homepage"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {},
+     "transcript_append": [
+      {
+       "type": "assistant",
+       "message": {
+        "role": "assistant",
+        "content": [
+         {
+          "type": "tool_use",
+          "name": "Skill",
+          "input": {
+           "skill": "claude-seo:seo-page"
+          }
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "no miss when the owner typed /seo",
+   "expect": "nomiss",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "/seo page https://example.com"
+     }
+    },
+    {
+     "event": "UserPromptExpansion",
+     "payload": {
+      "command_name": "claude-seo:seo"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {}
+    }
+   ]
+  }
+ ]
+}

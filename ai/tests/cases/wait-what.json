@@ -1,0 +1,21 @@
+{
+ "rule": "wait-what",
+ "cases": [
+  {
+   "name": "wait what",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "wait, what?"
+   }
+  },
+  {
+   "name": "status question",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "what is the status"
+   }
+  }
+ ]
+}

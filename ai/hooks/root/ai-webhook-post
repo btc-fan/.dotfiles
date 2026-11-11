@@ -1,0 +1,73 @@
+#!/usr/bin/python3 -I
+"""ai-webhook-post: root helper that posts one line to the info channel webhook.
+
+Why a root helper: the webhook URLs in /etc/server/webhooks/{alerts,info}.url are root 600.
+Agents run as the main user and may read any file that user can read (prompt injection could leak a
+URL). With this helper the user can post a line, but never sees the URL.
+
+Install (install.sh, Linux only; COPY as root, never link: a link into the user-writable repo would
+let the user change what root runs):
+  sudo install -o root -g root -m 0755 ai/hooks/root/ai-webhook-post /usr/local/sbin/ai-webhook-post
+  echo "<user> ALL=(root) NOPASSWD: /usr/local/sbin/ai-webhook-post" | sudo tee /etc/sudoers.d/ai-webhook-post
+  sudo chmod 0440 /etc/sudoers.d/ai-webhook-post && sudo visudo -cf /etc/sudoers.d/ai-webhook-post
+
+Input: the message on stdin (max 1,500 characters kept). No arguments. Channel: info only.
+Rate limit: one post per 2 s. Mentions are disabled. Exit 0 also when no webhook is configured.
+"""
+import json
+import os
+import sys
+import time
+import urllib.request
+
+URL_FILE = "/etc/server/webhooks/info.url"
+STAMP = "/run/ai-webhook-post.stamp"
+MIN_INTERVAL_S = 2
+
+
+def main():
+    if len(sys.argv) > 1:
+        sys.stderr.write("usage: ai-webhook-post < message\n")
+        return 2
+    try:
+        with open(URL_FILE) as fh:
+            url = fh.read().strip()
+    except OSError:
+        return 0
+    if not url.startswith("https://"):
+        return 0
+    text = sys.stdin.read(6000)
+    text = "".join(ch for ch in text if ch == "\n" or ord(ch) >= 32).strip()[:1500]
+    if not text:
+        return 0
+    if too_soon():
+        return 0
+    user = os.environ.get("SUDO_USER", "?")
+    line = "[%s] %s" % (user, text)
+    body = {"text": line} if "hooks.slack.com" in url else {"content": line, "allowed_mentions": {"parse": []}}
+    req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"),
+                                 headers={"Content-Type": "application/json", "User-Agent": "ai-notify"})
+    try:
+        urllib.request.urlopen(req, timeout=5).read()
+    except Exception:
+        return 1
+    return 0
+
+
+def too_soon():
+    now = time.time()
+    try:
+        if now - os.path.getmtime(STAMP) < MIN_INTERVAL_S:
+            return True
+    except OSError:
+        pass
+    try:
+        with open(STAMP, "w") as fh:
+            fh.write(str(now))
+    except OSError:
+        pass
+    return False
+
+
+if __name__ == "__main__":
+    sys.exit(main())

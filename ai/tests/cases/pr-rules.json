@@ -1,0 +1,109 @@
+{
+ "rule": "pr-rules",
+ "cases": [
+  {
+   "name": "body without mermaid and block",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title x --body 'summary only'"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "full body",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title x --body \"$(cat <<'EOF'\nSummary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\n<!-- author-sessions\nupdated: 2026-11-11\nmain: abc dir: ~/w # did it\n-->\nEOF\n)\""
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "edit without body",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr edit 12 --add-label bug"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "gh pr in a commit message",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git commit -m 'next: gh pr create'"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "short -b flag",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create -t x -b 'no diagram'"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "body file lacks the block",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title x --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n"
+    }
+   }
+  },
+  {
+   "name": "body file complete",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title x --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "```mermaid\ngraph TD; a-->b\n```\n<!-- author-sessions\n-->\n"
+    }
+   }
+  }
+ ]
+}

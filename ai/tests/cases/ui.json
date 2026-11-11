@@ -1,0 +1,30 @@
+{
+ "rule": "ui",
+ "cases": [
+  {
+   "name": "enabled in project",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "design a landing page"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "ui\n"
+    }
+   }
+  },
+  {
+   "name": "not enabled",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "design a landing page"
+   },
+   "project": {
+    "git": true
+   }
+  }
+ ]
+}

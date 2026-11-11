@@ -1,0 +1,10 @@
+## Appendix 4. mattpocock global five and llmwiki eval prompts
+
+User-only skills (grill-me, wait-what, retro) cannot be fired by the model. Their "should-fire" cases are TYPED commands; the pass condition is the UserPromptExpansion log entry plus the response shape. Their "not" cases are plain-text mentions that must not expand anything.
+
+- grilling (model) | "Grill me on this migration plan before I start" ; "Stresează-mi planul ăsta, pune-mi întrebări până nu rămâne nimic neclar" ; "Прожарь мой план, задавай вопросы, пока всё не станет ясно" | NOT "Explain what this function does" [none] ; "Run a deep interview with an ambiguity score" [oh-my-claudecode:deep-interview]
+- grill-me (user only) | typed "/grill-me our caching design" ; "/grill-me planul de migrare a bazei de date" ; "/grill-me план переезда на новый сервер" (expect expansion `grill-me` then Skill `grilling`) | NOT "What does grill-me do?" [answer only, no expansion] ; "Grill the chicken, give me a recipe" [none]
+- wait-what (user only) | typed "/wait-what" after a confusing reply ; "/wait-what nu am înțeles partea cu cache-ul" ; "/wait-what не понял про кэш" (expect short STE re-pitch) | NOT "Wait, what time is it in Chisinau?" [none] ; "What does wait-what do?" [answer only]
+- retro (user only) | typed "/retro" ; "/retro sesiunea de azi" ; "/retro эта сессия" (expect ranked environment fixes, Skill `writing-for-agents` called inside) | NOT "Write a retrospective email for the sprint" [none] ; "What did we change today?" [none]
+- writing-for-agents (model) | "Edit AGENTS.md to add a rule about running tests through rtk" ; "Adaugă o regulă în AGENTS.md despre commit-uri" ; "Поправь CLAUDE.md, добавь правило про коммиты" | NOT "Fix a typo in docs/ARCHITECTURE.md" [none] ; "Update the dashboard CSS" [none]
+- llmwiki (opt-in, project with a llmwiki dir) | "Use the project wiki to find what we decided about X, with citations" ; "Caută în wiki-ul proiectului ce am decis despre X, cu citate" ; "Найди в wiki проекта, что мы решили про X, со ссылками" | NOT "Read README.md" [none] ; "Add a note to the OMC wiki" [oh-my-claudecode:wiki]

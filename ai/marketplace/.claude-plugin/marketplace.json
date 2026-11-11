@@ -1,0 +1,12 @@
+{
+  "name": "ai",
+  "owner": { "name": "dotfiles ai branch" },
+  "metadata": { "description": "Private marketplace of the dotfiles ai branch: one bundle plugin, ai-core." },
+  "plugins": [
+    {
+      "name": "ai-core",
+      "source": "./plugins/ai-core",
+      "description": "Always-on base: routing hooks, gates, usage-contract skills and the global MCP servers (Serena, context7, GitHub, Grounded Docs)."
+    }
+  ]
+}

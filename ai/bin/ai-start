@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""ai-start / ai-adopt: write the project layer of the AI setup into a git repo.
+
+  ai-start [--dir PATH] [--tools id,id] [--yes] [--dry-run]   new project: pick opt-in tools, commit
+  ai-adopt [--dir PATH] [--tools id,id] [--yes] [--dry-run]   existing repo: same layer, show diff,
+                                                              one y/N, commit, push (owner repos only)
+ai-adopt is a link to this file; the mode comes from the command name. Rerun = upgrade (blocks are
+replaced by marker, project text outside the blocks is never touched).
+
+Before ai-start, run grill-me in the agent session (one question round): this command only picks
+tools and writes files.
+
+What it writes (project root):
+  .ai/base-version   routing.yaml version (the base version vN)
+  .ai/enabled        opt-in rule ids, one per line (the router reads it)
+  AGENTS.md          one managed block per enabled opt-in tool:
+                     <!-- AI:<id> v<N> START --> ... <!-- AI:<id> v<N> END -->
+                     text = "Vendor rules" section of ai/rules/<tool>.md, else the routing action
+  CLAUDE.md          a line "@AGENTS.md" (created when missing)
+  .mcp.json, .codex/config.toml   Playwright MCP when "browser" is enabled: command ai-playwright-mcp,
+                     which runs the pinned @playwright/mcp installed once per machine (integrity +
+                     agent-audit PASS, --ignore-scripts) in ~/.local/share/ai/npm. No npx at runtime.
+Owner repos: AI_GITHUB_OWNERS (env or ~/.config/ai/config.env, comma list), else the owner of the
+origin remote of $AI_HOME. Third-party repos are refused.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+BIN = os.path.dirname(os.path.realpath(__file__))
+AI_DIR = os.path.dirname(BIN)
+AI_HOME = os.path.dirname(AI_DIR)
+
+
+def main(argv):
+    mode = "adopt" if os.path.basename(sys.argv[0]).startswith("ai-adopt") else "start"
+    opts = parse(argv)
+    root = git_root(opts["dir"])
+    if root is None:
+        print("ai-%s: %s is not a git repo (git init first)" % (mode, opts["dir"]), file=sys.stderr)
+        return 1
+    if not owner_repo(root):
+        print("ai-%s: refused, the origin remote is not one of the owner's repos" % mode, file=sys.stderr)
+        return 1
+    routing = load_routing()
+    version = str(routing.get("version") or 1)
+    optin = [r for r in routing.get("rules", []) if r.get("scope") == "opt-in"]
+    current = read_lines(os.path.join(root, ".ai", "enabled"))
+    chosen = choose(optin, current, opts)
+
+    plan = []
+    plan.append(write_plan(os.path.join(root, ".ai", "base-version"), version + "\n"))
+    enabled = sorted(set(current) | set(chosen))
+    plan.append(write_plan(os.path.join(root, ".ai", "enabled"), "\n".join(enabled) + "\n" if enabled else ""))
+    agents_path = os.path.join(root, "AGENTS.md")
+    agents = read(agents_path) or "# %s\n" % os.path.basename(root)
+    for rule in optin:
+        if rule["id"] in chosen or rule["id"] in current:
+            agents, note = upsert_block(agents, rule, version)
+            if note:
+                print(note)
+    plan.append(write_plan(agents_path, agents))
+    plan.append(write_plan(os.path.join(root, "CLAUDE.md"), claude_md(read(os.path.join(root, "CLAUDE.md")))))
+    if "browser" in chosen or "browser" in current:
+        plan.extend(playwright_plan(root, opts["dry_run"]))
+    plan = [p for p in plan if p]
+
+    if not plan:
+        print("ai-%s: nothing to change (base v%s)" % (mode, version))
+        return 0
+    for path, _text in plan:
+        print("%s %s" % ("would write" if opts["dry_run"] else "write", os.path.relpath(path, root)))
+    if opts["dry_run"]:
+        return 0
+    for path, text in plan:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    paths = [os.path.relpath(p, root) for p, _ in plan]
+    subprocess.call(["git", "-C", root, "add", "-N"] + paths, stderr=subprocess.DEVNULL)
+    subprocess.call(["git", "-C", root, "--no-pager", "diff", "--"] + paths)
+    if not opts["yes"] and not ask("Commit this%s? [y/N] " % (" and push" if mode == "adopt" else "")):
+        print("ai-%s: files written, not committed" % mode)
+        return 0
+    msg = ("chore(ai): adopt base AI setup v%s" if mode == "adopt" else "chore(ai): start project AI setup v%s") % version
+    subprocess.check_call(["git", "-C", root, "add", "--"] + paths)
+    subprocess.check_call(["git", "-C", root, "commit", "-m", msg, "--"] + paths)
+    if mode == "adopt" and has_remote(root):
+        return subprocess.call(["git", "-C", root, "push"])
+    return 0
+
+
+def parse(argv):
+    opts = {"dir": ".", "tools": None, "yes": False, "dry_run": False}
+    args = list(argv)
+    while args:
+        a = args.pop(0)
+        if a == "--dir" and args:
+            opts["dir"] = args.pop(0)
+        elif a == "--tools" and args:
+            opts["tools"] = [t.strip() for t in args.pop(0).split(",") if t.strip()]
+        elif a == "--yes":
+            opts["yes"] = True
+        elif a == "--dry-run":
+            opts["dry_run"] = True
+        elif a in ("-h", "--help"):
+            print(__doc__)
+            sys.exit(0)
+        else:
+            sys.exit("unknown argument: " + a)
+    return opts
+
+
+def choose(optin, current, opts):
+    ids = [r["id"] for r in optin]
+    if opts["tools"] is not None:
+        bad = [t for t in opts["tools"] if t not in ids]
+        if bad:
+            sys.exit("unknown opt-in tool(s): %s (known: %s)" % (", ".join(bad), ", ".join(ids)))
+        return opts["tools"]
+    if opts["yes"] or not sys.stdin.isatty():
+        return []
+    print("Opt-in tools for this project (routing.yaml). Already enabled: %s" % (", ".join(current) or "none"))
+    picked = []
+    for r in optin:
+        if r["id"] in current:
+            continue
+        if ask("  %s (%s): %s  Enable? [y/N] " % (r["id"], r.get("tool", ""), r["action"])):
+            picked.append(r["id"])
+    return picked
+
+
+# ---------------------------------------------------------------- file builders
+
+def write_plan(path, text):
+    if not text:
+        return None
+    return None if read(path) == text else (path, text)
+
+
+def upsert_block(agents, rule, version):
+    rid = rule["id"]
+    rx = re.compile(r"<!-- AI:%s v\d+ START -->.*?<!-- AI:%s v\d+ END -->\n?" % (re.escape(rid), re.escape(rid)), re.S)
+    outside = rx.sub("", agents)
+    tool = str(rule.get("tool", ""))
+    if tool and tool.split()[0].lower() in outside.lower():
+        return agents, "skip %s: AGENTS.md already has its own text for %s" % (rid, tool)
+    block = "<!-- AI:%s v%s START -->\n%s\n<!-- AI:%s v%s END -->\n" % (rid, version, vendor_text(rule), rid, version)
+    if rx.search(agents):
+        return rx.sub(lambda _m: block, agents, count=1), None
+    return agents.rstrip("\n") + "\n\n" + block, None
+
+
+def vendor_text(rule):
+    for name in candidates(rule):
+        text = read(os.path.join(AI_DIR, "rules", name + ".md"))
+        if text:
+            m = re.search(r"^##+\s*Vendor rules[^\n]*\n(.*?)(?=^##+\s|\Z)", text, re.S | re.M)
+            if m and m.group(1).strip():
+                return m.group(1).strip()
+    return "%s: %s" % (rule.get("tool", rule["id"]), rule["action"])
+
+
+def candidates(rule):
+    tool = str(rule.get("tool", "")).lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", tool).strip("-")
+    first = slug.split("-mcp")[0]
+    return [n for n in (rule["id"], slug, first, tool.split()[0] if tool else "") if n]
+
+
+def claude_md(text):
+    if text is None:
+        return "@AGENTS.md\n"
+    if re.search(r"^@AGENTS\.md\s*$", text, re.M):
+        return None
+    return text.rstrip("\n") + "\n\n@AGENTS.md\n"
+
+
+def playwright_plan(root, dry_run=False):
+    """Project config runs `ai-playwright-mcp` (ai/bin, on PATH): it execs the pinned @playwright/mcp that
+    ensure_playwright installed once per machine. No npx and no download at runtime."""
+    if not ensure_playwright(dry_run):
+        return []
+    args = ["--headless", "--isolated"]
+    out = []
+    mcp_path = os.path.join(root, ".mcp.json")
+    try:
+        mcp = json.loads(read(mcp_path) or "{}")
+    except ValueError:
+        print("skip .mcp.json: not valid JSON")
+        mcp = None
+    if mcp is not None:
+        servers = mcp.setdefault("mcpServers", {})
+        if "playwright" not in servers:
+            servers["playwright"] = {"command": "ai-playwright-mcp", "args": args}
+            out.append((mcp_path, json.dumps(mcp, indent=2) + "\n"))
+    toml_path = os.path.join(root, ".codex", "config.toml")
+    toml = read(toml_path) or ""
+    if "[mcp_servers.playwright]" not in toml:
+        block = '[mcp_servers.playwright]\ncommand = "ai-playwright-mcp"\nargs = [%s]\n' % ", ".join(
+            '"%s"' % a for a in args)
+        out.append((toml_path, (toml.rstrip("\n") + "\n\n" if toml.strip() else "") + block))
+    return out
+
+
+# ---------------------------------------------------------------- helpers
+
+def load_routing():
+    path = os.path.join(AI_DIR, "build", "routing.json")
+    if not os.path.isfile(path):
+        subprocess.call([os.path.join(BIN, "ai-render")])
+    try:
+        with open(path) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        sys.exit("no ai/build/routing.json: run ai-render")
+
+
+def pin(name):
+    for line in (read(os.path.join(AI_DIR, "pins.env")) or "").splitlines():
+        m = re.match(r"^\s*%s\s*=\s*\"?([^\"#\s]+)" % re.escape(name), line)
+        if m:
+            return m.group(1)
+    return None
+
+
+def playwright_dir(ver):
+    return os.path.expanduser("~/.local/share/ai/npm/playwright-mcp-%s" % ver)
+
+
+def ensure_playwright(dry_run=False):
+    """Install the pinned @playwright/mcp once (integrity from pins.env, agent-audit PASS in 24 h,
+    --ignore-scripts) into ~/.local/share/ai/npm/playwright-mcp-<ver>. False = not installed (reason printed)."""
+    ver, want = pin("PLAYWRIGHT_MCP_VERSION"), pin("PLAYWRIGHT_MCP_INTEGRITY")
+    if not ver:
+        print("skip Playwright MCP: no PLAYWRIGHT_MCP_VERSION in ai/pins.env (audit and pin it first)")
+        return False
+    prefix = playwright_dir(ver)
+    if os.access(os.path.join(prefix, "node_modules", ".bin", "mcp-server-playwright"), os.X_OK):
+        return True
+    if not want:
+        print("skip Playwright MCP: no PLAYWRIGHT_MCP_INTEGRITY in ai/pins.env (needed for a checked install)")
+        return False
+    pkg = "@playwright/mcp@%s" % ver
+    if dry_run:
+        print("would install %s into %s (integrity + agent-audit checked first)" % (pkg, prefix))
+        return True
+    got = (cmd_out(["npm", "view", pkg, "dist.integrity"]) or "").strip()
+    if got != want:
+        print("skip Playwright MCP: %s integrity mismatch (registry: %s)" % (pkg, got or "none"))
+        return False
+    if not audit_passed("npm", "@playwright/mcp", ver):
+        print("skip Playwright MCP: no agent-audit PASS in 24 h. Run: agent-audit npm @playwright/mcp %s" % ver)
+        return False
+    os.makedirs(prefix, exist_ok=True)
+    rc = subprocess.call(["npm", "install", "--prefix", prefix, "--ignore-scripts", "--no-audit", "--no-fund",
+                          "--save-exact", pkg])
+    if rc != 0:
+        print("skip Playwright MCP: npm install failed (%d)" % rc)
+        return False
+    print("Playwright MCP %s installed in %s. Browsers are not downloaded (--ignore-scripts): run once\n"
+          "  %s/node_modules/.bin/playwright install chromium" % (ver, prefix, prefix))
+    return True
+
+
+def audit_passed(eco, name, ver):
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks"))
+    from hooklib import audit_status
+    return audit_status(eco, name, ver) == "PASS"
+
+
+def cmd_out(argv):
+    try:
+        return subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode()
+    except OSError:
+        return None
+
+
+def owner_repo(root):
+    url = git(root, "remote", "get-url", "origin")
+    if not url:
+        return True          # local-only repo: nothing is pushed
+    owners = allowed_owners()
+    owner = repo_owner(url)
+    return bool(owner) and owner.lower() in owners
+
+
+def allowed_owners():
+    raw = os.environ.get("AI_GITHUB_OWNERS")
+    if not raw:
+        for line in (read(os.path.expanduser("~/.config/ai/config.env")) or "").splitlines():
+            m = re.match(r"^\s*AI_GITHUB_OWNERS\s*=\s*\"?([^\"]*)\"?", line)
+            if m:
+                raw = m.group(1)
+    if not raw:
+        raw = repo_owner(git(AI_HOME, "remote", "get-url", "origin") or "") or ""
+    return {o.strip().lower() for o in raw.split(",") if o.strip()}
+
+
+def repo_owner(url):
+    m = re.search(r"[:/]([^/:]+)/[^/]+?(?:\.git)?/?$", url.strip())
+    return m.group(1) if m else None
+
+
+def git_root(d):
+    return git(os.path.abspath(d), "rev-parse", "--show-toplevel")
+
+
+def has_remote(root):
+    return bool(git(root, "remote"))
+
+
+def git(d, *args):
+    try:
+        res = subprocess.run(["git", "-C", d] + list(args), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    except OSError:
+        return None
+    out = res.stdout.decode("utf-8").strip()
+    return out if res.returncode == 0 and out else None
+
+
+def ask(question):
+    try:
+        return input(question).strip().lower() in ("y", "yes")
+    except EOFError:
+        return False
+
+
+def read(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
+def read_lines(path):
+    return [ln.split("#", 1)[0].strip() for ln in (read(path) or "").splitlines() if ln.split("#", 1)[0].strip()]
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

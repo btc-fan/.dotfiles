@@ -1,0 +1,48 @@
+{
+ "rule": "no-graph",
+ "cases": [
+  {
+   "name": "code repo without graph",
+   "expect": "fire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "print(1)\n"
+    }
+   }
+  },
+  {
+   "name": "code repo with graph",
+   "expect": "nofire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "x",
+     "graphify-out/graph.json": "{}"
+    }
+   }
+  },
+  {
+   "name": "repo without code",
+   "expect": "nofire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "README.md": "# hi\n"
+    }
+   }
+  }
+ ]
+}

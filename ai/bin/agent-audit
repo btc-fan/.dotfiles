@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# agent-audit: check a package, folder, skill or plugin BEFORE use. Port of the server wrapper.
+# Exit 0 = nothing found (PASS), 1 = findings (FAIL, read them before use), 2 = usage error.
+# Every run appends one line to ~/.local/state/ai/audit.log:
+#   <iso-time> <ecosystem> <name> <version|-> PASS|FAIL
+# The audit-before-install gate (ai-core router) allows an install only with a PASS for that
+# package in the last 24 h.
+# Network: downloads the package from npm/PyPI, and osv-scanner looks up package names + versions
+# on osv.dev. No LLM judge, no VirusTotal, no Socket (sfw is not used: forced telemetry).
+# A missing scanner counts as a finding (fail closed).
+# No `set -e`: the script collects every scanner result in rc and reports them all.
+set -uo pipefail
+export SEMGREP_SEND_METRICS=off
+export GUARDDOG_TELEMETRY=0
+
+usage() {
+    cat <<'EOF'
+usage:
+  agent-audit npm   <name> [version]   guarddog: malicious-package checks on an npm package
+  agent-audit pypi  <name> [version]   guarddog: same for a PyPI package
+  agent-audit dir   <path>             osv-scanner (known CVEs) + guarddog + skill-scanner on a folder
+  agent-audit skill <path>             cisco skill-scanner on every SKILL.md under <path>
+EOF
+    exit 2
+}
+
+main() {
+    rc=0
+    case "${1:-}" in
+        npm|pypi)
+            [ $# -ge 2 ] || usage
+            args=("$1" scan "$2")
+            if [ -n "${3:-}" ]; then args+=(--version "$3"); fi
+            guard "${args[@]}"
+            record "$1" "$2" "${3:--}"
+            ;;
+        dir)
+            [ -d "${2:-}" ] || usage
+            target=$(cd "$2" && pwd -P)
+            if command -v osv-scanner >/dev/null 2>&1; then
+                osv-scanner scan source -r "$target"; s=$?
+                # 128 = no lockfiles or manifests found: nothing to check, not a finding.
+                [ "$s" -eq 0 ] || [ "$s" -eq 128 ] || rc=1
+            else
+                echo "osv-scanner not installed"; rc=1
+            fi
+            if [ -f "$target/package.json" ]; then guard npm scan "$target"; fi
+            if [ -f "$target/pyproject.toml" ] || [ -f "$target/setup.py" ]; then guard pypi scan "$target"; fi
+            scan_skills "$target"
+            record dir "$target" "$(git -C "$target" rev-parse --short HEAD 2>/dev/null || echo -)"
+            ;;
+        skill)
+            [ -d "${2:-}" ] || usage
+            target=$(cd "$2" && pwd -P)
+            scan_skills "$target"
+            record skill "$target" -
+            ;;
+        *) usage ;;
+    esac
+
+    if [ "$rc" -eq 0 ]; then echo "agent-audit: nothing found"; else echo "agent-audit: FINDINGS above, read them before use"; fi
+    exit "$rc"
+}
+
+# guarddog 3.x also reports "capability-*" markers (the code CAN spawn, CAN use the
+# network). Every package has some, so they are printed but do not fail the audit;
+# any other rule (download-and-execute, credential access, ...) does.
+guard() {
+    local out threats
+    if ! command -v guarddog >/dev/null 2>&1; then
+        echo "guarddog not installed"; rc=1; return
+    fi
+    out=$(guarddog "$@" --output-format json 2>/dev/null) || true
+    if ! printf '%s' "$out" | jq -e .results >/dev/null 2>&1; then
+        echo "guarddog failed on: $*"; rc=1; return
+    fi
+    echo "-- guarddog $*"
+    printf '%s' "$out" | jq -r '.results | to_entries[]
+        | select(.value != null and .value != {} and .value != [])
+        | .key as $k | (.value | if type=="array" then .[] else . end)
+        | "  \($k): \(.location? // "") \(.message? // . | tostring | .[0:160])"'
+    threats=$(printf '%s' "$out" | jq '[.results | to_entries[]
+        | select(.value != null and .value != {} and .value != [])
+        | select(.key | startswith("capability-") | not)] | length')
+    echo "   threat rules hit: $threats"
+    [ "$threats" -eq 0 ] || rc=1
+}
+
+scan_skills() {
+    local f found=0
+    while IFS= read -r f; do
+        found=1
+        echo "-- skill $(dirname "$f")"
+        if command -v skill-scanner >/dev/null 2>&1; then
+            skill-scanner scan "$(dirname "$f")" --fail-on-severity high || rc=1
+        else
+            echo "skill-scanner not installed"; rc=1
+        fi
+    done < <(find "$1" -name SKILL.md -not -path '*/node_modules/*' -not -path '*/.git/*')
+    [ "$found" -eq 1 ] || echo "-- no SKILL.md under $1"
+}
+
+# One line per run; names never contain spaces (paths with spaces are refused by the gate anyway).
+record() {
+    local eco="$1" name="$2" ver="$3" result=PASS dir
+    [ "$rc" -eq 0 ] || result=FAIL
+    dir="${AI_STATE_DIR:-$HOME/.local/state/ai}"
+    mkdir -p "$dir"
+    printf '%s %s %s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$eco" "${name// /_}" "${ver:--}" "$result" >> "$dir/audit.log"
+}
+
+main "$@"

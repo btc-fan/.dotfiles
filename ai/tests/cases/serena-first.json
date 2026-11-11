@@ -1,0 +1,120 @@
+{
+ "rule": "serena-first",
+ "cases": [
+  {
+   "name": "read of a code file",
+   "expect": "fire",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Read",
+    "tool_input": {
+     "file_path": "{{PROJ}}/main.py"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "print(1)\n"
+    }
+   }
+  },
+  {
+   "name": "cat of a code file",
+   "expect": "fire",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cat src/app.py"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "print(1)\n"
+    }
+   }
+  },
+  {
+   "name": "rg in a code repo",
+   "expect": "fire",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rg handle_request"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "print(1)\n"
+    }
+   }
+  },
+  {
+   "name": "cat of a doc file",
+   "expect": "nofire",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cat README.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "print(1)\n"
+    }
+   }
+  },
+  {
+   "name": "ls is not a read",
+   "expect": "nofire",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ls -la"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "print(1)\n"
+    }
+   }
+  },
+  {
+   "name": "quiet window: second read within 120 s",
+   "expect": "nofire",
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "print(1)\n"
+    }
+   },
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Read",
+      "tool_input": {
+       "file_path": "{{PROJ}}/main.py"
+      }
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Edit",
+      "tool_input": {
+       "file_path": "{{PROJ}}/main.py"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

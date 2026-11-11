@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""ai-render: ai/routing.yaml -> ai/build/routing.json + ai/build/L0.md, and ai/agents-md/*.md -> ai/AGENTS.md.
+
+Usage:
+  ai-render            render everything (install.sh calls this before linking)
+  ai-render --check    exit 1 when a rendered file is missing or out of date (ai-doctor)
+  ai-render --out DIR  write routing.json and L0.md to DIR only (tests)
+
+The router hook reads only routing.json (python3 stdlib, no PyYAML at hook time).
+Copies of routing.json and L0.md also go next to the router in the ai-core plugin, so a cached
+plugin copy still works when $AI_HOME is not found. The Hermes plugin (ai/hooks/hermes/) gets
+routing.json, L0.md, router.py and hooklib.py copies (all gitignored), because it is copied to the
+hermes user, who cannot read this checkout.
+
+AGENTS.md = ai/agents-md/*.md in name order. The L0 table goes where a part has the line
+<!-- AI:L0 -->, else at the end. Hard cap 30 KB (SPEC 17); no em dash allowed.
+"""
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+AI_DIR = os.path.dirname(HERE)                       # <AI_HOME>/ai
+HOOKS = os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks")
+HERMES = os.path.join(AI_DIR, "hooks", "hermes")
+AGENTS_CAP = 30 * 1024
+EM_DASH = "\u2014"
+L0_MARKER = "<!-- AI:L0 -->"
+
+
+# ---------------------------------------------------------------- entry point
+
+def main(argv):
+    yaml = import_yaml(argv)
+    check = "--check" in argv
+    out_dir = arg_value(argv, "--out")
+    src = os.path.join(AI_DIR, "routing.yaml")
+    with open(src, "rb") as fh:
+        raw = fh.read()
+    data = yaml.safe_load(raw)
+    errors = validate(data)
+    if errors:
+        for e in errors:
+            print("ai-render: ERROR " + e, file=sys.stderr)
+        return 1
+    routing = build_routing(data, hashlib.sha256(raw).hexdigest())
+    routing_text = json.dumps(routing, indent=1, ensure_ascii=True, sort_keys=True) + "\n"
+    l0_text = render_l0(routing)
+    if EM_DASH in l0_text:
+        print("ai-render: ERROR em dash in L0 table", file=sys.stderr)
+        return 1
+
+    targets = []
+    if out_dir:
+        targets += [(os.path.join(out_dir, "routing.json"), routing_text), (os.path.join(out_dir, "L0.md"), l0_text)]
+    else:
+        build = os.path.join(AI_DIR, "build")
+        targets += [(os.path.join(build, "routing.json"), routing_text), (os.path.join(build, "L0.md"), l0_text)]
+        if os.path.isdir(HOOKS):
+            targets += [(os.path.join(HOOKS, "routing.json"), routing_text), (os.path.join(HOOKS, "L0.md"), l0_text)]
+        if os.path.isdir(HERMES):       # the Hermes plugin is copied to the hermes user: it carries its own copies
+            targets += [(os.path.join(HERMES, "routing.json"), routing_text), (os.path.join(HERMES, "L0.md"), l0_text)]
+            for name in ("router.py", "hooklib.py"):
+                targets.append((os.path.join(HERMES, name), read(os.path.join(HOOKS, name))))
+        agents = render_agents(l0_text)
+        if agents is not None:
+            size = len(agents.encode("utf-8"))
+            if size > AGENTS_CAP:
+                print("ai-render: ERROR ai/AGENTS.md would be %d bytes, cap %d" % (size, AGENTS_CAP), file=sys.stderr)
+                return 1
+            if EM_DASH in agents:
+                print("ai-render: ERROR em dash in ai/agents-md parts", file=sys.stderr)
+                return 1
+            targets.append((os.path.join(AI_DIR, "AGENTS.md"), agents))
+        else:
+            print("ai-render: no ai/agents-md/*.md parts yet, AGENTS.md not written", file=sys.stderr)
+
+    stale = 0
+    for path, text in targets:
+        old = read(path)
+        if old == text:
+            continue
+        if check:
+            print("ai-render: out of date: " + path, file=sys.stderr)
+            stale += 1
+            continue
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        print("ai-render: wrote " + path)
+    if check:
+        if not stale:
+            print("ai-render: up to date")
+        return 1 if stale else 0
+    return 0
+
+
+def import_yaml(argv):
+    try:
+        import yaml
+        return yaml
+    except ImportError:
+        pass
+    if os.environ.get("AI_RENDER_REEXEC"):
+        sys.exit("ai-render: PyYAML not available")
+    os.environ["AI_RENDER_REEXEC"] = "1"
+    cmd = ["uv", "run", "--no-project", "--quiet", "--with", "pyyaml==6.0.2", "python3", os.path.realpath(__file__)]
+    try:
+        sys.exit(subprocess.call(cmd + list(argv)))
+    except OSError:
+        sys.exit("ai-render: needs PyYAML or uv (uv run --with pyyaml==6.0.2)")
+
+
+def arg_value(argv, name):
+    if name in argv:
+        i = argv.index(name)
+        if i + 1 < len(argv):
+            return argv[i + 1]
+    return None
+
+
+# ---------------------------------------------------------------- validation and build
+
+def validate(data):
+    sys.dont_write_bytecode = True      # no __pycache__ inside the plugin
+    sys.path.insert(0, HOOKS)
+    try:
+        import router
+        states, gates = router.STATE_PREDICATES, router.GATES
+    except ImportError:
+        states, gates = None, None
+    errors, seen = [], set()
+    for r in data.get("rules", []):
+        rid = r.get("id")
+        if not rid or rid in seen:
+            errors.append("rule id missing or duplicate: %r" % rid)
+        seen.add(rid)
+        if r.get("strength") not in ("nudge", "gate"):
+            errors.append("%s: strength must be nudge or gate" % rid)
+        if r.get("scope", "global") not in ("global", "opt-in"):
+            errors.append("%s: scope must be global or opt-in" % rid)
+        trig = r.get("trigger") or {}
+        if not trig:
+            errors.append("%s: no trigger" % rid)
+        for key in ("prompt", "command", "tool_before", "tool_after"):
+            if trig.get(key):
+                try:
+                    re.compile(trig[key])
+                except re.error as exc:
+                    errors.append("%s: bad %s regex: %s" % (rid, key, exc))
+        for key in ("proof", "reset_on"):
+            if r.get(key):
+                try:
+                    re.compile(r[key])
+                except re.error as exc:
+                    errors.append("%s: bad %s regex: %s" % (rid, key, exc))
+        if r.get("once_per") not in (None, "session", "library_per_session"):
+            errors.append("%s: once_per must be session or library_per_session" % rid)
+        if states is not None and trig.get("state") and trig["state"] not in states:
+            errors.append("%s: unknown state %r (add a predicate in router.STATE_PREDICATES)" % (rid, trig["state"]))
+        if gates is not None and r.get("strength") == "gate" and rid not in gates:
+            errors.append("%s: gate without an implementation in router.GATES" % rid)
+    for tb in data.get("tiebreaks", []):
+        rx = tb.get("match")
+        if not rx:
+            errors.append("tie-break %r has no match regex" % tb.get("trigger"))
+            continue
+        try:
+            re.compile(rx)
+        except re.error as exc:
+            errors.append("tie-break %r: bad regex: %s" % (tb.get("trigger"), exc))
+    return errors
+
+
+def build_routing(data, sha):
+    rules = []
+    for r in data.get("rules", []):
+        rules.append(dict(r))
+    ties = []
+    for tb in data.get("tiebreaks", []):
+        ties.append(dict(tb))
+    return {"version": data.get("version"), "source_sha256": sha, "layers": data.get("layers", {}),
+            "rules": rules, "tiebreaks": ties}
+
+
+# ---------------------------------------------------------------- L0 table
+
+def render_l0(routing):
+    lines = [
+        "## Routing table (L0)",
+        "Generated from ai/routing.yaml v%s by ai-render. Do not edit here." % routing.get("version"),
+        "nudge = do it unless it clearly does not apply. gate = the step is blocked until the condition is met.",
+        "opt-in = only in projects that enabled the tool (ai-start, ai-adopt).",
+        "",
+        "| Rule | When | Do |",
+        "|---|---|---|",
+    ]
+    for r in routing["rules"]:
+        kind = r.get("strength", "nudge") + (", opt-in" if r.get("scope") == "opt-in" else "")
+        lines.append("| %s (%s) | %s | %s |" % (r["id"], kind, cell(r.get("summary") or when_text(r)), cell(r["action"])))
+    lines += ["", "Tie-breaks (use the first, not the second):"]
+    for tb in routing["tiebreaks"]:
+        lines.append("- %s: %s, not %s" % (tb["trigger"], tb["winner"], tb["loser"]))
+    return "\n".join(lines) + "\n"
+
+
+def when_text(r):
+    t = r.get("trigger", {})
+    if r.get("when") == "session_start":
+        return "session start: " + t.get("state", "")
+    bits = []
+    if t.get("prompt"):
+        bits.append("prompt: " + pretty(t["prompt"]))
+    if t.get("state") and r.get("when") != "session_start":
+        bits.append(t["state"])
+    if t.get("tool_before"):
+        bits.append("before " + t["tool_before"].replace("|", "/"))
+    if t.get("tool_after"):
+        bits.append("after " + t["tool_after"].replace("|", "/"))
+    if t.get("paths"):
+        bits.append("on code files" if t["paths"] == "code" else "on " + pretty(t["paths"]))
+    if t.get("command"):
+        bits.append("command: " + pretty(t["command"]))
+    if t.get("content"):
+        bits.append("text has " + "".join("U+%04X" % ord(c) if ord(c) > 127 else c for c in t["content"]))
+    return "; ".join(bits)
+
+
+def pretty(rx, limit=90):
+    s = rx.replace("\\b", "").replace("\\s*", " ").replace("\\s+", " ").replace(".{0,40}", " ... ")
+    s = re.sub(r"\.\?|#\?|\\d\*|\\d\+", "", s)
+    s = s.replace("**/", "").replace("\\", "")
+    if s.startswith("(") and s.endswith(")") and s.count("(") == 1:
+        s = s[1:-1]
+    s = top_level_split(s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s if len(s) <= limit else s[:limit - 3].rstrip(", ") + "..."
+
+
+def top_level_split(s):
+    depth, out = 0, []
+    for ch in s:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if ch == "|" and depth <= 1:
+            out.append(", ")
+        else:
+            out.append(ch)
+    text = "".join(out)
+    if text.startswith("(") and text.endswith(")") and text.count("(") == 1:
+        text = text[1:-1]
+    return text
+
+
+def cell(text):
+    return str(text).replace("|", "\\|").replace("\n", " ")
+
+
+# ---------------------------------------------------------------- AGENTS.md
+
+def render_agents(l0_text):
+    parts_dir = os.path.join(AI_DIR, "agents-md")
+    if not os.path.isdir(parts_dir):
+        return None
+    names = sorted(n for n in os.listdir(parts_dir) if n.endswith(".md"))
+    if not names:
+        return None
+    chunks = [read(os.path.join(parts_dir, n)).rstrip("\n") for n in names]
+    body = "\n\n".join(chunks)
+    if L0_MARKER in body:
+        body = body.replace(L0_MARKER, l0_text.rstrip("\n"), 1)
+    else:
+        body = body + "\n\n" + l0_text.rstrip("\n")
+    return body + "\n\n<!-- generated by ai/bin/ai-render from ai/agents-md/ and ai/routing.yaml; edit those -->\n"
+
+
+def read(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

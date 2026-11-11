@@ -1,0 +1,57 @@
+{
+ "rule": "graph-first",
+ "cases": [
+  {
+   "name": "read of a code file is logged only",
+   "expect": "log",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Read",
+    "tool_input": {
+     "file_path": "{{PROJ}}/main.py"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "print(1)\n"
+    }
+   }
+  },
+  {
+   "name": "grep in a code repo is logged only",
+   "expect": "log",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Grep",
+    "tool_input": {
+     "pattern": "def main",
+     "path": "{{PROJ}}"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "print(1)\n"
+    }
+   }
+  },
+  {
+   "name": "read of a doc file",
+   "expect": "nofire",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Read",
+    "tool_input": {
+     "file_path": "{{PROJ}}/README.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "print(1)\n"
+    }
+   }
+  }
+ ]
+}

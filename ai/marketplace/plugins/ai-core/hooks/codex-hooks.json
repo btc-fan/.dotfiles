@@ -1,0 +1,83 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex SessionStart",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "sh \"${PLUGIN_ROOT}/hooks/serena-hook\" activate --client=codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex UserPromptSubmit",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex PreToolUse",
+            "timeout": 25
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex PostToolUse",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex Stop",
+            "timeout": 25
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${PLUGIN_ROOT}/hooks/serena-hook\" cleanup --client=codex",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex SessionEnd",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

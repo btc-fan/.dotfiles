@@ -1,0 +1,51 @@
+{
+ "rule": "no-em-dash",
+ "cases": [
+  {
+   "name": "em dash written",
+   "expect": "fire",
+   "event": "PostToolUse",
+   "payload": {
+    "tool_name": "Write",
+    "tool_input": {
+     "file_path": "{{PROJ}}/notes.md",
+     "content": "one \u2014 two\n"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "em dash in edit",
+   "expect": "fire",
+   "event": "PostToolUse",
+   "payload": {
+    "tool_name": "Edit",
+    "tool_input": {
+     "file_path": "{{PROJ}}/notes.md",
+     "old_string": "a",
+     "new_string": "x \u2014 y"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "plain dash",
+   "expect": "nofire",
+   "event": "PostToolUse",
+   "payload": {
+    "tool_name": "Write",
+    "tool_input": {
+     "file_path": "{{PROJ}}/notes.md",
+     "content": "one - two\n"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  }
+ ]
+}
