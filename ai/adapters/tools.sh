@@ -117,7 +117,8 @@ vendor_preview() {
 $(env_pairs)
 EOF_ENV
       "$@" </dev/null >/dev/null 2>&1 ) || true
-    ( cd "$th" && find . -type f | sed 's|^\./|    ~/|' | head -40 )
+    # awk reads all input (head would close the pipe early: SIGPIPE 141 under pipefail killed the install).
+    ( cd "$th" && find . -type f | sed 's|^\./|    ~/|' | awk 'NR<=40' ) || true
     rm -rf "$th"
 }
 
