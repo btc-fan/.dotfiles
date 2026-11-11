@@ -22,9 +22,9 @@ main() {
     create_work_dir
 }
 
-# AGENT_SUDO=full (owner decision): passwordless sudo through its own sudoers file, never through
-# the sudo group. AGENT_SUDO=none never removes a file that is already there: taking root away
-# is the owner's call, done by hand.
+# AGENT_SUDO=full: passwordless sudo through its own sudoers file, never through the sudo group.
+# AGENT_SUDO=none (default, owner decision 2026-11-11: agents get no sudo): removes OUR managed file
+# (recognised by its header). A file someone wrote by hand is left alone with a warning.
 agent_sudo() {
     local f=/etc/sudoers.d/90-$AGENT_USER
     case "$AGENT_SUDO" in
@@ -38,7 +38,14 @@ EOF
             ;;
         none)
             if [ -e "$f" ]; then
-                warn "AGENT_SUDO=none but $f exists: left as is. To take sudo away: sudo rm $f"
+                if grep -q '^# Managed by ~/.dotfiles setup.sh (step 55-shared-users)' "$f" \
+                    || grep -q '^# 2026-11-11 owner decision: Hermes' "$f"; then
+                    log "$AGENT_USER: no sudo (AGENT_SUDO=none): removing $f"
+                    run rm -f "$f"
+                    dry || visudo -c >/dev/null || die "visudo check failed after removing $f"
+                else
+                    warn "AGENT_SUDO=none but $f was written by hand: left as is. To take sudo away: sudo rm $f"
+                fi
             fi
             ;;
         *) die "AGENT_SUDO must be none or full, not '$AGENT_SUDO'" ;;
