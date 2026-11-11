@@ -781,8 +781,9 @@ def hermes_register(name, spec, prefix):
             add += ["--args"] + spec["args"]
     if known:
         run(sh(["hermes", "mcp", "remove", name]), check=False, answer="y\n")
-    # Hermes asks to confirm and may ask for an optional auth value: answer yes, then empty lines.
-    run(sh(add), answer="y\n\n\n")
+    # Hermes asks questions: for a URL server "Does this server require authentication? [Y/n]" must be NO
+    # (our servers use env/secrets, never an interactive login); a command server only asks to confirm.
+    run(sh(add), answer="n\n\n\n" if spec["url"] else "y\n\n\n")
     if not known or is_ours("hermes-mcp:%s" % name):
         record({"kind": "cmd", "id": "hermes-mcp:%s" % name, "undo": sh(["hermes", "mcp", "remove", name])},
                key="cmd:hermes-mcp:%s" % name)
