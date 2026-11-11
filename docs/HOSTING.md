@@ -121,9 +121,20 @@ Box names: lower case letters, digits and `-`, 2 to 31 characters. Forks: `<box>
 
 - Agents work inside the box of their project. Never on the host.
 - Inside its box an agent may do anything. Outside it, nothing.
-- Agents never get sudo on the host, the Docker group, the incus-admin group or `proj`
-  (owner decision 2026-11-11, `AGENT_SUDO="none"`). They give the owner the `sudo proj new`
-  command, and the owner runs it.
+- Agents never get general sudo on the host, the Docker group, the incus-admin group or `proj`
+  itself (owner decision 2026-11-11, `AGENT_SUDO="none"`).
+- One exception (owner decision 2026-11-11, `AGENT_SUDO_ALLOW="proj-agent"`): the main user and
+  `AGENT_USER` may run `sudo proj-agent` without a password. It is a strict allow-list: new box
+  (try or mvp only), list, snapshot, doctor, logs, status, restart a service inside a box.
+  It refuses host projects, tier long, every other proj command and any odd character, and logs
+  every call to `/var/log/proj-agent.log`. Everything else the agent gives you as a command.
+  ```bash
+  sudo proj-agent help
+  sudo proj-agent new test1 --tier try          # long: the owner runs sudo proj new
+  sudo proj-agent logs box test1 -n 100
+  sudo proj-agent restart test1 nginx
+  ```
+  Turn it off: `AGENT_SUDO_ALLOW=""` in host.env, then `sudo ./setup.sh --only hosting`.
 - Host agent sessions are for server admin only, with the owner watching.
 - Rules for the agents themselves: [AGENTS-hosting.md](AGENTS-hosting.md).
 

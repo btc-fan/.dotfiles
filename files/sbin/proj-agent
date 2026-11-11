@@ -1,0 +1,220 @@
+#!/bin/bash -p
+# proj-agent: the ONLY root command AI agents may run (sudo, no password). A strict allow-list
+# in front of proj, journalctl, systemctl and incus. Every other root action: ask the owner.
+# Installed by ~/.dotfiles setup.sh step 70-hosting (root:root 755). Sudoers: zzz-agents-proj.
+#
+# Usage: sudo proj-agent <command> [args]
+#   new <name> --tier try|mvp [--docker] [--pg]   new box (tier long: ask the owner)
+#   list                          all boxes and host projects
+#   snapshot <name>               snapshot a box and its data volume
+#   doctor                        proj health checks (no network test, no box is made)
+#   logs <unit> [-n N]            host journal of one unit, last N lines (1 to 2000, default 200)
+#   logs box <name> [-n N]        journal inside a box, last N lines ("box" is never a unit here)
+#   status <unit>                 systemctl status of one host unit (read only)
+#   restart <box> <service>       restart a systemd service INSIDE the box (never a host unit)
+#   help                          this text
+# Names: lower case letters, digits and -, 2 to 31 chars, starting with a letter (as proj).
+# Units and services: letters, digits and @ . _ -, starting with a letter or digit.
+# Host projects (/etc/proj/host-projects) are refused for snapshot, logs box and restart.
+# Every call is logged to /var/log/proj-agent.log (who, what, result).
+#
+# Why /bin/bash -p and not env: this runs as root; no lookup through a PATH set by the caller,
+# and -p makes bash ignore BASH_ENV, SHELLOPTS and exported functions from the environment.
+# It does not trust sudo for its environment either: PATH is fixed here and every child
+# starts from an empty environment (env -i) with only the variables listed in child().
+
+set -euo pipefail
+IFS=$' \t\n'
+umask 027
+export LC_ALL=C                # the regexes below are ASCII-only in the C locale
+unset CDPATH GLOBIGNORE 2>/dev/null || true
+
+SAFE_PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CALLER_PATH=${PATH:-}
+PATH=$SAFE_PATH
+export PATH
+LOG=/var/log/proj-agent.log
+HOST_PROJECTS=/etc/proj/host-projects
+PROJ=/usr/local/sbin/proj
+CHILD_HOME=/root
+MAX_LINES=2000
+DEFAULT_LINES=200
+
+NAME_RE='^[a-z][a-z0-9-]{1,30}$'
+UNIT_RE='^[A-Za-z0-9][A-Za-z0-9@._-]{0,127}$'
+LINES_RE='^[1-9][0-9]{0,3}$'
+USER_RE='^[a-z_][a-z0-9_-]{0,31}$'
+ARG_RE='^[A-Za-z0-9@._-]{1,128}$'
+
+usage() { sed -n '6,19p' "$0" | sed 's/^# \{0,1\}//'; }
+
+# Offline tests only: a NORMAL user with PROJ_AGENT_TEST=1 may point the tools, log and host list
+# at fakes. As root (that is, under sudo) all of this is ignored.
+if [ "$(id -u)" -ne 0 ]; then
+    if [ "${PROJ_AGENT_TEST:-}" = 1 ]; then
+        PATH=$CALLER_PATH
+        LOG=${PROJ_AGENT_LOG:?PROJ_AGENT_LOG must be set in test mode}
+        HOST_PROJECTS=${PROJ_AGENT_HOST_PROJECTS:-/dev/null}
+        PROJ=$(command -v proj) || { echo "proj-agent: test mode: no proj on PATH" >&2; exit 1; }
+        CHILD_HOME=${HOME:-/}
+    else
+        case "${1:-}" in help|-h|--help) usage; exit 0 ;; esac
+        echo "proj-agent: run it with sudo: sudo proj-agent ${1:-help} ..." >&2
+        exit 1
+    fi
+fi
+
+WHO=root
+if [ -n "${SUDO_USER:-}" ]; then
+    if [[ $SUDO_USER =~ $USER_RE ]]; then WHO=$SUDO_USER; else WHO=unknown; fi
+fi
+
+# The call as one log-safe line: every argument quoted with printf %q (no raw newlines).
+ARGS_Q=""
+for a in "$@"; do ARGS_Q="$ARGS_Q $(printf '%q' "$a")"; done
+ARGS_Q=${ARGS_Q# }
+
+logline() {
+    printf '%s user=%s args=[%s] %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$WHO" "$ARGS_Q" "$1" >> "$LOG"
+}
+
+# refuse MSG: log it, explain it, exit 2. Nothing has run.
+refuse() {
+    logline "result=refused reason=$(printf '%q' "$1")" 2>/dev/null || true
+    echo "proj-agent: refused: $1" >&2
+    echo "proj-agent: allowed commands: sudo proj-agent help. For anything else, give the owner the exact command." >&2
+    exit 2
+}
+
+# child CMD...: run one allowed command as root with a clean, fixed environment, stdin closed.
+# The pager can never open: --no-pager everywhere, plus empty SYSTEMD_PAGER and PAGER=cat.
+# Returns the command's exit code (and logs it).
+child() {
+    local rc=0
+    env -i PATH="$PATH" HOME="$CHILD_HOME" LC_ALL=C.UTF-8 LANG=C.UTF-8 TERM=dumb \
+        SYSTEMD_PAGER= SYSTEMD_PAGERSECURE=1 SYSTEMD_COLORS=0 PAGER=cat LESSSECURE=1 \
+        SUDO_USER="$WHO" "$@" < /dev/null || rc=$?
+    logline "result=$([ "$rc" = 0 ] && echo ok || echo "rc=$rc")" || true
+    return "$rc"
+}
+
+need_name() {
+    [[ $1 =~ $NAME_RE ]] || refuse "bad box name '$1': lower case letters, digits and -, 2 to 31 chars, starts with a letter"
+}
+need_unit() {
+    [[ $1 =~ $UNIT_RE ]] || refuse "bad unit name '$1': letters, digits and @ . _ -, starts with a letter or digit, no /"
+}
+# need_lines N: 1 to MAX_LINES, no leading zero.
+need_lines() {
+    [[ $1 =~ $LINES_RE ]] && [ "$1" -le "$MAX_LINES" ] || refuse "-n must be a number from 1 to $MAX_LINES, not '$1'"
+}
+is_host_project() {
+    [ -r "$HOST_PROJECTS" ] || return 1
+    awk -F'|' -v n="$1" '!/^[[:space:]]*#/ && $1 == n {f = 1} END {exit !f}' "$HOST_PROJECTS"
+}
+refuse_host() {
+    if is_host_project "$1"; then
+        refuse "'$1' is a protected HOST project, not a box. Agents never change it; ask the owner"
+    fi
+}
+need_box() {
+    need_name "$1"
+    refuse_host "$1"
+    incus query "/1.0/instances/$1" >/dev/null 2>&1 < /dev/null || refuse "no box named '$1' (see: sudo proj-agent list)"
+}
+
+cmd_new() {
+    [ $# -ge 1 ] || refuse "usage: new <name> --tier try|mvp [--docker] [--pg]"
+    local name=$1 tier="" docker="" pg=""
+    shift
+    need_name "$name"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --tier)
+                [ -z "$tier" ] || refuse "--tier given twice"
+                [ $# -ge 2 ] || refuse "--tier needs try or mvp"
+                case "$2" in
+                    try|mvp) tier=$2 ;;
+                    long) refuse "tier long is the owner's call. Ask the owner to run: sudo proj new $name --tier long" ;;
+                    *) refuse "--tier must be try or mvp, not '$2'" ;;
+                esac
+                shift 2 ;;
+            --docker) [ -z "$docker" ] || refuse "--docker given twice"; docker=--docker; shift ;;
+            --pg) [ -z "$pg" ] || refuse "--pg given twice"; pg=--pg; shift ;;
+            *) refuse "option '$1' is not allowed for new (allowed: --tier try|mvp, --docker, --pg)" ;;
+        esac
+    done
+    [ -n "$tier" ] || refuse "--tier try|mvp is required"
+    refuse_host "$name"
+    # Unquoted $docker/$pg on purpose: each is empty or one fixed word.
+    # shellcheck disable=SC2086
+    child "$PROJ" new "$name" --tier "$tier" $docker $pg
+}
+
+cmd_logs() {
+    local n=$DEFAULT_LINES box="" unit=""
+    if [ "${1:-}" = box ]; then
+        [ $# -ge 2 ] || refuse "usage: logs box <name> [-n N]"
+        box=$2
+        shift 2
+    else
+        [ $# -ge 1 ] || refuse "usage: logs <unit> [-n N]"
+        unit=$1
+        shift
+    fi
+    if [ $# -gt 0 ]; then
+        [ "$1" = -n ] && [ $# -eq 2 ] || refuse "after the name only '-n N' is allowed"
+        need_lines "$2"
+        n=$2
+    fi
+    if [ -n "$box" ]; then
+        need_box "$box"
+        child incus exec -T "$box" -- journalctl --no-pager -n "$n"
+    else
+        need_unit "$unit"
+        child journalctl --no-pager -u "$unit" -n "$n"
+    fi
+}
+
+cmd_status() {
+    [ $# -eq 1 ] || refuse "usage: status <unit>"
+    need_unit "$1"
+    child systemctl --no-pager status "$1"
+}
+
+cmd_restart() {
+    [ $# -eq 2 ] || refuse "usage: restart <box> <service>"
+    need_box "$1"
+    need_unit "$2"
+    child incus exec -T "$1" -- systemctl restart "$2"
+}
+
+main() {
+    [ $# -gt 0 ] || { usage >&2; refuse "no command given"; }
+    local a
+    for a in "$@"; do
+        # One gate for every argument before anything else: no spaces, quotes, ; $ ( ) ` / | & < > * ? or newlines.
+        [[ $a =~ $ARG_RE ]] || refuse "argument $(printf '%q' "$a") has characters that are not allowed (only letters, digits and @ . _ -)"
+    done
+    local cmd=$1
+    shift
+    case "$cmd" in
+        help|-h|--help) usage; return 0 ;;
+    esac
+    logline "start" || { echo "proj-agent: cannot write $LOG: refused" >&2; exit 2; }
+    case "$cmd" in
+        new) cmd_new "$@" ;;
+        list) [ $# -eq 0 ] || refuse "list takes no arguments"; child "$PROJ" list ;;
+        snapshot)
+            [ $# -eq 1 ] || refuse "usage: snapshot <name> (no label; proj names it manual-<date>)"
+            need_box "$1"
+            child "$PROJ" snapshot "$1" ;;
+        doctor) [ $# -eq 0 ] || refuse "doctor takes no arguments (the network test is the owner's: sudo proj doctor --net)"; child "$PROJ" doctor ;;
+        logs) cmd_logs "$@" ;;
+        status) cmd_status "$@" ;;
+        restart) cmd_restart "$@" ;;
+        *) refuse "unknown command '$cmd'" ;;
+    esac
+}
+
+main "$@"

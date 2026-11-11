@@ -15,6 +15,43 @@ chk() {  # chk "label" command...
 sh_chk() { chk "$1" bash -c "$2"; }
 PG_VERSION=${PG_VERSION:-16}
 
+# Step 70, AGENT_SUDO_ALLOW: agents may run proj-agent as root without a password, and nothing
+# else without a password. Read only: sudo -n -l -U lists rules, it runs nothing.
+agents_proj_checks() {
+    local f=/etc/sudoers.d/zzz-agents-proj pa=/usr/local/sbin/proj-agent u got last
+    sh_chk "proj-agent root:root 755" "[ \"\$(stat -c %U:%G:%a $pa)\" = root:root:755 ]"
+    sh_chk "/var/log/proj-agent.log root 640" "[ \"\$(stat -c %U:%a /var/log/proj-agent.log)\" = root:640 ]"
+    if [ "${AGENT_SUDO_ALLOW-proj-agent}" != proj-agent ]; then
+        sh_chk "no $f (AGENT_SUDO_ALLOW is empty)" "[ ! -e $f ]"
+        return 0
+    fi
+    if [ ! -e "$f" ]; then
+        p INFO "$f not written (no agent user exists yet?)"
+        return 0
+    fi
+    sh_chk "$f is valid (visudo)" "visudo -c -f $f"
+    # The last matching rule wins: no other sudoers.d file may sort after ours (sudo skips names with . or ~).
+    last=$(find /etc/sudoers.d -maxdepth 1 -type f ! -name '*.*' ! -name '*~' -printf '%f\n' | LC_ALL=C sort | tail -n 1)
+    if [ "$last" = zzz-agents-proj ]; then p PASS "zzz-agents-proj sorts last in /etc/sudoers.d"
+    else p FAIL "$last sorts after zzz-agents-proj in /etc/sudoers.d (the last rule wins)"; fails=$((fails + 1)); fi
+    for u in "$MAIN_USER" "${AGENT_USER:-}"; do
+        [ -n "$u" ] && id "$u" >/dev/null 2>&1 || continue
+        chk "$u may run proj-agent (sudo -l)" sudo -n -l -U "$u" "$pa"
+        got=$(sudo -n -l -U "$u" 2>/dev/null | nopasswd_effective | sort -u | tr '\n' ' ')
+        got=${got% }
+        if [ "$u" = "${AGENT_USER:-}" ] && [ "${AGENT_SUDO:-none}" = full ]; then
+            p INFO "$u: AGENT_SUDO=full, passwordless sudo for everything ($got)"
+        elif [ "$u" = "$MAIN_USER" ] && [ ! -f /etc/sudoers.d/zz-server-main-password ]; then
+            p INFO "$MAIN_USER: passwordless sudo for: ${got:-nothing} (--drop-main-sudo not done)"
+        elif [ "$got" = "$pa" ]; then
+            p PASS "$u: the only passwordless sudo command is proj-agent"
+        else
+            p FAIL "$u: passwordless sudo for '${got:-nothing}', expected only $pa (sudo -l -U $u)"
+            fails=$((fails + 1))
+        fi
+    done
+}
+
 echo "### setup copy"
 sh_chk "/opt/server-setup is root-owned, nobody else can write" "[ \"\$(stat -c %U:%G /opt/server-setup)\" = root:root ] && [ -z \"\$(find /opt/server-setup \\( ! -user root -o -perm /022 \\) -print -quit)\" ]"
 sh_chk "/etc/server/host.env root:root 644" "[ \"\$(stat -c %U:%G:%a $SERVER_ETC/host.env)\" = root:root:644 ]"
@@ -168,6 +205,7 @@ if [ -n "${BOX_DISK_SERIAL:-}" ]; then
         sh_chk "DOCKER-USER: box traffic handed to ufw (RETURN, no blanket ACCEPT)" "iptables -C DOCKER-USER -i incusbr0 -j RETURN && ! iptables -C DOCKER-USER -i incusbr0 -j ACCEPT"
     fi
     chk "proj installed" test -x /usr/local/sbin/proj
+    agents_proj_checks
     sh_chk "marker /etc/proj-host (root 644)" "[ \"\$(stat -c %U:%a /etc/proj-host)\" = root:644 ] && grep -q '^role=host' /etc/proj-host"
     chk "agent rules for boxes in /usr/local/share/proj" test -s /usr/local/share/proj/AGENTS-hosting.md
     sh_chk "REGISTRY.json is valid" "jq -e '.boxes and .host_projects' /srv/proj/REGISTRY.json"

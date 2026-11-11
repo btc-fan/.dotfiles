@@ -120,7 +120,7 @@ Checks the machine before anything changes. It stops (and changes nothing) when:
 - `MAIN_USER` has no SSH key;
 - a disk in `DISKS` is the system disk;
 - Ubuntu's `docker.io` package is installed (it conflicts with Docker CE);
-- a value in `host.env` is wrong (time zone, times, port, a KEEP value below 1, `AGENT_SUDO`).
+- a value in `host.env` is wrong (time zone, times, port, a KEEP value below 1, `AGENT_SUDO`, `AGENT_SUDO_ALLOW`).
 
 It also prints the CPU, RAM and disks, and warns when the CPU has no AVX2 (see [Quirks](#quirks-we-learned)).
 
@@ -340,12 +340,24 @@ Rules for people: [docs/HOSTING.md](docs/HOSTING.md). Rules for agents: [docs/AG
   them to the backup disk); `proj-expire` warns, stops and deletes expired try boxes.
 - Group `incus-admin` (full control of Incus, so root on the host) holds only `ADMIN_USER`.
   Anybody else in it gets a warning. Group `incus` (per-user socket) is not used.
+- **`proj-agent`** (`AGENT_SUDO_ALLOW`, default `proj-agent`, owner decision 2026-11-11): the one
+  root command agents may run, without a password. `MAIN_USER` and `AGENT_USER` (those that
+  exist) get `/etc/sudoers.d/zzz-agents-proj`: `NOPASSWD: /usr/local/sbin/proj-agent`, nothing
+  else. proj-agent allows only: `new <name> --tier try|mvp [--docker] [--pg]`, `list`,
+  `snapshot <box>`, `doctor`, `logs <unit>|box <box> [-n N]`, `status <unit>`,
+  `restart <box> <service>` (inside the box). Every argument is checked with a strict pattern,
+  host projects are refused, children run with a clean environment and no pager, every call is
+  logged to `/var/log/proj-agent.log`. The file name sorts after `zz-server-main-password`
+  because sudo uses the last matching rule: that keeps the main user's password for everything
+  else. `AGENT_SUDO_ALLOW=""` removes the file.
 
 ### 90-verify
 
 Prints PASS / FAIL / INFO for every item above. Exit code 1 when something FAILs.
 It only reads, with one exception: with hosting on, `proj selftest` makes and deletes one
-throwaway box (about a minute).
+throwaway box (about a minute). For `proj-agent` it checks: root:root 755, the sudoers file is
+valid and sorts last, and `sudo -n -l -U <user>` leaves proj-agent as the only passwordless
+command for the agents (the main user only after `--drop-main-sudo`; before that: INFO).
 
 ## Admin user and main user
 
@@ -354,7 +366,7 @@ Two logins, two jobs:
 | User | For | sudo | docker group |
 |---|---|---|---|
 | `ADMIN_USER` (default `admin`) | server admin: setup, `proj`, updates | yes, no password | no (it has sudo) |
-| `MAIN_USER` (your daily login) | daily work, SSH tunnels, attended agent sessions | after `--drop-main-sudo`: with password | after `--drop-main-sudo`: no (also out of `incus-admin`, `lxd`, `adm`) |
+| `MAIN_USER` (your daily login) | daily work, SSH tunnels, attended agent sessions | after `--drop-main-sudo`: with password (only `proj-agent` stays passwordless) | after `--drop-main-sudo`: no (also out of `incus-admin`, `lxd`, `adm`) |
 
 Why: an agent or a script running as your daily user has root today (passwordless sudo, and the
 docker, incus-admin and lxd groups are all root). After the change, root needs your password or
@@ -524,6 +536,8 @@ steps/NN-*.sh         one script per step
 files/sbin/*          scripts copied to /usr/local/sbin (alerts, backups, watchdog, docker fix)
 files/bin/caffeinate  copied to /usr/local/bin
 files/proj/proj       the proj CLI (to /usr/local/sbin/proj)
+files/sbin/proj-agent the only root command agents may run (sudo, no password, allow-list)
+tests/proj-agent.test.sh   offline tests for proj-agent (fake tools, run as a normal user)
 files/proj/box-bootstrap.sh   runs inside every new box (user dev, tools, docker, postgres)
 files/incus/*.yaml    Incus profiles: box-base, tier-try, tier-mvp, tier-long, docker
 docs/HOSTING.md       rules for project boxes (for people)
@@ -535,7 +549,8 @@ On the server: `/opt/server-setup/` (root-owned copy of this repo that setup run
 `/etc/server/host.env` (copy of your host.env, root:root 644, read by the alert and backup
 scripts), `/etc/server/webhooks/` (Discord URLs, root only), `/etc/proj/` (profiles, host
 projects), `/etc/proj-host` (marker: this is the host), `/srv/proj/REGISTRY.md` and
-`REGISTRY.json` (list of boxes), `/var/log/proj.log` (every proj action).
+`REGISTRY.json` (list of boxes), `/var/log/proj.log` (every proj action),
+`/var/log/proj-agent.log` (every proj-agent call: who, what, result).
 
 ## AI setup
 
@@ -550,7 +565,9 @@ Then read `~/.dotfiles-ai/README.md` (the `ai` branch README) for logins and opt
 
 Where agents run: project agents work **inside the box of their project** (step 70, `proj`),
 never on the host. On the host, agent sessions are for server admin only, with you watching.
-No agent has sudo on the host (owner decision 2026-11-11, `AGENT_SUDO="none"`): agents give you
-the exact `sudo proj new ...` command and you run it.
+No agent has general sudo on the host (owner decision 2026-11-11, `AGENT_SUDO="none"`). The one
+exception is `sudo proj-agent` (step 70, `AGENT_SUDO_ALLOW`): agents make try and mvp boxes, list,
+snapshot, read logs and status, and restart services inside boxes. For anything else (tier long,
+wipe, restore, host changes) they give you the exact command and you run it.
 The `ai` branch imports [docs/AGENTS-hosting.md](docs/AGENTS-hosting.md) into AGENTS.md.
 (Step 55, a host user for an agent, is the older way. Keep `AGENT_USER` empty for new servers.)

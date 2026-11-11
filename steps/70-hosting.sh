@@ -38,6 +38,7 @@ main() {
     firewall
     docker_fix
     install_proj
+    agents_sudo       # after install_proj: the rule and the binary it allows land together
     host_marker
     host_projects
     timers
@@ -411,6 +412,78 @@ install_proj() {
     # proj pushes these agent rules into every box (/etc/proj-rules/AGENTS.md).
     put /usr/local/share/proj/AGENTS-hosting.md 644 < "$REPO_DIR/docs/AGENTS-hosting.md"
     [ -e /var/log/proj.log ] || run install -m 640 /dev/null /var/log/proj.log
+    # The one root command agents may run (sudo, no password, see agents_sudo).
+    put_file sbin/proj-agent /usr/local/sbin/proj-agent 755
+    [ -e /var/log/proj-agent.log ] || run install -m 640 -o root -g root /dev/null /var/log/proj-agent.log
+}
+
+# host.env AGENT_SUDO_ALLOW (default "proj-agent", owner decision 2026-11-11): MAIN_USER and
+# AGENT_USER may run /usr/local/sbin/proj-agent as root without a password. Nothing else: no
+# general sudo for agents. "" = no agent sudo at all (our file is removed).
+#
+# File name zzz-agents-proj, on purpose: sudo reads /etc/sudoers.d in sorted order and the LAST
+# matching rule wins. zz-server-main-password (step 10, --drop-main-sudo) says MAIN_USER needs a
+# password for ALL, and ALL also matches proj-agent. "zzz-a" sorts after "zz-s" ("z" > "-"), so
+# this NOPASSWD rule comes later and wins for this one command; everything else keeps the password.
+AGENTS_SUDOERS=/etc/sudoers.d/zzz-agents-proj
+AGENTS_SUDOERS_HEADER='# Managed by ~/.dotfiles setup.sh (step 70-hosting): host.env AGENT_SUDO_ALLOW'
+
+agents_sudo_remove() {
+    [ -e "$AGENTS_SUDOERS" ] || return 0
+    if grep -qF "$AGENTS_SUDOERS_HEADER" "$AGENTS_SUDOERS"; then
+        info "$1: removing $AGENTS_SUDOERS"
+        run rm -f "$AGENTS_SUDOERS"
+        dry || visudo -c >/dev/null || die "visudo check failed after removing $AGENTS_SUDOERS"
+    else
+        warn "$AGENTS_SUDOERS was written by hand: left as is. To remove it: sudo rm $AGENTS_SUDOERS"
+    fi
+}
+
+agents_sudo() {
+    local allow=${AGENT_SUDO_ALLOW-proj-agent} users="" u tmp
+    case "$allow" in
+        proj-agent) ;;
+        "") log "agents: no sudo at all (AGENT_SUDO_ALLOW is empty)"; agents_sudo_remove "AGENT_SUDO_ALLOW is empty"; return 0 ;;
+        *) die "AGENT_SUDO_ALLOW must be proj-agent or empty, not '$allow'" ;;
+    esac
+    for u in "$MAIN_USER" "${AGENT_USER:-}"; do
+        [ -n "$u" ] || continue
+        [[ "$u" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || die "user name '$u' is not valid for sudoers"
+        if ! id "$u" >/dev/null 2>&1; then
+            info "$u does not exist (yet): not in $AGENTS_SUDOERS"
+            continue
+        fi
+        case ",$users," in *",$u,"*) continue ;; esac
+        users=${users:+$users,}$u
+    done
+    if [ -z "$users" ]; then
+        agents_sudo_remove "no agent user exists"
+        return 0
+    fi
+    log "agents ($users): sudo without password for /usr/local/sbin/proj-agent only"
+    tmp=$(mktemp)
+    cat > "$tmp" <<EOF
+$AGENTS_SUDOERS_HEADER="proj-agent".
+# $users may run ONE command as root without a password: /usr/local/sbin/proj-agent, a strict
+# allow-list (new try/mvp box, list, snapshot, doctor, logs, status, restart inside a box).
+# Agents have no other sudo. Everything else: they give the owner the exact command.
+# Name: sudo reads /etc/sudoers.d in sorted order and the LAST matching rule wins. This file must
+# sort after zz-server-main-password ("zzz-a" > "zz-s"), or MAIN_USER would need a password here.
+# proj-agent does not trust this environment either: it fixes PATH and runs every child with env -i.
+# Undo: AGENT_SUDO_ALLOW="" in host.env and run step 70, or: sudo rm $AGENTS_SUDOERS
+Defaults!/usr/local/sbin/proj-agent env_reset, secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+$users ALL=(root) NOPASSWD: /usr/local/sbin/proj-agent
+EOF
+    # The command-scoped Defaults line is the only part a sudo build might not know (sudo-rs).
+    # Read-only check first; without it env_reset and secure_path still come from /etc/sudoers
+    # (sudo-rs always resets the environment), and proj-agent cleans its own environment.
+    if ! visudo -c -f "$tmp" >/dev/null 2>&1; then
+        warn "visudo does not accept the 'Defaults!/usr/local/sbin/proj-agent' line: written without it"
+        grep -v '^Defaults!' "$tmp" > "$tmp.2"
+        mv "$tmp.2" "$tmp"
+    fi
+    put_sudoers "$AGENTS_SUDOERS" < "$tmp"
+    rm -f "$tmp"
 }
 
 # "Where am I?" marker for agents: /etc/proj-host on the host, /etc/proj-box in every box (proj).

@@ -158,6 +158,25 @@ enable_unit() {
 # rollback_armed: the 10 min SSH safety timer from step 10 is running.
 rollback_armed() { systemctl is-active -q server-rollback.timer 2>/dev/null; }
 
+# nopasswd_effective < `sudo -n -l -U USER` output: print the NOPASSWD commands that still count.
+# sudo uses the LAST matching rule, so a later password rule for ALL ("PASSWD: ALL" from
+# zz-server-main-password, or a plain "ALL") cancels every NOPASSWD line listed before it;
+# NOPASSWD lines after it still count.
+# Only rule lines are read (indented, starting with "("); Defaults lines are skipped.
+nopasswd_effective() {
+    awk '
+        /^[[:space:]]+\(/ {
+            line = $0
+            if (line !~ /NOPASSWD:/ && line ~ /[[:space:]]ALL[[:space:]]*$/) { n = 0; next }
+            if (line ~ /NOPASSWD:/) {
+                sub(/.*NOPASSWD:[[:space:]]*/, "", line)
+                sub(/[[:space:]]+$/, "", line)
+                out[++n] = line
+            }
+        }
+        END { for (i = 1; i <= n; i++) print out[i] }'
+}
+
 is_yes() {
     case "${1:-}" in yes|y|true|1|on) return 0 ;; *) return 1 ;; esac
 }

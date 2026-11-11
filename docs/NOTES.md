@@ -205,6 +205,28 @@ fingerprint check on each real key file (it requires exactly one primary key per
 ufw change (`proj selftest` in verify covers it); fail2ban with `sshd-session` lines.
 Tested here: `bash -n` on every script.
 
+## Added 2026-11-11: proj-agent, the agents' one root command (owner decision)
+
+Agents (MAIN_USER sessions, AGENT_USER) have no general sudo, but may create, list and snapshot
+boxes, read logs and status, and restart services inside boxes, without a password.
+
+| Decision | Why |
+|---|---|
+| One wrapper, `/usr/local/sbin/proj-agent`, is the only command in the sudoers line | sudoers argument matching is fragile; a script with strict regexes per argument is easier to read and test. |
+| Every argument must match `[A-Za-z0-9@._-]`, then a per-field pattern (box names as proj) | No shell meta characters, spaces, slashes or newlines ever reach a command. Units start with a letter or digit, so no option injection. |
+| Tier long, `--repo`, `--ttl`, `--owner`, labels, `doctor --net` refused | Long boxes are the owner's; a repo URL runs code; doctor `--net` makes a box. |
+| `restart` only through `incus exec <box> -- systemctl restart`; host projects refused | Never a host unit. |
+| PATH fixed in the script, `#!/bin/bash -p`, children via `env -i` with `SYSTEMD_PAGER=` and `PAGER=cat` | Does not depend on sudo's env handling (sudo-rs or not); a pager never opens. |
+| File name `zzz-agents-proj` | The last matching rule wins; `zz-server-main-password` matches ALL, so ours must sort after it. |
+| Installed and granted by step 70, not 55 | The binary and the rule land together, only when hosting is on; step 55 skips when `AGENT_USER` is empty but the main user needs the rule too. |
+| `Defaults!/usr/local/sbin/proj-agent env_reset, secure_path=...`, dropped with a warning if visudo rejects it | macOS sudo 1.9 visudo parses it; sudo-rs support not checked. The wrapper is safe without it. |
+
+Tested here: `tests/proj-agent.test.sh` (95 checks: every allowed form, refusals for long tier,
+bad names, `;` `$()` backticks spaces newlines, host projects, unknown commands, `-n 99999`,
+slashes; child environment; log lines; the `sudo -l` parser; sudoers.d order). `bash -n` on the
+changed scripts. Not tested (needs the server): sudo-rs `visudo` and `sudo -l -U` output format,
+the real proj/incus/journalctl calls.
+
 ## Later
 
 - **UPS + NUT**: a small UPS and `nut` so the server shuts down cleanly before the battery is
