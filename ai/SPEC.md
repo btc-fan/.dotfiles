@@ -422,3 +422,13 @@ pr-resume parses this block. Keep the line format exact: one ID, dir:, one path 
 - Intake audits still owed before the build: oh-my-claudecode, oh-my-codex, opencode (installed always).
 - Pending research: project hosting and isolation on the server (rules + tools) feeds the `ubuntu-server` branch
   and an AGENTS.md section.
+
+## 18. Project hosting on servers (owner 2026-11-11; research: hosting-research)
+- One unprivileged Incus box per project on a ZFS pool (home server: the WD 320 GB disk after a SMART long test).
+  Managed by `proj` (new, list, shell, snapshot, restore, fork, wipe, recreate, protect, promote, expire, doctor).
+  Tiers: try (TTL, auto-expire), mvp (wipeable, promotable), long (delete-protected, nightly backup, wipe refused).
+- The crawler stays on the host as planned and is registered as a protected long host project.
+- Separate `admin` user (SSH key, passwordless sudo) for the owner and remote setup. The main user loses passwordless
+  sudo and the docker group only after the admin login is proven. Agents run as the main user or inside boxes.
+- Lives in the `ubuntu-server` branch (step 70-hosting, HOSTING.md). `docs/AGENTS-hosting.md` from that branch is
+  imported into the root AGENTS.md on servers (agents: never create, wipe or touch another project; use `proj`).
