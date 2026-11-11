@@ -3,6 +3,22 @@
 These rules are imported into AGENTS.md by the `ai` branch. Source: `ubuntu-server` branch,
 `docs/AGENTS-hosting.md`. Human rules: `docs/HOSTING.md`.
 
+### New app, bot, site or experiment (you are on the host)
+Every new project gets its own box. Never create a project folder on the host
+(not in ~, /work, /opt, /srv or /tmp). /work holds only the existing host projects in /srv/proj/REGISTRY.md.
+1. Ask the owner the grill-me questions first (what, who uses it, must it run 24/7, data to keep).
+2. Pick the tier: `try` (experiment, deleted after 7 days), `mvp` (keep, can be wiped), `long` (protected).
+   A bot or service that must stay up starts as `mvp`. Unsure: `try`.
+3. Pick a name: lowercase letters, digits and `-`, short (for example `tg-price-bot`).
+4. Create it: `sudo proj new <name> --tier <tier>` (add `--docker` or `--pg` if needed).
+   If you cannot run sudo, give the owner that exact command and wait.
+5. Work only inside it: `sudo proj shell <name>`. The code lives in /srv/app, data in /srv/data,
+   secrets in /srv/app/.env. A GitHub repo for it is private and belongs to the owner.
+6. A long-running service runs inside the box (systemd unit or `docker compose` in the box), never on the host.
+7. Tell the owner the box name, tier and how to reach it.
+
+### Inside a box
+
 - You work inside one box. Your project is /srv/app. Your data is /srv/data.
 - Stay in your box. Do not try to reach the host, other boxes or the home network.
 - Inside your box you may install, change and restart anything.
