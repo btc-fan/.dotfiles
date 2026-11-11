@@ -34,10 +34,11 @@ codex_plugins() {
     hash=$(aiconf tree-hash "$p")
     [ -f "$hash_file" ] && old=$(cat "$hash_file")
     if codex_has_plugin ai-core && [ "$hash" != "$old" ]; then
-        run codex plugin remove ai-core@ai || true
-        run codex plugin add ai-core@ai && ok "Codex plugin ai-core@ai re-added (plugin files changed)"
+        # Refresh in place; never remove first (a failed add would leave no plugin).
+        if run codex plugin add ai-core@ai; then ok "Codex plugin ai-core@ai refreshed (plugin files changed)"
+        else warn "codex plugin add ai-core@ai failed: old copy kept"; hash=$old; fi
     else
-        codex_marketplace_plugin "$AI_HOME/ai/marketplace" ai ai-core@ai
+        codex_marketplace_plugin "$AI_HOME/ai/marketplace" ai ai-core@ai || true
     fi
     [ "$AI_DRY_RUN" = 1 ] || { mkdir -p "$AI_STATE_DIR"; printf '%s\n' "$hash" > "$hash_file"; }
 
@@ -78,8 +79,6 @@ codex_hooks() {
     if has rtk; then
         if grep -qs rtk "$CODEX_DIR/hooks.json" "$CODEX_DIR/config.toml"; then
             info "RTK already wired for Codex"
-        elif [ "$AI_OS" = macos ] && [ "$AI_RTK_HOOK" != 1 ]; then
-            skip "RTK for Codex on macOS: only with --rtk-hook"
         else
             local before; before=$(snap_files "$CODEX_DIR/config.toml" "$CODEX_DIR/hooks.json" "$CODEX_DIR/AGENTS.md")
             run rtk init -g --codex </dev/null

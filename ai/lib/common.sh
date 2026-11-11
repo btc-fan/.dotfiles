@@ -3,6 +3,11 @@
 # Every command that changes the machine goes through run / run_root / as_hermes so that
 # --dry-run prints it instead.
 
+# AI_MODE: all = one process does everything (macOS, or a Linux user with sudo);
+#          system = admin, as root, for --for-user <user> (root steps only, then the user part);
+#          user = the target user, never calls sudo.
+AI_MODE=${AI_MODE:-all}
+AI_FOR_USER=${AI_FOR_USER:-}
 AI_DRY_RUN=${AI_DRY_RUN:-0}
 AI_YES=${AI_YES:-0}
 AI_STATE_DIR="$HOME/.local/state/ai"
@@ -55,9 +60,15 @@ summary() {
 
 quote() { local a out=""; for a in "$@"; do out="$out $(printf '%q' "$a")"; done; printf '%s' "${out# }"; }
 
+# Hide secret values in printed commands (K=V with a secret-like K, and token shapes).
+redact() {
+    sed -E 's/(([A-Za-z0-9_]*(KEY|TOKEN|SECRET|PASSWORD|PAT)[A-Za-z0-9_]*)=)[^ ]+/\1***/g;
+            s/(ctx7sk-|ghp_|gho_|github_pat_|sk-ant-)[A-Za-z0-9_-]+/\1***/g'
+}
+
 run() {
     if [ "$AI_DRY_RUN" = 1 ]; then
-        info "[dry-run] $(quote "$@")"
+        info "[dry-run] $(quote "$@" | redact)"
         return 0
     fi
     "$@"
@@ -66,15 +77,23 @@ run() {
 is_root() { [ "$(id -u)" -eq 0 ]; }
 
 run_root() {
+    if [ "$AI_MODE" = user ]; then manual "needs admin: $(quote "$@" | redact)"; return 0; fi
     if is_root; then run "$@"; else run sudo "$@"; fi
 }
+
+# The one command admin runs for this user (printed when a root piece is missing in --user mode).
+AI_ROOT_REPO=/usr/local/lib/ai/repo
+admin_cmd() { printf 'sudo %s/install.sh --for-user %s' "${AI_SRC_HOME:-$HOME/.dotfiles-ai}" "${AI_FOR_USER:-$(id -un)}"; }
 
 has() { command -v "$1" >/dev/null 2>&1; }
 
 # Run a command line as the hermes user (login shell for its PATH). Only on Linux.
 hermes_exists() { [ "$AI_OS" = linux ] && getent passwd "$HERMES_USER" >/dev/null 2>&1; }
 hermes_home()   { getent passwd "$HERMES_USER" | cut -d: -f6; }
-as_hermes()     { run sudo -u "$HERMES_USER" -H bash -lc "$1"; }
+as_hermes()     {
+    if [ "$AI_MODE" = user ]; then manual "needs admin (Hermes): $1"; return 0; fi
+    run sudo -u "$HERMES_USER" -H bash -lc "$1"
+}
 as_hermes_ro()  { sudo -n -u "$HERMES_USER" -H bash -lc "$1" 2>/dev/null; }
 
 confirm() {
@@ -97,13 +116,47 @@ aiconf() {
 }
 
 # System files (Linux, root). Their state lives in /var/lib/ai so the user state stays user-owned.
+# sudo runs a root-owned copy of the helper (S7), never the user-writable file in the work tree.
+AI_ROOT_HELPER=/usr/local/lib/ai/aiconf.py
+
 aiconf_root() {
+    if [ "$AI_MODE" = user ]; then manual "needs admin: aiconf $(quote "$@")"; return 0; fi
     if [ "$AI_DRY_RUN" = 1 ]; then
         python3 "$AI_HOME/ai/lib/aiconf.py" --state "$AI_SYSTEM_STATE_FILE" --dry-run "$@"
-    elif is_root; then
-        python3 "$AI_HOME/ai/lib/aiconf.py" --state "$AI_SYSTEM_STATE_FILE" "$@"
-    else
-        sudo python3 "$AI_HOME/ai/lib/aiconf.py" --state "$AI_SYSTEM_STATE_FILE" "$@"
+        return
+    fi
+    [ -f "$AI_ROOT_HELPER" ] || die "root helper $AI_ROOT_HELPER missing (sudo_ready was not run)"
+    if is_root; then python3 -I "$AI_ROOT_HELPER" --state "$AI_SYSTEM_STATE_FILE" "$@"
+    else sudo python3 -I "$AI_ROOT_HELPER" --state "$AI_SYSTEM_STATE_FILE" "$@"; fi
+}
+
+# S7: before the first sudo step, the work tree must be exactly the pushed branch (clean, HEAD ==
+# origin/ai), so root never runs code that is only on this disk. Override for development:
+# --allow-dirty (or AI_ALLOW_DIRTY=1). Then copy the helper to a root-owned place.
+# sudo_ready [noninteractive]
+sudo_ready() {
+    [ "$AI_OS" = linux ] || return 0
+    [ "$AI_MODE" = user ] && return 0     # the user part never calls sudo
+    [ "$AI_MODE" = system ] && return 0   # system mode prepared by root_prepare
+    [ "$AI_DRY_RUN" = 1 ] && { info "[dry-run] repo gate, sudo -v, install $AI_ROOT_HELPER (root:root)"; return 0; }
+    local dirty head remote
+    dirty=$(git -C "$AI_HOME" status --porcelain 2>/dev/null || echo "not a git work tree")
+    head=$(git -C "$AI_HOME" rev-parse HEAD 2>/dev/null || echo none)
+    remote=$(git -C "$AI_HOME" rev-parse origin/ai 2>/dev/null || echo none)
+    if [ -n "$dirty" ] || [ "$head" != "$remote" ]; then
+        if [ "${AI_ALLOW_DIRTY:-0}" = 1 ]; then
+            warn "work tree is not the pushed origin/ai (dirty or other commit): continuing because of --allow-dirty"
+        else
+            printf 'ERROR: %s is not exactly origin/ai (uncommitted changes or HEAD %s != origin/ai %s).\n' \
+                "$AI_HOME" "${head:0:12}" "${remote:0:12}" >&2
+            printf '       Root steps refuse to run code that is not pushed. Commit+push, or re-run with --allow-dirty (development only).\n' >&2
+            return 1
+        fi
+    fi
+    if [ "${1:-}" = noninteractive ]; then sudo -n true 2>/dev/null || return 1; else sudo -v; fi
+    if ! sudo cmp -s "$AI_HOME/ai/lib/aiconf.py" "$AI_ROOT_HELPER" 2>/dev/null; then
+        sudo install -d -o root -g root -m 755 /usr/local/lib/ai
+        sudo install -o root -g root -m 755 "$AI_HOME/ai/lib/aiconf.py" "$AI_ROOT_HELPER"
     fi
 }
 
@@ -146,6 +199,49 @@ detect_os() {
     SUDO_UNDO=""
     [ "$AI_OS" = linux ] && ! is_root && SUDO_UNDO=sudo
     return 0
+}
+
+# ---------------------------------------------------------------- system mode (admin, root)
+
+# Run a command as the target user (system mode) or as yourself (all mode).
+as_target() {
+    if [ "$AI_MODE" = system ]; then run sudo -u "$AI_FOR_USER" -H "$@"; else run "$@"; fi
+}
+
+# S7 for admin installs: check the user's work tree as that user (clean, HEAD == origin/ai unless
+# --allow-dirty), then copy it to a root-owned tree that is the only code root runs.
+# root_prepare <source work tree>   -> sets AI_HOME to the root-owned copy
+root_prepare() {
+    local src=$1 dirty head remote new
+    dirty=$(sudo -u "$AI_FOR_USER" git -C "$src" status --porcelain 2>/dev/null || echo "not a git work tree")
+    head=$(sudo -u "$AI_FOR_USER" git -C "$src" rev-parse HEAD 2>/dev/null || echo none)
+    remote=$(sudo -u "$AI_FOR_USER" git -C "$src" rev-parse origin/ai 2>/dev/null || echo none)
+    if [ -n "$dirty" ] || [ "$head" != "$remote" ]; then
+        if [ "${AI_ALLOW_DIRTY:-0}" = 1 ]; then
+            warn "$src is not exactly origin/ai: copying the work tree as it is (--allow-dirty)"
+        else
+            printf 'ERROR: %s is not exactly origin/ai (uncommitted changes, or HEAD %s != origin/ai %s).\n' \
+                "$src" "${head:0:12}" "${remote:0:12}" >&2
+            printf '       Root runs only pushed code. Pull/commit as %s, or add --allow-dirty (development only).\n' "$AI_FOR_USER" >&2
+            return 1
+        fi
+    fi
+    if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] copy $src to root-owned $AI_ROOT_REPO"; return 0; fi
+    new="$AI_ROOT_REPO.new.$$"
+    rm -rf "$new"; mkdir -p "$new"
+    if [ "${AI_ALLOW_DIRTY:-0}" = 1 ]; then
+        ( cd "$src" && tar --exclude ./.git -cf - . ) | ( cd "$new" && tar -xf - )
+    else
+        sudo -u "$AI_FOR_USER" git -C "$src" archive --format=tar HEAD | ( cd "$new" && tar -xf - )
+    fi
+    # root:root, not writable by others; never follow a link out of the tree (uutils-safe: no -R on links)
+    find "$new" ! -type l -exec chown root:root {} + 
+    find "$new" ! -type l -exec chmod go-w {} +
+    rm -rf "$AI_ROOT_REPO"; mv "$new" "$AI_ROOT_REPO"
+    install -d -o root -g root -m 755 /usr/local/lib/ai
+    install -o root -g root -m 755 "$AI_ROOT_REPO/ai/lib/aiconf.py" "$AI_ROOT_HELPER"
+    AI_HOME=$AI_ROOT_REPO
+    export AI_HOME
 }
 
 sha256_is() {

@@ -25,20 +25,30 @@ npm_pinned() {
     fi
 }
 
-# uv tool install of an exact version. Shared mode (/opt/uv-tools, as on the server) when present.
+# npm install of an exact version into a private prefix (no global install, no runtime npx):
+# integrity checked against the pin, audited, scripts off. Prints nothing on success.
+npm_local() {
+    # npm_local <pkg> <version> <integrity> <prefix dir> [as-user]
+    local pkg=$1 ver=$2 want=$3 dir=$4 user=${5:-} got
+    if [ "$AI_DRY_RUN" != 1 ]; then
+        got=$(npm view "$pkg@$ver" dist.integrity 2>/dev/null || true)
+        if [ -z "$want" ] || [ "$got" != "$want" ]; then
+            warn "$pkg@$ver integrity mismatch or not pinned (registry: ${got:-none}): not installed"
+            return 1
+        fi
+    fi
+    audit_ok npm "$pkg" "$ver" || return 1
+    local cmd="npm install --prefix $(quote "$dir") --ignore-scripts --no-audit --no-fund --save-exact $(quote "$pkg@$ver")"
+    if [ -n "$user" ]; then as_hermes "$cmd"; else run sh -c "$cmd"; fi
+}
+
+# uv tool install of an exact version, as the user (never root), wheels only (--no-build).
 uv_pinned() {
     # uv_pinned <pypi-name> <version> [python]
     local name=$1 ver=$2 py=${3:-}
     audit_ok pypi "$name" "$ver" || return 1
-    local args="tool install --force"
-    [ -n "$py" ] && args="$args -p $py"
-    if [ "$AI_OS" = linux ] && [ -d /opt/uv-tools ]; then
-        run_root env UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/uv-python \
-            uv $args "$name==$ver"
-        run_root chmod -R a+rX /opt/uv-tools /opt/uv-python
-    else
-        run uv $args "$name==$ver"
-    fi
+    if [ -n "$py" ]; then run uv tool install --force --no-build -p "$py" "$name==$ver"
+    else run uv tool install --force --no-build "$name==$ver"; fi
 }
 
 bin_dir() { if [ "$AI_OS" = linux ]; then echo /usr/local/bin; else echo "$HOME/.local/bin"; fi; }
@@ -76,6 +86,11 @@ plugin_clone() {
     git -C "$tmp/$name" -c advice.detachedHead=false checkout -q "$sha" || { warn "$name: commit $sha not found"; return 1; }
     [ "$(git -C "$tmp/$name" rev-parse HEAD)" = "$sha" ] || { warn "$name not at $sha"; return 1; }
     audit_ok dir "$tmp/$name" || { rm -rf "$tmp"; return 1; }
+    # S8: a recursive chown/chmod as root must never follow a link out of the tree.
+    if [ -n "$(find "$tmp/$name" -type l -print -quit)" ]; then
+        warn "$name tree contains symlinks: not installed as root (review: find $tmp/$name -type l)"
+        return 1
+    fi
     if [ "$AI_OS" = linux ]; then
         run_root mkdir -p /opt/agent-plugins
         run_root mv "$tmp/$name" "$dest"
@@ -120,7 +135,7 @@ tools_harnesses() {
     fi
     if want codex; then
         if ! has codex; then
-            npm_pinned @openai/codex "$CODEX_VERSION" && ok "codex $CODEX_VERSION installed" \
+            npm_pinned @openai/codex "$CODEX_VERSION" "$CODEX_INTEGRITY" && ok "codex $CODEX_VERSION installed" \
                 && aiconf record-cmd npm:codex -- $SUDO_UNDO npm rm -g @openai/codex
         else
             codex --version 2>/dev/null | grep -q "$CODEX_VERSION" || info "codex $(codex --version 2>/dev/null) present (pin $CODEX_VERSION: not changed)"
@@ -221,17 +236,26 @@ tools_herdr() {
     if ! sha256_is "$tmp/install.sh" "$HERDR_INSTALLER_SHA256"; then
         warn "herdr installer sha256 changed: not run (new audit needed)"; rm -rf "$tmp"; return 0
     fi
-    if [ "$AI_OS" = linux ]; then run_root env HERDR_INSTALL_DIR=/usr/local/bin sh "$tmp/install.sh"
-    else run env HERDR_INSTALL_DIR="$HOME/.local/bin" sh "$tmp/install.sh"; fi
+    # Ask the installer for the pinned version, then check what it really put there.
+    if [ "$AI_OS" = linux ]; then run_root env HERDR_VERSION="$HERDR_VERSION" HERDR_INSTALL_DIR=/usr/local/bin sh "$tmp/install.sh"
+    else run env HERDR_VERSION="$HERDR_VERSION" HERDR_INSTALL_DIR="$HOME/.local/bin" sh "$tmp/install.sh"; fi
     rm -rf "$tmp"
     aiconf record-cmd bin:herdr -- $SUDO_UNDO rm -f "$(bin_dir)/herdr"
-    ok "herdr installed (audited installer, sha256 checked)"
+    local hb="$(bin_dir)/herdr"
+    if ! "$hb" --version 2>/dev/null | grep -q "$HERDR_VERSION"; then
+        warn "herdr installed is $("$hb" --version 2>/dev/null | head -n1), pin is $HERDR_VERSION: check before use"
+    elif [ -n "$HERDR_BIN_SHA256" ] && ! sha256_is "$hb" "$HERDR_BIN_SHA256"; then
+        warn "herdr binary sha256 differs from HERDR_BIN_SHA256: check before use"
+    else
+        ok "herdr $HERDR_VERSION installed (audited installer, sha256 checked, version verified)"
+    fi
 }
 
 # ---------------------------------------------------------------- tools (step 6)
 
-tools_cli() {
-    if [ "$AI_SKIP_PACKAGES" = 1 ]; then skip "tool installs (--skip-packages)"; return 0; fi
+# User tools: installed as the user, never root (uv tools, per-user npm prefix).
+tools_user() {
+    if [ "$AI_SKIP_PACKAGES" = 1 ]; then skip "user tool installs (--skip-packages)"; return 0; fi
 
     if has serena && serena --version 2>/dev/null | grep -q "$SERENA_VERSION"; then info "serena $SERENA_VERSION present"
     else uv_pinned serena-agent "$SERENA_VERSION" "$SERENA_PYTHON" && ok "serena $SERENA_VERSION" \
@@ -241,6 +265,19 @@ tools_cli() {
     else uv_pinned graphifyy "$GRAPHIFY_VERSION" && ok "graphify $GRAPHIFY_VERSION (no extras)" \
         && aiconf record-cmd uv:graphify -- uv tool uninstall graphifyy; fi
 
+    tools_context7
+    # Root pieces this user needs: report what is missing with the one admin command.
+    if [ "$AI_MODE" = user ]; then
+        has rtk || manual "rtk missing (system part): $(admin_cmd)"
+        has github-mcp-server || manual "github-mcp-server missing (system part): $(admin_cmd)"
+        [ -d "$(plugin_src_dir ponytail)" ] || manual "Ponytail source missing (system part): $(admin_cmd)"
+    fi
+    return 0
+}
+
+# System tools: binaries in /usr/local/bin and audited plugin sources in /opt (root on Linux).
+tools_system() {
+    if [ "$AI_SKIP_PACKAGES" = 1 ]; then skip "system tool installs (--skip-packages)"; return 0; fi
     tools_rtk
     tools_github_mcp
     plugin_clone ponytail "$PONYTAIL_REPO" "$PONYTAIL_SHA" || true
@@ -248,12 +285,19 @@ tools_cli() {
     return 0
 }
 
+# context7 MCP: one pinned install per user, run by mcp/context7.sh (no runtime npx, B3).
+AI_NPM_DIR="$HOME/.local/share/ai/npm"
+tools_context7() {
+    local dir="$AI_NPM_DIR/context7-mcp-$CONTEXT7_MCP_VERSION"
+    if [ -x "$dir/node_modules/.bin/context7-mcp" ]; then info "context7-mcp $CONTEXT7_MCP_VERSION present"; return 0; fi
+    npm_local @upstash/context7-mcp "$CONTEXT7_MCP_VERSION" "$CONTEXT7_MCP_INTEGRITY" "$dir" || return 0
+    aiconf record-cmd "npm-local:context7" -- rm -rf "$dir"
+    ok "context7-mcp $CONTEXT7_MCP_VERSION in $dir (integrity checked, scripts off)"
+}
+
 # RTK from source at the pinned tag: prebuilt x86_64 binaries need AVX2 (contracts-mcp-a 4.6).
 tools_rtk() {
     if has rtk && rtk --version 2>/dev/null | grep -q "$RTK_VERSION"; then info "rtk $RTK_VERSION present"; return 0; fi
-    if [ "$AI_OS" = macos ] && [ "$AI_RTK_HOOK" != 1 ]; then
-        skip "rtk on macOS: only with --rtk-hook (owner turned RTK off on the Mac)"; return 0
-    fi
     if ! has cargo; then
         if [ "$AI_OS" = linux ] && confirm "apt-get install cargo rustc pkg-config libssl-dev (to build RTK)?" y; then
             run_root apt-get install -y -q cargo rustc pkg-config libssl-dev
@@ -261,16 +305,24 @@ tools_rtk() {
             manual "install a Rust toolchain, then re-run to build rtk $RTK_TAG from source"; return 0
         fi
     fi
-    local src="$AI_BUILD_DIR/rtk"
+    local src
+    if [ "$AI_MODE" = system ]; then src="$AI_TARGET_HOME/.cache/ai/build/rtk"; else src="$AI_BUILD_DIR/rtk"; fi
     if [ "$AI_DRY_RUN" = 1 ]; then
         info "[dry-run] git clone --depth 1 --branch $RTK_TAG $RTK_REPO $src; agent-audit dir; cargo build --release --locked; install"
         return 0
     fi
-    rm -rf "$src"; mkdir -p "$AI_BUILD_DIR"
-    git clone -q --depth 1 --branch "$RTK_TAG" "$RTK_REPO" "$src" || { warn "rtk clone failed"; return 0; }
-    info "rtk source commit: $(git -C "$src" rev-parse HEAD) (record it in pins.env as RTK_COMMIT)"
+    # Build as the user (system mode: the target user), never as root; only the install is root.
+    as_target rm -rf "$src"; as_target mkdir -p "$(dirname "$src")"
+    as_target git clone -q --depth 1 --branch "$RTK_TAG" "$RTK_REPO" "$src" || { warn "rtk clone failed"; return 0; }
+    local rtkhead
+    if [ "$AI_MODE" = system ]; then rtkhead=$(sudo -u "$AI_FOR_USER" git -C "$src" rev-parse HEAD)
+    else rtkhead=$(git -C "$src" rev-parse HEAD); fi
+    if [ "$rtkhead" != "$RTK_COMMIT" ]; then
+        warn "rtk tag $RTK_TAG now points to $rtkhead, pin is $RTK_COMMIT: not built (tag moved, new audit needed)"
+        return 0
+    fi
     audit_ok dir "$src" || return 0
-    ( cd "$src" && cargo build --release --locked ) || { warn "rtk build failed"; return 0; }
+    as_target sh -c "cd '$src' && cargo build --release --locked" || { warn "rtk build failed"; return 0; }
     install_bin "$src/target/release/rtk" rtk
     aiconf record-cmd bin:rtk -- $SUDO_UNDO rm -f "$(bin_dir)/rtk"
     ok "rtk $RTK_VERSION built from source"
@@ -326,22 +378,30 @@ tools_docs_server() {
     local d="$AI_HOME/ai/mcp/docs-server"
     aiconf_root file-put /etc/systemd/system/ai-docs-mcp.service "$d/ai-docs-mcp.service" --mode 644
     [ -f /etc/default/ai-docs-mcp ] || aiconf_root file-put /etc/default/ai-docs-mcp "$d/ai-docs-mcp.default" --mode 644
+
+    # S9: the server binds all interfaces, so the firewall must be ON and limit the port to the LAN
+    # interface and tailscale0 BEFORE it starts. Clients are read-only (DOCS_MCP_READ_ONLY=true in the
+    # unit), so nobody on the network can add a scrape source (no SSRF through the server).
+    has ufw || { warn "ufw not found: Grounded Docs NOT started (it would listen on every interface)"; return 0; }
+    local lan ifc
+    lan=$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}' || true)
+    for ifc in $lan tailscale0; do
+        [ -n "$ifc" ] || continue
+        run_root ufw allow in on "$ifc" to any port "$DOCS_MCP_PORT" proto tcp comment "ai grounded docs"
+        aiconf_root record-cmd "ufw:$ifc:$DOCS_MCP_PORT" -- ufw delete allow in on "$ifc" to any port "$DOCS_MCP_PORT" proto tcp
+    done
+    if [ "$AI_DRY_RUN" != 1 ]; then
+        local st; st=$(sudo ufw status 2>/dev/null || true)
+        if ! printf '%s\n' "$st" | grep -q '^Status: active' \
+            || ! printf '%s\n' "$st" | grep -qE "^$DOCS_MCP_PORT/tcp on "; then
+            warn "ufw is not active or has no $DOCS_MCP_PORT/tcp rule: Grounded Docs NOT started"
+            manual "enable ufw with the LAN/tailscale0 rules for $DOCS_MCP_PORT, then: sudo systemctl enable --now ai-docs-mcp"
+            return 0
+        fi
+    fi
     run_root systemctl daemon-reload
     run_root systemctl enable --now ai-docs-mcp.service
     aiconf_root record-cmd systemd:ai-docs-mcp -- systemctl disable --now ai-docs-mcp.service
-
-    # Firewall: the docs port on the LAN interface and tailscale0 only (no addresses in the repo).
-    if has ufw; then
-        local lan; lan=$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}' || true)
-        local ifc
-        for ifc in $lan tailscale0; do
-            [ -n "$ifc" ] || continue
-            run_root ufw allow in on "$ifc" to any port "$DOCS_MCP_PORT" proto tcp comment "ai grounded docs"
-            aiconf_root record-cmd "ufw:$ifc:$DOCS_MCP_PORT" -- ufw delete allow in on "$ifc" to any port "$DOCS_MCP_PORT" proto tcp
-        done
-    else
-        warn "ufw not found: port $DOCS_MCP_PORT is not limited to the LAN and tailscale0"
-    fi
     ok "Grounded Docs server on port $DOCS_MCP_PORT (telemetry off)"
     manual "check flags in /etc/default/ai-docs-mcp against 'docs-mcp-server --help' (flag names UNVERIFIED), then index libraries"
 }

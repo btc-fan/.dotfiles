@@ -25,6 +25,11 @@ import sys
 import tempfile
 import time
 
+try:  # python 3.11+; on older python the heuristic checks in toml_unsafe() still run
+    import tomllib
+except ImportError:  # pragma: no cover
+    tomllib = None
+
 STATE_DEFAULT = os.path.expanduser("~/.local/state/ai/managed-keys.json")
 
 # Hook commands that are "the same hook" even when the path differs (settings.json copy vs
@@ -34,6 +39,12 @@ ADOPT_SIGNATURES = [
     "caffeinate -s -w",
     "graphify hook-guard",
     "serena-hook",   # vendor `serena-hooks activate` and our `hooks/serena-hook` wrapper
+]
+
+# Plugin hooks that do another hook's job inside them: (event, text in plugin command) -> signature.
+# The ai-core router's Stop hook runs claude-notify itself (miss log, then notify).
+ALSO_PROVIDES = [
+    ("Stop", "hooks/router.py", "claude-notify"),
 ]
 
 # Serena needs a different context per client (SPEC 4).
@@ -66,6 +77,9 @@ def main():
 
     s = sub.add_parser("block-upsert", help="upsert a managed block <!-- AI:<name> v<N> START -->")
     s.add_argument("file"); s.add_argument("name"); s.add_argument("version"); s.add_argument("content_file")
+
+    s = sub.add_parser("block-remove", help="remove our managed block (recorded; undo puts it back)")
+    s.add_argument("file"); s.add_argument("name")
 
     s = sub.add_parser("file-put", help="make a file hold exactly this content (backup kept)")
     s.add_argument("file"); s.add_argument("content_file"); s.add_argument("--mode", default="")
@@ -127,7 +141,9 @@ def cmd_json_set(a):
     if had and old == new:
         return say("same", a.file, a.path)
     if a.jsonc and raw and has_comments(raw):
-        say("note", a.file, "comments are dropped on write (jsonc)")
+        # Rewriting would drop the user's comments: refuse, the installer reports a manual step.
+        say("refuse", a.file, "has comments: set %s = %s by hand" % (a.path, short(new)))
+        return 3
     set_path(data, path, new)
     write_json(a.file, data, a.mode)
     record({"kind": "json", "file": a.file, "path": path, "had": had, "prev": old, "value": new},
@@ -156,6 +172,16 @@ def cmd_json_add(a):
 def cmd_toml_set(a):
     text = read_text(a.file)
     lines = text.splitlines()
+    if tomllib and text.strip():
+        try:
+            tomllib.loads(text)
+        except Exception as ex:
+            say("refuse", a.file, "not valid TOML (%s): not touching it" % ex)
+            return 3
+    why = toml_unsafe(lines, a.table, a.key)
+    if why:
+        say("refuse", a.file, "%s: set [%s] %s = %s by hand" % (why, a.table or "root", a.key, a.value))
+        return 3
     start, end = toml_table_span(lines, a.table)
     want = "%s = %s" % (a.key, a.value)
     key_re = re.compile(r"^\s*%s\s*=" % re.escape(a.key))
@@ -182,7 +208,18 @@ def cmd_toml_set(a):
             while ins > start and not lines[ins - 1].strip():
                 ins -= 1
             lines.insert(ins, want)
-    write_text(a.file, "\n".join(lines) + "\n")
+    new_text = "\n".join(lines) + "\n"
+    if tomllib:
+        try:
+            got = tomllib.loads(new_text)
+            for part in (a.table.split(".") if a.table else []):
+                got = got[part]
+            if got[a.key] != tomllib.loads("x = " + a.value)["x"]:
+                raise ValueError("value did not land where expected")
+        except Exception as ex:
+            say("refuse", a.file, "edit would not give valid TOML (%s): set [%s] %s by hand" % (ex, a.table, a.key))
+            return 3
+    write_text(a.file, new_text)
     record({"kind": "toml", "file": a.file, "table": a.table, "key": a.key, "prev": prev, "value": want,
             "created_table": created_table},
            key="toml:%s:%s:%s" % (a.file, a.table, a.key), keep_first=("prev", "created_table"))
@@ -206,6 +243,9 @@ def cmd_yaml_top_set(a):
         prev_block = lines[idx:j]
         if prev_block == [want]:
             return say("same", a.file, a.key)
+        if re.match(r"^%s:\s*[|>]" % re.escape(a.key), lines[idx]):
+            say("refuse", a.file, "%s is a multi-line block scalar: set it by hand" % a.key)
+            return 3
         lines[idx:j] = [want]
     write_text(a.file, "\n".join(lines) + "\n")
     record({"kind": "yaml", "file": a.file, "key": a.key, "prev": prev_block, "value": want},
@@ -222,22 +262,33 @@ def cmd_block_upsert(a):
     rx = block_regex(a.name)
     existed = bool(text.strip())
     m = rx.search(text)
+    sep = None
     if m:
         if m.group(0) == block:
             return say("same", a.file, "block AI:%s" % a.name)
         new = text[:m.start()] + block + text[m.end():]
-    elif not text:
-        new = block + "\n"
-    elif text.endswith("\n\n"):
-        new = text + block + "\n"
-    elif text.endswith("\n"):
-        new = text + "\n" + block + "\n"
     else:
-        new = text + "\n\n" + block + "\n"
+        sep = "" if (not text or text.endswith("\n\n")) else ("\n" if text.endswith("\n") else "\n\n")
+        new = text + sep + block + "\n"
     write_text(a.file, new)
-    record({"kind": "block", "file": a.file, "name": a.name, "existed": existed},
-           key="block:%s:%s" % (a.file, a.name))
+    record({"kind": "block", "file": a.file, "name": a.name, "existed": existed, "sep": sep},
+           key="block:%s:%s" % (a.file, a.name), keep_first=("existed", "sep"))
     say("block", a.file, "AI:%s v%s (%d bytes)" % (a.name, a.version, len(body)))
+
+
+def cmd_block_remove(a):
+    text = read_text(a.file)
+    m = block_regex(a.name).search(text)
+    if not m:
+        return say("same", a.file, "no block AI:%s" % a.name)
+    s_, t = m.start(), m.end()
+    if text[t:t + 1] == "\n":
+        t += 1
+    removed = text[m.start():m.end()]
+    write_text(a.file, text[:s_] + text[t:])
+    record({"kind": "block-removed", "file": a.file, "name": a.name, "block": removed, "index": s_},
+           key="block-removed:%s:%s" % (a.file, a.name))
+    say("remove", a.file, "block AI:%s" % a.name)
 
 
 def cmd_file_put(a):
@@ -262,10 +313,13 @@ def cmd_link(a):
     if os.path.islink(link) and os.readlink(link) == target:
         return say("same", link, "-> " + target)
     backup = None
+    old_target = None
     if os.path.lexists(link):
         if os.path.isdir(link) and not os.path.islink(link):
             return say("skip", link, "is a real directory, left alone")
-        if not os.path.islink(link):
+        if os.path.islink(link):
+            old_target = os.readlink(link)  # a foreign link: remember where it pointed
+        else:
             backup = backup_path(link)
     if not DRY:
         os.makedirs(os.path.dirname(link), exist_ok=True)
@@ -275,9 +329,10 @@ def cmd_link(a):
         elif os.path.lexists(link):
             os.remove(link)
         os.symlink(target, link)
-    record({"kind": "link", "file": link, "target": target, "backup": backup}, key="link:%s" % link,
-           keep_first=("backup",))
-    say("link", link, "-> %s%s" % (target, " (old file kept in %s)" % backup if backup else ""))
+    record({"kind": "link", "file": link, "target": target, "backup": backup, "old_target": old_target},
+           key="link:%s" % link, keep_first=("backup", "old_target"))
+    say("link", link, "-> %s%s%s" % (target, " (old file kept in %s)" % backup if backup else "",
+                                    " (was a link to %s)" % old_target if old_target else ""))
 
 
 def cmd_line_add(a):
@@ -298,14 +353,15 @@ def cmd_line_remove(a):
     for i in reversed(hits):
         del lines[i]
     write_text(a.file, "\n".join(lines) + ("\n" if lines else ""))
-    record({"kind": "line-removed", "file": a.file, "text": a.text}, key="line:%s:%s" % (a.file, a.text))
+    record({"kind": "line-removed", "file": a.file, "text": a.text, "index": hits[0]},
+           key="line:%s:%s" % (a.file, a.text))
     say("remove", a.file, "line %r" % a.text)
 
 
 def cmd_record_cmd(a):
     undo = a.undo[1:] if a.undo and a.undo[0] == "--" else a.undo
     record({"kind": "cmd", "id": a.id, "undo": undo}, key="cmd:%s" % a.id)
-    say("record", a.id, "undo: " + shlex.join(undo))
+    say("record", a.id, "undo: " + redact_join(undo))
 
 
 def cmd_claude_adopt_hooks(a):
@@ -314,7 +370,11 @@ def cmd_claude_adopt_hooks(a):
     for event, groups in (plugin.get("hooks") or {}).items():
         for g in groups or []:
             for h in g.get("hooks") or []:
-                owned.add((event, signature(h.get("command", ""))))
+                cmd = h.get("command", "")
+                owned.add((event, signature(cmd)))
+                for ev, needle, sig in ALSO_PROVIDES:
+                    if ev == event and needle in cmd:
+                        owned.add((event, sig))
     data, _ = load_json(a.settings)
     hooks = data.get("hooks") or {}
     removed = []
@@ -356,11 +416,12 @@ def cmd_claude_take_mcp(a):
     user = data.get("mcpServers") or {}
     taken = [n for n in names if n in user]
     for n in taken:
-        entry = user[n]
-        undo = ["claude", "mcp", "add-json", "--scope", "user", n, json.dumps(entry)]
+        # S1: the entry may hold tokens: kept in a 0600 file, restored by a file edit (never argv).
+        blob = save_blob("claude-user-mcp-%s.json" % n, json.dumps(user[n], indent=2))
         run(["claude", "mcp", "remove", "--scope", "user", n])
-        record({"kind": "cmd", "id": "claude-user-mcp:%s" % n, "undo": undo}, key="cmd:claude-user-mcp:%s" % n)
-        say("move", a.claude_json, "user-scope MCP %r removed: the ai-core plugin serves it now" % n)
+        record({"kind": "claude-mcp-restore", "file": a.claude_json, "name": n, "blob": blob},
+               key="restore:claude-user-mcp:%s" % n)
+        say("move", a.claude_json, "user-scope MCP %r removed (saved to %s): the ai-core plugin serves it now" % (n, blob))
     if not taken:
         say("same", a.claude_json, "no user-scope MCP duplicates the plugin")
 
@@ -495,9 +556,18 @@ def undo_entry(e):
         return say("undo", f, e["key"]) or True
     if k == "block":
         text = read_text(f)
-        new = block_regex(e["name"]).sub("", text, count=1)
-        new = re.sub(r"\n{3,}", "\n\n", new).strip("\n")
-        new = new + "\n" if new else ""
+        m = block_regex(e["name"]).search(text)
+        if not m:
+            return say("same", f, "block AI:%s already gone" % e["name"]) or True
+        # Remove exactly what we added: the block, its trailing newline and the separator we put
+        # before it. User text and its blank lines stay as they are.
+        s, t = m.start(), m.end()
+        if text[t:t + 1] == "\n":
+            t += 1
+        sep = e.get("sep") or ""
+        if sep and text[s - len(sep):s] == sep:
+            s -= len(sep)
+        new = text[:s] + text[t:]
         if new == "" and not e.get("existed"):
             if not DRY and os.path.exists(f):
                 os.remove(f)
@@ -519,13 +589,22 @@ def undo_entry(e):
                 os.remove(f)
                 if e.get("backup") and os.path.exists(e["backup"]):
                     shutil.move(e["backup"], f)
-            return say("undo", f, "link removed") or True
+                elif e.get("old_target"):
+                    os.symlink(e["old_target"], f)
+            return say("undo", f, "link restored to %s" % e["old_target"] if e.get("old_target") else "link removed") or True
         return say("left", f, "not our link any more") or True
     if k == "line-removed":
-        text = read_text(f)
-        if e["text"] not in text.splitlines():
-            write_text(f, text + ("" if text.endswith("\n") or not text else "\n") + e["text"] + "\n")
+        lines = read_text(f).splitlines()
+        if e["text"] not in lines:
+            lines.insert(min(e.get("index", len(lines)), len(lines)), e["text"])  # back in its old place
+            write_text(f, "\n".join(lines) + "\n")
         return say("undo", f, "line restored") or True
+    if k == "block-removed":
+        text = read_text(f)
+        if not block_regex(e["name"]).search(text):
+            i = min(e.get("index", len(text)), len(text))
+            write_text(f, text[:i] + e["block"] + "\n" + text[i:])
+        return say("undo", f, "block AI:%s restored" % e["name"]) or True
     if k == "line-added":
         lines = read_text(f).splitlines()
         if e["text"] in lines:
@@ -549,9 +628,39 @@ def undo_entry(e):
             groups.insert(min(gi, len(groups)), e["group"])
         write_json(f, data)
         return say("undo", f, "%s hook restored" % e["event"]) or True
+    if k == "claude-mcp-restore":
+        data, _ = load_json(f)
+        servers = data.setdefault("mcpServers", {})
+        if e["name"] not in servers:
+            servers[e["name"]] = json.loads(read_text(e["blob"]))
+            write_json(f, data)
+        return say("undo", f, "user-scope MCP %r restored" % e["name"]) or True
+    if k == "codex-mcp-restore":
+        saved = read_text(e["blob"])
+        if not saved.strip():
+            return say("left", e["name"], "foreign Codex entry was not extracted: see %s" % e["blob"]) or True
+        run(e.get("prefix", []) + ["codex", "mcp", "remove", e["name"]], check=False)
+        text = read_text(f)
+        if "[mcp_servers.%s]" % e["name"] not in text:
+            write_text(f, text.rstrip("\n") + "\n\n" + saved)
+        return say("undo", f, "Codex MCP %r restored" % e["name"]) or True
+    if k == "hermes-mcp-restore":
+        saved = read_text(e["blob"])
+        prefix = e.get("prefix", [])
+        rm = ["hermes", "mcp", "remove", e["name"]]
+        run(prefix + ["bash", "-lc", shlex.join(rm)] if prefix else rm, check=False)
+        lines = read_text(f).splitlines()
+        if saved.strip() and not yaml_extract_child("\n".join(lines), "mcp_servers", e["name"]):
+            p = next((i for i, l in enumerate(lines) if re.match(r"^mcp_servers:\s*$", l)), None)
+            if p is None:
+                lines += ["mcp_servers:"]
+                p = len(lines) - 1
+            lines[p + 1:p + 1] = saved.rstrip("\n").splitlines()
+            write_text(f, "\n".join(lines) + "\n")
+        return say("undo", f, "Hermes MCP %r restored" % e["name"]) or True
     if k == "cmd":
         rc = run(e["undo"], check=False)
-        return say("undo" if rc == 0 else "failed", e["id"], shlex.join(e["undo"])) or rc == 0
+        return say("undo" if rc == 0 else "failed", e["id"], redact_join(e["undo"])) or rc == 0
     return say("skip", f or e.get("id"), "unknown kind " + k) or False
 
 
@@ -576,11 +685,28 @@ def mcp_specs(mcp_json, plugin_root, agent):
         }
 
 
+def is_ours(key_suffix):
+    """True when an earlier install recorded this registration as ours."""
+    keys = {e.get("key") for e in load_state()["entries"]}
+    return any(k in keys for k in ("cmd:%s" % key_suffix, "restore:%s" % key_suffix))
+
+
 def codex_register(name, spec, prefix):
     got = capture(prefix + ["codex", "mcp", "get", name, "--json"])
     if got is not None and spec_matches(got, spec):
         return say("same", "codex mcp", name)
-    if got is not None:
+    replaced = got is not None
+    if replaced and not is_ours("codex-mcp:%s" % name):
+        # B1: a foreign entry with our name. Save it (0600, may hold tokens), record a restore.
+        cfg = os.path.join(os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex"), "config.toml")
+        saved_toml = toml_extract_tables(read_text(cfg), "mcp_servers." + name)
+        blob = save_blob("codex-mcp-%s.toml" % name, saved_toml or "")
+        save_blob("codex-mcp-%s.get.json" % name, got)
+        record({"kind": "codex-mcp-restore", "file": cfg, "name": name, "blob": blob, "prefix": prefix},
+               key="restore:codex-mcp:%s" % name)
+        say("replace", "codex mcp", "%s: foreign entry saved to %s (%s)" % (
+            name, blob, "uninstall restores it" if saved_toml else "could not extract it, restore by hand"))
+    if replaced:
         run(prefix + ["codex", "mcp", "remove", name])
     if spec["url"]:
         add = ["codex", "mcp", "add", name, "--url", spec["url"]]
@@ -590,17 +716,35 @@ def codex_register(name, spec, prefix):
             add += ["--env", "%s=%s" % (k, v)]
         add += ["--", spec["command"]] + spec["args"]
     run(prefix + add)
-    if got is None:
+    if not replaced or is_ours("codex-mcp:%s" % name):
         record({"kind": "cmd", "id": "codex-mcp:%s" % name, "undo": prefix + ["codex", "mcp", "remove", name]},
                key="cmd:codex-mcp:%s" % name)
-    say("mcp", "codex", "%s %s" % ("replaced" if got is not None else "added", name))
+    say("mcp", "codex", "%s %s" % ("replaced" if replaced else "added", name))
+
+
+def hermes_config_path():
+    return os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"), "config.yaml")
 
 
 def hermes_register(name, spec, prefix):
     def sh(cmd):
         return prefix + ["bash", "-lc", shlex.join(cmd)] if prefix else cmd
-    listing = capture(sh(["hermes", "mcp", "list"])) or ""
-    known = re.search(r"(^|\W)%s(\W|$)" % re.escape(name), listing) is not None
+    cfg = hermes_config_path()
+    sub = yaml_extract_child(read_text(cfg), "mcp_servers", name)
+    if sub is None:  # config not readable here: fall back to the CLI listing
+        listing = capture(sh(["hermes", "mcp", "list"])) or ""
+        known = re.search(r"(^|\W)%s(\W|$)" % re.escape(name), listing) is not None
+        same = False
+    else:
+        known = bool(sub)
+        same = known and spec_matches(sub, spec)
+    if same:
+        return say("same", "hermes mcp", name)  # B1: equal entry, no remove + re-add
+    if known and not is_ours("hermes-mcp:%s" % name):
+        blob = save_blob("hermes-mcp-%s.yaml" % name, sub or "")
+        record({"kind": "hermes-mcp-restore", "file": cfg, "name": name, "blob": blob, "prefix": prefix},
+               key="restore:hermes-mcp:%s" % name)
+        say("replace", "hermes mcp", "%s: foreign entry saved to %s (uninstall restores it)" % (name, blob))
     if spec["url"]:
         add = ["hermes", "mcp", "add", name, "--url", spec["url"]]
     else:
@@ -612,10 +756,47 @@ def hermes_register(name, spec, prefix):
     if known:
         run(sh(["hermes", "mcp", "remove", name]), check=False)
     run(sh(add))
-    if not known:
+    if not known or is_ours("hermes-mcp:%s" % name):
         record({"kind": "cmd", "id": "hermes-mcp:%s" % name, "undo": sh(["hermes", "mcp", "remove", name])},
                key="cmd:hermes-mcp:%s" % name)
-    say("mcp", "hermes", "%s %s" % ("re-registered" if known else "added", name))
+    say("mcp", "hermes", "%s %s" % ("replaced" if known else "added", name))
+
+
+def toml_extract_tables(text, table):
+    """Text of [table] and its [table.*] sub-tables (the whole entry), or ''."""
+    out, keep = [], False
+    hdr = re.compile(r"^\s*\[\[?([^\]]+)\]\]?\s*(#.*)?$")
+    for l in text.splitlines():
+        m = hdr.match(l)
+        if m:
+            t = m.group(1).strip()
+            keep = t == table or t.startswith(table + ".")
+        if keep:
+            out.append(l)
+    return ("\n".join(out).strip() + "\n") if out else ""
+
+
+def yaml_extract_child(text, parent, child):
+    """Lines of `parent: / child:` subtree (child line included); '' if absent; None if no file."""
+    if not text:
+        return None
+    lines = text.splitlines()
+    try:
+        p = next(i for i, l in enumerate(lines) if re.match(r"^%s:\s*$" % re.escape(parent), l))
+    except StopIteration:
+        return ""
+    for i in range(p + 1, len(lines)):
+        l = lines[i]
+        if l.strip() and not l.startswith((" ", "\t")):
+            break
+        m = re.match(r"^(\s+)%s:\s*" % re.escape(child), l)
+        if m:
+            ind = len(m.group(1))
+            j = i + 1
+            while j < len(lines) and (not lines[j].strip() or len(lines[j]) - len(lines[j].lstrip()) > ind):
+                j += 1
+            return "\n".join(lines[i:j]).rstrip() + "\n"
+    return ""
 
 
 def spec_matches(got, spec):
@@ -651,6 +832,34 @@ def toml_table_span(lines, table):
             end = next((j for j in range(i + 1, len(lines)) if hdr.match(lines[j])), len(lines))
             return i + 1, end
     return None, None
+
+
+def toml_unsafe(lines, table, key):
+    """Reason to refuse a line edit, or ''. Covers forms a line editor would corrupt."""
+    if table:
+        head = table.split(".")[0]
+        tail = table[len(head):]
+        root_end = toml_table_span(lines, "")[1]
+        for l in lines:
+            if re.match(r"^\s*%s\s*\.\s*\S" % re.escape(table), l) and "=" in l and not l.lstrip().startswith("["):
+                return "[%s] is written with dotted keys" % table
+            if re.match(r"^\s*%s\s*=\s*\{" % re.escape(table), l):
+                return "[%s] is an inline table" % table
+        for l in lines[:root_end]:
+            if re.match(r"^\s*%s\s*=\s*\{" % re.escape(head), l) and tail:
+                return "%s is an inline table" % head
+    start, end = toml_table_span(lines, table)
+    if start is not None:
+        for i in range(start, end):
+            m = re.match(r"^\s*%s\s*=\s*(.*)$" % re.escape(key), lines[i])
+            if not m:
+                continue
+            v = m.group(1).strip()
+            if v.startswith(('"""', "'''")) and v.count(v[:3]) < 2:
+                return "%s has a multi-line string value" % key
+            if (v.startswith("[") and v.count("[") > v.count("]")) or (v.startswith("{") and v.count("{") > v.count("}")):
+                return "%s has a multi-line value" % key
+    return ""
 
 
 def split_path(p):
@@ -740,7 +949,8 @@ def read_text(path):
 
 
 def write_text(path, text, mode=""):
-    path = os.path.expanduser(path)
+    # Write through symlinks: a config that is a link (e.g. stowed) stays a link.
+    path = os.path.realpath(os.path.expanduser(path))
     if DRY:
         return
     d = os.path.dirname(path) or "."
@@ -763,6 +973,36 @@ def backup_path(path):
     return os.path.join(base, path.lstrip("/").replace("/", "__"))
 
 
+SECRET_RX = re.compile(r"(?i)(key|token|secret|password|pat|auth)[A-Z0-9_]*=")
+TOKEN_RX = re.compile(r"(ctx7sk-|ghp_|gho_|github_pat_|sk-ant-|sk-|xox[abp]-)[A-Za-z0-9_\-]+")
+
+
+def redact(arg):
+    """Hide secret values in anything we print (S1): K=V with a secret-like K, and token shapes."""
+    m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", arg)
+    if m and SECRET_RX.match(m.group(1) + "="):
+        return m.group(1) + "=***"
+    return TOKEN_RX.sub(lambda t: t.group(1) + "***", arg)
+
+
+def redact_join(argv):
+    return shlex.join([redact(a) for a in argv])
+
+
+def save_blob(name, text):
+    """Keep undo data that may hold secrets in a 0600 file next to the state (never in argv)."""
+    d = os.path.join(os.path.dirname(STATE_PATH), "undo")
+    path = os.path.join(d, "%s.%s" % (time.strftime("%Y%m%d-%H%M%S"), name))
+    if DRY:
+        return path
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    os.chmod(d, 0o700)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return path
+
+
 def sha(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -779,11 +1019,11 @@ def say(action, target, detail):
 
 def run(argv, check=True):
     if DRY:
-        print("  [dry-run] " + shlex.join(argv))
+        print("  [dry-run] " + redact_join(argv))
         return 0
     rc = subprocess.call(argv, stdin=subprocess.DEVNULL)
     if rc != 0 and check:
-        raise SystemExit("aiconf: command failed (%d): %s" % (rc, shlex.join(argv)))
+        raise SystemExit("aiconf: command failed (%d): %s" % (rc, redact_join(argv)))
     return rc
 
 
@@ -830,6 +1070,8 @@ def record(entry, key, keep_first=("prev", "had", "existed")):
             for k in keep_first:
                 if k in e:
                     entry[k] = e[k]
+            if {k: v for k, v in e.items() if k != "time"} == {k: v for k, v in entry.items() if k != "time"}:
+                return  # same record: keep the file (and its time stamp) unchanged
             st["entries"][i] = entry
             break
     else:

@@ -17,7 +17,19 @@ hermes_stage_dir() {
 
 hermes_mcp() {
     as_hermes_ro 'command -v hermes' >/dev/null || { skip "Hermes MCP: hermes binary not found for user $HERMES_USER"; return 0; }
-    local root
+    local root c7 hh
+    hh=$(hermes_home)
+    # Serena and context7 for this user too (its own PATH and HOME; no runtime npx).
+    if ! as_hermes_ro 'command -v serena' >/dev/null && [ "$AI_SKIP_PACKAGES" != 1 ]; then
+        audit_ok pypi serena-agent "$SERENA_VERSION" \
+            && as_hermes "uv tool install --no-build -p $SERENA_PYTHON serena-agent==$SERENA_VERSION" \
+            && aiconf_hermes record-cmd uv:serena -- uv tool uninstall serena-agent
+    fi
+    c7="$hh/.local/share/ai/npm/context7-mcp-$CONTEXT7_MCP_VERSION"
+    if ! sudo -n -u "$HERMES_USER" test -x "$c7/node_modules/.bin/context7-mcp" 2>/dev/null && [ "$AI_SKIP_PACKAGES" != 1 ]; then
+        npm_local @upstash/context7-mcp "$CONTEXT7_MCP_VERSION" "$CONTEXT7_MCP_INTEGRITY" "$c7" hermes \
+            && aiconf_hermes record-cmd npm-local:context7 -- rm -rf "$c7"
+    fi
     root=$(hermes_stage_dir "$(PLUGIN_DIR)" plugin-ai-core)
     aiconf_hermes mcp-register hermes --mcp-json "$root/.mcp.json" --plugin-root "$root"
     hermes_serena_config
@@ -40,15 +52,23 @@ hermes_serena_config() {
 
 hermes_skills() {
     # Only plain-SKILL.md skills (no plugin form); Claude-only packs go through `claude -p`.
-    local s n dest hh
+    # Our copies carry a .ai-managed marker. A same-name skill without it is moved to a backup
+    # first and comes back on uninstall (S5).
+    local s n dest hh bk
     [ -d "$AI_HOME/ai/skills" ] || return 0
     hh=$(hermes_home)
     for s in "$AI_HOME"/ai/skills/*/; do
         [ -f "$s/SKILL.md" ] || continue
         n=$(basename "$s")
         dest="$hh/.hermes/skills/$n"
-        if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] copy skill $n to $dest"; continue; fi
-        tar -C "$AI_HOME/ai/skills" -cf - "$n" | sudo -u "$HERMES_USER" -H sh -c "mkdir -p '$hh/.hermes/skills' && rm -rf '$dest' && tar -C '$hh/.hermes/skills' -xf -"
+        if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] copy skill $n to $dest (a foreign one is backed up)"; continue; fi
+        if sudo -n -u "$HERMES_USER" test -d "$dest" && ! sudo -n -u "$HERMES_USER" test -f "$dest/.ai-managed"; then
+            bk="$hh/.local/state/ai/backup/skills/$n.$(date +%Y%m%d-%H%M%S)"
+            sudo -u "$HERMES_USER" -H sh -c "mkdir -p \"\$(dirname '$bk')\" && mv '$dest' '$bk'"
+            aiconf_hermes record-cmd "skill-backup:$n" -- sh -c 'rm -rf "$1" && mv "$2" "$1"' sh "$dest" "$bk"
+            info "Hermes skill $n was not ours: moved to $bk"
+        fi
+        tar -C "$AI_HOME/ai/skills" -cf - "$n" | sudo -u "$HERMES_USER" -H sh -c "mkdir -p '$hh/.hermes/skills' && rm -rf '$dest' && tar -C '$hh/.hermes/skills' -xf - && touch '$dest/.ai-managed'"
         aiconf_hermes record-cmd "skill:$n" -- rm -rf "$dest"
     done
     ok "Hermes: plain skills copied to ~$HERMES_USER/.hermes/skills"
@@ -94,6 +114,11 @@ hermes_env() {
         key=${kv%%=*}; want=${kv#*=}
         cur=$(as_hermes_ro "hermes config get $key" | tail -n1 | tr -d '[:space:]' || true)
         if [ "$cur" = "$want" ]; then info "Hermes $key = $want"; continue; fi
+        if [ -n "$cur" ]; then
+            aiconf_hermes record-cmd "hermes-config:$key" -- hermes config set "$key" "$cur"
+        else
+            manual "Hermes $key had no value before install: uninstall cannot unset it (hermes config has no unset we verified)"
+        fi
         as_hermes "hermes config set $key $want"
         ok "Hermes $key = $want (was ${cur:-unset})"
     done

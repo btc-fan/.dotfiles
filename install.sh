@@ -1,28 +1,40 @@
 #!/usr/bin/env bash
 # install.sh: the AI setup of the `ai` branch for macOS and Ubuntu (SPEC.md, sections 1 and 20).
 #
-#   ./install.sh [--dry-run] [--agents claude,codex,hermes,opencode,herdr] [--skip-packages]
-#                [--rtk-hook] [--docs-server] [--yes]
+#   Ubuntu server (admin installs, always):
+#     sudo ~<user>/.dotfiles-ai/install.sh --for-user <user> [--docs-server] [options]
+#       root steps as root, then the user part as <user> (sudo -u <user> -H ... --user).
+#   User part alone (testing; never calls sudo):   ~/.dotfiles-ai/install.sh --user [options]
+#   macOS, or a Linux user with sudo (one process): ~/.dotfiles-ai/install.sh [options]
 #
-# Distribution = each agent's own extension points (plugins, `mcp add`, `config set`). Our own
-# merge code only writes managed blocks, single keys and links, and records every change in
-# ~/.local/state/ai/managed-keys.json (system files: /var/lib/ai/managed-keys.json) for uninstall.sh.
-# Idempotent: a second run changes nothing. Run as your normal user (sudo is used where needed).
+#   options: [--dry-run] [--agents claude,codex,hermes,opencode,herdr] [--skip-packages]
+#            [--allow-dirty] [--yes]
+#
+# Distribution = each agent's own extension points (plugins, `mcp add`, `config set`). Our own merge
+# code only writes managed blocks, single keys and links, and records every change for uninstall.sh
+# (user: ~/.local/state/ai/managed-keys.json, system: /var/lib/ai/managed-keys.json).
+# Root runs only a root-owned copy of the pushed branch (--allow-dirty: development only).
+# Idempotent: a second run changes nothing.
 set -euo pipefail
 
 AI_HOME=$(cd "$(dirname "$0")" && pwd -P)
-export AI_HOME
+AI_SRC_HOME=${AI_SRC_HOME:-$AI_HOME}   # the user's work tree (set by the system part)
+export AI_HOME AI_SRC_HOME
 
-usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
-AI_DRY_RUN=0 AI_YES=0 AI_SKIP_PACKAGES=0 AI_RTK_HOOK=0 AI_DOCS_SERVER=0 AGENTS=""
+AI_DRY_RUN=0 AI_YES=0 AI_SKIP_PACKAGES=0 AI_DOCS_SERVER=0 AI_ALLOW_DIRTY=0 AGENTS=""
+AI_MODE=all AI_FOR_USER=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --dry-run) AI_DRY_RUN=1 ;;
         --yes|-y) AI_YES=1 ;;
         --skip-packages) AI_SKIP_PACKAGES=1 ;;
-        --rtk-hook) AI_RTK_HOOK=1 ;;
         --docs-server) AI_DOCS_SERVER=1 ;;
+        --allow-dirty) AI_ALLOW_DIRTY=1 ;;
+        --user) AI_MODE=user ;;
+        --for-user) [ $# -ge 2 ] || usage 1; AI_MODE=system; AI_FOR_USER=$2; shift ;;
+        --for-user=*) AI_MODE=system; AI_FOR_USER=${1#--for-user=} ;;
         --agents) [ $# -ge 2 ] || usage 1; AGENTS=$2; shift ;;
         --agents=*) AGENTS=${1#--agents=} ;;
         -h|--help) usage 0 ;;
@@ -30,45 +42,140 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-export AI_DRY_RUN AI_YES AI_SKIP_PACKAGES AI_RTK_HOOK
+export AI_DRY_RUN AI_YES AI_SKIP_PACKAGES AI_ALLOW_DIRTY AI_MODE AI_FOR_USER
 
 . "$AI_HOME/ai/lib/common.sh"
-for f in base tools claude codex hermes opencode herdr; do . "$AI_HOME/ai/adapters/$f.sh"; done
 
 want() { case ",$AGENTS," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
 
 main() {
     detect_os
-    is_root && die "run as your normal user, not root (sudo is used where needed)"
+    check_mode
+    [ "$AI_MODE" = system ] && setup_system_target
+    for f in base tools claude codex hermes opencode herdr; do . "$AI_HOME/ai/adapters/$f.sh"; done
     load_pins
-    first_question
+    [ "$AI_MODE" = user ] || first_question
     pick_agents
 
-    say "AI setup from $AI_HOME on $AI_OS ($AI_ARCH). Agents: ${AGENTS:-none}."
+    say "AI setup ($AI_MODE mode${AI_FOR_USER:+ for $AI_FOR_USER}) from $AI_HOME on $AI_OS ($AI_ARCH). Agents: ${AGENTS:-none}."
     [ "$AI_DRY_RUN" = 1 ] && say "DRY RUN: commands are printed, nothing is changed."
-    [ "$AI_OS" = linux ] && [ "$AI_DRY_RUN" != 1 ] && sudo -v
 
+    case "$AI_MODE" in
+        system) run_system ;;
+        user)   run_user ;;
+        all)    sudo_ready || exit 1; run_all ;;
+    esac
+    [ "$AI_MODE" = system ] || logins_left
+    summary
+}
+
+check_mode() {
+    case "$AI_MODE" in
+        system)
+            [ "$AI_OS" = linux ] || die "--for-user is for Ubuntu servers (admin installs for a user)"
+            is_root || die "--for-user runs as root: sudo $0 --for-user $AI_FOR_USER"
+            getent passwd "$AI_FOR_USER" >/dev/null || die "no such user: $AI_FOR_USER"
+            [ "$AI_FOR_USER" != root ] || die "--for-user root is not supported"
+            ;;
+        user) is_root && die "--user runs as the target user, never as root" ;;
+        all)
+            if is_root; then
+                die "as root use: $0 --for-user <user> (root steps here, user part as that user)"
+            fi
+            ;;
+    esac
+    return 0
+}
+
+# Admin mode: the target user's paths, then a root-owned copy of the user's work tree (S7).
+setup_system_target() {
+    AI_TARGET_HOME=$(getent passwd "$AI_FOR_USER" | cut -d: -f6)
+    export AI_TARGET_HOME
+    AI_STATE_DIR=/var/lib/ai
+    AI_STATE_FILE=$AI_SYSTEM_STATE_FILE
+    root_prepare "$AI_SRC_HOME" || exit 1
+}
+
+# ---------------------------------------------------------------- the three modes
+
+# Root steps only (admin, for one user). Ends by running the user part as that user.
+run_system() {
+    STEP_TOTAL=8
+    [ "$AI_DOCS_SERVER" = 1 ] && STEP_TOTAL=9
+    step "prerequisites (apt)";                                  base_prereqs
+    step "pins (ai/pins.env is the only source of versions)";    base_pins
+    step "render AGENTS.md and routing data in the root-owned copy"; base_render
+    step "agents: pinned harness installs (system-wide)";        tools_harnesses
+    step "system tools: RTK (built as $AI_FOR_USER), GitHub MCP, plugin sources"; tools_system
+    step "system layer: /etc env, managed settings, admin rules, caffeinate, webhook helper"; do_system_layer
+    step "Hermes (user $HERMES_USER)";                           do_hermes
+    [ "$AI_DOCS_SERVER" = 1 ] && { step "Grounded Docs server role"; tools_docs_server; }
+    step "user part as $AI_FOR_USER";                            run_user_part
+}
+
+# Everything that lives in the user's home. Never calls sudo.
+run_user() {
     STEP_TOTAL=13
-    [ "$AI_DOCS_SERVER" = 1 ] && STEP_TOTAL=14
+    step "prerequisites (check only)";                           base_prereqs
+    step "pins (ai/pins.env is the only source of versions)";    base_pins
+    step "links (~/.dotfiles-ai, ~/.config/ai, ~/.local/bin, claude-notify)"; base_links
+    step "render AGENTS.md and routing data (ai-render)";        base_render
+    step "user tools: Serena, graphify, context7";               tools_user
+    step "MCP servers";                                         do_mcp
+    step "plugins (marketplace ai, ai-core, Ponytail, i-have-adhd, claude-seo, claude-blog)"; do_plugins
+    step "skills";                                              do_skills
+    step "hooks (plugin owns them; vendor hooks: RTK, herdr, graphify)"; do_hooks
+    step "root rules (managed blocks; other blocks kept)";      base_rules_user
+    step "environment: telemetry and auto-update off";          base_env_user
+    step "git hooks: ai-sync after each pull";                  base_sync_hook
+    step "verify";                                              do_verify
+}
 
+# macOS, or a Linux user with sudo: one process, today's behaviour.
+run_all() {
+    STEP_TOTAL=14
+    [ "$AI_OS" = linux ] && STEP_TOTAL=16
+    [ "$AI_DOCS_SERVER" = 1 ] && STEP_TOTAL=$((STEP_TOTAL + 1))
+    if pgrep -x claude >/dev/null 2>&1; then
+        warn "a Claude session is running: settings are written atomically, restart the session after install"
+    fi
     step "prerequisites (git, jq, python3, node, npm, uv, curl)";  base_prereqs
     step "pins (ai/pins.env is the only source of versions)";    base_pins
     step "links (~/.dotfiles-ai, ~/.config/ai, ~/.local/bin, claude-notify)"; base_links
     step "render AGENTS.md and routing data (ai-render)";        base_render
     step "agents: pinned harness installs";                     tools_harnesses
-    step "tools: Serena, graphify, RTK, GitHub MCP, plugin sources"; tools_cli
+    step "tools: RTK, GitHub MCP, plugin sources, Serena, graphify, context7"; tools_system; tools_user
     step "MCP servers";                                         do_mcp
     step "plugins (marketplace ai, ai-core, Ponytail, i-have-adhd, claude-seo, claude-blog)"; do_plugins
     step "skills";                                              do_skills
     step "hooks (plugin owns them; vendor hooks: RTK, herdr, graphify)"; do_hooks
-    step "root rules (managed blocks; other blocks kept)";      base_rules
-    step "environment: telemetry and auto-update off";          base_env
+    step "root rules (managed blocks; other blocks kept)";      base_rules_user
+    step "environment: telemetry and auto-update off";          base_env_user
+    if [ "$AI_OS" = linux ]; then
+        step "system layer: /etc env, managed settings, admin rules, caffeinate, webhook helper"; do_system_layer
+        step "Hermes (user $HERMES_USER)";                       do_hermes
+    fi
+    step "git hooks: ai-sync after each pull";                  base_sync_hook
     [ "$AI_DOCS_SERVER" = 1 ] && { step "Grounded Docs server role"; tools_docs_server; }
     step "verify";                                              do_verify
-
-    logins_left
-    summary
 }
+
+# Admin mode: run the root-owned copy's user part as the target user (it never calls sudo).
+run_user_part() {
+    local args="--user --yes"
+    [ "$AI_DRY_RUN" = 1 ] && args="$args --dry-run"
+    [ "$AI_SKIP_PACKAGES" = 1 ] && args="$args --skip-packages"
+    [ -n "$AGENTS" ] && args="$args --agents $(printf '%s' "$AGENTS" | sed 's/,*hermes//; s/^,//')"
+    info "running as $AI_FOR_USER: $AI_HOME/install.sh $args"
+    # shellcheck disable=SC2086
+    if sudo -u "$AI_FOR_USER" -H env AI_SRC_HOME="$AI_SRC_HOME" "$AI_HOME/install.sh" $args; then
+        ok "user part for $AI_FOR_USER"
+    else
+        warn "user part for $AI_FOR_USER failed: see its output above"
+    fi
+}
+
+# ---------------------------------------------------------------- step groups
 
 first_question() {
     [ "$AI_OS" = linux ] || return 0
@@ -78,8 +185,9 @@ first_question() {
 Do the base server setup first, from the `ubuntu-server` branch of this repo:
   git clone --branch ubuntu-server <this repo URL> ~/.dotfiles
   then follow ~/.dotfiles/README.md (its last section points back here).
-Then add this branch and run this script again:
-  git -C ~/.dotfiles worktree add ~/.dotfiles-ai ai && ~/.dotfiles-ai/install.sh
+Then add this branch as the user, and let admin run this script for that user:
+  git -C ~/.dotfiles worktree add ~/.dotfiles-ai ai
+  sudo ~<user>/.dotfiles-ai/install.sh --for-user <user>      (as admin)
 EOF
         exit 0
     fi
@@ -96,22 +204,46 @@ confirm_default_no() {
 }
 
 pick_agents() {
-    if [ -n "$AGENTS" ]; then return 0; fi
+    if [ -n "$AGENTS" ]; then
+        [ "$AI_MODE" = user ] && AGENTS=$(printf '%s' "$AGENTS" | sed 's/,*hermes//; s/^,//')
+        return 0
+    fi
     local list=""
     has claude && list="$list,claude"
     has codex && list="$list,codex"
-    hermes_exists && list="$list,hermes"
+    [ "$AI_MODE" != user ] && hermes_exists && list="$list,hermes"
     # opencode is always installed (SPEC 3); herdr where it exists or on Linux servers.
     list="$list,opencode"
     { has herdr || [ "$AI_OS" = linux ]; } && list="$list,herdr"
     AGENTS=${list#,}
 }
 
+do_system_layer() {
+    base_env_system
+    base_admin_layer
+    base_webhook_helper
+    if [ "$AI_OS" = linux ] && ! has caffeinate; then
+        # SessionStart keeps `caffeinate -s -w $PPID`: on Linux a systemd-inhibit wrapper.
+        aiconf_root file-put /usr/local/bin/caffeinate "$AI_HOME/ai/adapters/linux/caffeinate" --mode 755
+        ok "caffeinate wrapper (systemd-inhibit) in /usr/local/bin"
+    fi
+    return 0
+}
+
+do_hermes() {
+    if ! want hermes || ! hermes_exists; then skip "Hermes: user $HERMES_USER not present or not selected"; return 0; fi
+    hermes_mcp
+    hermes_skills
+    hermes_hooks
+    if [ -f "$AI_HOME/ai/AGENTS.md" ]; then hermes_rules; else warn "Hermes rules: ai/AGENTS.md not built"; fi
+    hermes_env
+    return 0
+}
+
 do_mcp() {
     base_serena_config
     want claude && claude_mcp
     want codex && codex_mcp
-    want hermes && hermes_exists && hermes_mcp
     want opencode && opencode_mcp
     return 0
 }
@@ -125,22 +257,14 @@ do_plugins() {
 do_skills() {
     want claude && claude_skills
     { want codex || want opencode; } && codex_skills
-    want hermes && hermes_exists && hermes_skills
     return 0
 }
 
 do_hooks() {
     want claude && claude_hooks
     want codex && codex_hooks
-    want hermes && hermes_exists && hermes_hooks
     want opencode && opencode_hooks
     want herdr && herdr_hooks
-    base_webhook_helper
-    if [ "$AI_OS" = linux ] && ! has caffeinate; then
-        # SessionStart keeps `caffeinate -s -w $PPID`: on Linux a systemd-inhibit wrapper.
-        aiconf_root file-put /usr/local/bin/caffeinate "$AI_HOME/ai/adapters/linux/caffeinate" --mode 755
-        ok "caffeinate wrapper (systemd-inhibit) in /usr/local/bin"
-    fi
     return 0
 }
 
@@ -162,7 +286,9 @@ do_verify() {
 logins_left() {
     want claude && manual "log in once: claude (then /login)"
     want codex && manual "log in once: codex login --device-auth"
-    want hermes && hermes_exists && manual "Hermes: Codex login by device code as $HERMES_USER; Discord token and allowed users in its secrets"
+    if [ "$AI_MODE" = all ] && want hermes && hermes_exists; then
+        manual "Hermes: Codex login by device code as $HERMES_USER; Discord token and allowed users in its secrets"
+    fi
     has gh && ! gh auth status >/dev/null 2>&1 && manual "log in once: gh auth login"
     return 0
 }

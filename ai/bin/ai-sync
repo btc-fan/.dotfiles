@@ -12,6 +12,8 @@
 #   Codex   ~/.codex/AGENTS.md block AI:core          (same block-upsert as install.sh, base_rules)
 #   Hermes  ~hermes/.hermes/SOUL.md block AI:core     (hermes_rules) and the Hermes plugin copy
 #           ~hermes/.hermes/plugins/ai-core (hermes_hooks: routing.json, router code). Needs sudo -n.
+#   Linux   /etc/claude-code/CLAUDE.md (+ /etc/opencode) admin layer: base_admin_layer after sudo_ready
+#           (repo gate: clean tree, HEAD == origin/ai, or AI_ALLOW_DIRTY=1; passwordless sudo).
 # Claude and opencode read ~/.config/ai/AGENTS.md (a link), so ai-render alone updates them.
 set -euo pipefail
 
@@ -47,6 +49,15 @@ main() {
             warn "Hermes copies not refreshed: needs sudo -n to user $HERMES_USER. Run ai-sync by hand."
         fi
     fi
+    # Linux admin layer (/etc/claude-code/CLAUDE.md, /etc/opencode): root-owned copies of the rules.
+    # sudo_ready = repo gate (clean tree, HEAD == origin/ai) + passwordless sudo + root helper refresh.
+    if [ "$AI_OS" = linux ]; then
+        if sudo_ready noninteractive; then
+            base_admin_layer
+        else
+            warn "admin layer not refreshed (repo not exactly origin/ai, or no passwordless sudo). Run ai-sync by hand."
+        fi
+    fi
     return 0
 }
 
@@ -55,6 +66,7 @@ load_libs() {
     . "$AI_HOME/ai/lib/common.sh"
     for f in base tools hermes; do . "$AI_HOME/ai/adapters/$f.sh"; done
     detect_os
+    load_pins       # base_admin_layer reads CODEX_VERSION / OPENCODE_VERSION (set -u)
 }
 
 # ---------------------------------------------------------------- check (ai-doctor)
@@ -64,6 +76,9 @@ check_copies() {
     local rc=0 soul=""
     if [ -f "$CODEX_DIR/AGENTS.md" ]; then
         block_matches "$CODEX_DIR/AGENTS.md" "Codex ~/.codex/AGENTS.md" || rc=1
+    fi
+    if [ -f /etc/claude-code/CLAUDE.md ]; then
+        file_matches /etc/claude-code/CLAUDE.md "admin layer /etc/claude-code/CLAUDE.md" || rc=1
     fi
     if hermes_exists; then
         soul=$(sudo -n -u "$HERMES_USER" -H sh -c 'cat ~/.hermes/SOUL.md' 2>/dev/null || true)
@@ -91,6 +106,19 @@ if not m:
 if not m.group(1).startswith(want):
     print("FAIL %s: AI:core block differs from ai/AGENTS.md (run ai-sync)" % label); sys.exit(1)
 print("PASS %s: AI:core block is current" % label)
+EOF
+}
+
+# A whole-file copy (admin layer) must start with the current ai/AGENTS.md (hosting doc may follow).
+file_matches() {
+    python3 - "$1" "$2" "$AI_HOME/ai/AGENTS.md" <<'EOF'
+import sys
+path, label, agents = sys.argv[1:4]
+want = open(agents, encoding="utf-8").read().rstrip("\n")
+if open(path, encoding="utf-8").read().startswith(want):
+    print("PASS %s is current" % label)
+else:
+    print("FAIL %s differs from ai/AGENTS.md (run ai-sync)" % label); sys.exit(1)
 EOF
 }
 
