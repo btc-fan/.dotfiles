@@ -472,3 +472,10 @@ Catalog: `omc ask <provider> --prompt` (markdown only); `omx exec` passes to `co
 - @playwright/mcp 0.0.85 (Apache-2.0): INSTALL, 0 threat hits, no install scripts. Per project only.
 - github-mcp-server v2.1.0 (Go binary from GitHub releases): audit owed at install: `agent-audit dir` on the tag
   source + release checksum check; token from ~/.config/ai/secrets.env.
+
+## 22. Audit acceptance (owner decision 2026-11-11, after the first real server install)
+- agent-audit refused 6 tools on guarddog/osv hits. Each flagged line was reviewed by hand (intake-triage, SPEC 19
+  and 21, plus the context7/graphify review of 2026-11-11). Owner approved an owner-reviewed list `ai/audit-accepted.txt`
+  for exactly: OMC 5.8.4, opencode 1.19.5, docs-mcp-server 3.4.1, context7-mcp 4.6.0, graphifyy 0.9.105,
+  github-mcp-server v2.1.0. The full audit still runs every time; only an exact listed version passes on findings;
+  any new version needs a new review and a new line. Every acceptance is logged as `ACCEPTED owner-reviewed`.
