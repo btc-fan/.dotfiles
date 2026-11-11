@@ -464,3 +464,11 @@ ai-doctor fails if any enabled tool lacks a contract or its evals fail.
    OS; every config file and the settings we set (telemetry/auto-update off); keys (required vs optional);
    one-time per-machine steps (downloads, logins, trust prompts); per-project steps (files, .gitignore);
    verify command; cleanup paths. install.sh and ai-doctor implement and check every item.
+
+## 2026-11-11: plan audit and owner decisions
+- Plan audit (97 items) found: no base repo on the server for the worktree layout; contracts for 11 tools missing;
+  server backups inside the crawler's night window; decisions not recorded (rulesync, root AGENTS.md, older Mac).
+- Owner answers: ubuntu-server branch first; house rules wait for the build; rulesync after a pilot; no Macs now;
+  AGENTS.md cap 30 KB. Server backups moved after 07:30, pg-backup skips md999 and keeps 3 days.
+- Server changes today: 1 TB Seagate removed; Hitachi = /backup (mirror 08:30), WD 320 = spare; address now
+  from DHCP (reservation pending); sshd/fail2ban/Docker/sysctl hardening.

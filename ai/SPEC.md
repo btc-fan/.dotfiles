@@ -1,7 +1,8 @@
 # AI setup spec (branch `ai`)
 
 Clean, current version. Decision history and reasons: `ai/SPEC-LOG.md`. Where they differ, this file wins.
-Status: owner review in progress (2026-11-10). Build starts after owner approval. Scope: build everything at once.
+Status: owner decisions of 2026-11-11 recorded (section 17); final approval pending. Scope: build everything at once.
+Order (owner 2026-11-11): minimal `ubuntu-server` branch first, then the `ai` build and its server test.
 
 ## 0. Purpose and principles
 - One AI setup for every machine (macOS, Ubuntu; Windows later) and every future project.
@@ -27,8 +28,9 @@ Status: owner review in progress (2026-11-10). Build starts after owner approval
 - `ai` has no upstream to `main`. Push only after owner approval and a secret scan.
 - Distribution:
   - GNU stow for plain files.
-  - rulesync (pinned, audited, piloted in a throwaway HOME first) writes rules, MCP, skills and hooks into
-    each agent's own format. If the pilot fails, small own adapters do the same job.
+  - rulesync (pinned, audited, piloted in a throwaway HOME on the home server first; owner 2026-11-11:
+    "rulesync after a pilot") writes rules, MCP, skills and hooks into each agent's own format.
+    If the pilot fails, small own adapters do the same job (owner is told before switching).
   - Own small adapters only for gaps: herdr, omo, oh-my-claudecode, oh-my-codex, Hermes SOUL.md.
   - Files that tools also write (`~/.claude/settings.json`, `~/.claude.json`, `~/.codex/config.toml`,
     `~/.hermes/config.yaml`): merge our keys only, never own the whole file.
@@ -145,7 +147,7 @@ Global (every project, always on):
 | RTK | v1.2.0 | built from source on CPUs without AVX2; rtk init for Claude, Codex, Hermes |
 | claude-seo | v2.5.0 = 219ff485bb016314bb4c15bfc7978df61c668a4f | all skills on; `/seo setup` once per machine; extensions installers OFF |
 | claude-blog | v2.3.2 = 4f9c2cb8fd17f594e868d6c2ce0e8fb2c971f987 | all skills on; notebooklm, image-MCP script, blog-studio, brain OFF |
-| mattpocock/skills (copies, pinned commit) | main HEAD at build | grilling, grill-me, wait-what, retro, writing-for-agents; no plugin, no `npx skills@latest`; shared ~/.agents/skills + link for Claude |
+| mattpocock/skills (copies, pinned commit) | 4ae2317ddb22b046e26455e4f9c9b3aaaf62212d | grilling, grill-me, wait-what, retro, writing-for-agents; no plugin, no `npx skills@latest`; shared ~/.agents/skills + link for Claude |
 | oh-my-claudecode, oh-my-codex | pinned at build | main harnesses |
 | prompting-claude-and-codex (own skill) | dated snapshot | condensed from official docs, source links |
 - caveman: dropped (overlaps i-have-adhd + Reporting style). context7 plugin: dropped (duplicate of the MCP).
@@ -259,13 +261,16 @@ Every MCP and skill gets `ai/rules/<tool>.md` + routing.yaml rows + evals:
 - No employer identities or company Google accounts in tool sign-ins.
 
 ## 14. Machines
-- Home server: test target. Its hand-made Phase 5 config is replaced by install.sh from `~/.dotfiles`.
-- Mac: after the server test and owner review. Guard rails: never touch the 999 project, its Postgres or
+- Home server: test target. `~/.dotfiles` = clone of the `ubuntu-server` branch (built first), `~/.dotfiles-ai`
+  = `ai` worktree; its hand-made Phase 5 config is replaced by `~/.dotfiles-ai/install.sh`.
+- Macs (this Mac and the older Intel Mac on macOS 12): NOT now (owner 2026-11-11 "No Macs for now").
+  When enabled later: after the server test and owner review. Guard rails: never touch the 999 project, its Postgres or
   `com.md999.*` launchd jobs; never re-enable the RTK hook silently.
-- Windows: later (chezmoi or a PowerShell script).
+- Windows: later (chezmoi or a PowerShell script). Its README "AI setup" section says "planned, not supported yet".
 - `ubuntu-server` branch (owner: default setup for any new Ubuntu server, with README; the README ends with the
   "AI setup" section): all server phase scripts + notes (power-off recovery, watchdog, no-sleep, WoL,
-  disk roles: Seagate 1 TB BAD = copies only, Docker 127.0.0.1 ports, Rust coreutils quirks, AVX2 RTK build,
+  disk roles (SSD /, Samsung 500 GB /data main, Hitachi 500 GB /backup mirror, WD 320 GB /mnt/spare320 spare),
+  backup times after 07:30 for the 999 crawler, sshd/fail2ban/sysctl hardening of 2026-11-11, Docker 127.0.0.1 ports, Rust coreutils quirks, AVX2 RTK build,
   no desktop, server AGENTS.md hardware section without a git-only line).
 
 ## 15. Open items at build
@@ -400,3 +405,20 @@ If an ID is empty, write main: unknown (or herdr: unknown) and tell me. Do not g
 pr-resume parses this block. Keep the line format exact: one ID, dir:, one path without spaces.
 ```
 
+
+## 17. Owner decisions 2026-11-11 (after the plan audit)
+- Order: minimal `ubuntu-server` branch first (scripts already run on the server, host values in an untracked
+  `host.env`), clone it as `~/.dotfiles` on the server, then the `ai` build and server test.
+- House rules: wait for the build (no interim server file). Rules install per user (`~/.config/ai/AGENTS.md`
+  imported by each agent); no `/AGENTS.md` or `/etc/claude-code/CLAUDE.md`.
+- Distribution: rulesync after an audit and a pilot in a throwaway HOME (on the server; the Macs are out of scope).
+- Macs: none for now. Windows README gets a "planned" note.
+- Root AGENTS.md size cap: 30 KB (owner raised it from 16 KB). Codex `project_doc_max_bytes` = 65536 so project
+  AGENTS.md files still fit. ai-doctor fails above the cap.
+- Defaults taken (owner did not object): Linux keeps the systemd-inhibit caffeinate wrapper in SessionStart;
+  audit gate blocks npm/pip/uv/npx-latest/curl-to-shell and ASKS for brew, cargo, go, gem, pipx (agent-audit
+  cannot scan those yet); secret scanner = gitleaks (pinned, audited); Grounded Docs = a server role in install.sh
+  (ufw 6280 from LAN + tailscale0 only); BUILD.md stays untracked (holds local paths).
+- Intake audits still owed before the build: oh-my-claudecode, oh-my-codex, opencode (installed always).
+- Pending research: project hosting and isolation on the server (rules + tools) feeds the `ubuntu-server` branch
+  and an AGENTS.md section.
