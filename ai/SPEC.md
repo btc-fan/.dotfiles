@@ -432,3 +432,13 @@ pr-resume parses this block. Keep the line format exact: one ID, dir:, one path 
   sudo and the docker group only after the admin login is proven. Agents run as the main user or inside boxes.
 - Lives in the `ubuntu-server` branch (step 70-hosting, HOSTING.md). `docs/AGENTS-hosting.md` from that branch is
   imported into the root AGENTS.md on servers (agents: never create, wipe or touch another project; use `proj`).
+
+## 19. Harness intake results (2026-11-11, intake-triage; read only, sha512 verified)
+All four: `npm i -g --ignore-scripts <pkg>@<exact version>`; no malware found.
+| Package | Pin | Verdict | Conditions |
+|---|---|---|---|
+| oh-my-claude-sisyphus (OMC) | 5.8.4 | install with conditions | `~/.claude/claude-omc/config.jsonc` `{"security":{"disableAutoUpdate":true}}`; `OMC_UPDATE_REGISTRY_BASE=http://127.0.0.1:9` (daily npm ping ignores the setting); never set `OMC_REPLY_ENABLED` (Telegram reply listener checks chat id only) |
+| oh-my-codex (OMX) | 0.22.6 (wait until 2026-11-17: under 1 day old) | install with conditions | `OMX_NATIVE_AUTO_FETCH=0`, `OMX_AUTO_UPDATE=0`; native binary from GitHub release without signature |
+| opencode-ai | 1.19.5 | install with conditions | closed 214 MB binary; never run `opencode upgrade` (pipes install script to bash); after `--ignore-scripts`: `ln -f "$(npm root -g)/opencode-ai/node_modules/opencode-linux-x64/bin/opencode" "$(npm root -g)/opencode-ai/bin/opencode.exe"`; `OPENCODE_DISABLE_AUTOUPDATE=1`, `OPENCODE_DISABLE_MODELS_FETCH=1`, `OPENCODE_DISABLE_LSP_DOWNLOAD=1`, config `{"autoupdate":false,"share":"disabled"}` |
+| rulesync | 43.8.0 | install | no install hook, no telemetry; always `--dry-run` before `generate --global` or `--delete` |
+Catalog: `omc ask <provider> --prompt` (markdown only); `omx exec` passes to `codex exec` (`--json` to verify); `opencode run "..." --format json`.
