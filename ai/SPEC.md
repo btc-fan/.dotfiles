@@ -442,3 +442,22 @@ All four: `npm i -g --ignore-scripts <pkg>@<exact version>`; no malware found.
 | opencode-ai | 1.19.5 | install with conditions | closed 214 MB binary; never run `opencode upgrade` (pipes install script to bash); after `--ignore-scripts`: `ln -f "$(npm root -g)/opencode-ai/node_modules/opencode-linux-x64/bin/opencode" "$(npm root -g)/opencode-ai/bin/opencode.exe"`; `OPENCODE_DISABLE_AUTOUPDATE=1`, `OPENCODE_DISABLE_MODELS_FETCH=1`, `OPENCODE_DISABLE_LSP_DOWNLOAD=1`, config `{"autoupdate":false,"share":"disabled"}` |
 | rulesync | 43.8.0 | install | no install hook, no telemetry; always `--dry-run` before `generate --global` or `--delete` |
 Catalog: `omc ask <provider> --prompt` (markdown only); `omx exec` passes to `codex exec` (`--json` to verify); `opencode run "..." --format json`.
+
+## 20. Distribution decision: native extension points (owner 2026-11-11, after two pilots on the server)
+- rulesync pilot FAILED the merge test: `generate --global` replaced ~/.claude/CLAUDE.md and ~/.codex/AGENTS.md
+  (OMC/OMX blocks lost), the whole Claude `hooks` key (owner Stop hook lost) and other MCP servers. Not used.
+- Approach A pilot PASSED (throwaway HOME): every pre-existing item kept; agents wrote only their own registration.
+  - Claude: our marketplace `ai` (directory source = `$AI_HOME/ai/marketplace`) with plugin `ai-core`
+    (skills, hooks, `.mcp.json`, agents); `claude plugin marketplace add` + `claude plugin install ai-core@ai`.
+  - Codex: same marketplace dir, `.agents/plugins/marketplace.json` with a plain string source
+    (`"source": "./plugins/ai-core"`) + `.codex-plugin/plugin.json` (skills, hooks); `codex plugin marketplace add`
+    + `codex plugin add ai-core@ai`; MCP via `codex mcp add`. Codex asks once to trust plugin hooks (/hooks).
+  - Hermes: `hermes mcp add`, `hermes config set`, its plugin dir (own files). herdr: `herdr integration install`.
+    opencode: `instructions` key pointing at ~/.config/ai/AGENTS.md + own plugin file + MCP key-set.
+  - Our own merge code is limited to: managed blocks in ~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, Hermes SOUL.md;
+    single-key sets for telemetry/update switches; all tracked for uninstall.
+- Plugin MCP tools are named `mcp__plugin_ai-core_<server>__*`: hook matchers and routing use these names; the
+  hand-made user-scope Serena registration is removed at install (no duplicates).
+- Found: Codex on the server holds 4 OpenAI curated remote plugins (work-pets, plugin-management, openai-templates,
+  sites) installed without our audit. Owner decides keep/remove; look for a setting that blocks remote auto-install.
+- Verified: Codex's Ponytail cache equals the audited /opt/agent-plugins/ponytail copy (diff clean).
