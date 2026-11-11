@@ -4,6 +4,10 @@ config:
   # Not a live option: it applies when a box is launched (proj new, recreate, fork).
   security.idmap.isolated: "true"
   security.privileged: "false"
+  # Ubuntu 26.04 boxes need nesting: without it systemd-networkd never configures eth0 (tested
+  # 2026-11-11 on Incus 6.0.5: 26.04 no IP without it, IP with it; 24.04 works either way).
+  # Safe here: the box stays unprivileged with its own isolated UID range.
+  security.nesting: "true"
   limits.processes: "4000"
 devices:
   root:
