@@ -310,6 +310,7 @@ egress_acl() {
 description: proj boxes - no LAN, tailnet or Docker networks (managed by ~/.dotfiles step 70-hosting)
 egress:
 - action: reject
+  state: enabled
   destination: $dst
   description: no home network, tailnet, docker or link-local
 ingress: []
@@ -319,9 +320,8 @@ EOF
         run incus network acl create box-egress
         CHANGED=1
     fi
-    if changed; then
-        if dry; then info "would load box-egress ACL"; else incus network acl edit box-egress < /etc/proj/incus/box-egress.yaml; fi
-    fi
+    # Always (re)load: cheap, idempotent, and it repairs a load that failed on an earlier run.
+    if dry; then info "would load box-egress ACL"; else incus network acl edit box-egress < /etc/proj/incus/box-egress.yaml; fi
     # Once an ACL is set, unmatched traffic gets a default action (reject on the network, drop on
     # a bridged NIC; the docs differ between pages). Never rely on it: set allow explicitly, here
     # and on every box NIC (box-base). The ACL only lists what is forbidden.
