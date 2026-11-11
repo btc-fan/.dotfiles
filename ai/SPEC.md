@@ -461,3 +461,13 @@ Catalog: `omc ask <provider> --prompt` (markdown only); `omx exec` passes to `co
 - Found: Codex on the server holds 4 OpenAI curated remote plugins (work-pets, plugin-management, openai-templates,
   sites) installed without our audit. Owner decides keep/remove; look for a setting that blocks remote auto-install.
 - Verified: Codex's Ponytail cache equals the audited /opt/agent-plugins/ponytail copy (diff clean).
+
+## 21. MCP server intake (2026-11-11, agent-audit on the server + code read)
+- @arabold/docs-mcp-server 3.4.1 (Grounded Docs, MIT): INSTALL. guarddog threat hits benign (provider-key presence
+  checks as booleans; a scraper file-type list incl. .env used only when a GitHub repo is added as a source: index only
+  public library docs). Telemetry (PostHog app.posthog.com, persistent installation.id) ON by default: set
+  `DOCS_MCP_TELEMETRY=false` (verified at dist/main-*.js config table); clients use `DOCS_MCP_READ_ONLY=true`.
+  postinstall only echoes. Install `--ignore-scripts`.
+- @playwright/mcp 0.0.85 (Apache-2.0): INSTALL, 0 threat hits, no install scripts. Per project only.
+- github-mcp-server v2.1.0 (Go binary from GitHub releases): audit owed at install: `agent-audit dir` on the tag
+  source + release checksum check; token from ~/.config/ai/secrets.env.
