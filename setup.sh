@@ -57,7 +57,11 @@ install_copy() {
     case "$(stat -c %A /opt)" in ?????w????|????????w?) die "/opt is writable by group or others. Refused." ;; esac
     rm -rf "$new"
     install -d -m 755 -o root -g root "$new"
-    tar -C "$REPO_DIR" --exclude=./.git -cf - . | tar -C "$new" --no-same-owner --no-same-permissions -xf -
+    # Only files tracked by git, plus host.env: a stray or untracked file in the clone never runs as root.
+    { git -c safe.directory="$REPO_DIR" -C "$REPO_DIR" ls-files -z \
+        || die "cannot list the repo files with git (is $REPO_DIR a git clone?)"
+      [ -f "$REPO_DIR/host.env" ] && printf 'host.env\0'; } \
+        | tar -C "$REPO_DIR" --null -T - -cf - | tar -C "$new" --no-same-owner --no-same-permissions -xf -
     chown -R root:root "$new"
     find "$new" -type d -exec chmod 755 {} +
     find "$new" -type f -exec chmod 644 {} +
