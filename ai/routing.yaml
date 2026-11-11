@@ -1,0 +1,220 @@
+# Routing table: the only new source of truth for "which tool, when".
+# The router hook reads it on every prompt, before/after tool calls, and at session start.
+# Matching is deterministic (regex, globs, project state). No LLM, no network.
+# strength: nudge = inject the action as context; gate = block the step until the condition is met.
+# scope: global = every project; opt-in = only when the project enabled the tool (ai-adopt / ai-start).
+# Tools that enforce themselves (i-have-adhd flag, Ponytail hooks, RTK hook, graphify hook-guard)
+# have no row here except where the router adds something.
+version: 2
+# v2 (2026-11-11): Playwright per project (browser rule opt-in), serena-first and docs-on-dependency nudges,
+# layers block (L1/L2/L3 settings), tie-break table. When two rules fire on one event the router merges their
+# actions into one context message; a tie-break row decides which tool is named first.
+
+layers:
+  L1_session_start: {inject: 'L0 table + rules with when: session_start', reinject_after_compaction: true}
+  L2_forced_eval:
+    enabled: true
+    prefilter: regex   # runs only when a prompt rule or a tie-break trigger matched, never on every prompt
+    none_option: true  # the model may answer "none needed"
+    timeout_s: 10      # well under the 30 s hook limit; on timeout fall back to L3 only and log it
+  L3_regex: {enabled: true}
+  L4_gates: {escape_hatch: 'AI_GATE_SKIP=<rule-id> with a reason, logged to ~/.local/state/ai/gates.log'}
+  L7_miss_log: ~/.local/state/ai/misses.jsonl   # Stop hook: rule fired but no matching tool or skill call
+
+rules:
+  # ---------- start of work ----------
+  - id: kickoff
+    scope: global
+    trigger: {prompt: '\b(build|create|make|start|new)\b.{0,40}\b(app|project|website|site|service|tool|api|bot|feature)\b'}
+    action: "New work: run grill-me first (one question round). Then run ai-start to pick the tools for this project."
+    strength: nudge
+
+  - id: no-ai-base
+    scope: global
+    trigger: {state: 'git repo without .ai/base-version'}
+    when: session_start
+    action: "This repo has no AI base. Suggest the owner runs ai-adopt."
+    strength: nudge
+
+  # ---------- code navigation ----------
+  - id: no-graph
+    scope: global
+    trigger: {state: 'git repo with code and no graphify-out/graph.json'}
+    when: session_start
+    action: "Build the code graph first: graphify . (free, local)."
+    strength: nudge
+
+  - id: graph-first
+    scope: global
+    trigger: {tool_before: 'Grep|Glob|Read', paths: 'code'}
+    action: "Query the graph before grep or file reads: graphify query, then Serena for the exact symbol, then read only located lines."
+    strength: nudge   # graphify's own hook-guard (advisory) does this; router only logs it
+
+  - id: serena-first
+    scope: global
+    trigger: {tool_before: 'Read|Edit|Bash', paths: 'code', command: '\b(cat|head|tail|sed -n|grep|rg)\b'}
+    quiet_window_s: 120   # at most one nudge per 120 s per session
+    action: "Code file: use Serena first (get_symbols_overview, find_symbol, find_referencing_symbols; edit with replace_symbol_body). OMC lsp_* only if Serena has no language server for this file."
+    strength: nudge   # context only, never deny; vendor serena-hooks remind NOT used (issues #2251, #2204)
+
+  - id: graph-update
+    scope: global
+    trigger: {tool_after: 'Edit|Write', paths: 'code'}
+    action: "Code changed: run graphify update . before you finish."
+    strength: nudge
+
+  # ---------- safety ----------
+  - id: audit-before-install
+    scope: global
+    trigger: {tool_before: 'Bash', command: '\b(npm (i|install|add)|pnpm add|yarn add|bun add|pip3? install|uv (add|pip install|tool install)|pipx install|cargo (add|install)|brew install|gem install|go install)\b|npx [^ ]+@latest|curl [^|]*\|\s*(ba)?sh'}
+    action: "Run agent-audit on this package first. Unpinned @latest and curl-to-shell are not allowed."
+    strength: gate    # passes only when agent-audit logged this package in the last 24 h
+
+  - id: secret-scan
+    scope: global
+    trigger: {tool_before: 'Bash', command: '\bgit (commit|push)\b'}
+    action: "Secret scan of the staged diff found a key, token, password or private key. Remove it before commit or push."
+    strength: gate    # gate fires only on a hit
+
+  - id: no-em-dash
+    scope: global
+    trigger: {tool_after: 'Edit|Write', content: "\u2014"}   # escaped so this file itself passes the lint
+    action: "Remove the em dash (U+2014). Use '-', ':' or a new sentence."
+    strength: nudge
+
+  # ---------- pull requests ----------
+  - id: pr-rules
+    scope: global
+    trigger: {tool_before: 'Bash', command: '\bgh pr (create|edit)\b'}
+    action: "PR body needs: summary, Mermaid diagram of the change, one-way or two-way door, blast radius, and the author-sessions block at the end."
+    strength: gate    # blocks when the body has no ```mermaid block or no <!-- author-sessions block
+
+  # ---------- topic tools ----------
+  - id: seo
+    scope: global
+    trigger: {prompt: '\b(seo|serp|rank(ing|s)?|meta (title|description)|schema markup|structured data|sitemap|core web vitals|cwv|hreflang|backlinks?|ai overviews?|geo audit|search console)\b'}
+    action: "SEO task: use claude-seo first (/seo audit <url> or /seo page <url>). Codex/opencode/Hermes: hand it to Claude Code."
+    strength: nudge
+
+  - id: blog
+    scope: global
+    trigger: {prompt: '\b(blog|blog post|article|write a post|rewrite (the|this) post|newsletter)\b'}
+    action: "Blog task: use claude-blog first (claude-blog:blog picks the sub-skill). One post file: blog-*. Whole site: seo-*. Codex/opencode/Hermes: hand it to Claude Code."
+    strength: nudge
+
+  - id: docs-lookup
+    scope: global
+    trigger: {prompt: '\b(docs|documentation|api reference|sdk|how (do|to) (i )?use)\b'}
+    action: "Library docs: query Grounded Docs first, then context7. Do not answer API details from memory."
+    strength: nudge
+
+  - id: browser-not-enabled
+    scope: global
+    trigger: {prompt: '\b(screenshot|open the page|click|e2e|end to end|browser test|playwright)\b', state: 'project without Playwright MCP'}
+    action: "Browser work, but this project has no Playwright MCP. Ask the owner to run ai-start (adds it per project). Do not install a browser tool yourself."
+    strength: nudge
+
+  - id: docs-on-dependency
+    scope: global
+    trigger:
+      tool_after: 'Bash|Edit|Write'
+      command: '\b(npm|pnpm|yarn|bun) (add|install|i)\b|\bpip3? install\b|\buv add\b|\bcargo add\b|\bgo get\b'
+      paths: '**/package.json|**/pyproject.toml|**/requirements*.txt|**/Cargo.toml|**/go.mod'
+    once_per: library_per_session   # PostToolUse on docs tools records looked-up libraries
+    action: "New or changed dependency: look up its docs before writing code against it. Grounded Docs first, then context7."
+    strength: nudge
+
+  - id: github
+    scope: global
+    trigger: {prompt: '\b(issue #?\d*|pull request|pr #?\d+|review comments?|github)\b'}
+    action: "GitHub work: use the GitHub MCP or gh."
+    strength: nudge
+
+  - id: prompting-others
+    scope: global
+    trigger: {tool_before: 'Agent|Bash', command: '\b(codex exec|claude -p|opencode run|gemini -p|omc ask|herdr agent prompt)\b'}
+    action: "Briefing another agent: give goal + what is ruled out, name files, narrow scope, expected output and format, read-only unless the owner said otherwise. Skill: prompting-claude-and-codex."
+    strength: nudge
+
+  - id: agent-docs
+    scope: global
+    trigger: {tool_after: 'Edit|Write', paths: '**/AGENTS.md|**/CLAUDE.md|**/SKILL.md'}
+    action: "You edited agent instructions: check them with the writing-for-agents skill."
+    strength: nudge
+
+  - id: wait-what
+    scope: global
+    trigger: {prompt: '\b(wait,? what|explain (it )?simpler|i don.?t get it)\b'}
+    action: "Use the wait-what skill: re-say the last answer in simple STE words."
+    strength: nudge
+
+  - id: toolbox
+    scope: global
+    trigger: {prompt: '\b(is there a tool|any tool for|tool that can|reverse engineer|video)\b'}
+    action: "Check ~/.config/ai/TOOLBOX.md for a ready tool before building one. Toolbox tools need a full audit before first install."
+    strength: nudge
+
+  # ---------- opt-in per project ----------
+  - id: ui
+    scope: opt-in
+    tool: ui-ux-pro-max
+    trigger: {prompt: '\b(ui|ux|design|landing page|component|layout|color palette|typography|dark mode)\b', paths: '**/*.{tsx,jsx,vue,svelte,css,scss}'}
+    action: "UI work: use ui-ux-pro-max. Ask before paid image generation or any npx ...@latest."
+    strength: nudge
+
+  - id: tracker-flow
+    scope: opt-in
+    tool: mattpocock tracker skills
+    trigger: {prompt: '\b(ticket|tickets|spec|triage|backlog|roadmap|wayfinder)\b'}
+    action: "Use to-spec / to-tickets / triage / wayfinder. They write to the issue tracker: confirm the target repo first."
+    strength: nudge
+
+  - id: domain-docs
+    scope: opt-in
+    tool: mattpocock grill-with-docs + domain-modeling
+    trigger: {prompt: '\b(glossary|domain model|ubiquitous language|adr|decision record)\b'}
+    action: "Use grill-with-docs / domain-modeling (GLOSSARY.md, docs/adr/)."
+    strength: nudge
+
+  - id: browser
+    scope: opt-in
+    tool: Playwright MCP
+    trigger: {prompt: '\b(screenshot|open the page|click|e2e|end to end|browser test|playwright)\b'}
+    action: "Browser work: use the Playwright MCP (headless and isolated on servers)."
+    strength: nudge
+
+  - id: knowledge-wiki
+    scope: opt-in
+    tool: llm-wiki-compiler
+    trigger: {prompt: '\b(wiki|knowledge base|research notes|compile (the )?docs)\b'}
+    action: "Use llm-wiki-compiler (costs LLM tokens per compile)."
+    strength: nudge
+
+# ---------- tie-breaks (single source for L0, L2, L3; from contracts-skills section 7) ----------
+# trigger -> winner; losers named so the router never suggests both.
+tiebreaks:
+  - {trigger: 'one post file, or a post to be written', winner: 'claude-blog:blog-*', loser: 'claude-seo:seo-*'}
+  - {trigger: 'URL, domain, whole site', winner: 'claude-seo:seo-*', loser: 'claude-blog:blog-*'}
+  - {trigger: 'content brief for a page that exists at a URL', winner: seo-content-brief, loser: blog-brief}
+  - {trigger: 'content brief or outline for a post not yet written', winner: 'blog-brief / blog-outline', loser: seo-content-brief}
+  - {trigger: 'topic cluster, goal = write posts', winner: blog-cluster, loser: seo-cluster}
+  - {trigger: 'topic cluster, goal = site architecture', winner: seo-cluster, loser: blog-cluster}
+  - {trigger: 'content strategy', winner: 'blog-strategy for a blog, seo-plan for a site', loser: 'the other'}
+  - {trigger: 'FLOW framework', winner: 'seo-flow if URL, blog-flow if blog', loser: 'the other'}
+  - {trigger: 'schema or GEO of one post file', winner: 'blog-schema / blog-geo', loser: 'seo-schema / seo-geo'}
+  - {trigger: 'Search Console, PSI, CrUX', winner: seo-google, loser: blog-google}
+  - {trigger: 'OG or hero image', winner: 'ask first; blog-image for a post, seo-image-gen for site assets', loser: 'ui-ux-pro-max banner-design (ads and social banners only)'}
+  - {trigger: 'what people say in the last 30 days, inside a post workflow', winner: blog-discourse, loser: last30days}
+  - {trigger: 'what people say in the last 30 days, general research', winner: last30days, loser: blog-discourse}
+  - {trigger: 'new app or project (kickoff)', winner: grill-me, loser: 'OMC deep-interview'}
+  - {trigger: 'grill me, stress-test a plan', winner: 'matt grilling', loser: 'OMC deep-interview'}
+  - {trigger: 'deep interview, ambiguity score', winner: 'OMC deep-interview', loser: 'matt grilling'}
+  - {trigger: 'research X', winner: 'OMC research', loser: 'matt research (opt-in), anthropic-skills:deep-research (long reports only)'}
+  - {trigger: 'code review of a diff', winner: 'built-in code-review or OMC review', loser: 'matt code-review (opt-in)'}
+  - {trigger: 'bug, debug this', winner: 'OMC debug / trace', loser: 'matt diagnosing-bugs (opt-in)'}
+  - {trigger: 'edit AGENTS.md, CLAUDE.md, SKILL.md', winner: 'matt writing-for-agents', loser: 'OMC skillify, skill-creator; settings.json goes to update-config'}
+  - {trigger: 'chart or dashboard styling', winner: dataviz, loser: 'blog-chart (inside blog-write only), ui-ux-pro-max (layout only)'}
+  - {trigger: '.pptx file asked', winner: 'anthropic-skills:pptx', loser: 'ui-ux-pro-max slides (HTML decks)'}
+  - {trigger: 'wiki', winner: 'llmwiki where the project enabled it, else OMC wiki', loser: 'the other'}
+  - {trigger: 'code symbol lookup or edit', winner: Serena, loser: 'OMC lsp_* (fallback when Serena has no language server)'}
+  - {trigger: 'library API docs', winner: 'Grounded Docs', loser: 'context7 (fallback), web search (last)'}
