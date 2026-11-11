@@ -99,7 +99,7 @@ drop_main_sudo() {
         fi
         return 0
     fi
-    log "main user $MAIN_USER: sudo with password, out of the docker group"
+    log "main user $MAIN_USER: sudo with password, out of the docker, incus-admin, lxd and adm groups"
     local fail=0
     # 1. The admin user really logged in over SSH and ran sudo without a password.
     if [ ! -f "$marker" ] || [ "$(stat -c %U "$marker")" != "$ADMIN_USER" ]; then
@@ -140,6 +140,15 @@ EOF
     if getent group incus-admin >/dev/null && id -nG "$MAIN_USER" | tr ' ' '\n' | grep -qx incus-admin; then
         run gpasswd -d "$MAIN_USER" incus-admin
     fi
+    # Least privilege: lxd is root on the host (like docker), adm reads every system log.
+    # The admin user keeps both jobs through sudo.
+    local g
+    for g in lxd adm; do
+        if getent group "$g" >/dev/null && id -nG "$MAIN_USER" | tr ' ' '\n' | grep -qx "$g"; then
+            run gpasswd -d "$MAIN_USER" "$g"
+            info "$MAIN_USER left the $g group (takes effect at the next login)"
+        fi
+    done
 }
 
 sshd_conf() {

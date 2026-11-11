@@ -62,6 +62,7 @@ sudo proj recreate radar                       # rebuild the system, keep /srv/d
 sudo proj promote radar --to long              # move up a tier
 sudo proj extend test1 7d                      # more time for a try box
 sudo proj backup radar                         # export now
+sudo proj sync-rules radar                     # push the current agent rules into the box (--all: every box)
 sudo proj doctor                               # health checks (--net: also the network selftest)
 sudo proj selftest                             # throwaway box: address, DNS, internet, LAN blocked
 ```
@@ -120,9 +121,9 @@ Box names: lower case letters, digits and `-`, 2 to 31 characters. Forks: `<box>
 
 - Agents work inside the box of their project. Never on the host.
 - Inside its box an agent may do anything. Outside it, nothing.
-- Agents never get sudo on the host, the Docker group, the incus-admin group or `proj`.
-  One exception, an owner decision: a host agent user with `AGENT_SUDO=full` (step 55) has full
-  sudo. That agent is root on the host.
+- Agents never get sudo on the host, the Docker group, the incus-admin group or `proj`
+  (owner decision 2026-11-11, `AGENT_SUDO="none"`). They give the owner the `sudo proj new`
+  command, and the owner runs it.
 - Host agent sessions are for server admin only, with the owner watching.
 - Rules for the agents themselves: [AGENTS-hosting.md](AGENTS-hosting.md).
 

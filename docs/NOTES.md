@@ -184,6 +184,10 @@ Done by the lead before this round: `getent passwd ... | cut -d: -f6 || true` in
   `smartctl -H` PASSED. `AGENT_SUDO=none|full` (step 55, `90-<agent>` via `put_sudoers`, never
   removed by setup, accepted by verify). BIOS and UEFI both documented. `HOST_PROJECTS` example
   with `md999-crawler.service`. Channel names `#<host>-alerts`, `#<host>-info`, `#<host>-hermes`.
+- Later the same day (owner): agents get NO sudo. `AGENT_SUDO="none"` now removes our managed
+  `90-<agent>` file (this replaces "never removed" above); agents give the owner the
+  `sudo proj new` command. `--drop-main-sudo` also takes the main user out of `lxd` and `adm`
+  (least privilege), next to docker and incus-admin.
 
 Choices made where the brief was open (safer option taken):
 - "unknown keys" in daemon.json read as keys dockerd rejects; valid keys we do not manage are kept

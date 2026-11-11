@@ -38,6 +38,7 @@ main() {
     firewall
     docker_fix
     install_proj
+    host_marker
     host_projects
     timers
     if [ "$UNITS" = 1 ]; then run systemctl daemon-reload; fi
@@ -407,7 +408,20 @@ install_proj() {
     [ -z "${BACKUP_DIR:-}" ] || run install -d -m 700 "$BACKUP_DIR/boxes"
     put_file proj/proj /usr/local/sbin/proj 755
     put_file proj/box-bootstrap.sh /usr/local/share/proj/box-bootstrap.sh 755
+    # proj pushes these agent rules into every box (/etc/proj-rules/AGENTS.md).
+    put /usr/local/share/proj/AGENTS-hosting.md 644 < "$REPO_DIR/docs/AGENTS-hosting.md"
     [ -e /var/log/proj.log ] || run install -m 640 /dev/null /var/log/proj.log
+}
+
+# "Where am I?" marker for agents: /etc/proj-host on the host, /etc/proj-box in every box (proj).
+host_marker() {
+    log "marker /etc/proj-host (agents: you are on the host)"
+    put /etc/proj-host 644 <<EOF
+# Managed by ~/.dotfiles setup.sh (step 70-hosting). Read by agents and hooks: where am I?
+host=${SERVER_NAME:-$(hostname)}
+role=host
+host: never build projects here, see /srv/proj/REGISTRY.md
+EOF
 }
 
 # Host projects: run on the host, not in a box. proj lists and checks them, never changes them.

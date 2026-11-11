@@ -32,6 +32,9 @@ sh_chk "$ADMIN_USER has passwordless sudo (valid sudoers file)" "visudo -c -f /e
 if [ -f /etc/sudoers.d/zz-server-main-password ]; then
     p INFO "main user $MAIN_USER: sudo WITH password (--drop-main-sudo done)"
     sh_chk "$MAIN_USER not in docker group" "! id -nG '$MAIN_USER' | tr ' ' '\n' | grep -qx docker"
+    # Added later to --drop-main-sudo: a hint until it runs again, not a FAIL.
+    extra_groups=$(id -nG "$MAIN_USER" | tr ' ' '\n' | grep -xE 'lxd|adm|incus-admin' | tr '\n' ' ')
+    [ -z "$extra_groups" ] || p INFO "$MAIN_USER still in: $extra_groups(run: sudo ./setup.sh --only security --drop-main-sudo)"
 else
     p INFO "main user $MAIN_USER still has passwordless sudo (see README: --drop-main-sudo)"
 fi
@@ -116,8 +119,10 @@ if [ -n "${AGENT_USER:-}" ]; then
     echo "### 55 shared users"
     chk "user $AGENT_USER exists" id "$AGENT_USER"
     sh_chk "$AGENT_USER not in the sudo/docker/adm groups" "! id -nG '$AGENT_USER' | tr ' ' '\n' | grep -qx -e sudo -e docker -e adm"
-    # AGENT_SUDO=full is an owner decision: a valid 90-<agent> file is accepted, never a FAIL.
-    if [ -e "/etc/sudoers.d/90-$AGENT_USER" ]; then
+    # Default and owner decision: AGENT_SUDO=none, no file. With AGENT_SUDO=full a valid file is accepted.
+    if [ "${AGENT_SUDO:-none}" = none ]; then
+        sh_chk "$AGENT_USER has no sudoers file (AGENT_SUDO=none)" "[ ! -e /etc/sudoers.d/90-$AGENT_USER ]"
+    elif [ -e "/etc/sudoers.d/90-$AGENT_USER" ]; then
         sh_chk "$AGENT_USER sudoers file is valid" "visudo -c -f /etc/sudoers.d/90-$AGENT_USER"
         p INFO "$AGENT_USER has full passwordless sudo (AGENT_SUDO=${AGENT_SUDO:-none}): root on this host"
     fi
@@ -163,6 +168,15 @@ if [ -n "${BOX_DISK_SERIAL:-}" ]; then
         sh_chk "DOCKER-USER: box traffic handed to ufw (RETURN, no blanket ACCEPT)" "iptables -C DOCKER-USER -i incusbr0 -j RETURN && ! iptables -C DOCKER-USER -i incusbr0 -j ACCEPT"
     fi
     chk "proj installed" test -x /usr/local/sbin/proj
+    sh_chk "marker /etc/proj-host (root 644)" "[ \"\$(stat -c %U:%a /etc/proj-host)\" = root:644 ] && grep -q '^role=host' /etc/proj-host"
+    chk "agent rules for boxes in /usr/local/share/proj" test -s /usr/local/share/proj/AGENTS-hosting.md
+    sh_chk "REGISTRY.json is valid" "jq -e '.boxes and .host_projects' /srv/proj/REGISTRY.json"
+    # Boxes made before markers existed: a hint, not a FAIL (fix: sudo proj sync-rules --all).
+    nomark=""
+    for b in $(incus list -f json 2>/dev/null | jq -r '.[] | select(.status == "Running" and .config["user.proj.tier"] != null) | .name'); do
+        incus exec "$b" -- test -f /etc/proj-box 2>/dev/null || nomark="$nomark $b"
+    done
+    [ -z "$nomark" ] || p INFO "boxes without /etc/proj-box:$nomark (sudo proj sync-rules --all)"
     chk "proj-backup timer" systemctl is-active -q proj-backup.timer
     chk "proj-expire timer" systemctl is-active -q proj-expire.timer
     sh_chk "incus-admin holds only $ADMIN_USER" "[ -z \"\$(getent group incus-admin | cut -d: -f4 | tr ',' '\n' | grep -vx '$ADMIN_USER')\" ]"

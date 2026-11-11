@@ -266,9 +266,10 @@ Skipped unless `AGENT_USER` is set. It makes a second user with no docker (for a
 example), a shared group, and a shared folder `WORK_DIR` (setgid + ACL: every new file stays
 group-writable). The agents themselves are installed from the `ai` branch.
 
-`AGENT_SUDO` (default `none`): `full` writes `/etc/sudoers.d/90-<agent>` (passwordless sudo,
-checked with `visudo -c`). Setting it back to `none` never removes that file; remove it by hand.
-**Risk:** with `full` the agent is root on the host: anything it runs, or anything that tricks it
+`AGENT_SUDO` (default `none`, owner decision 2026-11-11: agents get no sudo). `none` removes the
+`/etc/sudoers.d/90-<agent>` file this setup wrote (a hand-written one is left, with a warning).
+`full` writes that file (passwordless sudo, checked with `visudo -c`).
+**Risk of `full`:** the agent is root on the host: anything it runs, or anything that tricks it
 (a web page, a file, a prompt), can read, change or delete everything on the server.
 
 ### 60-backups
@@ -326,8 +327,15 @@ Rules for people: [docs/HOSTING.md](docs/HOSTING.md). Rules for agents: [docs/AG
   Incus enforces it). The full RAM budget is in [docs/HOSTING.md](docs/HOSTING.md).
 - **`proj`**: the one tool for boxes: `new`, `list`, `shell`, `snapshot`, `restore`, `fork`,
   `wipe`, `recreate`, `protect` / `unprotect`, `promote`, `extend`, `backup`, `expire`,
-  `registry`, `doctor`, `selftest`. Long boxes are delete-protected. Host projects
+  `registry`, `sync-rules`, `doctor`, `selftest`. Long boxes are delete-protected. Host projects
   (`HOST_PROJECTS`, for example the md999 crawler) are listed and checked and never touched.
+- **Where am I, and the rules, for agents**: `/etc/proj-host` on the host (step 70) and
+  `/etc/proj-box` in every box (name, tier, owner, created; written by `proj new`, `recreate`,
+  `fork`, `promote`). `proj new` and `recreate` also copy the house rules
+  (`~MAIN_USER/.dotfiles-ai/ai/AGENTS.md`, read as that user) plus `docs/AGENTS-hosting.md` into
+  the box as `/etc/proj-rules/AGENTS.md`, linked from dev's `~/.config/ai/AGENTS.md`.
+  `sudo proj sync-rules <box>|--all` refreshes them. No host credentials (`~/.claude`,
+  `~/.codex`) ever go into a box.
 - **Timers**: `proj-backup` exports long boxes to `BACKUP_DIR/boxes` (then the mirror copies
   them to the backup disk); `proj-expire` warns, stops and deletes expired try boxes.
 - Group `incus-admin` (full control of Incus, so root on the host) holds only `ADMIN_USER`.
@@ -346,10 +354,11 @@ Two logins, two jobs:
 | User | For | sudo | docker group |
 |---|---|---|---|
 | `ADMIN_USER` (default `admin`) | server admin: setup, `proj`, updates | yes, no password | no (it has sudo) |
-| `MAIN_USER` (your daily login) | daily work, SSH tunnels, attended agent sessions | after `--drop-main-sudo`: with password | after `--drop-main-sudo`: no |
+| `MAIN_USER` (your daily login) | daily work, SSH tunnels, attended agent sessions | after `--drop-main-sudo`: with password | after `--drop-main-sudo`: no (also out of `incus-admin`, `lxd`, `adm`) |
 
-Why: an agent or a script running as your daily user has root today (passwordless sudo and the
-docker group are both root). After the change, root needs your password or the admin login.
+Why: an agent or a script running as your daily user has root today (passwordless sudo, and the
+docker, incus-admin and lxd groups are all root). After the change, root needs your password or
+the admin login. `adm` (read every system log) goes too: least privilege.
 
 Step 10 makes the admin user on every run (key only, passwordless sudo, in `AllowUsers`).
 Your main user is NOT changed until you ask, and only after the admin login is proven:
@@ -364,7 +373,7 @@ Your main user is NOT changed until you ask, and only after the admin login is p
    It refuses (and changes nothing) if the marker file is missing, the admin is not in
    `AllowUsers`, the admin sudoers file is broken, or the main user has no password.
 
-Undo: `sudo rm /etc/sudoers.d/zz-server-main-password` (and `sudo usermod -aG docker <MAIN_USER>`).
+Undo: `sudo rm /etc/sudoers.d/zz-server-main-password` (and `sudo usermod -aG docker,adm <MAIN_USER>`).
 
 ## BIOS checklist
 
@@ -525,7 +534,8 @@ docs/NOTES.md         decisions and why, later items, what was tested
 On the server: `/opt/server-setup/` (root-owned copy of this repo that setup runs from),
 `/etc/server/host.env` (copy of your host.env, root:root 644, read by the alert and backup
 scripts), `/etc/server/webhooks/` (Discord URLs, root only), `/etc/proj/` (profiles, host
-projects), `/srv/proj/REGISTRY.md` (list of boxes), `/var/log/proj.log` (every proj action).
+projects), `/etc/proj-host` (marker: this is the host), `/srv/proj/REGISTRY.md` and
+`REGISTRY.json` (list of boxes), `/var/log/proj.log` (every proj action).
 
 ## AI setup
 
@@ -540,7 +550,7 @@ Then read `~/.dotfiles-ai/README.md` (the `ai` branch README) for logins and opt
 
 Where agents run: project agents work **inside the box of their project** (step 70, `proj`),
 never on the host. On the host, agent sessions are for server admin only, with you watching.
-A host agent user with `AGENT_SUDO=full` (step 55) is root on the host: an owner decision, see
-the risk line in step 55.
+No agent has sudo on the host (owner decision 2026-11-11, `AGENT_SUDO="none"`): agents give you
+the exact `sudo proj new ...` command and you run it.
 The `ai` branch imports [docs/AGENTS-hosting.md](docs/AGENTS-hosting.md) into AGENTS.md.
 (Step 55, a host user for an agent, is the older way. Keep `AGENT_USER` empty for new servers.)

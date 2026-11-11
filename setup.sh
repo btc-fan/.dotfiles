@@ -5,7 +5,7 @@
 #   --only STEP       run one step (number or name: 10, security, 10-security). Repeat for more.
 #   --dry-run         show what would change. Writes nothing.
 #   --format          allow 30-disks and 70-hosting to format disks that are completely empty.
-#   --drop-main-sudo  main user: sudo with password, out of docker. Only after the admin login is proven.
+#   --drop-main-sudo  main user: sudo with password, out of docker/lxd/adm. Only after the admin login is proven.
 #   --list            list the steps and exit.
 set -euo pipefail
 

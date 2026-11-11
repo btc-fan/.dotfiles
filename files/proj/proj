@@ -18,7 +18,8 @@
 #   extend <name> <dur>          move the expiry date of a try box (dur: 7d, 12h)
 #   backup <name> | --long       export box + data volume to BACKUP_DIR/boxes
 #   expire                       daily job: warn, stop, then delete expired try boxes
-#   registry                     rewrite /srv/proj/REGISTRY.md
+#   registry                     rewrite /srv/proj/REGISTRY.md and REGISTRY.json
+#   sync-rules <name> | --all    push the host's current agent rules + /etc/proj-box into boxes
 #   doctor [--net]               health checks (--net: also run selftest)
 #   selftest                     throwaway box: DHCP, DNS, internet, home gateway blocked
 set -euo pipefail
@@ -28,6 +29,7 @@ POOL=boxes
 ETC=/etc/proj
 HOST_PROJECTS=$ETC/host-projects
 REGISTRY=/srv/proj/REGISTRY.md
+REGISTRY_JSON=/srv/proj/REGISTRY.json
 LOG=/var/log/proj.log
 SHARE=/usr/local/share/proj
 NOTIFY=/usr/local/sbin/discord-notify
@@ -40,7 +42,7 @@ KEEP=${PROJ_BACKUP_KEEP:-7}
 [[ "$KEEP" =~ ^[0-9]+$ ]] && [ "$KEEP" -ge 1 ] || KEEP=1
 YES=0
 
-usage() { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 die()  { echo "proj: $*" >&2; exit 1; }
 say()  { echo "proj: $*"; }
 now()  { date +%s; }
@@ -128,6 +130,82 @@ bootstrap() {  # name docker pg
     incus exec "$1" -- bash /root/box-bootstrap.sh "$1" "$2" "$3"
 }
 
+host_name() { echo "${SERVER_NAME:-$(hostname)}"; }
+
+# push_text BOX PATH MODE < content: a root-owned file inside the box.
+push_text() {
+    local tmp rc=0
+    tmp=$(mktemp)
+    cat > "$tmp"
+    incus file push "$tmp" "$1$2" --mode "$3" --uid 0 --gid 0 || rc=1
+    rm -f "$tmp"
+    return "$rc"
+}
+
+# /etc/proj-box: "where am I?" for agents inside the box (key=value, root 644).
+box_marker() {
+    local name=$1
+    push_text "$name" /etc/proj-box 0644 <<EOF
+# Written by proj on the host $(host_name). You are INSIDE a box, not on the host.
+# Agent rules: /etc/proj-rules/AGENTS.md. Do not edit: proj rewrites this file.
+name=$name
+tier=$(tier_of "$name")
+owner=$(key "$name" owner)
+created=$(day "$(key "$name" created)")
+host=$(host_name)
+EOF
+}
+
+# house_rules: print MAIN_USER's ~/.dotfiles-ai/ai/AGENTS.md, read AS that user, never as root
+# (a symlink to a root-only file must not end up in a box). Returns 1 when there is none.
+house_rules() {
+    local user=${MAIN_USER:-} home
+    [ -n "$user" ] && id "$user" >/dev/null 2>&1 || return 1
+    home=$(getent passwd "$user" | cut -d: -f6 || true)
+    [ -n "$home" ] || return 1
+    runuser -u "$user" -- test -f "$home/.dotfiles-ai/ai/AGENTS.md" || return 1
+    runuser -u "$user" -- cat -- "$home/.dotfiles-ai/ai/AGENTS.md"
+}
+
+# push_rules BOX: /etc/proj-rules/AGENTS.md (root 644) = house rules + AGENTS-hosting.md, and a
+# ~/.config/ai/AGENTS.md link for dev. Only these two text files go in: never ~/.claude, ~/.codex
+# or any other credential folder of the host.
+push_rules() {
+    local name=$1 hosting=$SHARE/AGENTS-hosting.md tmp size have_house=yes
+    [ -r "$hosting" ] || { say "WARN: $hosting is missing (setup.sh step 70)"; return 1; }
+    tmp=$(mktemp)
+    {
+        echo "<!-- Copied by proj from the host $(host_name) on $(date '+%F %H:%M'). Read-only."
+        echo "     Refresh, on the host: sudo proj sync-rules $name -->"
+        echo
+        if ! house_rules; then have_house=no; fi
+        echo
+        cat "$hosting"
+    } > "$tmp"
+    [ "$have_house" = yes ] || say "WARN: no ~${MAIN_USER:-?}/.dotfiles-ai/ai/AGENTS.md on the host: only the hosting rules go in"
+    size=$(wc -c < "$tmp")
+    [ "$size" -le 32768 ] || say "WARN: rules are $size bytes; Codex reads only the first 32 KiB"
+    incus exec "$name" -- install -d -m 755 -o root -g root /etc/proj-rules || { rm -f "$tmp"; return 1; }
+    push_text "$name" /etc/proj-rules/AGENTS.md 0644 < "$tmp" || { rm -f "$tmp"; return 1; }
+    rm -f "$tmp"
+    if incus exec "$name" -- id dev >/dev/null 2>&1; then
+        # A file dev made by hand is kept; only a missing file or our own link is (re)written.
+        incus exec "$name" -- su -l dev -c 'f=$HOME/.config/ai/AGENTS.md
+            if [ -e "$f" ] && [ "$(readlink "$f")" != /etc/proj-rules/AGENTS.md ]; then
+                echo "proj: $f is dev'"'"'s own file: kept (rules are in /etc/proj-rules/AGENTS.md)"
+            else
+                mkdir -p "$HOME/.config/ai" && ln -sfn /etc/proj-rules/AGENTS.md "$f"
+            fi' || return 1
+    fi
+    say "rules pushed to $name:/etc/proj-rules/AGENTS.md$([ "$have_house" = yes ] && echo ' (house rules + hosting rules)')"
+}
+
+# marker_and_rules BOX: after new / recreate. A failure warns; the box itself is fine.
+marker_and_rules() {
+    box_marker "$1" || say "WARN: /etc/proj-box not written. Later: sudo proj sync-rules $1"
+    push_rules "$1" || say "WARN: rules not pushed. Later: sudo proj sync-rules $1"
+}
+
 clone_and_setup() {  # name repo
     local name=$1 repo=$2
     [ -n "$repo" ] || return 0
@@ -184,6 +262,7 @@ cmd_new() {
     [ "$tier" != try ] || setkey "$name" expires $(( $(now) + $(dur_s "$ttl") ))
     if [ "$tier" != try ] || [ "$pg" = yes ]; then add_volume "$name" "$tier"; fi
     bootstrap "$name" "$docker" "$pg"
+    marker_and_rules "$name"
     clone_and_setup "$name" "$repo"
     if [ "$tier" = long ]; then
         incus config set "$name" security.protection.delete=true
@@ -299,6 +378,8 @@ cmd_fork() {
     incus config unset "$new" user.proj.last_backup 2>/dev/null || true
     if [ "$tier" = try ]; then setkey "$new" expires $(( $(now) + $(dur_s "$ttl") )); fi
     incus start "$new"
+    # The copy carries the source's /etc/proj-box: rewrite it with the fork's own name and tier.
+    box_marker "$new" || say "WARN: /etc/proj-box of $new not updated. Later: sudo proj sync-rules $new"
     note "fork $src -> $new tier=$tier"
     cmd_registry >/dev/null
     say "fork ready: sudo proj shell $new  (throw it away with: sudo proj wipe $new)"
@@ -342,6 +423,7 @@ cmd_recreate() {
     [ -z "$expires" ] || setkey "$name" expires "$expires"
     if has_vol "$name"; then incus storage volume attach "$POOL" "$name-data" "$name" data /srv/data; fi
     bootstrap "$name" "${docker:-no}" "${pg:-no}"
+    marker_and_rules "$name"
     clone_and_setup "$name" "$repo"
     if [ "$was_protected" = yes ] || [ "$tier" = long ]; then
         incus config set "$name" security.protection.delete=true
@@ -397,6 +479,9 @@ cmd_promote() {
         set_volume_schedule "$name" "$to"
     fi
     setkey "$name" tier "$to"
+    if [ "$(state_of "$name")" = Running ]; then
+        box_marker "$name" || say "WARN: /etc/proj-box not updated. Later: sudo proj sync-rules $name"
+    fi
     incus config unset "$name" user.proj.expires 2>/dev/null || true
     if [ "$to" = long ]; then
         incus config set "$name" security.protection.delete=true
@@ -511,7 +596,7 @@ cmd_registry() {
         echo "# Project registry"
         echo
         echo "Generated by proj on $(date '+%F %H:%M'). Do not edit: run \`sudo proj registry\`."
-        echo "Rules: ~/.dotfiles docs/HOSTING.md."
+        echo "Rules: ~/.dotfiles docs/HOSTING.md. Same data for scripts: REGISTRY.json next to this file."
         echo
         echo "| Box | Tier | State | Owner | Created | Expires | Protected | Data volume | Repo | Last backup |"
         echo "|---|---|---|---|---|---|---|---|---|---|"
@@ -535,8 +620,63 @@ cmd_registry() {
         fi
     } > "$tmp"
     install -m 644 "$tmp" "$REGISTRY"
+    registry_json > "$tmp"
+    install -m 644 "$tmp" "$REGISTRY_JSON"
     rm -f "$tmp"
     echo "$REGISTRY"
+}
+
+# host_projects_json: the host-projects file as a JSON array.
+host_projects_json() {
+    [ -s "$HOST_PROJECTS" ] || { echo '[]'; return 0; }
+    awk '!/^[[:space:]]*#/ && NF' "$HOST_PROJECTS" | jq -R -s -c 'split("\n") | map(select(length > 0)
+        | split("|") | {name: .[0], tier: (.[1] // null),
+          unit: (if (.[2] // "") == "" then null else .[2] end), notes: (.[3:] | join("|"))})'
+}
+
+# registry_json: the same facts as REGISTRY.md, for scripts and agents. Times in UTC ISO 8601.
+registry_json() {
+    local vols
+    vols=$(incus storage volume list "$POOL" -f json 2>/dev/null | jq -c '[.[] | select(.type == "custom") | .name]' || echo '[]')
+    incus list -f json | jq --arg gen "$(date -Is)" --arg host "$(host_name)" \
+        --argjson vols "${vols:-[]}" --argjson hp "$(host_projects_json)" '
+        def t: if . == null or . == "" then null else (tonumber | todate) end;
+        { generated: $gen, host: $host,
+          boxes: [ .[] | .name as $n | {
+              name: $n, state: .status,
+              tier: (.config["user.proj.tier"] // null),
+              owner: (.config["user.proj.owner"] // null),
+              created: (.config["user.proj.created"] | t),
+              expires: (.config["user.proj.expires"] | t),
+              protected: (.config["security.protection.delete"] == "true"),
+              data_volume: (if any($vols[]; . == ($n + "-data")) then $n + "-data" else null end),
+              repo: (.config["user.proj.repo"] // null),
+              forked_from: (.config["user.proj.forked_from"] // null),
+              last_backup: (.config["user.proj.last_backup"] | t) } ],
+          host_projects: $hp }'
+}
+
+# sync-rules: refresh /etc/proj-box and /etc/proj-rules/AGENTS.md from the host's current files.
+cmd_sync_rules() {
+    local target=${1:-} n failed=0
+    [ -n "$target" ] || die "usage: proj sync-rules <name> | --all"
+    if [ "$target" = --all ]; then
+        for n in $(incus list -f json | jq -r '.[] | select(.config["user.proj.tier"] != null) | .name'); do
+            if [ "$(state_of "$n")" != Running ]; then
+                say "$n is not running: skipped (sync it after: sudo incus start $n)"
+                continue
+            fi
+            if box_marker "$n" && push_rules "$n"; then :; else say "WARN: $n not synced"; failed=1; fi
+        done
+        note "sync-rules --all"
+        [ "$failed" = 0 ] || die "some boxes were not synced (see WARN above)"
+        return 0
+    fi
+    need_box "$target"
+    [ "$(state_of "$target")" = Running ] || die "$target is not running. Start it first: sudo incus start $target"
+    box_marker "$target" || die "/etc/proj-box not written to $target"
+    push_rules "$target" || die "rules not pushed to $target"
+    note "sync-rules $target"
 }
 
 # Launch a throwaway try box and prove the network: DHCP address, DNS, internet out,
@@ -671,6 +811,7 @@ main() {
         backup) cmd_backup "$@" ;;
         expire) cmd_expire ;;
         registry) cmd_registry ;;
+        sync-rules) cmd_sync_rules "$@" ;;
         doctor) cmd_doctor "$@" ;;
         selftest) cmd_selftest ;;
         *) die "unknown command '$cmd' (sudo proj --help)" ;;
