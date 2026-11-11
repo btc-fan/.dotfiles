@@ -1,0 +1,18 @@
+#!/bin/sh
+# incus-docker-fix: host Docker sets the FORWARD policy to DROP and puts its DOCKER-USER chain
+# first in FORWARD. Box traffic must not be decided there with a blanket ACCEPT: it must reach
+# the ufw route rules (step 70: new connections from incusbr0 out to the internet via the uplink
+# only, nothing new into boxes), which come after Docker's chains in FORWARD.
+# So DOCKER-USER only:
+#   - accepts replies to boxes (RELATED,ESTABLISHED out on incusbr0), the Incus how-to rule;
+#   - sends everything else from incusbr0 on (RETURN) to the rest of FORWARD, where ufw decides.
+# Rules are lost at reboot, so incus-docker-fix.service runs this after every Docker start.
+# Needs Docker's iptables backend (its nftables backend has no DOCKER-USER chain).
+set -eu
+iptables -N DOCKER-USER 2>/dev/null || true
+# The blanket rule from the first version: remove every copy of it.
+while iptables -D DOCKER-USER -i incusbr0 -j ACCEPT 2>/dev/null; do :; done
+iptables -C DOCKER-USER -i incusbr0 -j RETURN 2>/dev/null \
+    || iptables -I DOCKER-USER -i incusbr0 -j RETURN
+iptables -C DOCKER-USER -o incusbr0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null \
+    || iptables -I DOCKER-USER -o incusbr0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT

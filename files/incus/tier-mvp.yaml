@@ -1,0 +1,12 @@
+description: proj tier mvp - real attempt, nightly snapshots (managed by ~/.dotfiles step 70-hosting)
+config:
+  limits.cpu: "2"
+  limits.memory: 2GiB
+  snapshots.schedule: "@daily"
+  snapshots.expiry: 3d
+devices:
+  root:
+    type: disk
+    path: /
+    pool: boxes
+    size: 20GiB

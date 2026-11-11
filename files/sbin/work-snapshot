@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# work-snapshot: daily copy of WORK_DIR to BACKUP_DIR/work/<date>/, keep the newest N days.
+# Unchanged files are hard links to the day before, so each day costs only what changed.
+# The copy is made in .partial-<date> and gets its date name only when complete.
+# Run by work-snapshot.timer. Values come from /etc/server/host.env.
+set -euo pipefail
+# shellcheck source=/dev/null
+. /etc/server/host.env
+src=${WORK_DIR:-}
+dst=${BACKUP_DIR:?BACKUP_DIR is empty}/work
+keep=${WORK_SNAPSHOT_KEEP_DAYS:-14}
+day=$(date +%F)
+
+if [ -z "$src" ] || [ ! -d "$src" ]; then
+    echo "WORK_DIR '${src}' is not set or missing: nothing to do"
+    exit 0
+fi
+# keep >= 1: keep=0 would delete every snapshot, also the one just made.
+if ! [[ "$keep" =~ ^[0-9]+$ ]] || [ "$keep" -lt 1 ]; then
+    echo "WORK_SNAPSHOT_KEEP_DAYS='$keep' is not 1 or more: using 1" >&2
+    keep=1
+fi
+
+install -d -m 750 "$dst"
+# Half-done copies from a run that was killed: never a snapshot, always removed.
+rm -rf -- "$dst"/.partial-*
+last=""
+for d in "$dst"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do
+    if [ -d "$d" ] && [ "${d##*/}" != "$day" ]; then last=$d; fi
+done
+link=()
+[ -z "$last" ] || link=(--link-dest="$last")
+tmp="$dst/.partial-$day"
+rsync -aAX --delete --exclude node_modules --exclude .venv --exclude __pycache__ \
+    "${link[@]}" "$src/" "$tmp/"
+rm -rf -- "${dst:?}/$day"
+mv "$tmp" "$dst/$day"
+
+all=()
+for d in "$dst"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do
+    if [ -d "$d" ]; then all+=("$d"); fi
+done
+for ((i = 0; i < ${#all[@]} - keep; i++)); do
+    rm -rf -- "${all[$i]}"
+done
+du -sh "$dst/$day"

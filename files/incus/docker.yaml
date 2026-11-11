@@ -1,0 +1,7 @@
+description: proj add-on - Docker inside the box (managed by ~/.dotfiles step 70-hosting)
+# Nesting lets the box run its own Docker. Never security.privileged.
+config:
+  security.nesting: "true"
+  security.syscalls.intercept.mknod: "true"
+  security.syscalls.intercept.setxattr: "true"
+devices: {}

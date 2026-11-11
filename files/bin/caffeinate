@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# caffeinate for Linux: hold a systemd sleep/idle inhibitor (like macOS caffeinate).
+# Usage: caffeinate [-dimsu] [-t secs] [-w pid] [command ...]
+# Flags -d -i -m -s -u are accepted for macOS compatibility and all mean "block sleep".
+# On this server sleep is masked anyway; this keeps scripts written for macOS working.
+set -euo pipefail
+
+pid=""
+secs=""
+while getopts ":dimsut:w:" opt; do
+    case "$opt" in
+        w) pid="$OPTARG" ;;
+        t) secs="$OPTARG" ;;
+        *) ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+inhibit=(systemd-inhibit --what=sleep:idle:handle-lid-switch --who=caffeinate --why="caffeinate $*" --mode=block)
+
+if [ "$#" -gt 0 ]; then
+    exec "${inhibit[@]}" "$@"
+elif [ -n "$pid" ]; then
+    exec "${inhibit[@]}" tail --pid="$pid" -f /dev/null
+elif [ -n "$secs" ]; then
+    exec "${inhibit[@]}" sleep "$secs"
+else
+    exec "${inhibit[@]}" sleep infinity
+fi

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# ssh-login-notify: tell #info who logged in over SSH and from where.
+# Called by pam_exec in /etc/pam.d/sshd (session optional): it can never block a login.
+# Many logins of the same user from the same address are grouped (ALERT_REPEAT_MIN).
+# Usage: ssh-login-notify [--test]   (sample user and address, prints instead of posting)
+
+if [ "${1:-}" = --test ]; then
+    exec /usr/local/sbin/discord-notify --test info "SSH login: ${SUDO_USER:-example} from 192.0.2.10" "$(date '+%F %T %Z')"
+fi
+[ "${PAM_TYPE:-}" = open_session ] || exit 0
+
+# shellcheck source=/dev/null
+[ -r /etc/server/host.env ] && . /etc/server/host.env
+user=${PAM_USER:-unknown}
+from=${PAM_RHOST:-unknown}
+
+# Detach: the login goes on at once, the message is sent in the background.
+setsid -f /usr/local/sbin/discord-notify --key "ssh-$user-$from" --every "${ALERT_REPEAT_MIN:-10}" \
+    info "SSH login: $user from $from" "$(date '+%F %T %Z')" </dev/null >/dev/null 2>&1
+exit 0

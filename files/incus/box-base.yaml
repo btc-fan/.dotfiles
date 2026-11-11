@@ -1,0 +1,23 @@
+description: proj box base (managed by ~/.dotfiles step 70-hosting)
+config:
+  # Each box gets its own UID range on the host: root in box A is nobody in box B.
+  # Not a live option: it applies when a box is launched (proj new, recreate, fork).
+  security.idmap.isolated: "true"
+  security.privileged: "false"
+  limits.processes: "4000"
+devices:
+  root:
+    type: disk
+    path: /
+    pool: boxes
+    size: 10GiB
+  eth0:
+    type: nic
+    name: eth0
+    network: incusbr0
+    # Boxes cannot talk to each other. Works only when EVERY box NIC has it, so it lives here.
+    security.port_isolation: "true"
+    # The egress ACL on the NIC too, with explicit default actions (the NIC overrides the network).
+    security.acls: box-egress
+    security.acls.default.egress.action: allow
+    security.acls.default.ingress.action: allow

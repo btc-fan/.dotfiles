@@ -1,0 +1,10 @@
+description: proj tier try - quick test, expires (managed by ~/.dotfiles step 70-hosting)
+config:
+  limits.cpu: "1"
+  limits.memory: 1GiB
+devices:
+  root:
+    type: disk
+    path: /
+    pool: boxes
+    size: 10GiB

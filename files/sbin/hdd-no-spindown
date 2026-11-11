@@ -1,0 +1,9 @@
+#!/bin/sh
+# hdd-no-spindown: turn the standby timer off on every rotating disk.
+# Run by hdd-no-spindown.service at boot. A unit, not a udev rule: dracut copies
+# udev rules into the initrd, where hdparm does not exist.
+for d in /sys/block/sd*; do
+    [ -e "$d/queue/rotational" ] || continue
+    [ "$(cat "$d/queue/rotational")" = "1" ] && /usr/sbin/hdparm -S 0 "/dev/${d##*/}"
+done
+exit 0

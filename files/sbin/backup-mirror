@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# backup-mirror: copy BACKUP_DIR (Postgres dumps + work snapshots) to the backup disk.
+# Same content as the source: old days pruned there are pruned here too (--delete).
+# BACKUP_MIRROR_EXCLUDE: folders directly under BACKUP_DIR that are NOT mirrored
+# (default md999-move: a one-time copy, too big for the backup disk). Excluded folders that
+# already exist on the backup disk are left there (rsync --delete skips excluded paths).
+# Half-done .partial-* folders are never mirrored.
+# Run by backup-mirror.timer. Values come from /etc/server/host.env.
+set -euo pipefail
+# shellcheck source=/dev/null
+. /etc/server/host.env
+src=${BACKUP_DIR:?BACKUP_DIR is empty}
+mnt=${BACKUP_MOUNT:?BACKUP_MOUNT is empty}
+dst=$mnt/data-backups
+
+mountpoint -q "$mnt" || { echo "$mnt is not mounted: skip"; exit 1; }
+if [ -n "${DATA_MOUNT:-}" ]; then
+    mountpoint -q "$DATA_MOUNT" || { echo "$DATA_MOUNT is not mounted: skip"; exit 1; }
+fi
+# An empty source with --delete would wipe the mirror. Refuse.
+[ -d "$src" ] && [ -n "$(ls -A "$src")" ] || { echo "$src is missing or empty: refuse to mirror"; exit 1; }
+
+# Anchored: only the job folders (postgres/, work/, boxes/<box>/), never a user file deeper down.
+excl=(--exclude='/*/.partial-*' --exclude='/boxes/*/.partial-*')
+for e in ${BACKUP_MIRROR_EXCLUDE-md999-move}; do
+    excl+=(--exclude="/${e#/}")
+done
+
+install -d -m 700 "$dst"
+rsync -aH --delete "${excl[@]}" "$src/" "$dst/"
+date -Is > "$dst/.last-mirror"
+du -sh "$dst"

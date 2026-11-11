@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# boot-notify: tell #info that the server is up, and why it stopped last time.
+# Run once per boot by boot-notify.service. Needs the persistent journal (step 20).
+#   clean      the last boot ended with a normal shutdown or reboot
+#   crash      kdump saved a crash dump, or the kernel log shows a panic or lockup
+#   power cut  no clean end in the log and no crash sign (a hard hang looks the same)
+# Usage: boot-notify [--test]   (prints instead of posting, no waiting)
+set -euo pipefail
+
+test=()
+if [ "${1:-}" = --test ]; then test=(--test); fi
+
+# Wait up to 2 min for DNS, so the message is not lost right after boot.
+if [ "${#test[@]}" -eq 0 ]; then
+    for _ in $(seq 1 24); do
+        if getent hosts discord.com >/dev/null 2>&1; then break; fi
+        sleep 5
+    done
+fi
+
+now=$(date +%s)
+boot_ts=$((now - $(cut -d. -f1 /proc/uptime)))
+fmt() { date -d "@$1" '+%F %H:%M'; }
+
+cause="unknown (no log from the last boot)"
+detail=""
+if journalctl -b -1 -n 1 --no-pager >/dev/null 2>&1; then
+    last_ts=$(journalctl -b -1 -n 1 -o short-unix --no-pager | awk 'NR==1 {print int($1)}')
+    tail_log=$(journalctl -b -1 -n 300 -o cat --no-pager 2>/dev/null || true)
+    crash_dir=""
+    for d in /var/crash/*; do
+        [ -e "$d" ] || continue
+        if [ "$(stat -c %Y "$d")" -ge $((last_ts - 60)) ]; then crash_dir=$d; fi
+    done
+    kern=$(journalctl -b -1 -k -o cat --no-pager 2>/dev/null \
+        | grep -E -i 'kernel panic|soft lockup|hard lockup|hung_task|watchdog: BUG|Oops:|Machine check' | tail -3 || true)
+
+    if [ -n "$crash_dir" ]; then
+        cause="crash (kernel panic; kdump saved $crash_dir)"
+    elif grep -qE 'reboot\.target|System Reboot' <<< "$tail_log"; then
+        cause="clean reboot"
+    elif grep -qE 'poweroff\.target|System Power Off|shutdown\.target|System Shutdown' <<< "$tail_log"; then
+        cause="clean shutdown"
+    elif [ -n "$kern" ]; then
+        cause="crash or hang (kernel log below; the watchdog or panic reboot restarted it)"
+        detail=$kern
+    else
+        cause="power cut (or a hard hang that left no log)"
+    fi
+    down=$(( (boot_ts - last_ts) / 60 ))
+    cause="$cause"$'\n'"last log $(fmt "$last_ts"), up again $(fmt "$boot_ts"): about $down min down"
+fi
+
+failed=$(systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}' | tr '\n' ' ')
+ip=$(ip -4 -o route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i=="src") print $(i+1)}')
+text=$(printf 'last stop: %s\nkernel %s, address %s\nfailed units: %s' \
+    "$cause" "$(uname -r)" "${ip:-none}" "${failed:-none}")
+[ -z "$detail" ] || text=$(printf '%s\n```\n%s\n```' "$text" "$detail")
+
+exec /usr/local/sbin/discord-notify "${test[@]}" info "server is up" "$text"

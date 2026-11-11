@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# smartd-notify: smartd calls this (-M exec) when a disk reports a SMART problem.
+# smartd sets SMARTD_DEVICE, SMARTD_FAILTYPE, SMARTD_MESSAGE, SMARTD_FULLMESSAGE, SMARTD_DEVICEINFO.
+# Usage: smartd-notify [--test]   (--test uses sample values and prints instead of posting)
+set -euo pipefail
+
+test=()
+if [ "${1:-}" = --test ]; then
+    test=(--test)
+    : "${SMARTD_DEVICE:=/dev/sdX}" "${SMARTD_FAILTYPE:=CurrentPendingSector}"
+    : "${SMARTD_DEVICEINFO:=EXAMPLE-MODEL, S/N:EXAMPLE-SERIAL}"
+    : "${SMARTD_MESSAGE:=Device: /dev/sdX, 8 Currently unreadable (pending) sectors}"
+fi
+
+dev=${SMARTD_DEVICE:-unknown}
+type=${SMARTD_FAILTYPE:-unknown}
+msg=${SMARTD_FULLMESSAGE:-${SMARTD_MESSAGE:-no message}}
+text=$(printf '%s\n%s\nCheck: sudo smartctl -a %s' "${SMARTD_DEVICEINFO:-}" "$msg" "$dev")
+
+# smartd repeats on its own schedule (-M diminishing); also hold repeats for 12 h here.
+exec /usr/local/sbin/discord-notify "${test[@]}" --key "smart-$dev-$type" --every 720 \
+    alerts "disk problem (SMART): $dev $type" "$text"

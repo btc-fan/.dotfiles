@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# notify-failure UNIT: alert #alerts that a systemd service failed, with its last 20 log lines.
+# Started by notify-failure@.service, which every service gets as OnFailure= (step 50-alerts).
+# The same unit alerts at most once every ALERT_REPEAT_MIN minutes; repeats are counted.
+# UNIT is the full name with suffix (from %n), for example postgresql@16-main.service.
+# Usage: notify-failure [--test] UNIT
+set -euo pipefail
+
+test=()
+if [ "${1:-}" = --test ]; then test=(--test); shift; fi
+unit=${1:?usage: notify-failure [--test] UNIT}
+
+# shellcheck source=/dev/null
+[ -r /etc/server/host.env ] && . /etc/server/host.env
+for u in ${ALERT_IGNORE_UNITS:-}; do
+    if [ "$u" = "$unit" ] || [ "$u" = "${unit%.service}" ]; then exit 0; fi
+done
+
+result=$(systemctl show -p Result --value "$unit" 2>/dev/null || true)
+status=$(systemctl show -p ExecMainStatus --value "$unit" 2>/dev/null || true)
+logs=$(journalctl -u "$unit" -n 20 --no-pager -o short-iso 2>/dev/null | cut -c1-300 || true)
+logs=${logs//\`\`\`/\'\'\'}
+if [ "${#logs}" -gt 1500 ]; then logs=${logs: -1500}; fi   # keep the newest lines
+
+text=$(printf 'result: %s, exit status: %s\n```\n%s\n```' "${result:-?}" "${status:-?}" "${logs:-no log lines}")
+exec /usr/local/sbin/discord-notify "${test[@]}" --key "fail-$unit" --every "${ALERT_REPEAT_MIN:-10}" \
+    alerts "service failed: $unit" "$text"

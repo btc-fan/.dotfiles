@@ -1,0 +1,11 @@
+#!/bin/sh
+# load-watchdog: load the Intel iTCO hardware watchdog, or softdog when the board has none.
+# Ubuntu blacklists watchdog modules, so systemd-modules-load refuses them ("deny-listed").
+# modprobe by name ignores that list. systemd keeps looking for /dev/watchdog0 until
+# boot is done, so this early unit is enough for RuntimeWatchdogSec to work.
+[ -e /dev/watchdog0 ] && exit 0
+/usr/sbin/modprobe iTCO_wdt 2>/dev/null
+sleep 1
+[ -e /dev/watchdog0 ] && exit 0
+echo "iTCO_wdt not available, using softdog (software only: no reset if the kernel hangs hard)"
+/usr/sbin/modprobe softdog

@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# discord-notify: post one message to a Discord channel through a webhook.
+#
+# Usage:
+#   discord-notify [--test] [--key KEY] [--every MIN] <alerts|info> <title> [text]
+#       text can also come on stdin. --key groups repeats: the same KEY is sent at most
+#       once every MIN minutes (default 10); the next message says how many were held back.
+#       --test prints the message instead of posting it.
+#   discord-notify --set <alerts|info>
+#       save a webhook URL to /etc/server/webhooks/<channel>.url (asks for it, input hidden).
+#
+# Silent no-op (exit 0) when the URL file is missing, so a server without webhooks just works.
+set -euo pipefail
+
+HOOK_DIR=/etc/server/webhooks
+STATE_DIR=/var/lib/server-alerts
+MAX=1900   # Discord limit is 2000 characters per message
+
+usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+
+set_url() {
+    case "${1:-}" in alerts|info) ;; *) usage ;; esac
+    [ "$(id -u)" -eq 0 ] || { echo "run with sudo" >&2; exit 1; }
+    local url
+    read -rsp "Paste the Discord webhook URL for $1 (input hidden): " url
+    echo
+    case "$url" in
+        https://discord.com/api/webhooks/*|https://discordapp.com/api/webhooks/*) ;;
+        *) echo "this is not a Discord webhook URL" >&2; exit 1 ;;
+    esac
+    install -d -m 700 "$HOOK_DIR"
+    (umask 077; printf '%s\n' "$url" > "$HOOK_DIR/$1.url")
+    echo "saved $HOOK_DIR/$1.url (root only, mode 600)"
+    echo "send a test: sudo discord-notify $1 'hello' 'first message from $(hostname)'"
+}
+
+test=0
+key=""
+every=10
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --test) test=1; shift ;;
+        --key) key=$2; shift 2 ;;
+        --every) every=$2; shift 2 ;;
+        --set) set_url "${2:-}"; exit 0 ;;
+        -h|--help) usage ;;
+        --) shift; break ;;
+        -*) usage ;;
+        *) break ;;
+    esac
+done
+[ $# -ge 2 ] || usage
+chan=$1
+title=$2
+shift 2
+case "$chan" in alerts|info) ;; *) usage ;; esac
+if [ $# -gt 0 ]; then
+    text="$*"
+elif [ ! -t 0 ]; then
+    text=$(cat)
+else
+    text=""
+fi
+
+url_file=$HOOK_DIR/$chan.url
+if [ "$test" = 0 ] && [ ! -r "$url_file" ]; then
+    exit 0
+fi
+
+# Grouping: one message per KEY per window; count what was held back.
+if [ -n "$key" ] && [ "$test" = 0 ]; then
+    install -d -m 700 "$STATE_DIR"
+    sf="$STATE_DIR/$(printf '%s' "$key" | tr -c 'A-Za-z0-9._@-' '_')"
+    exec 9> "$sf.lock"
+    flock 9
+    now=$(date +%s)
+    last=0
+    held=0
+    if [ -f "$sf" ]; then read -r last held < "$sf" || true; fi
+    if [ $((now - ${last:-0})) -lt $((every * 60)) ]; then
+        echo "${last:-0} $((${held:-0} + 1))" > "$sf"
+        exit 0
+    fi
+    echo "$now 0" > "$sf"
+    if [ "${held:-0}" -gt 0 ]; then
+        text="$text"$'\n'"(+${held} more like this since the last message)"
+    fi
+fi
+
+content="**[$(hostname)] $title**"
+[ -z "$text" ] || content="$content"$'\n'"$text"
+content=${content:0:$MAX}
+# allowed_mentions empty: a log line with @everyone must not ping anybody.
+payload=$(jq -cn --arg c "$content" '{content: $c, allowed_mentions: {parse: []}}')
+
+if [ "$test" = 1 ]; then
+    echo "--- would post to #$chan ($url_file$([ -r "$url_file" ] || echo ', missing: real runs do nothing'))"
+    printf '%s\n' "$content"
+    exit 0
+fi
+
+# The URL is the secret: pass it in a config on a file descriptor, never on the command line
+# (other users can read command lines in ps).
+url=$(head -n1 "$url_file")
+if curl -fsS --max-time 10 --retry 2 --retry-delay 3 \
+        -H 'Content-Type: application/json' --data-binary @- \
+        --config <(printf 'url = "%s"\n' "$url") -o /dev/null <<< "$payload"; then
+    logger -t discord-notify "sent to $chan: $title" 2>/dev/null || true
+else
+    logger -t discord-notify "FAILED to send to $chan: $title" 2>/dev/null || true
+    exit 1
+fi

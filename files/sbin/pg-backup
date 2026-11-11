@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# pg-backup: dump every PostgreSQL database to BACKUP_DIR/postgres/<date>/, keep the newest N days.
+# Skips the databases in PG_BACKUP_SKIP_DBS (for example a big one with its own backup job).
+# Refuses to start when the free space is less than 2x the largest database it would dump.
+# Run by pg-backup.timer. Values come from /etc/server/host.env.
+set -euo pipefail
+# shellcheck source=/dev/null
+. /etc/server/host.env
+dir=${BACKUP_DIR:?BACKUP_DIR is empty}/postgres
+keep=${PG_BACKUP_KEEP_DAYS:-3}
+day=$(date +%F)
+cd /
+
+# keep >= 1: keep=0 would delete every dump, also the one just made.
+if ! [[ "$keep" =~ ^[0-9]+$ ]] || [ "$keep" -lt 1 ]; then
+    echo "PG_BACKUP_KEEP_DAYS='$keep' is not 1 or more: using 1" >&2
+    keep=1
+fi
+
+install -d -m 700 "$dir"
+# Half-done dumps from a run that was killed (power cut, OOM): never a backup, always removed.
+rm -rf -- "$dir"/.partial-*
+tmp="$dir/.partial-$day"
+
+mapfile -t all_dbs < <(runuser -u postgres -- psql -XAtc \
+    "select datname from pg_database where not datistemplate and datallowconn order by 1")
+dbs=()
+for db in "${all_dbs[@]}"; do
+    skip=0
+    for s in ${PG_BACKUP_SKIP_DBS:-}; do
+        if [ "$s" = "$db" ]; then skip=1; fi
+    done
+    if [ "$skip" = 1 ]; then
+        echo "skip $db (PG_BACKUP_SKIP_DBS)"
+    else
+        dbs+=("$db")
+    fi
+done
+
+# Free space check: a -Fc dump is usually smaller than the database, 2x leaves room for the
+# old dumps that are deleted only after this one is complete.
+largest=0
+largest_db=""
+for db in "${dbs[@]}"; do
+    size=$(runuser -u postgres -- psql -XAtc "select pg_database_size('$(printf '%s' "$db" | sed "s/'/''/g")')")
+    if [ "$size" -gt "$largest" ]; then largest=$size; largest_db=$db; fi
+done
+avail=$(df -PB1 "$dir" | awk 'NR == 2 {print $4}')
+if [ "$avail" -lt $((largest * 2)) ]; then
+    echo "REFUSE: $((avail / 1048576)) MB free in $dir, need 2x the largest database ($largest_db, $((largest / 1048576)) MB). No dump made." >&2
+    echo "Free space, or list big databases with their own backup job in PG_BACKUP_SKIP_DBS." >&2
+    exit 1
+fi
+
+install -d -m 700 "$tmp"
+runuser -u postgres -- pg_dumpall --globals-only > "$tmp/globals.sql"
+for db in "${dbs[@]}"; do
+    runuser -u postgres -- pg_dump -Fc "$db" > "$tmp/$db.dump"
+done
+
+# Only a complete dump gets the date name. A half-done one never looks like a backup.
+rm -rf "${dir:?}/$day"
+mv "$tmp" "$dir/$day"
+
+# Keep the newest $keep dated folders.
+all=()
+for d in "$dir"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do
+    if [ -d "$d" ]; then all+=("$d"); fi
+done
+for ((i = 0; i < ${#all[@]} - keep; i++)); do
+    rm -rf -- "${all[$i]}"
+done
+du -sh "$dir/$day"

@@ -1,0 +1,12 @@
+description: proj tier long - must not be lost, protected, backed up (managed by ~/.dotfiles step 70-hosting)
+config:
+  limits.cpu: "4"
+  limits.memory: 4GiB
+  snapshots.schedule: "@daily"
+  snapshots.expiry: 7d
+devices:
+  root:
+    type: disk
+    path: /
+    pool: boxes
+    size: 40GiB

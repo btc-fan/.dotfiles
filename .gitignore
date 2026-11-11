@@ -1,0 +1,5 @@
+# Host values: real IPs, serials, user names. Never commit.
+host.env
+*.local
+*.bak
+*.log
