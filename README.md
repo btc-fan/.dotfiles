@@ -112,7 +112,7 @@ ai-doctor
 
 `install.sh` asks "Is this a new Ubuntu server that needs the base server setup?" The default is No. Answer Yes only on a fresh server: it prints the `ubuntu-server` instructions and stops.
 
-Options: `--dry-run`, `--agents claude,codex,hermes,opencode,herdr`, `--skip-packages`, `--rtk-hook`, `--yes`. More in `docs/INSTALL.md`.
+Options: `--dry-run`, `--agents claude,codex,hermes,opencode,herdr`, `--skip-packages`, `--no-rtk-hook`, `--yes`. More in `docs/INSTALL.md`.
 
 ### macOS
 
@@ -121,7 +121,7 @@ Later. The Macs are out of scope until the server test and the owner review are 
 git -C ~/.dotfiles worktree add ~/.dotfiles-ai ai
 ~/.dotfiles-ai/install.sh --dry-run
 ```
-Rules for macOS: install never writes macOS managed settings. The RTK hook is not turned on without `--rtk-hook` and the owner's OK. Never touch the 999 project, its Postgres or its `com.md999.*` launchd jobs.
+Install rules: it only changes agent configuration. It never touches your projects, databases or services. On macOS it never writes managed settings (an employer may manage them). RTK is on by default everywhere; `--no-rtk-hook` leaves it off on one machine.
 
 ### Windows
 

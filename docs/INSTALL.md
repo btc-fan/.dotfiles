@@ -51,7 +51,7 @@ Options:
 | `--dry-run` | Print what would change. Change nothing. |
 | `--agents a,b` | Only these agents: claude, codex, hermes, opencode, herdr. |
 | `--skip-packages` | Do not install system packages. |
-| `--rtk-hook` | Turn on the RTK hook. Off by default on macOS. |
+| `--no-rtk-hook` | Leave the RTK hook off on this machine. RTK is on by default everywhere. |
 | `--yes` | Answer yes to the confirm questions. Not to the server question. |
 
 ## Ubuntu
@@ -69,7 +69,7 @@ Options:
 
 - brew only for missing CLIs. Never `brew upgrade`.
 - Never writes macOS managed settings (an employer may manage them). Environment keys go into `~/.claude/settings.json` `env`.
-- RTK hook only with `--rtk-hook`.
+- RTK hook on by default (`--no-rtk-hook` to skip). Install only changes agent configuration, never projects, databases or services.
 - Plugins that the design dropped (caveman, the context7 plugin) are reported, not removed. The installer prints the remove command.
 
 ## Manual steps per machine

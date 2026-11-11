@@ -170,7 +170,7 @@ Opt-in per project (offered by the ai-adopt / ai-start picker, each with a one-l
 - Owner hooks.json (A.2): Notification (permission_prompt|idle_prompt) + Stop -> `~/.dotfiles/bin/claude-notify`;
   SessionStart (startup|resume) -> caffeinate. claude-notify: macOS notification; Linux: Discord #server-info,
   silent no-op without the webhook. Same notify for every agent that supports stop/notification hooks.
-- RTK rewrite hook (Claude, Codex, Hermes plugin). On the Mac: never re-enable RTK silently (owner turned it off; ask).
+- RTK rewrite hook (Claude, Codex, Hermes plugin), on by default on every machine (`--no-rtk-hook` skips it).
 - graphify hook-guard (advisory) on Bash|Grep and Read|Glob, plus compaction reminder.
 - herdr status integration hooks.
 - Serena: vendor `serena-hooks activate` at SessionStart (Claude, Codex) + `cleanup` at SessionEnd; OWN
@@ -264,13 +264,14 @@ Every MCP and skill gets `ai/rules/<tool>.md` + routing.yaml rows + evals:
 - Home server: test target. `~/.dotfiles` = clone of the `ubuntu-server` branch (built first), `~/.dotfiles-ai`
   = `ai` worktree; its hand-made Phase 5 config is replaced by `~/.dotfiles-ai/install.sh`.
 - Macs (this Mac and the older Intel Mac on macOS 12): NOT now (owner 2026-11-11 "No Macs for now").
-  When enabled later: after the server test and owner review. Guard rails: never touch the 999 project, its Postgres or
-  `com.md999.*` launchd jobs; never re-enable the RTK hook silently.
+  When enabled later: after the server test and owner review. Guard rail (every machine): install changes only agent
+  configuration, never projects, databases or services. RTK hook ON by default everywhere (owner: "use RTK all the
+  time"); `--no-rtk-hook` skips it on one machine.
 - Windows: later (chezmoi or a PowerShell script). Its README "AI setup" section says "planned, not supported yet".
 - `ubuntu-server` branch (owner: default setup for any new Ubuntu server, with README; the README ends with the
   "AI setup" section): all server phase scripts + notes (power-off recovery, watchdog, no-sleep, WoL,
   disk roles (SSD /, Samsung 500 GB /data main, Hitachi 500 GB /backup mirror, WD 320 GB /mnt/spare320 spare),
-  backup times after 07:30 for the 999 crawler, sshd/fail2ban/sysctl hardening of 2026-11-11, Docker 127.0.0.1 ports, Rust coreutils quirks, AVX2 RTK build,
+  backup times after 07:30 (host.env, away from heavy night jobs), sshd/fail2ban/sysctl hardening of 2026-11-11, Docker 127.0.0.1 ports, Rust coreutils quirks, AVX2 RTK build,
   no desktop, server AGENTS.md hardware section without a git-only line).
 
 ## 15. Open items at build

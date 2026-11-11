@@ -7,14 +7,14 @@ Copied from the proof sections of `ai/rules/<tool>.md`. Change both places toget
 ## Code navigation
 - graphify | "where is the price drop alert computed?" (repo with graph) ; "unde se calculeaza istoricul de pret in proiectul asta?" | NOT "rewrite the intro paragraph of README.md" ; "edit config.yaml" | signal: first exploring call is Bash `graphify query`; new line in `~/.cache/graphify-queries.log`
 - graphify no graph | any code question in a repo without `graphify-out/graph.json` | expect the build nudge `graphify .`, not a query
-- serena | "list the symbols in src/md999/db.py" ; "arata-mi functia care calculeaza pretul in tracker.py" | NOT "edit the yaml config" ; "update the README table" | signal: `get_symbols_overview` or `find_symbol` before any Read of that file
+- serena | "list the symbols in src/app/db.py" ; "arata-mi functia care calculeaza pretul in tracker.py" | NOT "edit the yaml config" ; "update the README table" | signal: `get_symbols_overview` or `find_symbol` before any Read of that file
 - docs (Grounded Docs, then context7) | "how do I use the FastAPI dependency system?" ; "cum configurez Tailwind v4 in Vite?" ; "как в pydantic v2 сделать валидатор поля?" | NOT "refactor this function to be shorter" ; "why does my loop run twice" | signal: `search_docs` first, `resolve-library-id` only when the first is thin
 - docs-on-dependency | Bash `npm install zod`, `uv add httpx` | expect one nudge per library per session, not two
 
 ## Output and code style
 - i-have-adhd | "How do I rotate the JWT secret in this repo?" ; "Cum adaug o coloana noua in tabelul listings?" | NOT "walk me through how the diff engine works" (long body allowed) | signal: SessionStart context has `ADHD MODE ACTIVE (always-on)`; first line is an action; last line starts with `Next:`
 - ponytail | "add a retry wrapper around the fetch in gql.py" ; "adauga un camp nou in tabelul sellers si arata-mi codul" | NOT "explain what the crawler daemon does" | signal: `~/.claude/.ponytail-active` is `full`; small diff
-- rtk | "show git status and the last 5 commits" ; "покажи статус git и последние 5 коммитов" | NOT "read src/md999/gql.py" ; a command with `rtk bypass` | signal: new row in `rtk gain --history`
+- rtk | "show git status and the last 5 commits" ; "покажи статус git и последние 5 коммитов" | NOT "read src/app/client.py" ; a command with `rtk bypass` | signal: new row in `rtk gain --history`
 
 ## Harnesses
 - omc | "autopilot: build a CLI that converts CSV to JSON" ; "Fa un deep interview despre aplicatia noua" | NOT "Ce face functia asta?" | signal: Skill `oh-my-claudecode:*`; `.omc/state/` write

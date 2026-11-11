@@ -26,7 +26,7 @@ The owner block A.4 is the source text. It sits in `ai/agents-md/20-rtk.md`. Ven
 ## Proof
 - Should fire (EN): "show git status and the last 5 commits". Bash calls become `rtk git status`, `rtk git log ...`.
 - Should fire (RU): "покажи статус git и последние 5 коммитов".
-- Should not fire: "read src/md999/gql.py" (built-in Read). A command already prefixed `rtk bypass`.
+- Should not fire: "read src/app/client.py" (built-in Read). A command already prefixed `rtk bypass`.
 - Signal: new row in `rtk gain --history` with non-zero reduction. Whether the transcript shows the rewritten command: UNVERIFIED.
 
 ## Setup checklist

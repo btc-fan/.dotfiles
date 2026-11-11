@@ -30,7 +30,7 @@ Full files at the pin: not copied here (UNVERIFIED that the quotes match 2.1.0 e
 - L7: ai-doctor reports stale entries in `~/.serena/serena_config.yml` (no unregister command exists).
 
 ## Proof
-- Should fire (EN): "list the symbols in src/md999/db.py". First call `get_symbols_overview`.
+- Should fire (EN): "list the symbols in src/app/db.py". First call `get_symbols_overview`.
 - Should fire (RO): "arata-mi functia care calculeaza pretul in tracker.py". Expect `find_symbol`.
 - Should not fire: "edit the yaml config". Built-in Edit is fine.
 - Signal: Serena tool_use names (`mcp__plugin_ai-core_serena__*`) in the transcript.

@@ -12,7 +12,7 @@ Its skill files hold 34 U+2014 characters in total. Lint every output.
 ## When / when not
 - Only in a project that builds or reviews a visual interface with a supported stack (React, Next, Vue, Svelte, Tailwind, shadcn, SwiftUI, Flutter and others). Streamlit is not on the list.
 - Core skill: ui-ux-pro-max. Asset skills: design (logo, icons, social images), design-system (tokens), ui-styling, brand, banner-design, slides.
-- Not for backend, SQL, infra, scripts. Not for the md999 Streamlit dashboard unless the owner says so.
+- Not for backend, SQL, infra, scripts. Not for internal admin dashboards unless the owner says so.
 - Paid: logo, icon and image generation call Gemini. Ask first.
 - Never copy its `stack/` folder.
 - Figma URL: use the Figma skills. Any chart or dashboard styling: dataviz. A .pptx file: the pptx skill. OG or hero image for SEO or a post: seo-image-gen or blog-image.

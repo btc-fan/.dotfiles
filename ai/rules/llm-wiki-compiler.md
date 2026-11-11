@@ -11,7 +11,6 @@ Pin: v1.5.0 = c9c8734be8a0b854c1547cfa3ee97f0b8c6bfa5f. OPT-IN per project. Node
 - Only in a project that HAS a wiki directory and needs cited evidence from a compiled corpus.
 - Not for one-off file reads, live web search, or turning an ordinary repo into a wiki. Not a replacement for OMC wiki, project memory or Serena memories.
 - Writes (`ingest_source`, `compile_wiki`, `query --save`) are mutations and may call a paid provider: ask first. It costs LLM tokens per compile.
-- Not in the md999 repo (no document corpus).
 - Name clash: OMC `wiki` = notes the agent compounds across sessions. llmwiki = compiled, cited corpus. Pick by project marker (a llmwiki project dir).
 
 ## Enforcement
