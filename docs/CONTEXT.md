@@ -1,12 +1,13 @@
 # Context: what is installed and why
 
 One page that lists every part. Tables only. The reasons are in `ai/SPEC.md`. The rules for each tool are in `ai/rules/<tool>.md`.
+For the explanation of each tool, how tools overlap and interact: [TOOLS.md](TOOLS.md). For how the root rules reach each agent: [AGENTS-MD.md](AGENTS-MD.md).
 
 ## Rules
 
 | Item | File | Notes |
 |---|---|---|
-| Root rules | `~/.config/ai/AGENTS.md` (built from `ai/agents-md/*.md` and the L0 table) | under 30 KB. Part 00 is the owner text |
+| Root rules | `~/.config/ai/AGENTS.md` (built on each machine from `ai/agents-md/*.md` and the L0 table; the built file is not committed) | under 30 KB. Part 00 is the owner text |
 | Usage contracts | `ai/rules/<tool>.md` | Vendor rules, When, Enforcement, Proof, Setup |
 | Vendor text copies | `ai/rules/vendor/` | byte copies of the pinned vendor templates (one U+2014 character replaced) |
 | Toolbox | `ai/TOOLBOX.md` | not loaded in sessions. One pointer line in the root rules |
@@ -88,6 +89,7 @@ To read the full table: `ai/routing.yaml`. Do not copy it here.
 |---|---|
 | `ai-doctor` | checks the whole setup |
 | `ai-render` | builds routing.json, L0 table and the root file |
+| `ai-sync` | after a pull: runs `ai-render`, refreshes the copied rule blocks (Codex, Hermes). `--check` compares, `--install-hook` makes `git pull` run it |
 | `agent-audit npm\|pypi\|dir\|skill <target>` | audit before install |
 | `ai-start` | new project: grill-me, propose tools, write project config |
 | `ai-adopt` | existing repo: add the project layer |
@@ -103,6 +105,7 @@ To read the full table: `ai/routing.yaml`. Do not copy it here.
 | `~/.local/state/ai/misses.jsonl` | Stop hook: a rule fired and no matching tool call followed |
 | `~/.local/state/ai/fired.jsonl` | skill proof: model calls (`Skill` matcher) and typed commands (UserPromptExpansion) |
 | `~/.local/state/ai/nudges.json` | quiet windows and once-per-library state |
+| `~/.local/state/ai/router-errors.log` | internal router errors (the router fails open) |
 | `~/.local/state/ai/managed-keys.json` | what install added (for uninstall) |
 | `~/.cache/graphify-queries.log` | graphify |
 | `rtk gain --history` | RTK |

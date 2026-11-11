@@ -2,199 +2,326 @@
 
 One AI setup for every machine. Agents, tools, rules, hooks and gates. Pinned, audited, with proof that each tool fires.
 
-Branch `ai` holds only the AI layer. The OS base (shell, git, packages) lives in the other branches: `main` (macOS), `windows`, `ubuntu-server`.
-Status: server first. macOS later. Windows planned, not supported yet.
+- Branch `ai` holds only the AI layer. The OS base (shell, git, packages, server hardening) lives in the other branches: `main` (macOS), `windows`, `ubuntu-server`.
+- One source of rules. Every agent (Claude Code, Codex, Hermes, opencode) gets the same text.
+- One set of tools. Each tool was audited and is pinned to the audited version.
+- One usage contract per tool. It says when to use it, when not, how we enforce it and how we prove it fired.
+- Telemetry and auto-update are off. Everything can be removed with one command.
 
-## 1. What it is
+Status: server first. macOS later. Windows planned, not supported yet. Items marked **coming** are designed but not in the code yet.
 
-- One set of rules for every agent (Claude Code, Codex, Hermes, opencode). One root file: `~/.config/ai/AGENTS.md`.
-- One set of tools (MCP servers, plugins, skills). Each tool is audited and pinned to the audited version.
-- One usage contract per tool: `ai/rules/<tool>.md`. It says when to use the tool, when not, how use is enforced, how we prove it fired, and how to set it up.
-- Hooks that remind the agent and gates that block unsafe steps.
-- Telemetry and auto-update are off in every tool. Updates happen only after a new audit.
-- The repo is public. No secrets, no host names, no personal data. One exception: a free context7 API key (owner decision).
+## Contents
 
-## 2. How it works
+1. [How the whole thing fits together](#1-how-the-whole-thing-fits-together)
+2. [Install](#2-install)
+3. [How it works, in plain words (3 examples)](#3-how-it-works-in-plain-words)
+4. [What runs where](#4-what-runs-where)
+5. [Manual steps per machine](#5-manual-steps-per-machine)
+6. [Verify](#6-verify)
+7. [Update](#7-update)
+8. [Remove or revert](#8-remove-or-revert)
+9. [Where things live](#9-where-things-live)
+10. [Troubleshooting](#10-troubleshooting)
+11. [Read next](#11-read-next)
+
+## 1. How the whole thing fits together
 
 ```mermaid
 flowchart TD
-    subgraph repo["repo: branch ai (~/.dotfiles-ai)"]
-        R[ai/routing.yaml<br/>one routing table]
-        P[ai/agents-md/*.md<br/>root rules parts]
-        C[ai/rules/*.md<br/>usage contracts]
-        M[ai/marketplace<br/>plugin ai-core]
-        H[ai/hooks + ai/bin]
-        T[ai/pins.env<br/>every version]
+    subgraph repo["repo: branch ai (a git worktree)"]
+        PARTS["ai/agents-md/*.md<br/>rule parts"]
+        ROUTE["ai/routing.yaml<br/>one routing table"]
+        RULES["ai/rules/*.md<br/>one contract per tool"]
+        PLUGIN["ai/marketplace<br/>plugin ai-core"]
+        PINS["ai/pins.env<br/>every version"]
     end
-    I[install.sh] --> R
-    R -->|ai-render| L0[L0 table]
-    P -->|ai-render| A[~/.config/ai/AGENTS.md]
-    L0 --> A
-    A -->|import or managed block| CL[Claude Code]
-    A --> CX[Codex]
-    A --> HM[Hermes SOUL.md]
-    A --> OC[opencode]
-    M -->|plugin install| CL
-    M -->|plugin add| CX
-    H -->|in plugin| CL
-    H -->|in plugin| CX
-    CL --> G{{gates: audit, secret scan, PR rules}}
-    CL --> N[nudges: L1 to L3]
-    CL --> LOG[~/.local/state/ai/<br/>audit, gates, misses, fired]
-    D[ai-doctor] --> LOG
-    D --> C
+    PARTS --> RENDER{{"ai-render"}}
+    ROUTE --> RENDER
+    RENDER --> ROOT["ai/AGENTS.md<br/>root rules, under 30 KB"]
+    RENDER --> JSON["routing.json + L0 table"]
+    ROOT --> CFG["~/.config/ai/AGENTS.md"]
+    CFG -->|"@import line"| CLAUDE["Claude Code + OMC"]
+    CFG -->|"instructions key"| OPEN["opencode"]
+    ROOT -->|"managed block copy<br/>refreshed by ai-sync"| CODEX["Codex + OMX"]
+    ROOT -->|"managed block copy<br/>refreshed by ai-sync"| HERMES["Hermes (SOUL.md)"]
+    PLUGIN -->|"plugin install"| CLAUDE
+    PLUGIN -->|"plugin add"| CODEX
+    JSON --> ROUTER["router hook<br/>L1 inject, L2 forced eval,<br/>L3 regex nudges"]
+    ROUTER --> CLAUDE
+    ROUTER --> CODEX
+    CLAUDE --> GATES{{"gates L4<br/>audit, secret scan, PR rules"}}
+    CODEX --> GATES
+    GATES --> LOGS["~/.local/state/ai/<br/>audit, gates, fired, misses"]
+    ROUTER --> LOGS
+    LOGS --> DOCTOR["ai-doctor"]
+    RULES --> DOCTOR
+    subgraph server["on a server (ubuntu-server branch)"]
+        HOST["host: admin only, no project code"]
+        BOX["one box per project<br/>/etc/proj-rules/AGENTS.md"]
+        DOCS["Grounded Docs server<br/>port 6280, private network"]
+    end
+    CLAUDE -.->|"sudo proj-agent new"| BOX
+    CODEX -.-> BOX
+    CLAUDE -.->|"library docs"| DOCS
+    HERMES --- HOST
 ```
 
-Read it from the top. You edit the repo. `install.sh` renders the routing table and the root rules, then registers the plugin with each agent. Agents read the rules. Hooks inside the plugin remind and block. Everything they do is logged. `ai-doctor` reads the logs and the contracts and tells you what is wrong.
+Read it from the top.
 
-### Parts
+1. You edit the repo: rule parts, the routing table, tool contracts.
+2. `ai-render` joins the parts and the L0 table into one root rules file. It also builds `routing.json` for the hooks.
+3. Each agent receives that one file in the way it supports (see [docs/AGENTS-MD.md](docs/AGENTS-MD.md)).
+4. The plugin `ai-core` gives Claude and Codex our hooks, skills and MCP server list.
+5. The router hook reminds the agent which tool to use. The gates block three unsafe steps.
+6. Every decision is logged. `ai-doctor` reads the logs and the contracts and tells you what is wrong.
+7. On a server, project work happens inside a box, never on the host.
 
-- **Agents.** Claude Code with oh-my-claudecode (main). Codex with oh-my-codex (main). Hermes (chat gateway, runs as its own user). opencode (always installed, second front-end). herdr (runs agents in panes). Gemini and Kimi CLI: later. omo: optional, only when asked. Details: `ai/rules/omc.md`, `omx.md`, `hermes.md`, `opencode.md`, `herdr.md`, `omo.md`.
-- **Plugin `ai-core`.** One plugin in `ai/marketplace/plugins/ai-core/`. It holds our skills, our hooks and the MCP server list. Claude and Codex both install it from the same folder (a local marketplace named `ai`). The agents write only their own registration. Our install code never owns a whole config file.
-- **MCP servers.** Serena (code reading and editing), context7 and Grounded Docs (library docs), GitHub (full access). Playwright is per project only. Plugin tools are named `mcp__plugin_ai-core_<server>__<tool>`.
-- **Other tools.** graphify (code map), RTK (short command output), Ponytail (small diffs), i-have-adhd (reply shape), claude-seo and claude-blog (SEO and blog skills), pinned copies of five mattpocock skills.
-- **Root rules.** `ai/agents-md/*.md` are joined in order, plus the L0 table, into one file. Part 00 is the owner text, copied byte for byte. The file stays under 30 KB.
-- **Usage contracts.** One file per tool in `ai/rules/`. Sections: Vendor rules, When and when not, Enforcement, Proof, Setup checklist. The installer implements every setup item. `ai-doctor` fails when an enabled tool has no contract.
-- **Evals.** `ai/evals/`. Prompts that should fire a tool and prompts that must not. Written in English, Romanian and Russian.
+### Parts, in one table
 
-### Routing layers
+| Part | What it is | Detail |
+|---|---|---|
+| Agents | Claude Code + OMC (main), Codex + OMX (main), Hermes, opencode, herdr, omo (optional) | [docs/TOOLS.md](docs/TOOLS.md) |
+| Plugin `ai-core` | our skills, hooks and MCP list, one folder, installed by Claude and Codex | `ai/marketplace/plugins/ai-core/` |
+| MCP servers | Serena, context7, Grounded Docs, GitHub (global). Playwright (per project) | [docs/TOOLS.md](docs/TOOLS.md) |
+| Other tools | graphify, RTK, Ponytail, i-have-adhd, claude-seo, claude-blog, pinned mattpocock skills | [docs/TOOLS.md](docs/TOOLS.md) |
+| Root rules | the one AGENTS.md all agents read | [docs/AGENTS-MD.md](docs/AGENTS-MD.md) |
+| Usage contracts | `ai/rules/<tool>.md`, five sections each | [docs/EXTENDING.md](docs/EXTENDING.md) |
+| Router + gates | seven routing layers, three gates | section 3 below |
+| Evals | prompts that must and must not fire a tool (English, Romanian, Russian) | `ai/evals/` |
 
-Agents do not always remember to use the right tool. We add seven layers. One table, `ai/routing.yaml`, feeds all of them, so they never disagree.
+### The seven routing layers
+
+Agents forget tools. So one table (`ai/routing.yaml`) feeds seven layers. They never disagree because they share the source.
 
 | Layer | What | Catches |
 |---|---|---|
-| L0 | routing table inside the root rules | knowledge missing from context (all agents) |
-| L1 | SessionStart inject, again after compaction | drift late in a session |
-| L2 | forced-evaluation hook: the agent answers YES or NO per matched tool, "none needed" is allowed | paraphrases |
-| L3 | regex fast path (file types, tool names, commands) | exact cases |
-| L4 | gates for rules with no exception: audit before install, secret scan, PR rules | "skipped it and did it anyway" |
-| L5 | subagents get the table through SubagentStart | subagent misses |
-| L6 | skill descriptions with triggers first, Romanian and Russian phrases | non-English prompts |
+| L0 | routing table inside the root rules | knowledge missing from context, all agents |
+| L1 | injected at session start and again after compaction | drift late in a session |
+| L2 | forced evaluation: the agent must answer YES or NO per matched tool ("none needed" is allowed) | paraphrases |
+| L3 | regex fast path: file types, tool names, commands | exact cases |
+| L4 | gates for rules with no exception | "skipped it and did it anyway" |
+| L5 | subagents get the table at start | subagent misses |
+| L6 | skill descriptions: triggers first, Romanian and Russian phrases | non-English prompts |
 | L7 | evals, miss log, `ai-doctor` | silent regressions |
 
-Expected misses: about 0% on keyword prompts, 10 to 25% on hard prompts, more for non-English prompts, subagents and Hermes. Misses are logged, never silent.
+Expected misses: about 0% on keyword prompts, 10 to 25% on hard prompts, more for non-English prompts, subagents and Hermes. A miss is logged. It is never silent.
 
-### Gates
+### The three gates
 
 A gate blocks a step until its condition holds.
-- `audit-before-install`: blocks npm, pip, uv, npx and curl-to-shell without a PASS from `agent-audit` in the last 24 hours. It asks for brew, cargo, go, gem, pipx.
-- `secret-scan`: blocks `git commit` and `git push` when the staged diff has a key, token or password.
-- `pr-rules`: blocks `gh pr create` and `gh pr edit` without a Mermaid block and the author-sessions block.
 
-Escape hatch: `AI_GATE_SKIP=<rule-id>` with a reason. It is logged to `~/.local/state/ai/gates.log`.
+| Gate | Blocks | Until |
+|---|---|---|
+| `audit-before-install` | npm, pnpm, yarn, bun, pip, uv, npx `@latest`, curl piped to a shell. Asks the owner for brew, cargo, go, gem, pipx | `agent-audit` logged a PASS for that package in the last 24 hours |
+| `secret-scan` | `git commit`, `git push` | the diff has no key, token, password or private key |
+| `pr-rules` | `gh pr create`, `gh pr edit` | the body has a Mermaid block and the author-sessions block |
 
-## 3. Install
+Gates catch honest mistakes. They are not a sandbox against a hostile agent. Escape hatch, owner OK only: `AI_GATE_SKIP='<rule-id>:<reason>' <command>`. It is logged to `~/.local/state/ai/gates.log`. Details and known limits: `ai/marketplace/plugins/ai-core/hooks/README.md`.
 
-Needs: git, sudo (Ubuntu). `install.sh` installs the rest.
+## 2. Install
+
+Needs: git, sudo (Ubuntu), and a base setup (`~/.dotfiles`). `install.sh` installs the rest. It is safe to run twice: the second run changes nothing.
 
 ### Ubuntu server
 
-1. Set up the base first. Follow the README of the `ubuntu-server` branch. It ends with an "AI setup" section that repeats the next steps.
-2. Add the AI worktree. It must be a separate folder. Checking out `ai` inside `~/.dotfiles` would break the links of the base branch.
+On a server, an admin user runs the install for the main user. The main user has no general sudo.
+
+1. Set up the base first. Follow the README of the `ubuntu-server` branch. It ends with an "AI setup" section that repeats these steps.
+2. As the main user, add the AI worktree. It must be a separate folder. Checking out `ai` inside `~/.dotfiles` would break the links of the base branch.
 ```
 git -C ~/.dotfiles fetch origin ai
 git -C ~/.dotfiles worktree add ~/.dotfiles-ai ai
 ```
-3. Dry run. Read the output.
+3. As the admin user, dry run first. Read the output.
 ```
-~/.dotfiles-ai/install.sh --dry-run
+sudo ~<user>/.dotfiles-ai/install.sh --for-user <user> --dry-run
 ```
 4. Install.
 ```
-~/.dotfiles-ai/install.sh
+sudo ~<user>/.dotfiles-ai/install.sh --for-user <user>
 ```
-5. Copy `secrets.env.example` to `~/.config/ai/secrets.env`, set mode 600, fill the keys you need.
-6. Do the manual steps in section 4.
-7. Check.
-```
-ai-doctor
-```
+**Coming:** the `--for-user` option is not in `install.sh` yet. Today the main user runs `~/.dotfiles-ai/install.sh` and sudo is used where needed (needs passwordless sudo for the install only).
+5. As the main user: copy `secrets.env.example` to `~/.config/ai/secrets.env`, set mode 600, fill the keys you need.
+6. Do the manual steps in section 5.
+7. Check: `ai-doctor`.
 
-`install.sh` asks "Is this a new Ubuntu server that needs the base server setup?" The default is No. Answer Yes only on a fresh server: it prints the `ubuntu-server` instructions and stops.
+`install.sh` asks "Is this a new Ubuntu server that needs the base server setup first?" The default is No. Answer Yes only on a fresh server: it prints the `ubuntu-server` instructions and stops.
 
-Options: `--dry-run`, `--agents claude,codex,hermes,opencode,herdr`, `--skip-packages`, `--no-rtk-hook`, `--yes`. More in `docs/INSTALL.md`.
+Options: `--dry-run`, `--agents claude,codex,hermes,opencode,herdr`, `--skip-packages`, `--docs-server`, `--yes`. Run `install.sh --help` for the final list. More in [docs/INSTALL.md](docs/INSTALL.md).
 
-### macOS
+### macOS (later)
 
-Later. The Macs are out of scope until the server test and the owner review are done. When enabled:
+Out of scope until the server test and the owner review are done. Then:
 ```
 git -C ~/.dotfiles worktree add ~/.dotfiles-ai ai
 ~/.dotfiles-ai/install.sh --dry-run
 ```
-Install rules: it only changes agent configuration. It never touches your projects, databases or services. On macOS it never writes managed settings (an employer may manage them). RTK is on by default everywhere; `--no-rtk-hook` leaves it off on one machine.
+Rules for every machine: the install only changes agent configuration. It never touches your projects, databases or services. On macOS it never writes managed settings (an employer may manage them). RTK is on by default; the exact switch for one machine is still being finalized, see `install.sh --help`.
 
 ### Windows
 
 Planned, not supported yet.
 
-## 4. Manual steps per machine
+## 3. How it works, in plain words
+
+Three real cases. Each shows which layer does what.
+
+### Example A: "Make me a Telegram bot"
+
+You type this in Claude Code on the server.
+
+1. **The prompt arrives.** The router hook reads it. The regex of rule `kickoff` matches ("make", "bot"). That is L3.
+2. **L2 forced evaluation.** The hook adds a short forced-evaluation text: for each matched tool, answer YES or NO, or say none needed. The matched tools here are grill-me and ai-start. The agent cannot skip the question silently.
+3. **grill-me runs first.** The tie-break table says: for a new app, grill-me beats OMC deep-interview. The agent asks one round of questions: who uses the bot, must it run 24/7, what data must stay. You answer.
+4. **Box rules apply (server).** The hosting rules (imported into the root rules) say: never create a project on the host. The agent picks a tier (a bot that must stay up is `mvp`) and runs `sudo proj-agent new <name> --tier mvp`. This is the one root command agents may run. It makes an isolated box.
+5. **Inside the box.** Code goes to `/srv/app`, secrets to `/srv/app/.env`. The box has its own copy of the rules at `/etc/proj-rules/AGENTS.md`.
+6. **Library docs.** The agent adds the Telegram library. Rule `docs-on-dependency` fires: "look up its docs first". The agent asks Grounded Docs (`list_libraries`, `search_docs`). If the library is missing, it asks context7. It does not answer API details from memory.
+7. **The install gate.** `pip install` or `npm install` of the library is blocked until `agent-audit` passed (see example B).
+8. **Output.** Ponytail keeps the diff small. i-have-adhd keeps the reply short. RTK shortens the command output the agent reads.
+9. **The proof.** `~/.local/state/ai/fired.jsonl` shows the skills that ran. `misses.jsonl` shows nothing for this session if every rule that fired was followed by the right tool.
+10. **The end.** The agent says: box name, tier, how to see logs, how to restart. It never prints the bot token. It tells you where to put it.
+
+### Example B: the agent runs `npm install left-pad`
+
+1. The agent calls the Bash tool with `npm install left-pad`.
+2. Before the command runs, the `audit-before-install` gate reads it. A small shell parser splits the command into parts, so quoted text and commit messages never trigger it.
+3. It looks in `~/.local/state/ai/audit.log` for a PASS for `left-pad` in the last 24 hours. There is none.
+4. The command does not run. The agent sees:
+```
+Blocked: no agent-audit PASS in the last 24 h for npm left-pad. Run: agent-audit npm left-pad
+```
+5. The agent runs `agent-audit npm left-pad`. It checks the package with guarddog and osv-scanner. If nothing is found it writes `PASS` to `audit.log`. If something is found it writes `FAIL`, and the agent must stop and show you the findings.
+6. After a PASS, the agent installs again. Better: it pins the version, `npm install left-pad@1.3.0`. Unpinned `npx ...@latest` and `curl ... | sh` are always blocked, with no way through except the audit and a download you can check.
+7. For brew, cargo, go, gem and pipx the gate asks you: `agent-audit` cannot scan those yet.
+8. The block is logged to `gates.log`.
+
+### Example C: a commit with a secret
+
+1. The agent runs `git commit -m "add bot"`. The staged diff has a line `TELEGRAM_TOKEN = "123456:ABC..."`.
+2. The `secret-scan` gate reads the staged diff (and, when the command is `git add ... && git commit` or `commit -a`, the unstaged and new files too). It runs its own patterns and `gitleaks` when installed.
+3. It finds an assigned secret. The commit does not run. The agent sees:
+```
+Secret scan found: assigned-secret. Remove it from the ... before you commit or push.
+```
+4. The agent moves the token into `.env` (gitignored) or `~/.config/ai/secrets.env`, unstages the file, and commits again.
+5. `git push` is scanned the same way: commits not yet on any remote (the last 300).
+6. If the scan takes too long, it denies. It never passes unscanned.
+7. One allowlisted value exists: the free context7 key, by owner decision. Nothing else.
+
+## 4. What runs where
+
+| Thing | Server host | Project box | macOS (later) |
+|---|---|---|---|
+| Root rules (`AGENTS.md`) | yes, per user | yes, `/etc/proj-rules/AGENTS.md` | yes |
+| Plugin `ai-core` (router, gates) | yes | follows the agent: where an agent runs with the plugin, the hooks run | yes |
+| Claude Code + OMC, Codex + OMX | yes, admin work only | yes, project work | yes |
+| Hermes | yes, as its own user `hermes` | no | not part of the plan |
+| opencode | yes | yes | yes |
+| herdr | yes | no | yes |
+| Serena, graphify, RTK | yes | yes | yes |
+| Grounded Docs server | yes, once, private network only | reached over the network | reached over the network |
+| context7, GitHub MCP | yes | yes | yes |
+| Playwright MCP | no | per project only | per project only |
+| Project code and project services | never | always | on your own disk |
+
+The rule for servers: agents on the host do server admin only, with you watching. Project work happens in the box. See `docs/AGENTS-hosting.md` on the `ubuntu-server` branch.
+
+## 5. Manual steps per machine
 
 The installer cannot do these. It prints them at the end.
-- Log in to each agent: Claude Code, Codex (device code), Hermes provider keys.
-- Codex: open `/hooks` once and trust the plugin hooks (Ponytail, ai-core).
+
+- Log in to each agent: Claude Code, Codex (`codex login --device-auth`), Hermes provider keys.
+- Codex: open `/hooks` once and trust the plugin hooks.
 - Claude: run `/seo setup` once, then `/seo doctor`.
 - Fill `~/.config/ai/secrets.env` (mode 600). Names only are in `secrets.env.example`.
 - Serena: `serena download-ls-dependencies <language>` for the languages you use.
-- Ask the owner before anything that is marked in a contract as "owner decides".
+- Grounded Docs: index the libraries you want (owner decides the list).
+- Ask the owner before anything a contract marks "owner decides".
 
-## 5. Verify
+## 6. Verify
 
 ```
 ai-doctor
 ```
-`ai-doctor` checks: plugin list and validation, MCP servers connected, pinned versions, telemetry and update switches, root file under 30 KB, every enabled tool has a contract, evals, the miss log, stale Serena entries. A fast check runs at the end of `install.sh`: `ai-doctor --quick`.
+It checks: plugin list and validation, MCP servers connected, pinned versions, telemetry and update switches, root file under 30 KB, every enabled tool has a contract, copied rule blocks equal the source (`ai-sync --check`), evals, the miss log, stale Serena entries. A fast check runs at the end of `install.sh`: `ai-doctor --quick`.
 
-To see that a tool really fires, look at the logs in `~/.local/state/ai/`. See `docs/CONTEXT.md`.
+Spot checks:
+- A new Claude session says "ADHD MODE ACTIVE (always-on)".
+- `claude mcp list` shows serena, context7, github, grounded-docs connected.
+- `rtk gain --history` grows after you run `git status` in a session.
+- The full acceptance run for a server: [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md).
 
-## 6. Update
+To see that a tool really fires, read the logs in `~/.local/state/ai/` ([docs/CONTEXT.md](docs/CONTEXT.md)).
+
+## 7. Update
 
 Updates are never automatic.
-1. Pull: `git -C ~/.dotfiles-ai pull`.
-2. A new tool version needs a new audit and a new pin. See `docs/EXTENDING.md`, "Bump a pin".
-3. Run `~/.dotfiles-ai/install.sh` again. It is safe to run twice: the second run changes nothing.
+
+1. Pull: `git -C ~/.dotfiles-ai pull`. A git hook runs `ai-sync`, which re-renders the rules and refreshes the copies (Codex block, Hermes block). If the hook is not installed, run `ai-sync` yourself.
+2. A new tool version needs a new audit and a new pin. See [docs/EXTENDING.md](docs/EXTENDING.md), "Bump a pin".
+3. Run `~/.dotfiles-ai/install.sh` again if a pin or an adapter changed.
 4. Run `ai-doctor`.
 
-## 7. Remove
+## 8. Remove or revert
 
-```
-~/.dotfiles-ai/uninstall.sh
-```
-It removes only what the install added. It reads `~/.local/state/ai/managed-keys.json`. It does not remove your own settings, other plugins or the agents. Then you can delete the worktree: `git -C ~/.dotfiles worktree remove ~/.dotfiles-ai`.
+You can always go back. There are three levels. Pick the smallest that does the job.
 
-## 8. Where things live
+| Level | Command | What it removes |
+|---|---|---|
+| 1. Undo the install | `~/.dotfiles-ai/uninstall.sh` | only what the install added, and it restores what the install replaced |
+| 2. Undo and wipe config **(coming)** | `~/.dotfiles-ai/uninstall.sh --purge-config` | level 1, plus the whole config and state folders of the agents |
+| 3. Remove everything **(coming)** | `~/.dotfiles-ai/uninstall.sh --purge-all` | level 2, plus the agents and tools the installer added |
+
+**Level 1 (exists today).** `uninstall.sh` reads the records the install wrote: `~/.local/state/ai/managed-keys.json` (your files, plugins, MCP registrations, links), `/var/lib/ai/managed-keys.json` (system files, services, firewall rules on Ubuntu) and the same file for the Hermes user. It undoes each record. A managed block is removed and the text around it stays. A key that you changed after the install is left alone and reported. Run it with `--dry-run` first. It keeps on purpose: `~/.config/ai/secrets.env`, your logins, `~/.serena`, plugin data folders, and the backups in `~/.local/state/ai/backup`.
+
+**Level 2 (coming).** For when you want a clean slate. Before it deletes anything it makes a backup tarball of the folders. Then it asks you to type `purge`. Any other answer cancels.
+
+**Level 3 (coming).** Also removes the agents and tools the installer put there (Claude Code, Codex, OMC, OMX, opencode, herdr, Serena, graphify, RTK and so on), after the same backup and the same typed confirmation.
+
+What no level touches: your projects, project boxes, databases, and the server base (the `ubuntu-server` setup). To also drop the worktree after level 1: `git -C ~/.dotfiles worktree remove ~/.dotfiles-ai`.
+
+Per-tool cleanup details are in the "Setup checklist" of each `ai/rules/<tool>.md`.
+
+## 9. Where things live
 
 | Path | What |
 |---|---|
 | `~/.dotfiles` | OS base branch |
 | `~/.dotfiles-ai` | this branch (git worktree) |
-| `~/.dotfiles-ai/ai/` | the AI layer: `routing.yaml`, `agents-md/`, `rules/`, `hooks/`, `bin/`, `marketplace/`, `skills/`, `evals/`, `TOOLBOX.md`, `SPEC.md` |
-| `~/.dotfiles-ai/ai/build/` | generated, not committed: `routing.json`, `L0.md`, the rendered root file |
-| `~/.config/ai/AGENTS.md` | root rules, imported by each agent |
+| `~/.dotfiles-ai/ai/` | the AI layer: `routing.yaml`, `agents-md/`, `rules/`, `adapters/`, `lib/`, `bin/`, `marketplace/`, `skills/`, `evals/`, `pins.env`, `TOOLBOX.md`, `SPEC.md` |
+| `ai/AGENTS.md` | the rendered root rules (built on each machine by `ai-render`, not committed) |
+| `ai/build/` | generated, not committed: `routing.json`, `L0.md` |
+| `~/.config/ai/AGENTS.md` | root rules as the agents read them |
 | `~/.config/ai/TOOLBOX.md` | ready tools that are not installed by default |
 | `~/.config/ai/secrets.env` | your keys, mode 600, never committed |
-| `~/.local/state/ai/` | `audit.log`, `gates.log`, `misses.jsonl`, `fired.jsonl`, `nudges.json`, `managed-keys.json` |
+| `~/.local/state/ai/` | `audit.log`, `gates.log`, `misses.jsonl`, `fired.jsonl`, `nudges.json`, `router-errors.log`, `managed-keys.json` |
 | `~/.local/bin/` | links to every command in `ai/bin/` |
-| `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, Hermes `SOUL.md` | each has one managed block that points to the root rules |
+| `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, Hermes `SOUL.md` | each has one managed block `AI:core` that carries or points to the root rules |
 
-Commands (in `ai/bin/`): `ai-doctor`, `ai-render`, `agent-audit`, `ai-start`, `ai-adopt`, `claude-notify`, `pr-resume`.
+Commands in `ai/bin/`: `ai-doctor`, `ai-render`, `ai-sync`, `agent-audit`, `ai-start`, `ai-adopt`, `claude-notify`, `pr-resume`.
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 | Symptom | Check |
 |---|---|
-| A tool never fires | `~/.local/state/ai/misses.jsonl`. Then the contract: `ai/rules/<tool>.md`. Then the eval for the tool. |
-| A command is blocked | Read the gate message. Fix the cause: run `agent-audit`, remove the secret, add the PR blocks. Escape hatch only when the owner says so: `AI_GATE_SKIP=<rule-id>`. |
-| The skill has no description in the list | The skill list is over budget. Check `skillListingBudgetFraction` and run `/skill-doctor`. The L0 table still routes. |
+| A tool never fires | `~/.local/state/ai/misses.jsonl`. Then the contract `ai/rules/<tool>.md`. Then its eval. |
+| A command is blocked | Read the gate message. Run `agent-audit`, remove the secret, add the PR blocks. Escape hatch only when the owner says so. |
+| Rules look old after a pull | Run `ai-sync`. Then `ai-sync --check`. |
+| A skill has no description in the list | The skill list is over budget. Check `skillListingBudgetFraction`, run `/skill-doctor`. The L0 table still routes. |
 | MCP server not connected | `claude mcp list`, `codex mcp list`. Check `~/.config/ai/secrets.env` and the contract setup checklist. |
 | Root file too big | `ai-doctor` fails above 30 KB. Shorten the parts in `ai/agents-md/`. Long text belongs in `ai/rules/`. |
-| Codex hooks do not run | Open `/hooks` and trust them. |
-| A vendor tool wrote its own block | Our install skips it and reports. Never edit inside the vendor markers. |
+| Codex hooks do not run | Open `/hooks` and trust them. A change to a hook script needs new trust. |
+| A vendor tool wrote its own block | Our install skips it and reports. Never edit inside vendor markers. |
 | `rtk gain` fails | A wrong `rtk` package is installed. See `ai/rules/rtk.md`. |
-| Rust coreutils quirks on Ubuntu 26.04 | Avoid `chown -h` and `stat -c` in scripts. |
+| Grounded Docs not reachable | Is the server unit running? Is port 6280 open to your private network only? `list_libraries` from a client. |
+| Router error | `~/.local/state/ai/router-errors.log`. A router error never blocks a session (it fails open, except a gate decision already made). |
 
-## 10. More
+## 11. Read next
 
-- `docs/INSTALL.md`: every install step, per OS.
-- `docs/CONTEXT.md`: lists of rules, agents, MCP servers, plugins, skills, hooks, routing and toolbox.
-- `docs/EXTENDING.md`: add a skill, MCP server, plugin, routing rule or toolbox entry. Bump a pin. Retire a tool.
+- [docs/TOOLS.md](docs/TOOLS.md): every tool, why we chose it, how it works here, how tools overlap and interact.
+- [docs/AGENTS-MD.md](docs/AGENTS-MD.md): what a standardized AGENTS.md means and how to change a rule.
+- [docs/INSTALL.md](docs/INSTALL.md): every install step and option.
+- [docs/CONTEXT.md](docs/CONTEXT.md): lists of rules, hooks, routing, logs.
+- [docs/EXTENDING.md](docs/EXTENDING.md): add a skill, MCP server, plugin, rule. Bump a pin. Retire a tool.
+- [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md): tests to run after an install on a server.
 - `ai/SPEC.md`: the design. `ai/SPEC-LOG.md`: why.

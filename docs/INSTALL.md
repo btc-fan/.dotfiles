@@ -1,6 +1,6 @@
 # Install
 
-Full steps. The short version is in `README.md`, section 3.
+Full steps. The short version is in `README.md`, section 2. What each tool is: [TOOLS.md](TOOLS.md). What the root rules are: [AGENTS-MD.md](AGENTS-MD.md).
 
 ## Before you start
 
@@ -11,19 +11,20 @@ Full steps. The short version is in `README.md`, section 3.
 
 ## Steps
 
-1. Add the worktree (separate folder):
+1. As the main user, add the worktree (separate folder):
 ```
 git -C ~/.dotfiles fetch origin ai
 git -C ~/.dotfiles worktree add ~/.dotfiles-ai ai
 ```
-2. Dry run:
+2. Dry run. On a server the admin user runs it for the main user:
 ```
-~/.dotfiles-ai/install.sh --dry-run
+sudo ~<user>/.dotfiles-ai/install.sh --for-user <user> --dry-run
 ```
 3. Install:
 ```
-~/.dotfiles-ai/install.sh
+sudo ~<user>/.dotfiles-ai/install.sh --for-user <user>
 ```
+   **Coming:** `--for-user` is not in `install.sh` yet. Today the main user runs `~/.dotfiles-ai/install.sh` (with `--dry-run` first) and sudo is used where needed. macOS later: `~/.dotfiles-ai/install.sh`, no sudo.
 4. Fill the keys. `cp ~/.dotfiles-ai/secrets.env.example ~/.config/ai/secrets.env && chmod 600 ~/.config/ai/secrets.env`, then edit.
 5. Manual steps (below).
 6. `ai-doctor`.
@@ -51,7 +52,8 @@ Options:
 | `--dry-run` | Print what would change. Change nothing. |
 | `--agents a,b` | Only these agents: claude, codex, hermes, opencode, herdr. |
 | `--skip-packages` | Do not install system packages. |
-| `--no-rtk-hook` | Leave the RTK hook off on this machine. RTK is on by default everywhere. |
+| `--rtk-hook` | RTK hook switch for macOS (the Mac owner turned RTK off earlier). RTK is on by default on servers. The final form of this switch is being decided: see `install.sh --help`. |
+| `--docs-server` | Also set up the Grounded Docs server role on this machine (Ubuntu). |
 | `--yes` | Answer yes to the confirm questions. Not to the server question. |
 
 ## Ubuntu
@@ -69,7 +71,7 @@ Options:
 
 - brew only for missing CLIs. Never `brew upgrade`.
 - Never writes macOS managed settings (an employer may manage them). Environment keys go into `~/.claude/settings.json` `env`.
-- RTK hook on by default (`--no-rtk-hook` to skip). Install only changes agent configuration, never projects, databases or services.
+- RTK hook: on by default everywhere is the goal (see `install.sh --help` for the current switch). Install only changes agent configuration, never projects, databases or services.
 - Plugins that the design dropped (caveman, the context7 plugin) are reported, not removed. The installer prints the remove command.
 
 ## Manual steps per machine
@@ -86,18 +88,26 @@ Options:
 
 ```
 ai-doctor
+ai-sync --check
 ```
+`ai-sync --check` fails when a copied rule block (Codex, Hermes) differs from the source. Fix it with `ai-sync`. After each `git pull`, `ai-sync` should run (install the git hook once with `ai-sync --install-hook`).
 Then spot-check three things:
 - New Claude session starts with "ADHD MODE ACTIVE (always-on)".
 - `claude mcp list` shows serena, context7, github, grounded-docs connected.
 - `rtk gain --history` grows after you run `git status` in a session.
 
-## Uninstall
+## Remove or revert
 
-```
-~/.dotfiles-ai/uninstall.sh
-```
-Removes only what `managed-keys.json` lists. Per-tool cleanup steps are in each `ai/rules/<tool>.md`, section Setup checklist.
+Three levels. The full text is in `README.md`, section 8.
+
+| Level | Command | Removes |
+|---|---|---|
+| 1 | `~/.dotfiles-ai/uninstall.sh [--dry-run]` | only what the install added, and restores what it replaced (reads `managed-keys.json`) |
+| 2 (**coming**) | `~/.dotfiles-ai/uninstall.sh --purge-config` | level 1, plus the whole config and state folders of the agents. First a backup tarball, then you type `purge` |
+| 3 (**coming**) | `~/.dotfiles-ai/uninstall.sh --purge-all` | level 2, plus the agents and tools the installer added |
+
+Level 1 keeps on purpose: `~/.config/ai/secrets.env`, logins, `~/.serena`, plugin data folders and the backups in `~/.local/state/ai/backup`. No level touches your projects, boxes, databases or the server base.
+Per-tool cleanup steps are in each `ai/rules/<tool>.md`, section Setup checklist.
 
 ## Not done yet (UNVERIFIED)
 

@@ -6,6 +6,8 @@ intake + audit -> usage contract -> routing row -> evals -> reinstall -> `ai-doc
 
 Do not skip a step. A tool without a contract and evals fails `ai-doctor`.
 
+Related: what each tool is and how tools overlap is in [TOOLS.md](TOOLS.md). How to change a rule in the root AGENTS.md, with examples, is in [AGENTS-MD.md](AGENTS-MD.md), section 6. Do not repeat that text here.
+
 ## 0. Intake and audit (for every new tool)
 
 1. Investigate: maintainer, license, release dates, what data it sends out.
@@ -52,7 +54,7 @@ Note: plugin skills cannot be hidden one by one. Think about the context cost.
 2. Use a gate only for a rule with no exception. Give it an escape hatch.
 3. A rule that overlaps another: add a row to `tiebreaks`.
 4. Keep regexes strict. A loose prompt regex fires on unrelated prompts.
-5. Run `ai-render`. It rebuilds `routing.json` and the L0 table. Check the root file size (under 30 KB).
+5. Run `ai-render`. It rebuilds `routing.json` and the L0 table. Check the root file size (under 30 KB). On other machines, `git pull` plus `ai-sync` delivers it (see [AGENTS-MD.md](AGENTS-MD.md)).
 6. Add evals: one should-fire and one should-not-fire prompt for the rule.
 7. Reinstall. `ai-doctor`. Look at `~/.local/state/ai/misses.jsonl` after a few days.
 
