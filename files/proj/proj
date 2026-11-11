@@ -10,18 +10,21 @@
 #   snapshot <name> [label]      snapshot the box and its data volume
 #   snapshots <name>             list snapshots
 #   restore <name> <label>       go back to a snapshot (makes a pre-restore snapshot first)
-#   fork <src> <new> [--tier try|mvp] [--ttl 3d]   instant copy of a box, for a risky try
-#   wipe <name> [--yes]          delete box and data. Refused for long and protected boxes
-#   recreate <name> [--yes]      rebuild the system from scratch, keep /srv/data
+#   fork <src> <new> [--tier try|mvp] [--ttl 3d]   instant copy of a box (and its workspace)
+#   wipe <name> [--yes]          delete box and data. Refused for long and protected boxes.
+#                                Asks about the workspace: kept in .trash unless you type delete
+#   recreate <name> [--yes]      rebuild the system from scratch, keep /srv/data and the workspace
+#   workspace <name>             give an older box its workspace (copies its /srv/app out first)
 #   protect <name> | unprotect <name>   delete protection on or off (back on after 2 h)
 #   promote <name> --to mvp|long  move a box up a tier
 #   extend <name> <dur>          move the expiry date of a try box (dur: 7d, 12h)
-#   backup <name> | --long       export box + data volume to BACKUP_DIR/boxes
+#   backup <name> | --long       export box + data volume + workspace to BACKUP_DIR/boxes
 #   expire                       daily job: warn, stop, then delete expired try boxes
 #   registry                     rewrite /srv/proj/REGISTRY.md and REGISTRY.json
 #   sync-rules <name> | --all    push the host's current agent rules + /etc/proj-box into boxes
 #   doctor [--net]               health checks (--net: also run selftest)
-#   selftest                     throwaway box: DHCP, DNS, internet, home gateway blocked
+#   selftest                     throwaway box: DHCP, DNS, internet, home gateway blocked, workspace
+# Code of every box: the workspace /srv/proj/work/<box> on the host = /srv/app in the box.
 set -euo pipefail
 export LC_ALL=C.UTF-8
 
@@ -38,11 +41,15 @@ NOTIFY=/usr/local/sbin/discord-notify
 IMAGE=${PROJ_IMAGE:-images:ubuntu/26.04}
 BACKUP_ROOT=${BACKUP_DIR:-/var/backups}/boxes
 KEEP=${PROJ_BACKUP_KEEP:-7}
+WORK_ROOT=${WORK_ROOT:-/srv/proj/work}
+WS_GROUP=${SHARED_GROUP:-devs}
+WS_ROOT_OWNER=root
+BOX_UID=1000          # user dev in every box (box-bootstrap.sh)
 # KEEP >= 1: 0 would delete every export, also the one just made.
 [[ "$KEEP" =~ ^[0-9]+$ ]] && [ "$KEEP" -ge 1 ] || KEEP=1
 YES=0
 
-usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 die()  { echo "proj: $*" >&2; exit 1; }
 say()  { echo "proj: $*"; }
 now()  { date +%s; }
@@ -124,10 +131,140 @@ set_volume_schedule() {
     fi
 }
 
+# ---- Workspace: the box's code on the HOST, /srv/app inside the box ----
+# Host agents (MAIN_USER, AGENT_USER) edit the code in WORK_ROOT/<box> with their normal tools;
+# it builds and runs only in the box (proj-agent exec). Disk device "app" with shift=true: an
+# idmapped mount. The box sees host uid N as its uid N, so MAIN_USER (uid 1000) is dev (uid 1000)
+# in the box and the shared group keeps its gid. The box processes keep their own isolated ID
+# range (security.idmap.isolated): nothing in the box runs as a host user. Not in box snapshots.
+ws_dir() { echo "$WORK_ROOT/$1"; }
+ws_source() { incus query "/1.0/instances/$1" 2>/dev/null | jq -r '.devices.app.source // empty'; }
+ws_gid() { getent group "$WS_GROUP" | cut -d: -f3; }
+
+# ws_check: the ids must line up, or the code would not belong to dev in the box.
+ws_check() {
+    local uid gid
+    [ -n "${MAIN_USER:-}" ] && id "$MAIN_USER" >/dev/null 2>&1 \
+        || die "MAIN_USER (/etc/server/host.env) is empty or does not exist: no workspace possible"
+    gid=$(ws_gid || true)
+    [ -n "$gid" ] || die "group $WS_GROUP is missing (setup.sh step 70 makes it)"
+    uid=$(id -u "$MAIN_USER")
+    [ "$uid" = "$BOX_UID" ] || die "$MAIN_USER has uid $uid, not $BOX_UID. shift=true shows host uid N as uid N in the box, so the code would not belong to dev. See docs/HOSTING.md (Workspace)."
+    [ "$gid" -lt 65536 ] || die "group $WS_GROUP has gid $gid: a box sees only ids below 65536"
+}
+
+# ws_root: WORK_ROOT, root:WS_GROUP 750. Only proj makes folders in it; the group may look inside.
+ws_root() {
+    mkdir -p "$WORK_ROOT"
+    chown "$WS_ROOT_OWNER:$WS_GROUP" "$WORK_ROOT"
+    chmod 750 "$WORK_ROOT"
+}
+
+# ws_acl DIR: group WS_GROUP may write, and new files and folders inherit that (default ACL).
+# The default ACL also beats every umask, so a file made by dev in the box stays group-writable.
+ws_acl() {
+    setfacl -m "g:$WS_GROUP:rwx" "$1"
+    setfacl -d -m "u::rwx,g::rwx,g:$WS_GROUP:rwx,o::rx" "$1"
+}
+
+# ws_make NAME: WORK_ROOT/NAME, MAIN_USER:WS_GROUP 2775 + default ACL. An existing one is kept.
+ws_make() {
+    local d
+    d=$(ws_dir "$1")
+    ws_root
+    if [ -d "$d" ]; then
+        say "workspace $d exists: kept (it is /srv/app again)"
+    else
+        say "workspace $d (the code; /srv/app in the box)"
+        mkdir "$d"
+    fi
+    chown "$MAIN_USER:$WS_GROUP" "$d"
+    chmod 2775 "$d"
+    ws_acl "$d"
+}
+
+# ws_attach NAME: disk device "app" = WORK_ROOT/NAME at /srv/app. A fork carries its source's
+# device: then only the source path is changed.
+ws_attach() {
+    local d src
+    d=$(ws_dir "$1")
+    src=$(ws_source "$1")
+    if [ -z "$src" ]; then
+        incus config device add "$1" app disk source="$d" path=/srv/app shift=true >/dev/null
+    elif [ "$src" != "$d" ]; then
+        incus config device set "$1" app source="$d"
+    fi
+}
+
+# ws_copy_out NAME: a box made before workspaces keeps its code inside the box. Copy /srv/app out
+# into the (empty) workspace. As root on the host, so: no owners or setuid bits from the box,
+# links are never followed, then everything belongs to MAIN_USER:WS_GROUP.
+ws_copy_out() {
+    local name=$1 d
+    d=$(ws_dir "$name")
+    if [ -n "$(ls -A "$d")" ]; then
+        say "workspace $d is not empty: nothing copied from the box"
+        return 0
+    fi
+    if [ "$(state_of "$name")" != Running ]; then
+        say "WARN: $name is not running: its old /srv/app was NOT copied to $d"
+        return 0
+    fi
+    incus exec "$name" -- test -d /srv/app || return 0
+    say "copy $name:/srv/app -> $d"
+    incus exec "$name" -- tar -C /srv/app -cf - . | tar -C "$d" -xf - --no-same-owner --no-same-permissions
+    find "$d" -xdev ! -type l -exec chown "$MAIN_USER:$WS_GROUP" {} +
+    find "$d" -xdev ! -type l \( -perm -4000 -o -perm -2000 \) -exec chmod ug-s {} +
+    find "$d" -xdev ! -type l -perm -g=r -exec chmod g+w {} +
+    find "$d" -xdev -type d -exec chmod g+s {} +
+}
+
+# ws_ask NAME: before a wipe. Sets WS_DROP=yes only when the owner types "delete".
+# --yes, no answer or anything else: the workspace is kept (moved to .trash).
+WS_DROP=no
+ws_ask() {
+    local d ans=""
+    d=$(ws_dir "$1")
+    WS_DROP=no
+    [ -d "$d" ] || return 0
+    [ "$YES" != 1 ] || return 0
+    read -rp "Workspace $d (code, .env): Enter keeps it in $WORK_ROOT/.trash, or type delete: " ans || true
+    if [ "$ans" = delete ]; then WS_DROP=yes; fi
+}
+
+# ws_trash NAME: move the workspace to WORK_ROOT/.trash/<name>-<date> (root only). Never deleted.
+ws_trash() {
+    local d t
+    d=$(ws_dir "$1")
+    [ -d "$d" ] || return 0
+    mkdir -p "$WORK_ROOT/.trash"
+    chown root:root "$WORK_ROOT/.trash" 2>/dev/null || true
+    chmod 700 "$WORK_ROOT/.trash"
+    t="$WORK_ROOT/.trash/$1-$(stamp)"
+    [ ! -e "$t" ] || t="$t-$(date +%S)"
+    mv -- "$d" "$t"
+    say "workspace kept: $t"
+}
+
+# ws_dispose NAME: after a wipe (or expire, which never asks): trash, or delete when asked to.
+ws_dispose() {
+    local d
+    d=$(ws_dir "$1")
+    [ -d "$d" ] || return 0
+    if [ "$WS_DROP" = yes ]; then
+        rm -rf -- "$d"
+        note "workspace deleted $d"
+        say "workspace deleted: $d"
+    else
+        ws_trash "$1"
+    fi
+}
+
 bootstrap() {  # name docker pg
     say "bootstrap $1 (user dev, tools$([ "$2" = yes ] && echo ', docker')$([ "$3" = yes ] && echo ', postgres'))"
     incus file push "$SHARE/box-bootstrap.sh" "$1/root/box-bootstrap.sh" --mode 0755
-    incus exec "$1" -- bash /root/box-bootstrap.sh "$1" "$2" "$3"
+    # Last two: the shared group, so dev in the box may write files that AGENT_USER made.
+    incus exec "$1" -- bash /root/box-bootstrap.sh "$1" "$2" "$3" "$(ws_gid)" "$WS_GROUP"
 }
 
 host_name() { echo "${SERVER_NAME:-$(hostname)}"; }
@@ -211,6 +348,8 @@ clone_and_setup() {  # name repo
     [ -n "$repo" ] || return 0
     if incus exec "$name" -- test -d /srv/app/.git; then
         say "/srv/app already has a git checkout"
+    elif [ -n "$(incus exec "$name" -- ls -A /srv/app 2>/dev/null)" ]; then
+        say "WARN: /srv/app (the workspace) has files but no git checkout: $repo not cloned"
     else
         say "clone $repo into /srv/app"
         incus exec "$name" -- su -l dev -c "git clone '$repo' /srv/app"
@@ -251,8 +390,11 @@ cmd_new() {
     refuse_host "$name"
     exists "$name" && die "a box named '$name' already exists"
     has_vol "$name" && die "a data volume $name-data already exists (left from an old box?)"
+    ws_check
 
     launch "$name" "$tier" "$docker"
+    ws_make "$name"
+    ws_attach "$name"
     setkey "$name" tier "$tier"
     setkey "$name" owner "$owner"
     setkey "$name" created "$(now)"
@@ -270,7 +412,7 @@ cmd_new() {
     fi
     note "new $name tier=$tier docker=$docker pg=$pg repo=${repo:-none}"
     cmd_registry >/dev/null
-    say "ready. Log in: sudo proj shell $name"
+    say "ready. Code: $(ws_dir "$name") on the host (/srv/app in the box). Log in: sudo proj shell $name"
 }
 
 cmd_list() {
@@ -307,6 +449,10 @@ cmd_status() {
     incus info "$name" | sed -n '1,/^Resources/p'
     incus config show "$name" | grep -E 'user\.proj\.|security\.protection|^profiles:|^- ' || true
     has_vol "$name" && echo "data volume: $name-data on /srv/data" || echo "data volume: none"
+    local ws
+    ws=$(ws_source "$name")
+    if [ -n "$ws" ]; then echo "workspace: $ws on the host = /srv/app in the box"
+    else echo "workspace: none, code only inside the box (sudo proj workspace $name)"; fi
 }
 
 cmd_shell() {
@@ -321,6 +467,7 @@ cmd_snapshot() {
     if has_vol "$1"; then incus storage volume snapshot create "$POOL" "$1-data" "$label"; fi
     note "snapshot $1 $label"
     say "snapshot $label made (box$(has_vol "$1" && echo ' + data'))"
+    [ -z "$(ws_source "$1")" ] || say "the workspace $(ws_dir "$1") (/srv/app) is on the host: not in the snapshot. Commit the code."
 }
 
 cmd_snapshots() {
@@ -333,6 +480,7 @@ cmd_restore() {
     local name=${1:?name} label=${2:?usage: proj restore <name> <label>}
     need_box "$name"
     say "restore $name to snapshot $label. Changes since then are lost (a pre-restore snapshot is made first)."
+    [ -z "$(ws_source "$name")" ] || say "the workspace $(ws_dir "$name") (/srv/app) is not in snapshots: it stays as it is now"
     confirm "$name"
     cmd_snapshot "$name" "pre-restore-$(stamp)"
     incus stop "$name" --timeout 60 2>/dev/null || incus stop "$name" --force
@@ -358,7 +506,9 @@ cmd_fork() {
     refuse_host "$new"
     exists "$new" && die "'$new' already exists"
     case "$tier" in try|mvp) ;; *) die "a fork is try or mvp" ;; esac
-    local snap docker
+    ws_check
+    [ ! -e "$(ws_dir "$new")" ] || die "a workspace $(ws_dir "$new") already exists (move it away first)"
+    local snap docker sws
     snap="pre-fork-$(stamp)"
     docker=$(key "$src" docker)
     cmd_snapshot "$src" "$snap"
@@ -370,6 +520,18 @@ cmd_fork() {
     if has_vol "$src"; then
         incus storage volume copy "$POOL/$src-data/$snap" "$POOL/$new-data"
         incus config device set "$new" data source="$new-data"
+    fi
+    # The fork gets its own copy of the workspace, as it is NOW (workspaces are not in snapshots).
+    # A source without a workspace (made earlier) keeps its code inside the box: so does the fork.
+    sws=$(ws_source "$src")
+    if [ -n "$sws" ]; then
+        [ -d "$sws" ] || die "workspace $sws of $src is missing on the host"
+        say "copy workspace $sws -> $(ws_dir "$new")"
+        cp -a -- "$sws" "$(ws_dir "$new")"
+        ws_make "$new"
+        ws_attach "$new"
+    else
+        say "$src has no workspace, so $new has none either (later: sudo proj workspace $new)"
     fi
     setkey "$new" tier "$tier"
     setkey "$new" owner "${SUDO_USER:-root}"
@@ -393,8 +555,10 @@ cmd_wipe() {
     protected "$name" && die "'$name' is protected. sudo proj unprotect $name first."
     say "WIPE $name: the box$(has_vol "$name" && echo ', its data volume') and all snapshots are deleted. No undo."
     confirm "$name"
+    ws_ask "$name"
     incus delete --force "$name"
     if has_vol "$name"; then incus storage volume delete "$POOL" "$name-data"; fi
+    ws_dispose "$name"
     note "wipe $name"
     cmd_registry >/dev/null
     say "wiped $name"
@@ -408,15 +572,20 @@ cmd_recreate() {
     tier=$(tier_of "$name"); docker=$(key "$name" docker); pg=$(key "$name" pg)
     repo=$(key "$name" repo); owner=$(key "$name" owner); created=$(key "$name" created)
     expires=$(key "$name" expires)
-    say "RECREATE $name: the system is rebuilt from $IMAGE. /srv/data is kept. Box snapshots are lost."
+    ws_check
+    say "RECREATE $name: the system is rebuilt from $IMAGE. /srv/data and the workspace $(ws_dir "$name") are kept. Box snapshots are lost."
     confirm "$name"
     if [ "$tier" = long ]; then cmd_backup "$name"; fi
+    # An older box keeps its code inside the box: save it into the workspace before the rebuild.
+    if [ -z "$(ws_source "$name")" ]; then ws_make "$name"; ws_copy_out "$name"; fi
     protected "$name" && was_protected=yes
     incus stop "$name" --timeout 60 2>/dev/null || incus stop "$name" --force 2>/dev/null || true
     if has_vol "$name"; then incus config device remove "$name" data; fi
     incus config set "$name" security.protection.delete=false
     incus delete "$name"
     launch "$name" "$tier" "${docker:-no}"
+    ws_make "$name"
+    ws_attach "$name"
     setkey "$name" tier "$tier"; setkey "$name" owner "${owner:-root}"; setkey "$name" created "${created:-$(now)}"
     setkey "$name" docker "${docker:-no}"; setkey "$name" pg "${pg:-no}"
     [ -z "$repo" ] || setkey "$name" repo "$repo"
@@ -431,6 +600,26 @@ cmd_recreate() {
     note "recreate $name"
     cmd_registry >/dev/null
     say "recreated $name"
+}
+
+# workspace NAME: give an older box (made before workspaces) its workspace. Its /srv/app is copied
+# out first, then the workspace is mounted over it. Running services keep the old files open:
+# restart them after.
+cmd_workspace() {
+    local name=${1:?name}
+    need_box "$name"
+    ws_check
+    if [ -n "$(ws_source "$name")" ]; then
+        say "$name already has its workspace: $(ws_source "$name")"
+        return 0
+    fi
+    [ "$(state_of "$name")" = Running ] || die "$name is not running. Start it first: sudo incus start $name"
+    ws_make "$name"
+    ws_copy_out "$name"
+    ws_attach "$name"
+    note "workspace $name"
+    cmd_registry >/dev/null
+    say "$name: /srv/app is now $(ws_dir "$name"). Restart its services (they still hold the old files)."
 }
 
 cmd_protect() {
@@ -531,9 +720,21 @@ backup_one() {
             || { rm -f -- "$dir/.partial-$st-data.tar.zst"; die "backup of $name-data is broken, removed"; }
         mv -- "$dir/.partial-$st-data.tar.zst" "$dir/$st-data.tar.zst"
     fi
+    # The workspace (/srv/app) lives on the host, so incus export does not hold it: tar it.
+    # tar exit 1 = a file changed while it was read (a live box): still a usable archive.
+    local ws rc=0
+    ws=$(ws_source "$name")
+    if [ -n "$ws" ] && [ -d "$ws" ]; then
+        say "archive workspace $ws -> $dir/$st-work.tar.zst"
+        tar -C "$(dirname "$ws")" --zstd -cf "$dir/.partial-$st-work.tar.zst" "$(basename "$ws")" || rc=$?
+        [ "$rc" -le 1 ] || { rm -f -- "$dir/.partial-$st-work.tar.zst"; die "archive of workspace $ws failed"; }
+        zstd -tq "$dir/.partial-$st-work.tar.zst" \
+            || { rm -f -- "$dir/.partial-$st-work.tar.zst"; die "archive of workspace $ws is broken, removed"; }
+        mv -- "$dir/.partial-$st-work.tar.zst" "$dir/$st-work.tar.zst"
+    fi
     # Keep the newest $KEEP backups of each kind.
     local kind f all
-    for kind in instance data; do
+    for kind in instance data work; do
         mapfile -t all < <(ls -1 "$dir"/*-"$kind".tar.zst 2>/dev/null | sort)
         for ((i = 0; i < ${#all[@]} - KEEP; i++)); do rm -f -- "${all[$i]}"; done
     done
@@ -573,6 +774,7 @@ cmd_expire() {
             if protected "$n"; then say "$n expired but is protected: kept"; continue; fi
             incus delete --force "$n"
             if has_vol "$n"; then incus storage volume delete "$POOL" "$n-data"; fi
+            WS_DROP=no ws_dispose "$n"
             note "expire: deleted $n"
             notify info "proj: box $n deleted" "try box expired $(day "$exp"), stopped 3 days ago"
         elif [ -z "$stopped" ] && [ "$t" -ge "$exp" ]; then
@@ -651,6 +853,7 @@ registry_json() {
               protected: (.config["security.protection.delete"] == "true"),
               data_volume: (if any($vols[]; . == ($n + "-data")) then $n + "-data" else null end),
               repo: (.config["user.proj.repo"] // null),
+              workspace: (.devices.app.source // null),
               forked_from: (.config["user.proj.forked_from"] // null),
               last_backup: (.config["user.proj.last_backup"] | t) } ],
           host_projects: $hp }'
@@ -688,7 +891,7 @@ cmd_selftest() {
     if ! incus launch "$IMAGE" "$n" -p box-base -p tier-try >/dev/null; then
         die "selftest: launch failed (image $IMAGE? memory budget full? see: incus project info default)"
     fi
-    trap 'incus delete --force "'"$n"'" >/dev/null 2>&1 || true' EXIT
+    trap 'incus delete --force "'"$n"'" >/dev/null 2>&1 || true; rm -rf -- "'"$WORK_ROOT/.selftest-$n"'"' EXIT
     for i in $(seq 1 30); do
         ip=$(incus query "/1.0/instances/$n/state" 2>/dev/null \
             | jq -r '[.network.eth0.addresses[]? | select(.family == "inet") | .address][0] // empty')
@@ -718,9 +921,53 @@ cmd_selftest() {
         done
         [ "$leak" = 1 ] || echo "ok    home gateway $gw not reachable from the box"
     fi
+    selftest_workspace "$n" || fail=1
     incus delete --force "$n" >/dev/null 2>&1 || true
+    rm -rf -- "$WORK_ROOT/.selftest-$n"
     trap - EXIT
     [ "$fail" = 0 ] && echo "selftest: all ok" || { echo "selftest: FAILED"; return 1; }
+}
+
+# selftest_workspace BOX: mount a throwaway workspace at /srv/app (as proj new does) and prove the
+# round trip: a file made on the host by MAIN_USER is readable and writable by uid 1000 (dev) in
+# the box, a file made in the box belongs to MAIN_USER:WS_GROUP on the host, and AGENT_USER and
+# dev (with the shared group) can write each other's files.
+selftest_workspace() {
+    local n=$1 ws msg gid fail=0
+    ws="$WORK_ROOT/.selftest-$n"
+    if ! msg=$(ws_check 2>&1); then echo "FAIL  workspace: ${msg#proj: }"; return 1; fi
+    gid=$(ws_gid)
+    ws_root
+    mkdir "$ws"
+    chown "$MAIN_USER:$WS_GROUP" "$ws"
+    chmod 2775 "$ws"
+    ws_acl "$ws"
+    if ! incus config device add "$n" app disk source="$ws" path=/srv/app shift=true >/dev/null; then
+        echo "FAIL  workspace: disk device with shift=true refused (idmapped mounts? incus info | grep idmapped_mounts)"
+        return 1
+    fi
+    runuser -u "$MAIN_USER" -- sh -c 'echo host > "$1/from-host"' sh "$ws"
+    if incus exec "$n" --user "$BOX_UID" --group "$BOX_UID" -- sh -c \
+        '[ "$(stat -c %u /srv/app/from-host)" = '"$BOX_UID"' ] && grep -qx host /srv/app/from-host && echo box >> /srv/app/from-host && echo box > /srv/app/from-box' 2>/dev/null; then
+        echo "ok    workspace: host file is uid $BOX_UID (dev) in the box, readable and writable there"
+    else
+        echo "FAIL  workspace: a file made on the host is not owned or not writable by uid $BOX_UID in the box"; fail=1
+    fi
+    if [ "$(stat -c %U:%G "$ws/from-box" 2>/dev/null)" = "$MAIN_USER:$WS_GROUP" ] && grep -qx box "$ws/from-host" \
+        && runuser -u "$MAIN_USER" -- sh -c 'echo host >> "$1/from-box"' sh "$ws" 2>/dev/null; then
+        echo "ok    workspace: box file is $MAIN_USER:$WS_GROUP on the host, writable there"
+    else
+        echo "FAIL  workspace: a file made in the box is not $MAIN_USER:$WS_GROUP or not writable on the host"; fail=1
+    fi
+    if [ -n "${AGENT_USER:-}" ] && id "$AGENT_USER" >/dev/null 2>&1; then
+        if runuser -u "$AGENT_USER" -- sh -c 'echo agent >> "$1/from-box" && echo agent > "$1/from-agent"' sh "$ws" 2>/dev/null \
+            && incus exec "$n" --user "$BOX_UID" --group "$gid" -- sh -c 'echo box >> /srv/app/from-agent' 2>/dev/null; then
+            echo "ok    workspace: $AGENT_USER and dev (group $WS_GROUP) write each other's files"
+        else
+            echo "FAIL  workspace: $AGENT_USER and dev cannot write each other's files (group $WS_GROUP, default ACL)"; fail=1
+        fi
+    fi
+    return "$fail"
 }
 
 cmd_doctor() {
@@ -751,12 +998,26 @@ cmd_doctor() {
         elif endswith("MiB") then ((sub("MiB$"; "") | tonumber) / 1024)
         else 0 end] | add // 0' 2>/dev/null || echo "?")
     ok "memory caps: ${used} GiB of ${budget:-no limit}"
-    local t
+    local t ws
     t=$(now)
+    if [ "$(stat -c %U:%G:%a "$WORK_ROOT" 2>/dev/null)" = "root:$WS_GROUP:750" ]; then
+        ok "workspace root $WORK_ROOT (root:$WS_GROUP 750)"
+    else
+        fail "workspace root $WORK_ROOT missing or not root:$WS_GROUP 750 (setup.sh step 70)"
+    fi
+    if [ -d "$WORK_ROOT/.trash" ] && [ -n "$(ls -A "$WORK_ROOT/.trash")" ]; then
+        echo "info  $WORK_ROOT/.trash: $(ls -A "$WORK_ROOT/.trash" | wc -l) old workspace(s), $(du -sh "$WORK_ROOT/.trash" | cut -f1) (empty it by hand)"
+    fi
     for n in $(incus list -f json | jq -r '.[].name'); do
         local tier exp b
         tier=$(tier_of "$n"); exp=$(key "$n" expires); b=$(key "$n" last_backup)
         [ "$tier" != none ] || fail "$n has no tier (made by hand? proj does not know it)"
+        ws=$(ws_source "$n")
+        if [ -z "$ws" ]; then
+            [ "$tier" = none ] || fail "$n has no workspace at /srv/app (sudo proj workspace $n)"
+        elif [ ! -d "$ws" ]; then
+            fail "$n: workspace $ws is missing on the host"
+        fi
         if [ -n "$exp" ] && [ "$t" -ge "$exp" ] && [ "$(state_of "$n")" = Running ]; then
             fail "$n expired $(day "$exp") but runs"
         fi
@@ -804,6 +1065,7 @@ main() {
         fork) cmd_fork "$@" ;;
         wipe|rm) cmd_wipe "$@" ;;
         recreate|reset) cmd_recreate "$@" ;;
+        workspace) cmd_workspace "$@" ;;
         protect) cmd_protect "$@" ;;
         unprotect) cmd_unprotect "$@" ;;
         promote) cmd_promote "$@" ;;
@@ -818,4 +1080,5 @@ main() {
     esac
 }
 
-main "$@"
+# PROJ_LIB=1: load the functions only (tests/proj-workspace.test.sh). Runs nothing.
+[ "${PROJ_LIB:-}" = 1 ] || main "$@"

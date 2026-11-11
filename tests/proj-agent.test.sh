@@ -21,12 +21,26 @@ printf '%s\n' demo web-1 > "$T/boxes"
 
 # Each fake writes one line to $T/calls: its name, the environment that matters, its arguments.
 # The path is baked in: proj-agent starts every child with env -i.
-for tool in proj incus journalctl systemctl; do
+# incus query: known boxes exist; /state gives demo an address, web-1 none (stopped).
+# incus exec ... ss -Hltn prints sample sockets. timeout is only recorded (exec starts with it).
+for tool in proj incus journalctl systemctl timeout; do
     cat > "$T/bin/$tool" <<EOF
 #!/bin/bash
 if [ "\$(basename "\$0")" = incus ] && [ "\${1:-}" = query ]; then
-    grep -qx "\${2#/1.0/instances/}" "$T/boxes"; exit
+    n=\${2#/1.0/instances/}
+    case "\$n" in
+        */state)
+            grep -qx "\${n%/state}" "$T/boxes" || exit 1
+            [ "\${n%/state}" = demo ] || { echo '{"status":"Stopped","network":null}'; exit 0; }
+            echo '{"status":"Running","network":{"lo":{"addresses":[{"family":"inet","address":"127.0.0.1"}]},"eth0":{"addresses":[{"family":"inet6","address":"fd42::5"},{"family":"inet","address":"10.99.0.23"}]}}}'
+            exit 0 ;;
+    esac
+    grep -qx "\$n" "$T/boxes"; exit
 fi
+case "\$*" in
+    *"ss -Hltn"*) printf '%s\n' 'LISTEN 0 4096 0.0.0.0:8000 0.0.0.0:*' 'LISTEN 0 4096 [::]:8000 [::]:*' \\
+        'LISTEN 0 244 127.0.0.1:5432 0.0.0.0:*' 'LISTEN 0 511 *:80 *:*' ;;
+esac
 printf '%s|SUDO_USER=%s|PAGER=%s|SYSTEMD_PAGER=[%s]|LESSSECURE=%s|EVIL=%s|%s\n' \\
     "\$(basename "\$0")" "\${SUDO_USER:-}" "\${PAGER:-}" "\${SYSTEMD_PAGER-unset}" "\${LESSSECURE:-}" "\${EVIL:-}" "\$*" >> "$CALLS"
 EOF
@@ -49,7 +63,7 @@ allow() {
     local want=$1; shift
     run_agent "$@"
     local got
-    got=$(cut -d'|' -f1,7 "$CALLS")
+    got=$(cut -d'|' -f1,7- "$CALLS")
     if [ "$rc" = 0 ] && [ "$got" = "$want" ]; then ok; else bad "allow [$*]: rc=$rc call='$got' want='$want' out=$out"; fi
 }
 
@@ -79,7 +93,31 @@ allow "systemctl|--no-pager status proj-backup.timer" status proj-backup.timer
 allow "incus|exec -T demo -- systemctl restart nginx" restart demo nginx
 allow "incus|exec -T demo -- systemctl restart app@1.service" restart demo app@1.service
 run_agent help
-[ "$rc" = 0 ] && grep -q 'restart <box> <service>' <<< "$out" && ok || bad "help: rc=$rc"
+[ "$rc" = 0 ] && grep -q 'restart <box> <service>' <<< "$out" && grep -q 'exec <box>' <<< "$out" && ok || bad "help: rc=$rc"
+
+echo "== exec, ports, url (allowed)"
+inbox() {  # inbox CWD: the incus exec part of an exec call
+    echo "incus exec -T demo --cwd $1 --env HOME=/home/dev --env USER=dev -- setpriv --reuid=1000 --regid=1000 --init-groups --"
+}
+allow "timeout|-k 10 630 $(inbox /srv/app) timeout -k 10 600 bash -lc npm test" exec demo -- npm test
+allow "timeout|-k 10 630 $(inbox /srv/app) timeout -k 10 600 bash -lc docker compose up -d" exec demo -- docker compose up -d
+allow "timeout|-k 10 3630 $(inbox /srv/app/web) timeout -k 10 3600 bash -lc make build" exec demo --cwd /srv/app/web --timeout 3600 -- make build
+allow "timeout|-k 10 35 $(inbox /tmp) timeout -k 10 5 bash -lc echo \$(id) | tee x; rm -rf /tmp/x" exec demo --timeout 5 --cwd /tmp -- 'echo $(id) | tee x; rm -rf /tmp/x'
+allow "timeout|-k 10 630 $(inbox /srv/app) timeout -k 10 600 bash -lc -- --version" exec demo -- -- --version
+allow "incus|exec -T demo -- ss -ltnup" ports demo
+allow "incus|exec -T demo -- ss -Hltn" url demo
+grep -qx '  http://10.99.0.23:8000' <<< "$out" && grep -qx '  http://10.99.0.23:80' <<< "$out" \
+    && grep -q 'port 5432: inside the box only (listens on 127.0.0.1)' <<< "$out" \
+    && [ "$(grep -c 'http://10.99.0.23:8000' <<< "$out")" = 1 ] && grep -q 'Nothing is open to the LAN' <<< "$out" \
+    && ok || bad "url demo output: $out"
+run_agent url demo 8080
+[ "$rc" = 0 ] && [ ! -s "$CALLS" ] && grep -qx 'http://10.99.0.23:8080' <<< "$out" && ok || bad "url demo 8080: rc=$rc out=$out"
+run_agent url web-1
+[ "$rc" = 1 ] && [ ! -s "$CALLS" ] && grep -q 'no IPv4 address' <<< "$out" && ok || bad "url of a stopped box: rc=$rc out=$out"
+run_agent exec demo -- "$(printf 'x%.0s' $(seq 1 400))"
+[ "$rc" = 0 ] && tail -n 1 "$LOGF" | grep -qF "args=[exec demo -- $(printf 'x%.0s' $(seq 1 300))...cut] result=ok" && ok || bad "long exec command not cut to 300 in the log: $(tail -n 1 "$LOGF")"
+run_agent exec demo -- "$(printf 'echo a\necho b')"
+[ "$rc" = 0 ] && tail -n 1 "$LOGF" | grep -qF "args=[exec demo -- \$'echo a\\necho b'] result=ok" && ok || bad "newline in an exec command not escaped in the log: $(tail -n 1 "$LOGF")"
 
 echo "== environment of the child"
 run_agent status incus
@@ -129,7 +167,42 @@ deny "no box named" snapshot nobox
 deny "no box named" logs box nobox
 deny "unknown command" wipe demo
 deny "unknown command" shell demo
-deny "unknown command" exec demo
+deny "usage: exec <box>" exec
+deny "needs -- before the command" exec demo
+deny "needs -- before the command" exec demo ls
+deny "needs -- before the command" exec demo --cwd /srv/app
+deny "needs -- before the command" exec demo --user root -- id
+deny "needs -- before the command" exec demo --env X=1 -- id
+deny "no command after --" exec demo --
+deny "the command is empty" exec demo -- '   '
+deny "protected HOST project" exec md999 -- ls
+deny "no box named" exec nobox -- ls
+deny "bad box name" exec 'demo;id' -- ls
+deny "bad box name" exec ../demo -- ls
+deny "--timeout must be 1 to 3600" exec demo --timeout 99999 -- ls
+deny "--timeout must be 1 to 3600" exec demo --timeout 3601 -- ls
+deny "--timeout must be 1 to 3600" exec demo --timeout 0 -- ls
+deny "--timeout must be 1 to 3600" exec demo --timeout 1m -- ls
+deny "--timeout needs seconds" exec demo --timeout
+deny "--cwd must be an absolute path" exec demo --cwd srv/app -- ls
+deny "--cwd must be an absolute path" exec demo --cwd /srv/../etc -- ls
+deny "--cwd must be an absolute path" exec demo --cwd /srv/app/.. -- ls
+deny "--cwd must be an absolute path" exec demo --cwd '/srv/app;id' -- ls
+deny "--cwd must be an absolute path" exec demo --cwd '/srv/app dir' -- ls
+deny "--cwd needs a folder" exec demo --cwd
+deny "usage: ports <box>" ports
+deny "usage: ports <box>" ports demo web-1
+deny "protected HOST project" ports md999
+deny "no box named" ports nobox
+deny "usage: url <box> [port]" url
+deny "usage: url <box> [port]" url demo 80 81
+deny "port must be 1 to 65535" url demo 0
+deny "port must be 1 to 65535" url demo 70000
+deny "port must be 1 to 65535" url demo 080
+deny "port must be 1 to 65535" url demo http
+deny "protected HOST project" url md999
+deny "no box named" url nobox 80
+deny "not allowed" url 'demo;id'
 deny "unknown command" promote demo
 deny "unknown command" selftest
 deny "unknown command" NEW demo --tier try

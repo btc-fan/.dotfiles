@@ -2,14 +2,18 @@
 # box-bootstrap.sh: runs as root INSIDE a new box (pushed and started by `proj`).
 # Makes the standard box: user dev (uid 1000, sudo inside the box), /srv/app, /srv/data,
 # base tools, and on request Docker and/or PostgreSQL with data on /srv/data.
-# Usage (inside the box): box-bootstrap.sh <box-name> <docker yes|no> <pg yes|no>
-# Safe to run again.
+# Usage (inside the box): box-bootstrap.sh <box-name> <docker yes|no> <pg yes|no> [shared-gid] [shared-group]
+# /srv/app is normally the workspace from the host (proj mounts it first): then it is left as is.
+# shared-gid: the host's shared group (devs). dev joins a group with that gid, so dev may write
+# files that the host agent user made in the workspace. Safe to run again.
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8
 
 box=${1:?box name}
 docker=${2:-no}
 pg=${3:-no}
+shared_gid=${4:-}
+shared_group=${5:-devs}
 
 # Wait for the network (DHCP on incusbr0 can take a few seconds after start).
 for _ in $(seq 1 60); do
@@ -33,7 +37,20 @@ fi
 echo "dev ALL=(ALL:ALL) NOPASSWD: ALL" > /etc/sudoers.d/10-dev
 chmod 440 /etc/sudoers.d/10-dev
 
-install -d -o dev -g dev -m 755 /srv/app
+# The workspace mount belongs to the host (owner, group, setgid, ACL): never chown or chmod it.
+if mountpoint -q /srv/app; then
+    echo "/srv/app is the workspace from the host: left as is"
+else
+    install -d -o dev -g dev -m 755 /srv/app
+fi
+if [[ "$shared_gid" =~ ^[0-9]+$ ]]; then
+    g=$(getent group "$shared_gid" | cut -d: -f1 || true)
+    if [ -z "$g" ]; then
+        getent group "$shared_group" >/dev/null && g=proj-shared || g=$shared_group
+        groupadd -g "$shared_gid" "$g"
+    fi
+    id -nG dev | tr ' ' '\n' | grep -qx "$g" || usermod -aG "$g" dev
+fi
 install -d -m 755 /srv/data
 chown dev:dev /srv/data
 

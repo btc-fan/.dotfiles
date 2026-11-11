@@ -7,12 +7,14 @@ Human rules: docs/HOSTING.md. The owner's root-owned files in /etc win over this
 ### First: where am I?
 - If /etc/proj-box exists, you are inside a box. It says the box name, tier, owner and
   creation date.
-- If /etc/proj-host exists, you are on the host. Do not build anything here.
-  Only do server admin, and only when the owner asked for it in this session.
+- If /etc/proj-host exists, you are on the host. Never build or run a project here: you edit
+  its code in its workspace and run it in its box (below). Server admin only when the owner
+  asked for it in this session.
 - If neither exists, stop and ask the owner.
 
 ### On the host
-- Never create a project folder on the host: not in ~, /work, /opt, /srv or /tmp.
+- Never create a project folder on the host: not in ~, /work, /opt, /srv or /tmp. The only
+  project code on the host is a box workspace, /srv/proj/work/<box>, and proj makes it.
 - Host projects are listed in /srv/proj/REGISTRY.md (for scripts: REGISTRY.json).
   They are never yours to change.
 - To get a new project, ask the owner the grill-me questions first:
@@ -28,6 +30,22 @@ Human rules: docs/HOSTING.md. The owner's root-owned files in /etc win over this
   - logs: `sudo proj-agent logs <unit> [-n N]` (host unit) or `sudo proj-agent logs box <box> [-n N]`.
   - `sudo proj-agent status <unit>` (read only).
   - `sudo proj-agent restart <box> <service>`: restarts a service inside that box, never on the host.
+  - `sudo proj-agent exec <box> [--cwd DIR] [--timeout S] -- <command>`: runs the command inside
+    the box as dev (default /srv/app, 600 s, at most 3600 s). For pipes, `&&` or quotes, pass
+    the whole command as one quoted string: `-- 'npm ci && npm test'`.
+  - `sudo proj-agent ports <box>`, `sudo proj-agent url <box> [port]`: what listens in the box
+    and the address to reach it from the host (http://<box IP>:<port>, host only, not the LAN).
+- Working on a box project from the host:
+  1. After `sudo proj-agent new <box> ...`, the code lives in /srv/proj/work/<box> (it is
+     /srv/app in the box). Edit it there with your normal tools; git works there too.
+  2. Install, build, test and run with `sudo proj-agent exec <box> -- <cmd>`. Never run the
+     project, its package manager, its tests or its database on the host.
+  3. Services run in the box: a systemd unit (`sudo proj-agent exec <box> -- sudo systemctl
+     enable --now <unit>`) or docker compose (`sudo proj-agent exec <box> -- docker compose up -d`).
+     Check with `ports`, `url` and `logs box <box>`.
+  4. Data belongs in /srv/data inside the box, never in the workspace. Secrets: /srv/app/.env,
+     mode 600, in .gitignore, never printed or committed.
+  5. Snapshots do not cover the workspace: commit and push often.
 - Anything else that needs root: do not try other ways. Give the owner the exact command and
   wait. proj-agent refuses host projects, logs every call, and a refusal is not an error to work
   around.
@@ -37,8 +55,9 @@ Human rules: docs/HOSTING.md. The owner's root-owned files in /etc win over this
 - Never copy ~/.claude, ~/.codex, keys or tokens from the host into a box.
 
 ### Inside a box
-- Code: /srv/app. Data: /srv/data. Secrets: /srv/app/.env. Write nowhere else
-  except temp files and your tools' own folders.
+- Code: /srv/app (the workspace, shared with the host agents: they may edit it too).
+  Data: /srv/data. Secrets: /srv/app/.env (mode 600, in .gitignore). Write nowhere else
+  except temp files and your tools' own folders. Never chown or chmod /srv/app itself.
 - Inside your box you may install, change and restart anything.
 - A service runs inside the box (systemd or docker compose), never on the host.
 - Stay in your box. Do not reach the host, other boxes or the home network.

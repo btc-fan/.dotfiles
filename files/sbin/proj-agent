@@ -12,11 +12,19 @@
 #   logs box <name> [-n N]        journal inside a box, last N lines ("box" is never a unit here)
 #   status <unit>                 systemctl status of one host unit (read only)
 #   restart <box> <service>       restart a systemd service INSIDE the box (never a host unit)
+#   exec <box> [--cwd DIR] [--timeout S] -- <command...>
+#                                 run a command INSIDE the box as dev (uid 1000), never as root,
+#                                 in DIR (default /srv/app), stopped after S seconds (default 600,
+#                                 at most 3600). The words after -- are joined and run by bash -lc
+#   ports <box>                   listening ports inside the box
+#   url <box> [port]              how to reach a service in the box from this host (box IP:port)
 #   help                          this text
 # Names: lower case letters, digits and -, 2 to 31 chars, starting with a letter (as proj).
 # Units and services: letters, digits and @ . _ -, starting with a letter or digit.
-# Host projects (/etc/proj/host-projects) are refused for snapshot, logs box and restart.
-# Every call is logged to /var/log/proj-agent.log (who, what, result).
+# Host projects (/etc/proj/host-projects) are refused for every box command.
+# The code of a box is /srv/proj/work/<box> on the host (= /srv/app in the box): edit it there,
+# run it with exec. Nothing here opens a port to the LAN.
+# Every call is logged to /var/log/proj-agent.log (who, what, result; exec command cut to 300).
 #
 # Why /bin/bash -p and not env: this runs as root; no lookup through a PATH set by the caller,
 # and -p makes bash ignore BASH_ENV, SHELLOPTS and exported functions from the environment.
@@ -39,14 +47,21 @@ PROJ=/usr/local/sbin/proj
 CHILD_HOME=/root
 MAX_LINES=2000
 DEFAULT_LINES=200
+EXEC_TIMEOUT=600
+EXEC_MAX_TIMEOUT=3600
+EXEC_LOG_MAX=300
+BOX_UID=1000            # user dev in every box (box-bootstrap.sh)
 
 NAME_RE='^[a-z][a-z0-9-]{1,30}$'
 UNIT_RE='^[A-Za-z0-9][A-Za-z0-9@._-]{0,127}$'
 LINES_RE='^[1-9][0-9]{0,3}$'
 USER_RE='^[a-z_][a-z0-9_-]{0,31}$'
 ARG_RE='^[A-Za-z0-9@._-]{1,128}$'
+CWD_RE='^/[A-Za-z0-9@._/+-]{0,255}$'
+SECS_RE='^[1-9][0-9]{0,3}$'
+PORT_RE='^[1-9][0-9]{0,4}$'
 
-usage() { sed -n '6,19p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '6,28p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # Offline tests only: a NORMAL user with PROJ_AGENT_TEST=1 may point the tools, log and host list
 # at fakes. As root (that is, under sudo) all of this is ignored.
@@ -70,9 +85,22 @@ if [ -n "${SUDO_USER:-}" ]; then
 fi
 
 # The call as one log-safe line: every argument quoted with printf %q (no raw newlines).
+# For exec, the command after -- is logged as one string, cut to EXEC_LOG_MAX characters.
 ARGS_Q=""
-for a in "$@"; do ARGS_Q="$ARGS_Q $(printf '%q' "$a")"; done
-ARGS_Q=${ARGS_Q# }
+quote_args() {
+    local a after=0 rest=""
+    for a in "$@"; do
+        if [ "$after" = 1 ]; then rest="${rest:+$rest }$a"; continue; fi
+        ARGS_Q="$ARGS_Q $(printf '%q' "$a")"
+        if [ "$1" = exec ] && [ "$a" = -- ]; then after=1; fi
+    done
+    if [ "$after" = 1 ]; then
+        if [ "${#rest}" -gt "$EXEC_LOG_MAX" ]; then rest="${rest:0:$EXEC_LOG_MAX}...cut"; fi
+        ARGS_Q="$ARGS_Q $(printf '%q' "$rest")"
+    fi
+    ARGS_Q=${ARGS_Q# }
+}
+quote_args "$@"
 
 logline() {
     printf '%s user=%s args=[%s] %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$WHO" "$ARGS_Q" "$1" >> "$LOG"
@@ -189,13 +217,93 @@ cmd_restart() {
     child incus exec -T "$1" -- systemctl restart "$2"
 }
 
+# exec BOX [--cwd DIR] [--timeout S] -- WORDS...: WORDS joined by spaces, run by bash -lc INSIDE
+# the box. The box is the boundary: any command is fine there. It never runs as root: setpriv
+# drops to dev (uid/gid 1000) with dev's groups (docker, the shared group) before bash starts.
+# (incus exec --user sets no supplementary groups, so docker and the workspace group would be
+# missing.) timeout runs as dev inside the box; the outer one only catches a stuck incus.
+cmd_exec() {
+    [ $# -ge 1 ] || refuse "usage: exec <box> [--cwd DIR] [--timeout S] -- <command...>"
+    local box=$1 cwd=/srv/app secs=$EXEC_TIMEOUT dd=0 command rc=0
+    shift
+    need_name "$box"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --) dd=1; shift; break ;;
+            --cwd)
+                [ $# -ge 2 ] || refuse "--cwd needs a folder"
+                [[ $2 =~ $CWD_RE ]] && [[ "$2/" != *"/../"* ]] && [[ "$2/" != *"/./"* ]] \
+                    || refuse "--cwd must be an absolute path inside the box (letters, digits, @ . _ / + -, no . or .. parts), not $(printf '%q' "$2")"
+                cwd=$2; shift 2 ;;
+            --timeout)
+                [ $# -ge 2 ] || refuse "--timeout needs seconds"
+                [[ $2 =~ $SECS_RE ]] && [ "$2" -le "$EXEC_MAX_TIMEOUT" ] \
+                    || refuse "--timeout must be 1 to $EXEC_MAX_TIMEOUT seconds, not $(printf '%q' "$2")"
+                secs=$2; shift 2 ;;
+            *) refuse "exec needs -- before the command (only --cwd DIR and --timeout S may come first), got $(printf '%q' "$1")" ;;
+        esac
+    done
+    [ "$dd" = 1 ] || refuse "exec needs -- before the command: exec <box> -- <command...>"
+    [ $# -gt 0 ] || refuse "exec: no command after --"
+    command="$*"
+    [ -n "${command//[[:space:]]/}" ] || refuse "exec: the command is empty"
+    need_box "$box"
+    child timeout -k 10 "$((secs + 30))" incus exec -T "$box" --cwd "$cwd" \
+        --env HOME=/home/dev --env USER=dev -- \
+        setpriv --reuid="$BOX_UID" --regid="$BOX_UID" --init-groups -- \
+        timeout -k 10 "$secs" bash -lc "$command" || rc=$?
+    if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+        echo "proj-agent: exec stopped after the time limit ($secs s; more: --timeout up to $EXEC_MAX_TIMEOUT)" >&2
+    fi
+    return "$rc"
+}
+
+# box_ip BOX: the box's IPv4 address on incusbr0, or nothing (stopped box).
+box_ip() {
+    incus query "/1.0/instances/$1/state" 2>/dev/null < /dev/null \
+        | jq -r '[.network.eth0.addresses[]? | select(.family == "inet") | .address][0] // empty' 2>/dev/null || true
+}
+
+# url BOX [PORT]: print the address to use from THIS host. Without a port: every listening TCP port.
+# Read only. Boxes are reachable from the host, not from the LAN; sharing is the owner's call.
+cmd_url() {
+    [ $# -ge 1 ] && [ $# -le 2 ] || refuse "usage: url <box> [port]"
+    local box=$1 port=${2:-} ip out
+    if [ -n "$port" ]; then
+        [[ $port =~ $PORT_RE ]] && [ "$port" -le 65535 ] || refuse "port must be 1 to 65535, not '$port'"
+    fi
+    need_box "$box"
+    ip=$(box_ip "$box")
+    if [ -z "$ip" ]; then
+        logline "result=no-address" || true
+        echo "proj-agent: $box has no IPv4 address (stopped? sudo proj-agent list)" >&2
+        return 1
+    fi
+    if [ -n "$port" ]; then
+        logline "result=ok" || true
+        echo "http://$ip:$port"
+    else
+        out=$(child incus exec -T "$box" -- ss -Hltn) || return 1
+        echo "$box: $ip"
+        printf '%s\n' "$out" | awk -v ip="$ip" '
+            NF >= 4 { a = $4; p = a; sub(/.*:/, "", p); h = a; sub(/:[^:]*$/, "", h)
+                      if (h ~ /^127\./ || h == "[::1]") { if (!(p in loc)) loc[p] = h } else pub[p] = 1 }
+            END { for (p in pub) print "  http://" ip ":" p
+                  for (p in loc) if (!(p in pub)) print "  port " p ": inside the box only (listens on " loc[p] ")" }' | sort
+    fi
+    echo "From this host only (curl, or an SSH tunnel). Nothing is open to the LAN; sharing a box is the owner's call."
+}
+
 main() {
     [ $# -gt 0 ] || { usage >&2; refuse "no command given"; }
     local a
-    for a in "$@"; do
-        # One gate for every argument before anything else: no spaces, quotes, ; $ ( ) ` / | & < > * ? or newlines.
-        [[ $a =~ $ARG_RE ]] || refuse "argument $(printf '%q' "$a") has characters that are not allowed (only letters, digits and @ . _ -)"
-    done
+    # One gate for every argument before anything else: no spaces, quotes, ; $ ( ) ` / | & < > * ? or newlines.
+    # Except exec: cmd_exec checks each word before -- itself; the words after it run in the box only.
+    if [ "$1" != exec ]; then
+        for a in "$@"; do
+            [[ $a =~ $ARG_RE ]] || refuse "argument $(printf '%q' "$a") has characters that are not allowed (only letters, digits and @ . _ -)"
+        done
+    fi
     local cmd=$1
     shift
     case "$cmd" in
@@ -213,6 +321,9 @@ main() {
         logs) cmd_logs "$@" ;;
         status) cmd_status "$@" ;;
         restart) cmd_restart "$@" ;;
+        exec) cmd_exec "$@" ;;
+        ports) [ $# -eq 1 ] || refuse "usage: ports <box>"; need_box "$1"; child incus exec -T "$1" -- ss -ltnup ;;
+        url) cmd_url "$@" ;;
         *) refuse "unknown command '$cmd'" ;;
     esac
 }

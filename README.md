@@ -326,9 +326,19 @@ Rules for people: [docs/HOSTING.md](docs/HOSTING.md). Rules for agents: [docs/AG
 - **Memory budget**: all box caps together may not pass `BOX_MEMORY_BUDGET` (default 4 GiB,
   Incus enforces it). The full RAM budget is in [docs/HOSTING.md](docs/HOSTING.md).
 - **`proj`**: the one tool for boxes: `new`, `list`, `shell`, `snapshot`, `restore`, `fork`,
-  `wipe`, `recreate`, `protect` / `unprotect`, `promote`, `extend`, `backup`, `expire`,
-  `registry`, `sync-rules`, `doctor`, `selftest`. Long boxes are delete-protected. Host projects
-  (`HOST_PROJECTS`, for example the md999 crawler) are listed and checked and never touched.
+  `wipe`, `recreate`, `workspace`, `protect` / `unprotect`, `promote`, `extend`, `backup`,
+  `expire`, `registry`, `sync-rules`, `doctor`, `selftest`. Long boxes are delete-protected. Host
+  projects (`HOST_PROJECTS`, for example the md999 crawler) are listed and checked and never touched.
+- **Workspaces** (owner decision 2026-11-11): the code of each box lives on the host in
+  `WORK_ROOT/<box>` (default `/srv/proj/work/<box>`) and is mounted in the box at `/srv/app`
+  (Incus disk device `app`, `shift=true`: an idmapped mount, so `MAIN_USER` (uid 1000) is `dev` in
+  the box). Agents on the host edit the code there with their normal tools and run it in the box
+  with `sudo proj-agent exec <box> -- <cmd>`. Folder `MAIN_USER:SHARED_GROUP`, mode 2775, default
+  ACL `g:SHARED_GROUP:rwx`, so the main user, `AGENT_USER` and `dev` can all write. `recreate`
+  keeps it, `fork` copies it, `wipe` moves it to `WORK_ROOT/.trash` unless you type `delete`,
+  long boxes get it in the nightly backup. Data stays on the box volume (`/srv/data`).
+  Step 70 makes the root (`root:SHARED_GROUP 750`), `.trash` (root 700) and the git
+  `safe.directory` entry. Needs `MAIN_USER` = uid 1000 (proj refuses otherwise).
 - **Where am I, and the rules, for agents**: `/etc/proj-host` on the host (step 70) and
   `/etc/proj-box` in every box (name, tier, owner, created; written by `proj new`, `recreate`,
   `fork`, `promote`). `proj new` and `recreate` also copy the house rules
@@ -345,7 +355,10 @@ Rules for people: [docs/HOSTING.md](docs/HOSTING.md). Rules for agents: [docs/AG
   exist) get `/etc/sudoers.d/zzz-agents-proj`: `NOPASSWD: /usr/local/sbin/proj-agent`, nothing
   else. proj-agent allows only: `new <name> --tier try|mvp [--docker] [--pg]`, `list`,
   `snapshot <box>`, `doctor`, `logs <unit>|box <box> [-n N]`, `status <unit>`,
-  `restart <box> <service>` (inside the box). Every argument is checked with a strict pattern,
+  `restart <box> <service>` (inside the box), `exec <box> [--cwd DIR] [--timeout S] -- <cmd>`
+  (any command INSIDE the box as `dev`, never as root, default 600 s, at most 3600 s),
+  `ports <box>` and `url <box> [port]` (how to reach a box service from the host; nothing is
+  opened to the LAN). Every argument before `--` is checked with a strict pattern,
   host projects are refused, children run with a clean environment and no pager, every call is
   logged to `/var/log/proj-agent.log`. The file name sorts after `zz-server-main-password`
   because sudo uses the last matching rule: that keeps the main user's password for everything
@@ -538,6 +551,7 @@ files/bin/caffeinate  copied to /usr/local/bin
 files/proj/proj       the proj CLI (to /usr/local/sbin/proj)
 files/sbin/proj-agent the only root command agents may run (sudo, no password, allow-list)
 tests/proj-agent.test.sh   offline tests for proj-agent (fake tools, run as a normal user)
+tests/proj-workspace.test.sh   offline tests for proj workspaces (new, fork, wipe, recreate)
 files/proj/box-bootstrap.sh   runs inside every new box (user dev, tools, docker, postgres)
 files/incus/*.yaml    Incus profiles: box-base, tier-try, tier-mvp, tier-long, docker
 docs/HOSTING.md       rules for project boxes (for people)
@@ -549,7 +563,8 @@ On the server: `/opt/server-setup/` (root-owned copy of this repo that setup run
 `/etc/server/host.env` (copy of your host.env, root:root 644, read by the alert and backup
 scripts), `/etc/server/webhooks/` (Discord URLs, root only), `/etc/proj/` (profiles, host
 projects), `/etc/proj-host` (marker: this is the host), `/srv/proj/REGISTRY.md` and
-`REGISTRY.json` (list of boxes), `/var/log/proj.log` (every proj action),
+`REGISTRY.json` (list of boxes), `/srv/proj/work/<box>` (the code of each box = `/srv/app` in
+the box; `.trash` holds workspaces of wiped boxes), `/var/log/proj.log` (every proj action),
 `/var/log/proj-agent.log` (every proj-agent call: who, what, result).
 
 ## AI setup

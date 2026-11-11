@@ -239,3 +239,32 @@ the real proj/incus/journalctl calls.
 - proj: `expose` (Tailscale inside a box, per-box name), `grant pg-readonly` (a box reads a host
   database), `agent` (install and start an agent in a box), `archive`, and a bats test file run
   on the server.
+
+## Added 2026-11-11: shared workspace for box projects (owner decision)
+
+Agents run on the HOST (Claude Code and Codex as `MAIN_USER`, Hermes as `AGENT_USER`) and must
+work on a project that lives in a box.
+
+| What | Why |
+|---|---|
+| Code on the host in `WORK_ROOT/<box>` (default `/srv/proj/work`), disk device `app` at `/srv/app` | Host agents use their normal tools on the code; it runs only in the box. `recreate` re-attaches it, so code survives a rebuild. Data stays on the box volume. |
+| `shift=true` (idmapped mount), not `raw.idmap` | Idmapped mounts work with `security.idmap.isolated`: the mount shows host uid N as box uid N, the box processes keep their own isolated range. `raw.idmap "both <uid> 1000"` would make `dev` the real main user on the host (a box escape gets that user) and needs extra `/etc/subuid` entries. Cost: `MAIN_USER` must be uid 1000; proj refuses otherwise. |
+| Folder `MAIN_USER:SHARED_GROUP` 2775 + default ACL `g:SHARED_GROUP:rwx`; `dev` joins a group with the same gid in the box | All three (main user, Hermes, dev) can write each other's files. A default ACL also overrides every umask. |
+| Root `root:SHARED_GROUP 750`, `.trash` root 700 | Only proj adds workspaces; agents can look but not make project folders on the host. |
+| `wipe` keeps the workspace in `.trash` unless the owner types `delete`; `--yes` and `expire` always keep it | Code is never deleted silently. `.trash` is emptied by hand. |
+| Workspace in the nightly backup of long boxes (`<date>-work.tar.zst`, tar exit 1 accepted) | `incus export` does not hold a host-path device. A changing file in a live box is not a failure. |
+| `proj-agent exec` runs `incus exec ... -- setpriv --reuid=1000 --regid=1000 --init-groups -- timeout N bash -lc "<cmd>"` | `incus exec --user 1000 --group 1000` sets no supplementary groups (as far as we know from LXC attach), so `docker` and the shared group would be missing. setpriv drops to dev with dev's groups before bash starts: the command never runs as root. timeout runs as dev in the box; an outer timeout (N + 30 s) only catches a stuck incus. |
+| exec allows any command after `--`; the words before `--` get strict patterns; log cut to 300 chars | The box is the isolation boundary (owner decision). The command never touches a host shell. |
+| `url` prints box IP:port, `ports` runs `ss` in the box | Read only; nothing is exposed to the LAN. |
+| `proj workspace <box>` for boxes made earlier | Copies the old `/srv/app` out as root: `--no-same-owner`, setuid bits removed, links not followed, then mounted over. |
+
+Tested here: `tests/proj-agent.test.sh` (142 checks, new: exec, ports, url forms and refusals,
+log cut and newline escape) and `tests/proj-workspace.test.sh` (34 checks: device add order in
+`new`, folder mode and ACL calls, fork copy and device move, wipe keep/delete/default, recreate
+re-attach, adopting an older box with a setuid file and a link). `bash -n` on every changed script.
+
+Not verified (test on the server): `shift=true` on the host filesystem of `/srv/proj/work`
+(`incus info | grep idmapped_mounts` must say true); POSIX ACLs through the idmapped mount;
+setgid inheritance seen from the box; `setpriv --init-groups` in the 26.04 image; whether
+`incus exec --user` really drops supplementary groups; that `incus copy` keeps the `app` device
+for a fork; `tar --zstd` on 26.04; the host reaching a box IP through ufw.

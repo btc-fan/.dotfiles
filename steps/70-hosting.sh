@@ -38,6 +38,7 @@ main() {
     firewall
     docker_fix
     install_proj
+    workspaces
     agents_sudo       # after install_proj: the rule and the binary it allows land together
     host_marker
     host_projects
@@ -417,6 +418,31 @@ install_proj() {
     [ -e /var/log/proj-agent.log ] || run install -m 640 -o root -g root /dev/null /var/log/proj-agent.log
 }
 
+# Workspaces (owner decision 2026-11-11): agents run on the host and edit a box's code in
+# WORK_ROOT/<box>, which is /srv/app inside the box (disk device, shift=true). proj makes one per
+# box; this step makes the root (root:SHARED_GROUP 750: the group may look, only proj adds) and
+# .trash (root 700, workspaces of wiped boxes). Both host users are in SHARED_GROUP.
+# shift=true shows host uid N as uid N in the box, so MAIN_USER must be uid 1000 (dev in a box).
+workspaces() {
+    local root=${WORK_ROOT:-/srv/proj/work} g=${SHARED_GROUP:-devs} u uid
+    log "workspaces $root (root:$g 750, one folder per box made by proj, = /srv/app in the box)"
+    apt_install acl git
+    getent group "$g" >/dev/null || run groupadd "$g"
+    for u in "$MAIN_USER" "${AGENT_USER:-}"; do
+        [ -n "$u" ] && id "$u" >/dev/null 2>&1 || continue
+        id -nG "$u" | tr ' ' '\n' | grep -qx "$g" || run usermod -aG "$g" "$u"
+    done
+    [ -d "$root" ] || run mkdir -p "$root"
+    [ "$(stat -c %U:%G "$root" 2>/dev/null)" = "root:$g" ] || run chown "root:$g" "$root"
+    [ "$(stat -c %a "$root" 2>/dev/null)" = 750 ] || run chmod 750 "$root"
+    [ -d "$root/.trash" ] || run install -d -m 700 -o root -g root "$root/.trash"
+    # git refuses a repository owned by another user: AGENT_USER works in MAIN_USER's checkouts.
+    git config --system --get-all safe.directory 2>/dev/null | grep -qxF "$root/*" \
+        || run git config --system --add safe.directory "$root/*"
+    uid=$(id -u "$MAIN_USER" 2>/dev/null || echo "?")
+    [ "$uid" = 1000 ] || warn "$MAIN_USER has uid $uid, not 1000: proj refuses workspaces (the box shows host uid N as uid N, dev is 1000). See docs/HOSTING.md."
+}
+
 # host.env AGENT_SUDO_ALLOW (default "proj-agent", owner decision 2026-11-11): MAIN_USER and
 # AGENT_USER may run /usr/local/sbin/proj-agent as root without a password. Nothing else: no
 # general sudo for agents. "" = no agent sudo at all (our file is removed).
@@ -465,7 +491,8 @@ agents_sudo() {
     cat > "$tmp" <<EOF
 $AGENTS_SUDOERS_HEADER="proj-agent".
 # $users may run ONE command as root without a password: /usr/local/sbin/proj-agent, a strict
-# allow-list (new try/mvp box, list, snapshot, doctor, logs, status, restart inside a box).
+# allow-list (new try/mvp box, list, snapshot, doctor, logs, status, restart inside a box,
+# exec / ports / url inside a box: commands run there as dev, never as root, never on the host).
 # Agents have no other sudo. Everything else: they give the owner the exact command.
 # Name: sudo reads /etc/sudoers.d in sorted order and the LAST matching rule wins. This file must
 # sort after zz-server-main-password ("zzz-a" > "zz-s"), or MAIN_USER would need a password here.
