@@ -9,3 +9,4 @@ ai/hooks/hermes/routing.json
 ai/hooks/hermes/L0.md
 ai/hooks/hermes/router.py
 ai/hooks/hermes/hooklib.py
+ai/AGENTS.md
