@@ -596,8 +596,13 @@ cmd_doctor() {
     zpool status -x "$POOL" 2>/dev/null | grep -q 'is healthy' && ok "pool $POOL healthy" || fail "pool $POOL not healthy (zpool status $POOL)"
     ok "ZFS ARC now $(awk '/^size/ {printf "%.1f GiB", $3/1073741824}' /proc/spl/kstat/zfs/arcstats 2>/dev/null)"
     if systemctl is-active -q docker; then
-        iptables -C DOCKER-USER -i incusbr0 -j ACCEPT 2>/dev/null \
-            && ok "DOCKER-USER lets incusbr0 through" || fail "DOCKER-USER rule for incusbr0 missing: boxes have no network (systemctl restart incus-docker-fix)"
+        # Same rules as files/sbin/incus-docker-fix: box traffic handed to ufw (RETURN), replies accepted.
+        if iptables -C DOCKER-USER -i incusbr0 -j RETURN 2>/dev/null \
+            && iptables -C DOCKER-USER -o incusbr0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null; then
+            ok "DOCKER-USER hands box traffic to ufw and accepts replies"
+        else
+            fail "DOCKER-USER rules for incusbr0 missing: boxes have no network (systemctl restart incus-docker-fix)"
+        fi
     fi
     local budget used
     budget=$(incus project get default limits.memory 2>/dev/null || true)
