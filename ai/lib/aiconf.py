@@ -121,6 +121,11 @@ def main():
 
     s = sub.add_parser("undo", help="reverse every recorded change, newest first")
     s.add_argument("--keep-state", action="store_true")
+    g = s.add_mutually_exclusive_group()
+    g.add_argument("--skip-tools", action="store_true", help="keep installed tools (default uninstall)")
+    g.add_argument("--only-tools", action="store_true", help="remove only installed tools (--purge-all)")
+
+    s = sub.add_parser("tools", help="list recorded tool installs (what --purge-all removes)")
 
     sub.add_parser("status", help="list recorded changes")
 
@@ -481,10 +486,30 @@ def cmd_status(a):
     print("%d recorded changes in %s" % (len(st["entries"]), STATE_PATH))
 
 
+# Records of installed tools (binaries, npm/uv packages, plugin sources, the docs service and its
+# firewall rules). The default uninstall keeps them; --purge-all removes them. Keyed by record key, so
+# records written by older installs are classified too.
+TOOL_KEY_PREFIXES = ("cmd:npm:", "cmd:npm-local:", "cmd:uv:", "cmd:bin:", "cmd:plugin-src:", "cmd:systemd:", "cmd:ufw:")
+
+
+def is_tool(e):
+    k = e.get("key", "")
+    return k.startswith(TOOL_KEY_PREFIXES) or "ai-docs-mcp" in k
+
+
+def cmd_tools(a):
+    for e in load_state()["entries"]:
+        if is_tool(e):
+            print("%s\t%s" % (e.get("id") or e.get("file"), redact_join(e["undo"]) if e.get("undo") else "remove " + str(e.get("file"))))
+
+
 def cmd_undo(a):
     st = load_state()
     left = []
     for e in reversed(st["entries"]):
+        if (a.skip_tools and is_tool(e)) or (a.only_tools and not is_tool(e)):
+            left.append(e)  # not this pass: stays recorded
+            continue
         try:
             ok = undo_entry(e)
         except Exception as ex:  # keep going: one broken entry must not stop the rest
@@ -497,7 +522,8 @@ def cmd_undo(a):
     if not DRY and not a.keep_state:
         st["entries"] = left
         save_state(st)
-    print("undo: %d of %d entries reversed, %d kept in the state file (failed)" % (total - len(left), total, len(left)))
+    print("undo: %d of %d entries reversed, %d kept in the state file%s" % (
+        total - len(left), total, len(left), " (installed tools, or failed)" if a.skip_tools else " (failed)"))
 
 
 # ---------------------------------------------------------------- undo
@@ -754,8 +780,9 @@ def hermes_register(name, spec, prefix):
         if spec["args"]:
             add += ["--args"] + spec["args"]
     if known:
-        run(sh(["hermes", "mcp", "remove", name]), check=False)
-    run(sh(add))
+        run(sh(["hermes", "mcp", "remove", name]), check=False, answer="y\n")
+    # Hermes asks to confirm and may ask for an optional auth value: answer yes, then empty lines.
+    run(sh(add), answer="y\n\n\n")
     if not known or is_ours("hermes-mcp:%s" % name):
         record({"kind": "cmd", "id": "hermes-mcp:%s" % name, "undo": sh(["hermes", "mcp", "remove", name])},
                key="cmd:hermes-mcp:%s" % name)
@@ -1017,11 +1044,15 @@ def say(action, target, detail):
                               action, target, detail))
 
 
-def run(argv, check=True):
+def run(argv, check=True, answer=None):
+    """answer: text fed to stdin for CLIs that ask (e.g. Hermes "Remove server? [Y/n]"); default: no stdin."""
     if DRY:
         print("  [dry-run] " + redact_join(argv))
         return 0
-    rc = subprocess.call(argv, stdin=subprocess.DEVNULL)
+    if answer is None:
+        rc = subprocess.call(argv, stdin=subprocess.DEVNULL)
+    else:
+        rc = subprocess.run(argv, input=answer, text=True).returncode
     if rc != 0 and check:
         raise SystemExit("aiconf: command failed (%d): %s" % (rc, redact_join(argv)))
     return rc

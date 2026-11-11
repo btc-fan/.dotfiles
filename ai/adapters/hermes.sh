@@ -110,7 +110,8 @@ hermes_rules() {
 hermes_env() {
     as_hermes_ro 'command -v hermes' >/dev/null || return 0
     local key want cur
-    for kv in "approvals.mode=manual" "unauthorized_dm_behavior=ignore"; do
+    # Owner decision 2026-11-11: smart approvals; unknown DMs ignored (allowed users: owner only, in secrets).
+    for kv in "approvals.mode=smart" "unauthorized_dm_behavior=ignore"; do
         key=${kv%%=*}; want=${kv#*=}
         cur=$(as_hermes_ro "hermes config get $key" | tail -n1 | tr -d '[:space:]' || true)
         if [ "$cur" = "$want" ]; then info "Hermes $key = $want"; continue; fi

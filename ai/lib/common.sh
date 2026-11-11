@@ -291,10 +291,29 @@ report_changes() {
 
 # Audit gate: an install runs only after agent-audit passed for that exact target.
 audit_ok() {
-    # audit_ok <ecosystem> <target> [version]
-    if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] agent-audit $*"; return 0; fi
-    if ! has agent-audit; then warn "agent-audit not found: cannot audit $2, not installing it"; return 1; fi
-    if agent-audit "$@"; then return 0; fi
-    warn "agent-audit found problems in $2${3:+ $3}: not installed, show the owner"
+    # audit_ok <ecosystem> <target> [version] [name]
+    # name: for `dir` audits of a temp folder, the tool name to look up in ai/audit-accepted.txt.
+    local eco=$1 target=$2 ver=${3:-} name=${4:-$2} reason
+    if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] agent-audit $eco $target${ver:+ $ver}"; return 0; fi
+    if ! has agent-audit; then warn "agent-audit not found: cannot audit $target, not installing it"; return 1; fi
+    if [ "$eco" = dir ]; then agent-audit dir "$target" && return 0
+    else agent-audit "$eco" "$target" ${ver:+"$ver"} && return 0; fi
+    # Findings. Go on only for an owner-reviewed EXACT version (SPEC 22, ai/audit-accepted.txt).
+    reason=$(audit_accepted "$eco" "$name" "$ver")
+    if [ -n "$reason" ]; then
+        info "ACCEPTED owner-reviewed: $eco $name $ver ($reason)"
+        mkdir -p "$AI_STATE_DIR"
+        printf '%s %s %s %s ACCEPTED owner-reviewed\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$eco" "$name" "${ver:--}" \
+            >> "$AI_STATE_DIR/audit.log"
+        return 0
+    fi
+    warn "agent-audit found problems in $name${ver:+ $ver}: not installed, show the owner"
     return 1
+}
+
+# audit_accepted <ecosystem> <name> <version>: prints the reviewed reason if that exact version is listed.
+audit_accepted() {
+    local f="$AI_HOME/ai/audit-accepted.txt"
+    [ -n "$3" ] && [ -f "$f" ] || return 0
+    awk -v e="$1" -v n="$2" -v v="$3" '!/^#/ && $1==e && $2==n && $3==v { $1=$2=$3=""; sub(/^ +/, ""); print; exit }' "$f"
 }

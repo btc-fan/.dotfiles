@@ -352,7 +352,7 @@ tools_github_mcp() {
     # Audit the tag source first (SPEC 21), then take the release binary only if its sha256 is the pin.
     git clone -q --depth 1 --branch "v$GITHUB_MCP_VERSION" https://github.com/github/github-mcp-server "$tmp/src" \
         || { warn "github-mcp-server tag source clone failed"; rm -rf "$tmp"; return 0; }
-    audit_ok dir "$tmp/src" || { rm -rf "$tmp"; return 0; }
+    audit_ok dir "$tmp/src" "v$GITHUB_MCP_VERSION" github-mcp-server || { rm -rf "$tmp"; return 0; }
     curl -fsSL -o "$tmp/$asset" "$url" || { warn "download failed: $url"; rm -rf "$tmp"; return 0; }
     sha256_is "$tmp/$asset" "$sum" || { warn "github-mcp-server checksum mismatch: not installed"; rm -rf "$tmp"; return 0; }
     mkdir -p "$tmp/x" && tar -xzf "$tmp/$asset" -C "$tmp/x"

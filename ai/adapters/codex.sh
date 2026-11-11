@@ -1,7 +1,11 @@
 # ai/adapters/codex.sh: Codex CLI wiring through its own CLI (SPEC 20).
 # Own merge code only for: the AGENTS.md managed block (base.sh) and single keys in config.toml.
 
-codex_has_plugin() { codex plugin list 2>/dev/null | grep -qF "$1"; }
+# Installed plugins only: `codex plugin list` also prints the remote catalog ("not installed" lines).
+codex_installed_plugins() {
+    codex plugin list 2>/dev/null | grep -viE 'not[ _-]?installed|uninstalled|available' | grep -E '[[:alnum:]]' || true
+}
+codex_has_plugin() { codex_installed_plugins | grep -qF "$1"; }
 
 codex_marketplace_plugin() {
     # codex_marketplace_plugin <marketplace dir> <marketplace name> <plugin@marketplace>
@@ -52,9 +56,9 @@ codex_plugins() {
 
     # Remote curated plugins installed without our audit (SPEC 20): show, owner decides.
     local others
-    others=$(codex plugin list 2>/dev/null | grep -vE 'ai-core|ponytail|i-have-adhd' | grep -E '[[:alnum:]]' || true)
+    others=$(codex_installed_plugins | grep -vE 'ai-core|ponytail|i-have-adhd' || true)
     if [ -n "$others" ]; then
-        info "other Codex plugins (not audited by us):"
+        info "other installed Codex plugins (not audited by us):"
         printf '%s\n' "$others" | sed 's/^/    /'
         manual "decide keep or remove for the Codex plugins listed above (codex plugin remove <name>)"
     fi
