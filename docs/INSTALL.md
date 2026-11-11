@@ -52,7 +52,6 @@ Options:
 | `--dry-run` | Print what would change. Change nothing. |
 | `--agents a,b` | Only these agents: claude, codex, hermes, opencode, herdr. |
 | `--skip-packages` | Do not install system packages. |
-| `--rtk-hook` | RTK hook switch for macOS (the Mac owner turned RTK off earlier). RTK is on by default on servers. The final form of this switch is being decided: see `install.sh --help`. |
 | `--docs-server` | Also set up the Grounded Docs server role on this machine (Ubuntu). |
 | `--yes` | Answer yes to the confirm questions. Not to the server question. |
 

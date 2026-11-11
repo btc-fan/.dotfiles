@@ -170,7 +170,7 @@ Opt-in per project (offered by the ai-adopt / ai-start picker, each with a one-l
 - Owner hooks.json (A.2): Notification (permission_prompt|idle_prompt) + Stop -> `~/.dotfiles/bin/claude-notify`;
   SessionStart (startup|resume) -> caffeinate. claude-notify: macOS notification; Linux: Discord #server-info,
   silent no-op without the webhook. Same notify for every agent that supports stop/notification hooks.
-- RTK rewrite hook (Claude, Codex, Hermes plugin), on by default on every machine (`--no-rtk-hook` skips it).
+- RTK rewrite hook (Claude, Codex, Hermes plugin), always on, on every machine (no flag; raw output for one command: `rtk proxy <cmd>`).
 - graphify hook-guard (advisory) on Bash|Grep and Read|Glob, plus compaction reminder.
 - herdr status integration hooks.
 - Serena: vendor `serena-hooks activate` at SessionStart (Claude, Codex) + `cleanup` at SessionEnd; OWN
@@ -266,7 +266,7 @@ Every MCP and skill gets `ai/rules/<tool>.md` + routing.yaml rows + evals:
 - Macs (this Mac and the older Intel Mac on macOS 12): NOT now (owner 2026-11-11 "No Macs for now").
   When enabled later: after the server test and owner review. Guard rail (every machine): install changes only agent
   configuration, never projects, databases or services. RTK hook ON by default everywhere (owner: "use RTK all the
-  time"); `--no-rtk-hook` skips it on one machine.
+  time"), always on, no flag.
 - Windows: later (chezmoi or a PowerShell script). Its README "AI setup" section says "planned, not supported yet".
 - `ubuntu-server` branch (owner: default setup for any new Ubuntu server, with README; the README ends with the
   "AI setup" section): all server phase scripts + notes (power-off recovery, watchdog, no-sleep, WoL,
