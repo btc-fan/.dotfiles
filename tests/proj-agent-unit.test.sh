@@ -44,7 +44,8 @@ mkdir -p "$D"
 cat > "$D/work.sh" <<'EOF'
 set -e
 D=$1 G=$2 MU=$3 MODE=$4
-as_main() { if [ "$MODE" = root ]; then runuser -u "$MU" -- "$@"; else "$@"; fi; }
+# As files/proj/proj does it (as_user): setpriv, no PAM session.
+as_main() { if [ "$MODE" = root ]; then setpriv --reuid="$(id -u "$MU")" --regid="$(id -g "$MU")" --init-groups -- "$@"; else "$@"; fi; }
 mkdir "$D/ws"
 [ "$MODE" != root ] || chown "$MU:$G" "$D/ws"
 chmod 2775 "$D/ws"
@@ -70,8 +71,10 @@ ok()  { pass=$((pass + 1)); }
 bad() { fail=$((fail + 1)); echo "FAIL: $*"; }
 
 echo "== $mode mode, ${#props[@]} unit options: ${props[*]}"
-out=$("${run[@]}" "${args[@]}" bash "$D/work.sh" "$D" "$G" "$MU" "$mode" 2>&1)
-grep -qx ALL-OK <<< "$out" && ok || bad "proj's host work fails under the unit options: $out"
+out=$("${run[@]}" "${args[@]}" bash "$D/work.sh" "$D" "$G" "$MU" "$mode" 2> "$D/stderr")
+grep -qx ALL-OK <<< "$out" && ok || bad "proj's host work fails under the unit options: $out $(cat "$D/stderr")"
+# Clean stderr: agents read any warning as an error (seen: pam_keyinit "cannot set user id").
+[ ! -s "$D/stderr" ] && ok || bad "proj's host work printed on stderr under the unit options: $(head -c 400 "$D/stderr")"
 
 rm -rf -- "$D/ws" "$D/REGISTRY.json"
 out=$("${run[@]}" "${args[@]}" -p RestrictSUIDSGID=yes bash "$D/work.sh" "$D" "$G" "$MU" "$mode" 2>&1)
