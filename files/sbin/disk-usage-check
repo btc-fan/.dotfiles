@@ -29,8 +29,9 @@ alert() {
     fi
 }
 
-while read -r target fstype; do
+while read -r target fstype source; do
     target=$(printf '%b' "$target")   # findmnt -r writes a space as \x20
+    case "$source" in *\[*) continue ;; esac   # a bind mount (dev[/path]): its disk is checked already
     read -r pct free < <(df -hP "$target" | awk 'NR==2 {gsub("%", "", $5); print $5, $4}')
     ipct=-
     case "$fstype" in ext4|xfs) ipct=$(df -Pi "$target" | awk 'NR==2 {gsub("%", "", $5); print $5}') ;; esac
@@ -41,7 +42,7 @@ while read -r target fstype; do
     if [ "$ipct" != - ] && [ "${ipct:-0}" -ge "$ilimit" ]; then
         alert "inodes-$target" 1440 "inodes almost used up: $target" "${ipct}% of the inodes used (limit ${ilimit}%): many small files"
     fi
-done < <(findmnt -rn -o TARGET,FSTYPE -t ext4,xfs,btrfs,vfat,zfs | sort -u)
+done < <(findmnt -rn -o TARGET,FSTYPE,SOURCE -t ext4,xfs,btrfs,vfat,zfs | sort -u)
 
 if command -v zpool >/dev/null 2>&1; then
     while read -r pool cap health; do

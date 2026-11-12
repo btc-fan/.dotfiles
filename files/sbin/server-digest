@@ -40,14 +40,15 @@ fi
 
 # ---- disks ----
 d=""
-while read -r target fstype; do
+while read -r target fstype source; do
     target=$(printf '%b' "$target")
+    case "$source" in *\[*) continue ;; esac   # a bind mount (shown as dev[/path]): same disk again
     case "$target" in /var/lib/incus/*|/boot*|/snap/*) continue ;; esac
     p=$(df -P "$target" | awk 'NR==2 {print $5}')
     i=""
     case "$fstype" in ext4|xfs) i=" (inodes $(df -Pi "$target" | awk 'NR==2 {print $5}'))" ;; esac
     d="$d $target $p$i,"
-done < <(findmnt -rn -o TARGET,FSTYPE -t ext4,xfs,btrfs | sort -u)
+done < <(findmnt -rn -o TARGET,FSTYPE,SOURCE -t ext4,xfs,btrfs | sort -u)
 add "disks:${d%,}"
 if command -v zpool >/dev/null 2>&1; then
     z=$(zpool list -H -o name,health,capacity 2>/dev/null | awk '{printf " %s %s %s,", $1, $2, $3}')
