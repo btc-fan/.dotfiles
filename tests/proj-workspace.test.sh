@@ -46,6 +46,7 @@ EOF
 cat > "$T/bin/setfacl" <<EOF
 #!/bin/bash
 echo "setfacl \$*" >> "$CALLS"
+[ -z "\${FAIL_SETFACL:-}" ] || { echo "setfacl: Operation not permitted" >&2; exit 1; }
 EOF
 cat > "$T/bin/getent" <<EOF
 #!/bin/bash
@@ -196,6 +197,19 @@ ls "$WORK_ROOT/.trash" | grep -q '^snapbox-' && ok || bad "unsnap: the current w
 # No root chown or chmod that walks a workspace is left in proj (only as_main ... find).
 bad_lines=$(grep -nE '^[^#]*find [^|]*-exec ch(own|mod)' "$REPO/files/proj/proj" | grep -v 'as_main find' || true)
 [ -z "$bad_lines" ] && ok || bad "root find -exec chown/chmod left in proj: $bad_lines"
+
+echo "== new fails after the launch: the half-made box is removed, an older workspace is kept"
+: > "$CALLS"
+out=$( (set -e; FAIL_SETFACL=1 cmd_new halfbox --tier try) 2>&1 ); rc=$?
+[ "$rc" != 0 ] && grep -q "new halfbox FAILED" <<< "$out" && ok || bad "failed new did not report: rc=$rc $out"
+[ "$(line_of 'incus delete --force halfbox')" -gt 0 ] && ok || bad "failed new did not delete the box: $(cat "$CALLS")"
+[ ! -e "$T/state/halfbox" ] && ok || bad "half box still in state"
+[ ! -d "$WORK_ROOT/halfbox" ] && ok || bad "workspace made by the failed new was left behind"
+mkdir -p "$WORK_ROOT/keptbox"; echo mine > "$WORK_ROOT/keptbox/code.py"
+out=$( (set -e; FAIL_SETFACL=1 cmd_new keptbox --tier try) 2>&1 ); rc=$?
+[ "$rc" != 0 ] && grep -qx mine "$WORK_ROOT/keptbox/code.py" && [ ! -e "$T/state/keptbox" ] && ok || bad "a workspace that existed before was touched, or the box stayed: rc=$rc"
+out=$( (set -e; cmd_new goodbox --tier try) 2>&1 ); rc=$?
+[ "$rc" = 0 ] && [ -e "$T/state/goodbox" ] && ok || bad "a good new was rolled back: rc=$rc $out"
 
 echo "== lock: two proj commands on the same box name never run at once"
 if command -v flock >/dev/null; then

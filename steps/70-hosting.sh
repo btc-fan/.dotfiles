@@ -541,7 +541,9 @@ ProtectKernelLogs=yes
 ProtectControlGroups=yes
 ProtectClock=yes
 ProtectHostname=yes
-RestrictSUIDSGID=yes
+# No RestrictSUIDSGID: proj makes every workspace folder setgid (chmod 2775, group devs) and
+# that option forbids setting the setgid bit (seen 2026-11-12: "chmod: Operation not permitted"
+# in proj new through the socket). The workspaces are mounted nosuid anyway.
 RestrictRealtime=yes
 LockPersonality=yes
 SystemCallArchitectures=native

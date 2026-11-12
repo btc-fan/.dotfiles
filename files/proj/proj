@@ -448,6 +448,35 @@ launch() {  # name tier docker
     fi
 }
 
+# new_rollback: EXIT trap of cmd_new. When new fails after the launch, remove what this run made:
+# the box (protection off first), its data volume (new had checked there was none), and the
+# workspace if this run made it (moved to .trash when it holds anything). Then exit with the
+# same code and alert. A workspace that existed before is never touched.
+NEW_NAME=""
+NEW_WS_EXISTED=1
+new_rollback() {
+    local rc=$? n=$NEW_NAME d
+    [ -n "$n" ] && [ "$rc" != 0 ] || return 0
+    trap - EXIT
+    NEW_NAME=""
+    say "new $n FAILED (exit $rc): removing the half-made box, so nothing is left without tier or owner"
+    incus config unset "$n" security.protection.delete </dev/null >/dev/null 2>&1 || true
+    if exists "$n"; then
+        incus delete --force "$n" </dev/null >/dev/null 2>&1 || say "WARN: could not delete box $n: sudo proj wipe $n --yes"
+    fi
+    if has_vol "$n"; then
+        incus storage volume delete "$POOL" "$n-data" </dev/null >/dev/null 2>&1 || say "WARN: could not delete volume $n-data"
+    fi
+    d=$(ws_dir "$n")
+    if [ "$NEW_WS_EXISTED" = 0 ] && [ -d "$d" ]; then
+        if [ -z "$(ls -A "$d")" ]; then rmdir -- "$d"; else ws_trash "$n"; fi
+    fi
+    note "new $n failed rc=$rc: rolled back"
+    notify alerts "proj new $n failed" "exit $rc, rolled back (box, volume, new workspace removed). See /var/log/proj.log and the caller's output."
+    cmd_registry >/dev/null 2>&1 || true
+    exit "$rc"
+}
+
 cmd_new() {
     local name="" tier="" repo="" docker=no pg=no ttl=7d owner=${SUDO_USER:-root}
     name=${1:-}; shift || true
@@ -470,6 +499,11 @@ cmd_new() {
     has_vol "$name" && die "a data volume $name-data already exists (left from an old box?)"
     ws_check
 
+    # From here on a failure must not leave a half-made box (no tier, no owner): new_rollback.
+    NEW_WS_EXISTED=0
+    [ ! -d "$(ws_dir "$name")" ] || NEW_WS_EXISTED=1
+    NEW_NAME=$name
+    trap new_rollback EXIT
     launch "$name" "$tier" "$docker"
     ws_make "$name"
     ws_attach "$name"
@@ -489,6 +523,8 @@ cmd_new() {
         cmd_backup "$name"
     fi
     note "new $name tier=$tier docker=$docker pg=$pg repo=${repo:-none}"
+    NEW_NAME=""
+    trap - EXIT
     cmd_registry >/dev/null
     say "ready. Code: $(ws_dir "$name") on the host (/srv/app in the box). Log in: sudo proj shell $name"
 }
