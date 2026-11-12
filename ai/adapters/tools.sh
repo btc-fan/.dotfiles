@@ -193,6 +193,7 @@ EOF_ENV
 
 tools_harnesses() {
     if [ "$AI_SKIP_PACKAGES" = 1 ]; then skip "harness installs (--skip-packages)"; return 0; fi
+    tools_scanners   # first: every install below is audited with them
 
     if want claude; then
         if ! has claude; then
@@ -384,6 +385,50 @@ tools_system() {
     return 0
 }
 
+# Audit scanners for agent-audit (guarddog, skill-scanner, osv-scanner). Every other install is audited with
+# them, so they come first. They cannot audit themselves: exact pinned versions, wheels only, sha256 for the
+# osv-scanner binary. Linux: system-wide (/opt/uv-tools, links in /usr/local/bin, root-owned). macOS: the
+# user's uv tools and ~/.local/bin.
+scanner_ok() { has "$1" && "$1" --version 2>/dev/null | grep -q "$2"; }
+
+tools_scanners() {
+    if [ "$AI_SKIP_PACKAGES" = 1 ]; then skip "audit scanners (--skip-packages)"; return 0; fi
+    local pair name ver bin
+    for pair in "guarddog:$GUARDDOG_VERSION:guarddog" "cisco-ai-skill-scanner:$SKILL_SCANNER_VERSION:skill-scanner"; do
+        name=${pair%%:*}; ver=${pair#*:}; ver=${ver%%:*}; bin=${pair##*:}
+        if scanner_ok "$bin" "$ver"; then info "$bin $ver present"; continue; fi
+        if [ "$AI_OS" = linux ]; then
+            run_root env UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin UV_LINK_MODE=copy \
+                uv tool install --force --no-build -p "$SCANNER_PYTHON" "$name==$ver" || { warn "$bin $ver install failed"; continue; }
+            aiconf record-cmd "uv-root:$bin" -- $SUDO_UNDO env UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin uv tool uninstall "$name"
+        else
+            run env UV_LINK_MODE=copy uv tool install --force --no-build -p "$SCANNER_PYTHON" "$name==$ver" \
+                || { warn "$bin $ver install failed"; continue; }
+            aiconf record-cmd "uv:$bin" -- uv tool uninstall "$name"
+        fi
+        ok "$bin $ver (pinned, wheels only)"
+    done
+    tools_osv_scanner
+}
+
+tools_osv_scanner() {
+    local ver=$OSV_SCANNER_VERSION os arch var want got tmp
+    if scanner_ok osv-scanner "$ver"; then info "osv-scanner $ver present"; return 0; fi
+    case "$AI_OS" in linux) os=linux ;; macos) os=darwin ;; esac
+    case "$AI_ARCH" in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) warn "osv-scanner: no build for $AI_ARCH"; return 0 ;; esac
+    var="OSV_SCANNER_SHA256_${os}_${arch}"; want=$(eval "printf '%s' \"\${$var:-}\"")
+    [ -n "$want" ] || { warn "osv-scanner: no pinned sha256 for ${os}_${arch}"; return 0; }
+    if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] download osv-scanner v$ver ${os}_${arch}, check sha256, install"; return 0; fi
+    tmp=$(mktemp "${TMPDIR:-/tmp}/osv.XXXXXX")
+    curl -fsSL -o "$tmp" "https://github.com/google/osv-scanner/releases/download/v$ver/osv-scanner_${os}_${arch}" \
+        || { rm -f "$tmp"; warn "osv-scanner download failed"; return 0; }
+    got=$( (sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp") | cut -d' ' -f1)
+    if [ "$got" != "$want" ]; then rm -f "$tmp"; warn "osv-scanner sha256 mismatch ($got): not installed"; return 0; fi
+    install_bin "$tmp" osv-scanner; rm -f "$tmp"
+    aiconf record-cmd bin:osv-scanner -- $SUDO_UNDO rm -f "$(bin_dir)/osv-scanner"
+    ok "osv-scanner $ver (sha256 checked)"
+}
+
 # context7 MCP: one pinned install per user, run by mcp/context7.sh (no runtime npx, B3).
 AI_NPM_DIR="$HOME/.local/share/ai/npm"
 tools_context7() {
@@ -394,29 +439,60 @@ tools_context7() {
     ok "context7-mcp $CONTEXT7_MCP_VERSION in $dir (integrity checked, scripts off)"
 }
 
-# RTK from source at the pinned tag: prebuilt x86_64 binaries need AVX2 (contracts-mcp-a 4.6).
+# RTK: latest stable compatible (owner decision 2026-11-12), not a fixed pin. The tag is the newest stable
+# release (no pre-release, no draft, plain vX.Y.Z) that is at least RTK_COOLDOWN_DAYS old; when the audited pin
+# RTK_TAG is newer than that, the pin wins (already audited). Offline or API error: the pin. Always built from
+# source (prebuilt x86_64 binaries need AVX2, contracts-mcp-a 4.6), so every OS and arch gets the same path,
+# and the source tree is audited before the build. The resolved tag and commit go to the audit log.
+rtk_resolve_tag() {
+    local api="https://api.github.com/repos/${RTK_REPO#https://github.com/}/releases?per_page=100" json
+    json=$(curl -fsSL --max-time 20 "$api" 2>/dev/null) || { printf '%s' "$RTK_TAG"; return 0; }
+    printf '%s' "$json" | python3 -c '
+import json, re, sys, datetime as dt
+pin, days = sys.argv[1], int(sys.argv[2])
+def key(t): return tuple(int(x) for x in t[1:].split("."))
+now = dt.datetime.now(dt.timezone.utc)
+best = None
+for r in json.load(sys.stdin):
+    t = r.get("tag_name", "")
+    if r.get("prerelease") or r.get("draft") or not re.fullmatch(r"v\d+\.\d+\.\d+", t):
+        continue
+    age = now - dt.datetime.fromisoformat(r["published_at"].replace("Z", "+00:00"))
+    if age.days >= days and (best is None or key(t) > key(best)):
+        best = t
+if best is None or (re.fullmatch(r"v\d+\.\d+\.\d+", pin) and key(pin) > key(best)):
+    best = pin
+print(best, end="")
+' "$RTK_TAG" "${RTK_COOLDOWN_DAYS:-7}" 2>/dev/null || printf '%s' "$RTK_TAG"
+}
+
 tools_rtk() {
-    if has rtk && rtk --version 2>/dev/null | grep -q "$RTK_VERSION"; then info "rtk $RTK_VERSION present"; return 0; fi
+    local tag ver
+    tag=$(rtk_resolve_tag); ver=${tag#v}
+    if has rtk && rtk --version 2>/dev/null | grep -q "$ver"; then info "rtk $ver present (latest stable compatible)"; return 0; fi
     if ! has cargo; then
         if [ "$AI_OS" = linux ] && confirm "apt-get install cargo rustc pkg-config libssl-dev (to build RTK)?" y; then
             run_root apt-get install -y -q cargo rustc pkg-config libssl-dev
+        elif [ "$AI_OS" = macos ] && has brew && confirm "brew install rust (to build RTK)?" y; then
+            run brew install rust
         else
-            manual "install a Rust toolchain, then re-run to build rtk $RTK_TAG from source"; return 0
+            manual "install a Rust toolchain, then re-run to build rtk $tag from source"; return 0
         fi
     fi
     local src
     if [ "$AI_MODE" = system ]; then src="$AI_TARGET_HOME/.cache/ai/build/rtk"; else src="$AI_BUILD_DIR/rtk"; fi
     if [ "$AI_DRY_RUN" = 1 ]; then
-        info "[dry-run] git clone --depth 1 --branch $RTK_TAG $RTK_REPO $src; agent-audit dir; cargo build --release --locked; install"
+        info "[dry-run] git clone --depth 1 --branch $tag $RTK_REPO $src; agent-audit dir; cargo build --release --locked; install"
         return 0
     fi
     # Build as the user (system mode: the target user), never as root; only the install is root.
     as_target rm -rf "$src"; as_target mkdir -p "$(dirname "$src")"
-    as_target git clone -q --depth 1 --branch "$RTK_TAG" "$RTK_REPO" "$src" || { warn "rtk clone failed"; return 0; }
+    as_target git clone -q --depth 1 --branch "$tag" "$RTK_REPO" "$src" || { warn "rtk clone failed"; return 0; }
     local rtkhead
     if [ "$AI_MODE" = system ]; then rtkhead=$(sudo -u "$AI_FOR_USER" git -C "$src" rev-parse HEAD)
     else rtkhead=$(git -C "$src" rev-parse HEAD); fi
-    if [ "$rtkhead" != "$RTK_COMMIT" ]; then
+    # The pinned tag must still point to the audited commit; a newer tag is audited below like any source.
+    if [ "$tag" = "$RTK_TAG" ] && [ "$rtkhead" != "$RTK_COMMIT" ]; then
         warn "rtk tag $RTK_TAG now points to $rtkhead, pin is $RTK_COMMIT: not built (tag moved, new audit needed)"
         return 0
     fi
@@ -424,7 +500,9 @@ tools_rtk() {
     as_target sh -c "cd '$src' && cargo build --release --locked" || { warn "rtk build failed"; return 0; }
     install_bin "$src/target/release/rtk" rtk
     aiconf record-cmd bin:rtk -- $SUDO_UNDO rm -f "$(bin_dir)/rtk"
-    ok "rtk $RTK_VERSION built from source"
+    mkdir -p "$AI_STATE_DIR"
+    printf '%s rtk %s %s built (latest stable compatible)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$tag" "$rtkhead" >> "$AI_STATE_DIR/audit.log"
+    ok "rtk $ver built from source ($tag, $rtkhead)"
 }
 
 # ---------------------------------------------------------------- dropped tools (owner decision 2026-11-12)

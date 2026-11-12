@@ -33,7 +33,12 @@ claude_plugin() {
         info "$plugin already installed: kept as is"
         return 0
     fi
-    run claude plugin install "$plugin" --scope user || { warn "claude plugin install $plugin failed"; return 1; }
+    # A marketplace can be declared but not loaded, or loaded from an older tree ("plugin not found"):
+    # refresh it once and retry before giving up (old Mac, 2026-11-12).
+    if ! run claude plugin install "$plugin" --scope user; then
+        run claude plugin marketplace update "$mname" || run claude plugin marketplace add "$msrc" || true
+        run claude plugin install "$plugin" --scope user || { warn "claude plugin install $plugin failed"; return 1; }
+    fi
     aiconf record-cmd "claude-plugin:$plugin" -- claude plugin uninstall "$plugin"
     ok "Claude plugin $plugin (user scope)"
 }

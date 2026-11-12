@@ -198,7 +198,17 @@ aiconf_hermes() {
 
 detect_os() {
     case "$(uname -s)" in
-        Darwin) AI_OS=macos ;;
+        Darwin)
+            AI_OS=macos
+            # Non-login shells (ssh, cron, IDE terminals) often lack Homebrew (Apple Silicon /opt/homebrew,
+            # Intel /usr/local) and ~/.local/bin (uv tools, our links).
+            local d
+            for d in "$HOME/.local/bin" /usr/local/bin /opt/homebrew/bin; do
+                [ -d "$d" ] || continue
+                case ":$PATH:" in *":$d:"*) ;; *) PATH="$d:$PATH" ;; esac
+            done
+            export PATH
+            ;;
         Linux)
             AI_OS=linux
             AI_DISTRO=$(. /etc/os-release 2>/dev/null; printf '%s' "${ID:-unknown}")

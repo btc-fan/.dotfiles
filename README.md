@@ -32,20 +32,17 @@ Audit reports (local, not in git) live next to the checkouts in `ai-audit/`.
 - docs/TOOLS.md sections 7 (every tool's default and configuration) and 8 (overlaps, one job each).
 
 **Open, in order:**
-1. **macOS installer bugs found on the first Mac install (macOS 12, Intel):**
-   - the `ai` marketplace already existed in an old cached form, so `ai-core`, `ai-serena` and
-     `ai-playwright` failed with "not found in marketplace": install must refresh the marketplace
-     (`claude plugin marketplace update ai`, or remove and re-add) before installing;
-   - the audit scanners (`guarddog`, `osv-scanner`, `skill-scanner`) are not installed on macOS, so
-     `agent-audit` errors and Serena, the skills and i-have-adhd were (correctly) not installed;
-     install must add the scanners on macOS first;
-   - the prerequisite check did not find Homebrew at `/usr/local/bin` when PATH lacked it.
-   After the fix: rerun `~/.dotfiles-ai/install.sh --agents claude,codex --yes` on that Mac, then
-   `ai-doctor`, then `ai-adopt` in the first project, then restart running Claude/OMC sessions.
-2. **RTK: latest stable compatible instead of an exact pin** (owner decision): a resolver that takes
-   the newest non-pre-release at least 7 days old that runs on the machine (prebuilt asset per OS
-   and arch; source build only where the prebuilt cannot run, e.g. a CPU without AVX2), still
-   audited, with the installed version recorded. Other tools stay pinned for now.
+1. **macOS installer bugs: FIXED in code, not yet rerun on the Mac.** Plugin install now refreshes
+   (or re-adds) the marketplace once and retries on "not found"; the audit scanners are installed
+   first by the installer on every OS (`tools_scanners`: guarddog and skill-scanner as pinned uv tools,
+   osv-scanner as a sha256-checked release binary; pins in `ai/pins.env`); macOS adds `~/.local/bin`,
+   `/usr/local/bin` and `/opt/homebrew/bin` to PATH when missing. Next: rerun
+   `~/.dotfiles-ai/install.sh --agents claude,codex --yes` on that Mac, then `ai-doctor`, then
+   `ai-adopt` in the first project (show the diff), then restart running Claude/OMC sessions.
+2. **RTK latest stable compatible: DONE in code.** `rtk_resolve_tag` takes the newest plain `vX.Y.Z`
+   release (no pre-release, no draft) at least `RTK_COOLDOWN_DAYS` (7) old; the audited `RTK_TAG` wins
+   when it is newer; offline means the pin. Always built from source (one path for every OS and arch,
+   no AVX2 question), source audited first, tag and commit written to the audit log.
 3. **Claude live checks on the server** could not run today (the server's Claude account was out
    of quota): rerun `ai-doctor --live` as the main user and the end-to-end test (a small web page in
    a try box through the box tool, test, commit). Codex already passed context7 + box creation.
