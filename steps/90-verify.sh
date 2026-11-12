@@ -37,14 +37,16 @@ agents_proj_checks() {
     for u in "$MAIN_USER" "${AGENT_USER:-}"; do
         [ -n "$u" ] && id "$u" >/dev/null 2>&1 || continue
         chk "$u may run proj-agent (sudo -l)" sudo -n -l -U "$u" "$pa"
-        got=$(sudo -n -l -U "$u" 2>/dev/null | nopasswd_effective | sort -u | tr '\n' ' ')
+        # The ai branch adds one more allow-listed helper for the main user: the root-owned Discord
+        # webhook poster (/usr/local/sbin/ai-webhook-post, fixed URL files, no arguments run).
+        got=$(sudo -n -l -U "$u" 2>/dev/null | nopasswd_effective | grep -vxF /usr/local/sbin/ai-webhook-post | sort -u | tr '\n' ' ')
         got=${got% }
         if [ "$u" = "${AGENT_USER:-}" ] && [ "${AGENT_SUDO:-none}" = full ]; then
             p INFO "$u: AGENT_SUDO=full, passwordless sudo for everything ($got)"
         elif [ "$u" = "$MAIN_USER" ] && [ ! -f /etc/sudoers.d/zz-server-main-password ]; then
             p INFO "$MAIN_USER: passwordless sudo for: ${got:-nothing} (--drop-main-sudo not done)"
         elif [ "$got" = "$pa" ]; then
-            p PASS "$u: the only passwordless sudo command is proj-agent"
+            p PASS "$u: the only passwordless sudo commands are proj-agent (and the ai-webhook-post helper)"
         else
             p FAIL "$u: passwordless sudo for '${got:-nothing}', expected only $pa (sudo -l -U $u)"
             fails=$((fails + 1))
