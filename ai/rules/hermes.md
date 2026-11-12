@@ -9,6 +9,7 @@ No rules text to import. Facts, verbatim:
 - `pre_llm_call` runs "once per turn before the loop; all valid string/{"context": ...} returns are joined and injected into the user message; the first valid {"action": "block", ...} ends the turn".
 
 ## When / when not
+- Code questions, same order as every agent: the AGENTS.md Map, then `graphify query` (structure), then Serena symbol tools (definitions, references, edits), then a narrow `rg` and reading only the located lines.
 - Chat gateway (Discord DMs and a private channel) and a daily 09:00 summary. Runs as the user `hermes`, with no sudo (owner decision 2026-11-11: no agent has sudo; the server has no sudoers entry for hermes). The no-root rule applies: never sudo or try to get root. Box work on a server: the box tool (MCP server `box`: list, new, exec, logs, status, restart, ports, url, snapshot, doctor, help); outside a sandbox also plain `proj-agent <subcommand>`; never sudo. For anything else that needs root, give the owner the exact command.
 - Plain SKILL.md skills only. No hand-off to Claude Code (owner decision 2026-11-12). For SEO and blog work, follow the claude-seo or claude-blog skill files directly (paths in `claude-seo.md`): read `skills/seo/SKILL.md` or `skills/blog/SKILL.md`, then the sub-skill it names. ui-ux-pro-max: tell the owner it needs a Claude session.
 - Skills from `official/` only. Never `--force`. Hermes has no manual-only flag, so every installed skill is model-reachable.
@@ -30,6 +31,6 @@ No rules text to import. Facts, verbatim:
 2. As user `hermes` (`sudo -u hermes -H`): `hermes mcp add` for the MCP servers, `hermes config set` for settings, plugin dir `~/.hermes/plugins/<name>/` enabled in `plugins.enabled`.
 3. Env in secrets: `DISCORD_ALLOWED_USERS` = owner only. Bot permissions 117760 and Message Content Intent. Unauthorized DMs ignored. Approvals manual. Telemetry off. Gateway as a user service.
 4. `hermes skills trust` once in a repo that ships `.agents/skills/`.
-5. Serena for Hermes: `--context ide`, by hand.
+5. Serena for Hermes: `hermes mcp add` with `--context ide --project-from-cwd` and mode no-memories (install.sh).
 6. Verify: `hermes doctor`. `hermes skills list` shows exactly the intended skills.
 7. Cleanup: delete copied skill folders, `hermes skills untrust` for a repo, remove SOUL.md block and MCP entries.

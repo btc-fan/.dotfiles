@@ -67,6 +67,8 @@ def main(argv):
     check_dropped()
     check_claude_policy()
     check_hooks_absolute()
+    check_serena_config()
+    check_no_duplicate_layers()
     check_uv_links()
     check_codex_policy()
     check_hermes()
@@ -500,15 +502,19 @@ def check_dropped():
         say("WARN", "github-mcp-server binary still on PATH (%s)" % shutil.which("github-mcp-server"),
             "admin: sudo /opt/ai-setup/install.sh --update --for-user <user> removes it")
     plugin_mcp = load_json_file(os.path.join(PLUGIN, ".mcp.json")) or {}
-    extra = sorted(set((plugin_mcp.get("mcpServers") or {})) - {"context7"})
-    say("PASS" if not extra else "FAIL", "ai-core serves only context7 (Serena is the opt-in plugin ai-serena)",
+    extra = sorted(set((plugin_mcp.get("mcpServers") or {})) - {"context7", "box"})   # box: server boxes
+    say("PASS" if not extra else "FAIL", "ai-core serves context7 and box only (Serena is the plugin ai-serena)",
         ("unexpected: " + ", ".join(extra)) if extra else "")
     if shutil.which("codex"):
         code, out = run(["codex", "mcp", "list"], timeout=30)
-        left = [n for n in ("github", "grounded-docs", "serena") if re.search(r"(^|\s)%s(\s|$)" % n, out, re.M)]
+        left = [n for n in ("github", "grounded-docs") if re.search(r"(^|\s)%s(\s|$)" % n, out, re.M)]
         if code == 0:
-            say("PASS" if not left else "WARN", "Codex MCP: no global github, grounded-docs or serena",
+            say("PASS" if not left else "WARN", "Codex MCP: no github or grounded-docs",
                 ("still registered: %s (re-run install.sh)" % ", ".join(left)) if left else "")
+            if shutil.which("serena"):
+                ok = re.search(r"(^|\s)serena(\s|$)", out, re.M) is not None
+                say("PASS" if ok else "FAIL", "Codex MCP: serena (on by default, context codex)",
+                    "" if ok else "re-run install.sh")
 
 
 def check_claude_policy():
@@ -591,8 +597,9 @@ def check_claude_policy():
         "" if ok else "admin: sudo /opt/ai-setup/install.sh --update --for-user <user>")
     if shutil.which("rtk") and locked:
         say("PASS" if "rtk hook claude" in hooks else "WARN", "RTK hook runs as a managed hook (user hooks are locked)")
-    for n in ("ai-serena@ai", "claude-seo@agricidaniel-claude-seo", "claude-blog@agricidaniel-blog",
-              "oh-my-claudecode@omc"):
+    if (claude_settings().get("enabledPlugins") or {}).get("ai-serena@ai") is not True and shutil.which("serena"):
+        say("FAIL", "Serena on at user scope (enabledPlugins ai-serena@ai true; on by default)", "re-run install.sh")
+    for n in ("claude-seo@agricidaniel-claude-seo", "claude-blog@agricidaniel-blog", "oh-my-claudecode@omc"):
         val = (claude_settings().get("enabledPlugins") or {}).get(n)
         if val is not None:
             say("PASS" if val is False else "WARN", "%s off at user scope (opt-in per project)" % n.split("@")[0])
@@ -689,6 +696,36 @@ def check_uv_links():
             "" if not linked else "%d linked files: re-run install.sh (reinstalls with UV_LINK_MODE=copy)" % linked)
 
 
+def check_serena_config():
+    """Serena 2.1.0 global config: tools interface, no dashboard, answers capped, no memories/onboarding."""
+    if not shutil.which("serena"):
+        return
+    cfg = read_text_file(os.path.join(os.environ.get("SERENA_HOME") or os.path.join(HOME, ".serena"),
+                                      "serena_config.yml")) or ""
+    want = {"agent_interface": "tools", "web_dashboard": "false", "default_max_tool_answer_chars": "40000",
+            "default_modes": "[no-memories]", "excluded_tools": "[execute_shell_command, serena_repl]"}
+    miss = [k for k, v in want.items() if not re.search(r"^%s:\s*%s\s*$" % (k, re.escape(v)), cfg, re.M | re.I)]
+    say("PASS" if not miss else "FAIL", "Serena config: tools interface, no shell tool, no dashboard, answers cut at 40k, "
+        "no memories (no overlap with built-ins and the AGENTS.md Map)",
+        ("not set: %s (re-run install.sh)" % ", ".join(miss)) if miss else "")
+
+
+def check_no_duplicate_layers():
+    """Overlaps removed (docs/TOOLS.md section 8): graphify's global instruction section and hooks are not in
+    the Claude or Codex user files; Serena's system-prompt override is not added."""
+    hits = []
+    for f in (os.path.join(HOME, ".claude", "CLAUDE.md"), os.path.join(HOME, ".codex", "AGENTS.md")):
+        text = read_text_file(f) or ""
+        if re.search(r"^## graphify\b", text, re.M):
+            hits.append("%s: graphify section" % f)
+        if "print-cc-system-prompt-override" in text or "Serena Instructions Manual" in text:
+            hits.append("%s: Serena prompt override" % f)
+    hooks = json.dumps((claude_settings().get("hooks") or {}))
+    if re.search(r"graphify (hook-guard|hook-check)|serena-hooks remind", hooks):
+        hits.append("~/.claude/settings.json: graphify or serena remind hook")
+    say("PASS" if not hits else "WARN", "no duplicate instruction or hook layers (graphify, Serena)", "; ".join(hits))
+
+
 def check_codex_policy():
     if not LINUX or not shutil.which("codex"):
         return
@@ -754,7 +791,7 @@ def check_hermes():
     enabled = bool(sub) and re.search(r"^\s*enabled:\s*(false|False|no|off)\s*$", sub, re.M) is None
     say("PASS" if enabled else "FAIL", "Hermes MCP context7 enabled",
         "" if enabled else "admin: sudo /opt/ai-setup/install.sh --update --for-user <user> (adds it from hermes' home)")
-    left = [n for n in ("github", "grounded-docs", "serena") if aiconf.yaml_extract_child(cfg, "mcp_servers", n)]
+    left = [n for n in ("github", "grounded-docs") if aiconf.yaml_extract_child(cfg, "mcp_servers", n)]
     say("PASS" if not left else "WARN", "Hermes MCP: dropped servers removed",
         ("still there: %s (re-run install.sh)" % ", ".join(left)) if left else "")
     m = re.search(r"^updates:\s*$(.*?)(?=^\S|\Z)", cfg, re.M | re.S)
@@ -927,11 +964,16 @@ def check_project(path, explicit=False):
     if PHONE_RX.search(blocks) or EMAIL_RX.search(blocks):
         say("WARN", "phone number or email in the AGENTS.md knowledge sections (they are pushed)")
     ids = hl.enabled_ids(root)
-    if "serena" in ids:
+    if "serena" in ids and shutil.which("serena"):
         st = load_json_file(os.path.join(root, ".claude", "settings.json")) or {}
-        on = (st.get("enabledPlugins") or {}).get("ai-serena@ai") is True
-        say("PASS" if on else "WARN", "Serena enabled here (enabledPlugins ai-serena@ai)",
-            "" if on else "ai-adopt --tools serena")
+        off = (st.get("enabledPlugins") or {}).get("ai-serena@ai") is False
+        made = os.path.isfile(os.path.join(root, ".serena", "project.yml"))
+        say("PASS" if made and not off else "WARN", "Serena project here (.serena/project.yml, indexed by ai-adopt)",
+            "" if made and not off else ("this project turns ai-serena off" if off else "ai-adopt (creates and indexes it)"))
+    if ("graph" in ids or "graphify" in ids) and shutil.which("graphify"):
+        code, out = run(["graphify", "hook", "status"], cwd=root)
+        ok = "post-commit: installed" in out and "out of date" not in out
+        say("PASS" if ok else "WARN", "graphify git hooks keep the graph fresh", "" if ok else "ai-adopt (graphify hook install)")
     if "graph" in ids or "graphify" in ids:
         g = hl.graph_status(root, hl.git_history(root))
         say("PASS" if g == "fresh" else "WARN", "graphify graph %s" % g,

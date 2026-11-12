@@ -244,12 +244,12 @@ pick_agents() {
     has claude && list="$list,claude"
     has codex && list="$list,codex"
     [ "$AI_MODE" != user ] && hermes_exists && list="$list,hermes"
-    # macOS: opencode always (SPEC 3), herdr where it exists. Linux servers (owner decision 2026-11-12): Claude
-    # and Codex only, plus Hermes; opencode and herdr only with AI_EXTRA_AGENTS=opencode,herdr (their code
-    # stays; without the flag an earlier install of them is undone: agents_drop_user / agents_drop_system).
+    # macOS: opencode always (SPEC 3), herdr where it exists. Linux servers (owner decisions 2026-11-12): Claude,
+    # Codex, Hermes and herdr ("should be installed, leave it alone"); opencode only with
+    # AI_EXTRA_AGENTS=opencode (its code stays; without the flag an earlier install is undone: agents_drop_*).
     if [ "$AI_OS" = linux ]; then
         case ",${AI_EXTRA_AGENTS:-}," in *,opencode,*) list="$list,opencode" ;; esac
-        case ",${AI_EXTRA_AGENTS:-}," in *,herdr,*) list="$list,herdr" ;; esac
+        list="$list,herdr"
     else
         list="$list,opencode"
         has herdr && list="$list,herdr"

@@ -1,7 +1,7 @@
 # opencode (opencode-ai)
 
 Pin: 1.19.5. sha512 `sha512-tEqMvQahfhdDj8vceYpXtoIrvjPXm5XRfetWnPN5YISueU7adNx9JcUA3zZ+2GKuDVgDpGdQe1ZLtCZDjqodvA==`. Binary package `opencode-linux-x64@1.19.5`: `sha512-i1qh7VooLGML9xX6ud93y0JA8j/1aPeDYRKjsmYXrJX1TjIWHgBBMkEbEJPZthpWbsJg//XfBgR6Kb7+NPaJiQ==`. Docs: https://opencode.ai/docs/, https://opencode.ai/docs/skills/
-Linux servers: not installed by default (owner decision 2026-11-12; the defaults there are Claude, Codex and Hermes). An earlier install is undone from its records. Bring it back with `AI_EXTRA_AGENTS=opencode,herdr` in the environment of install.sh. macOS: always installed.
+Linux servers: not installed by default (owner decision 2026-11-12; the defaults there are Claude, Codex, Hermes and herdr). An earlier install is undone from its records. Bring it back with `AI_EXTRA_AGENTS=opencode` in the environment of install.sh. macOS: always installed.
 
 ## Vendor rules
 NOT FOUND. opencode ships no rules template. It reads AGENTS.md as is, so the root file carries the rules. It reads `~/.claude/skills` and `~/.agents/skills`. It does not see Claude plugin skills.

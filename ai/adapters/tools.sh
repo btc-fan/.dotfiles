@@ -433,7 +433,7 @@ tools_rtk() {
 # entries) were dropped: agents use context7 and the gh CLI. Earlier installs recorded every piece, so the
 # removal replays exactly those undo records (uninstall stays symmetric: nothing left to undo later).
 DROPPED_SYSTEM_KEYS='^(cmd:npm:docs-mcp|cmd:systemd:ai-docs-mcp|cmd:ufw:.*:6280|file:/etc/systemd/system/ai-docs-mcp\.service|file:/etc/default/ai-docs-mcp|cmd:bin:github-mcp-server)$'
-DROPPED_USER_KEYS='^(cmd|restore):(codex|hermes)-mcp:(github|grounded-docs|serena)$|^json:.*opencode\.json:mcp/(github|grounded-docs|serena)$'
+DROPPED_USER_KEYS='^(cmd|restore):(codex|hermes)-mcp:(github|grounded-docs)$|^json:.*opencode\.json:mcp/(github|grounded-docs)$'
 
 tools_drop_system() {
     [ "$AI_OS" = linux ] || return 0
@@ -480,12 +480,7 @@ agents_drop_system() {
 # User side: our codex/hermes/opencode registrations of github, grounded-docs and the global serena.
 tools_drop_user() {
     aiconf undo --only "$DROPPED_USER_KEYS"
-    # A global Serena in Codex that an older install (or serena's own setup) added without a record: Serena is
-    # opt-in per project now, and a global one writes .serena/ into every repo Codex opens (Fable readiness).
-    if has codex && codex mcp get serena --json 2>/dev/null | grep -q 'start-mcp-server'; then
-        run codex mcp remove serena && ok "Codex: global serena MCP server removed (opt-in per project now)"
-    fi
-    ok "dropped MCP registrations removed (github, grounded-docs, global serena)"
+    ok "dropped MCP registrations removed (github, grounded-docs)"
 }
 
 # ---------------------------------------------------------------- Claude sandbox dependencies (Linux)

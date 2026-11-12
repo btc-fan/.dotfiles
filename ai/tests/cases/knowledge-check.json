@@ -2,7 +2,7 @@
  "rule": "knowledge-check",
  "cases": [
   {
-   "name": "commit added a code file and a lockfile",
+   "name": "commit added a code file and a lockfile (project opted out: no-serena, no-graph)",
    "expect": "fire",
    "event": "PostToolUse",
    "payload": {
@@ -19,7 +19,8 @@
     "git_init": true,
     "files": {
      "app.py": "print(1)\n",
-     "uv.lock": "x\n"
+     "uv.lock": "x\n",
+     ".ai/enabled": "no-serena\nno-graph\n"
     },
     "commit": "add app"
    },

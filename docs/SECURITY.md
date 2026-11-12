@@ -39,12 +39,12 @@ Gates are lint, not a sandbox: a script file or an unusual command can pass them
 - Gap: Codex cannot deny reads of files in your home folder. Do not run Codex on a machine where a home-folder secret must stay hidden from it.
 - Per-project MCP servers in `.codex/config.toml` load only in trusted projects.
 - Box work from Codex: the box tool (MCP server `box`: list, new, exec, logs, status, restart, ports, url, snapshot, doctor, help); outside a sandbox also plain `proj-agent <subcommand>`; never sudo.
-- `codex exec` may run with approval `never` (requirements.toml allows it); the `workspace-write` sandbox stays. Codex has no global Serena.
+- `codex exec` may run with approval `never` (requirements.toml allows it); the `workspace-write` sandbox stays. Serena is registered for Codex globally (`--context=codex`, mode no-memories).
 
 ## Planted files (box to host)
 
 A box can write into its workspace, and a host tool may later read that workspace. Defences:
-- Claude ignores servers from a project `.mcp.json` and hooks from project or user settings (managed `strictPluginOnlyCustomization`). Plugin servers and plugin hooks still load, which is why opt-in Serena is the plugin `ai-serena@ai`, turned on per project with `enabledPlugins`.
+- Claude ignores servers from a project `.mcp.json` and hooks from project or user settings (managed `strictPluginOnlyCustomization`). Plugin servers and plugin hooks still load, which is why Serena and Playwright come from plugins (`ai-serena@ai`, on at user scope; `ai-playwright@ai`, on per project with `enabledPlugins`).
 - git hooks and `core.fsmonitor` in a workspace must not run on the host (server branch: run workspace git in the box or with forced safe config).
 - The escape tests E1 to E4 in [ACCEPTANCE.md](ACCEPTANCE.md) prove these on each server.
 

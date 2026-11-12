@@ -21,7 +21,7 @@
    ]
   },
   {
-   "name": "code repo without serena enabled",
+   "name": "code repo without serena enabled (project opted out: no-serena, no-graph)",
    "expect": "nofire",
    "event": "SessionStart",
    "payload": {
@@ -31,7 +31,8 @@
     "git": true,
     "files": {
      "main.py": "print(1)\n",
-     ".ai/base-version": "4\n"
+     ".ai/base-version": "4\n",
+     ".ai/enabled": "no-serena\nno-graph\n"
     }
    }
   },
@@ -66,7 +67,7 @@
    }
   },
   {
-   "name": "Codex does not count the Claude plugin switch",
+   "name": "Codex does not count the Claude plugin switch (project opted out: no-serena, no-graph)",
    "expect": "nofire",
    "event": "SessionStart",
    "agent": "codex",
@@ -78,9 +79,28 @@
     "git": true,
     "files": {
      "main.py": "x\n",
-     ".claude/settings.json": "{\"enabledPlugins\": {\"ai-serena@ai\": true}}"
+     ".claude/settings.json": "{\"enabledPlugins\": {\"ai-serena@ai\": true}}",
+     ".ai/enabled": "no-serena\nno-graph\n"
     }
    }
+  },
+  {
+   "name": "code repo, nothing in .ai/enabled: Serena is on by default",
+   "expect": "fire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "print(1)\n",
+     ".ai/base-version": "4\n"
+    }
+   },
+   "contains": [
+    "Serena is on here"
+   ]
   }
  ]
 }

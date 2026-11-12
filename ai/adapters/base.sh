@@ -151,14 +151,22 @@ base_serena_config() {
     has serena || { skip "Serena config: serena not installed"; return 0; }
     local cfg="${SERENA_HOME:-$HOME/.serena}/serena_config.yml"
     [ -f "$cfg" ] || run serena init </dev/null >/dev/null || { warn "serena init failed"; return 0; }
-    # tools interface (REPL runs any Python), no second shell, no dashboard (SPEC 4)
+    # Serena 2.1.0 serena_config.template.yml keys. tools interface (the v2 default REPL runs any Python, and
+    # excluded_tools only applies to the tools interface), no second shell, no dashboard or GUI log window.
     aiconf yaml-top-set "$cfg" agent_interface tools
     aiconf yaml-top-set "$cfg" excluded_tools "[execute_shell_command, serena_repl]"
     aiconf yaml-top-set "$cfg" web_dashboard false
     aiconf yaml-top-set "$cfg" web_dashboard_open_on_launch false
-    # Global Serena memories stay read-only for agents (project knowledge now lives in the repo AGENTS.md).
+    aiconf yaml-top-set "$cfg" gui_log_window false
+    aiconf yaml-top-set "$cfg" log_level 30
+    aiconf yaml-top-set "$cfg" tool_timeout 240
+    # Token use: a tool answer is cut at 40k characters (default 150k), so one broad call cannot fill the context.
+    aiconf yaml-top-set "$cfg" default_max_tool_answer_chars 40000
+    # No Serena memories and no onboarding (mode no-memories): the repo AGENTS.md Map is the one place for
+    # project knowledge; onboarding is a long first-run exploration that writes a second, drifting copy.
+    aiconf yaml-top-set "$cfg" default_modes "[no-memories]"
     aiconf yaml-top-set "$cfg" read_only_memory_patterns '["global/.*"]'
-    ok "Serena: tools interface, shell + REPL excluded, dashboard off, global memories read-only ($cfg)"
+    ok "Serena: tools interface, shell + REPL excluded, dashboard/GUI off, log warnings only, answers cut at 40k, no memories/onboarding ($cfg)"
 }
 
 # ---------------------------------------------------------------- admin layer (Linux, root-owned)

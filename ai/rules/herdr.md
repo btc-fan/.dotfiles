@@ -1,7 +1,7 @@
 # herdr
 
 Pin: 0.9.5. License Apache-2.0. Sources: https://herdr.dev/tui/docs, https://github.com/herdrdev/herdr
-Linux servers: not installed by default (owner decision 2026-11-12; the defaults there are Claude, Codex and Hermes). An earlier install is undone from its records. Bring it back with `AI_EXTRA_AGENTS=opencode,herdr` in the environment of install.sh. macOS: installed where present.
+Installed by default on Linux servers (owner decision 2026-11-12 evening: "should be installed, leave it alone"). macOS: installed where present.
 
 ## Vendor rules
 No CLAUDE.md or AGENTS.md text found. The docs point to https://herdr.dev/agent-guide.md. It was not fetched: UNVERIFIED. Fetch it at build and decide whether to import it.
@@ -25,7 +25,7 @@ Our own rule is the owner block A.5 (PR author-sessions note). It sits in `ai/ag
 - Signal: Bash `herdr agent get`. The block in the PR body. `pr-resume` parses it.
 
 ## Setup checklist
-1. macOS, or a server with `AI_EXTRA_AGENTS=herdr`. Install (no checksum or signature exists for any route): download the install script, record its sha, read it, then run it with `HERDR_INSTALL_DIR=/usr/local/bin`. `curl ... | sh` is blocked by the gate. Or `brew install herdr` (macOS). Or `mise use -g herdr` (pin form UNVERIFIED). Run `agent-audit` first.
+1. Install (no checksum or signature exists for any route): download the install script, record its sha, read it, then run it with `HERDR_INSTALL_DIR=/usr/local/bin`. `curl ... | sh` is blocked by the gate. Or `brew install herdr` (macOS). Or `mise use -g herdr` (pin form UNVERIFIED). Run `agent-audit` first.
 2. Config (merge only) `~/.config/herdr/config.toml`: `[update]` `version_check = false`, `manifest_check = false`. Telemetry key: not found (say "not found", not "none"). Never run `herdr update`.
 3. Integrations (throwaway HOME first, read the diff): `herdr integration install claude`, `herdr integration install codex`. The Codex one sets `[features] hooks = true` in `config.toml` (OMX manages that file too).
 4. Verify: `herdr --version`. `herdr integration status claude` and `codex`. In a pane: `herdr agent get "$HERDR_PANE_ID" | jq -r '.result.agent.agent_session.value'` is not empty.

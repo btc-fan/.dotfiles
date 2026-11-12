@@ -126,13 +126,15 @@ rules:
     strength: nudge
 
   # ---------- opt-in per project (catalog for ai-adopt --tools) ----------
+  # serena and graph are ON BY DEFAULT (owner 2026-11-12 evening): they fire in every code repo unless
+  # .ai/enabled has no-serena / no-graph. scope stays opt-in so the router can switch them off per project.
   - id: serena
     scope: opt-in
     tool: Serena
     when: session_start
     trigger: {state: 'git repo with code'}
-    summary: 'session start, Serena on here'
-    action: "Serena is on here: initial_instructions, then get_symbols_overview / find_symbol for reads, replace_symbol_body for edits."
+    summary: 'session start, Serena on (default)'
+    action: "Serena is on here (no memories, the Map is the knowledge place): get_symbols_overview / find_symbol for definitions, find_referencing_symbols for users, replace_symbol_body for edits."
     strength: nudge
 
   - id: graph
@@ -140,8 +142,8 @@ rules:
     tool: graphify
     when: session_start
     trigger: {state: 'git repo with code'}
-    summary: 'session start, graphify on here'
-    action: "graphify is on here: graphify query before broad searches; graphify update . after code changes."
+    summary: 'session start, graphify on (default)'
+    action: "graphify is on here: graphify query for structure before rg; the graph refreshes itself after commits, merges and checkouts."
     strength: nudge
 
   - id: omc

@@ -80,7 +80,8 @@ def main():
     try:
         for test in (t_libs_offline, t_libs_cache_and_notes, t_libs_online_fake, t_libs_check_stale,
                      t_libs_private_sources, t_libs_check_refuses_sync, t_libs_old_file_migrates, t_adopt_knowledge,
-                     t_adopt_optin_serena_graph, t_adopt_secret_in_map, t_optin_claude_plugins, t_map_tools_read_only):
+                     t_adopt_optin_serena_graph, t_adopt_gitignore_block, t_adopt_secret_in_map, t_optin_claude_plugins,
+                     t_map_tools_read_only):
             try:
                 test(work, server)
                 print("ok   " + test.__name__)
@@ -293,6 +294,11 @@ case "$1 $2" in
 esac
 """
 FAKE_GRAPHIFY = """#!/bin/sh
+if [ "$1 $2" = "hook status" ]; then
+    if [ -f .git/hooks/post-commit ]; then echo "post-commit: installed"; else echo "post-commit: not installed"; fi
+    exit 0
+fi
+if [ "$1 $2" = "hook install" ]; then echo "# graphify" > .git/hooks/post-commit; echo "post-commit: installed"; exit 0; fi
 [ "$GRAPHIFY_BACKEND" = none ] || { echo "no LLM API key found" >&2; exit 3; }
 [ "$1 $2 $3" = "extract . --code-only" ] || exit 4
 mkdir -p graphify-out && echo '{"nodes": []}' > graphify-out/graph.json
@@ -311,15 +317,18 @@ def t_adopt_knowledge(work, server):
     repo, env = adopt_repo(work, "adopt")
     res = run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--dry-run"], env=env, cwd=repo)
     assert res.returncode == 0, res.stdout
-    for step in ("would write AGENTS.md", "would run Map conventions", "would run ai-libs --sync"):
+    # Serena and graphify are on by default (owner 2026-11-12, evening): planned without any --tools.
+    for step in ("would write AGENTS.md", "would run Map conventions", "would run ai-libs --sync",
+                 "would run serena project create --index", "would run GRAPHIFY_BACKEND=none graphify extract . --code-only",
+                 "would run graphify hook install", "would write .gitignore"):
         assert step in res.stdout, "%s missing: %s" % (step, res.stdout)
-    for gone in ("serena", "graphify", ".gitignore"):
-        assert gone not in res.stdout, "opt-in step planned without opt-in: %s" % res.stdout
     res = run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--yes"], env=env, cwd=repo)
     assert res.returncode == 0, res.stdout
     files = run(["git", "-C", repo, "show", "--name-only", "--format=", "HEAD"]).stdout.split()
     assert "AGENTS.md" in files and "CLAUDE.md" in files, files
-    assert not any(f.startswith((".serena", "graphify-out", ".ai/libs.md")) for f in files), files
+    assert ".serena/project.yml" in files, files
+    assert not any(f.startswith(("graphify-out", ".ai/libs.md", ".serena/cache")) for f in files), files
+    assert os.path.isfile(os.path.join(repo, ".git", "hooks", "post-commit")), "graphify hooks not installed"
     text = open(os.path.join(repo, "AGENTS.md")).read()
     assert text.index("<!-- AI:map START") < text.index("<!-- AI:libraries START"), "Map must come first"
     m = text[text.index("## Map"):text.index("<!-- AI:map END -->")]
@@ -344,23 +353,66 @@ def t_adopt_optin_serena_graph(work, server):
                "--no-onboard"], env=env, cwd=repo)
     assert res.returncode == 0, res.stdout
     files = run(["git", "-C", repo, "show", "--name-only", "--format=", "HEAD"]).stdout.split()
-    for rel in (".serena/project.yml", ".serena/.gitignore", ".claude/settings.json", ".codex/config.toml", ".gitignore"):
+    for rel in (".serena/project.yml", ".claude/settings.json", ".gitignore"):
         assert rel in files, "%s not committed: %s" % (rel, files)
+    assert ".serena/.gitignore" not in files, "only .serena/project.yml is shared"
+    assert ".codex/config.toml" not in files, "Serena is global for Codex now: no project entry"
     assert ".mcp.json" not in files, "project .mcp.json is blocked by managed settings: Serena must use the plugin"
     assert not any(f.startswith(("graphify-out/", ".serena/cache")) for f in files), files
     plugins = json.load(open(os.path.join(repo, ".claude", "settings.json")))["enabledPlugins"]
     assert plugins == {"ai-serena@ai": True}, plugins
-    toml = open(os.path.join(repo, ".codex", "config.toml")).read()
-    assert "[mcp_servers.serena]" in toml and "--context=codex" in toml, toml
-    assert 'SERENA_USAGE_REPORTING = "false"' in toml, toml
     gi = open(os.path.join(repo, ".gitignore")).read().splitlines()
-    for line in (".serena/cache/", ".serena/project.local.yml", "graphify-out/"):
+    for line in (".serena/*", "!.serena/project.yml", "graphify-out/"):
         assert line in gi, "gitignore misses " + line
     assert os.path.isfile(os.path.join(repo, "graphify-out", "graph.json")), "graph not built"
-    assert open(os.path.join(repo, ".ai", "enabled")).read().split() == ["graph", "serena"]
+    assert enabled_ids(repo) == ["graph", "serena"], enabled_ids(repo)
     agents = open(os.path.join(repo, "AGENTS.md")).read()
     assert "<!-- AI:serena v" in agents and "Details: ~/.config/ai/rules/serena.md" in agents, agents
     assert len(agents) < 4000, "opt-in blocks must stay short: %d bytes" % len(agents)
+
+
+GI_BLOCK = [".omc/*", "!.omc/skills/", ".codex/", ".claude/*", "!.claude/settings.json", ".serena/*",
+            "!.serena/project.yml", "graphify-out/", ".ai/*", "!.ai/enabled"]
+
+
+def t_adopt_gitignore_block(work, server):
+    """One managed .gitignore block: after ai-adopt only the shared files are new, everything else is ignored."""
+    repo, env = adopt_repo(work, "gitignore")
+    with open(os.path.join(repo, ".gitignore"), "a") as fh:     # an older ai-adopt run left an unmarked block
+        fh.write("\n# AI tools (ai-adopt): caches and generated graph\n.serena/cache/\ngraphify-out/\n")
+    run(["git", "-C", repo, "commit", "-qam", "old block"], env=env)
+    for rel in (".codex/config.toml", ".omc/state/session.json", ".claude/settings.local.json"):   # tool state
+        os.makedirs(os.path.dirname(os.path.join(repo, rel)), exist_ok=True)
+        with open(os.path.join(repo, rel), "w") as fh:
+            fh.write("{}\n")
+    res = run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--tools", "omc", "--yes"],
+              env=env, cwd=repo)
+    assert res.returncode == 0, res.stdout
+    files = set(run(["git", "-C", repo, "show", "--name-only", "--format=", "HEAD"]).stdout.split())
+    want = {"AGENTS.md", "CLAUDE.md", ".gitignore", ".claude/settings.json", ".ai/enabled", ".serena/project.yml"}
+    assert files == want, "committed %s, want %s" % (sorted(files), sorted(want))
+    status = run(["git", "-C", repo, "status", "--porcelain", "--untracked-files=all"]).stdout
+    assert status.strip() == "", "local tool files not ignored:\n" + status
+    for local in (".ai/base-version", ".codex/config.toml", ".serena/cache", "graphify-out/graph.json"):
+        assert os.path.exists(os.path.join(repo, local)), "%s was not created, the test proves nothing" % local
+    gi = open(os.path.join(repo, ".gitignore")).read()
+    lines = gi.splitlines()
+    assert lines[0] == "node_modules/", "owner lines must stay first: %s" % lines[:2]
+    assert "# AI tools (ai-adopt): caches and generated graph" not in gi, "old unmarked block not removed"
+    start = lines.index("# >>> AI tools (managed by ai-adopt; edit outside this block) >>>")
+    end = lines.index("# <<< AI tools <<<")
+    assert lines[start + 1:end] == GI_BLOCK, lines[start + 1:end]
+    assert gi.count(">>> AI tools") == 1
+    res = run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--yes"], env=env, cwd=repo)
+    assert "nothing to change" in res.stdout, "rerun must be idempotent: " + res.stdout
+    # a project that already tracks .claude/commands keeps them shared
+    os.makedirs(os.path.join(repo, ".claude", "commands"))
+    with open(os.path.join(repo, ".claude", "commands", "deploy.md"), "w") as fh:
+        fh.write("deploy\n")
+    run(["git", "-C", repo, "add", "-f", ".claude/commands/deploy.md"], env=env)
+    run(["git", "-C", repo, "commit", "-qm", "command"], env=env)
+    run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--yes"], env=env, cwd=repo)
+    assert "!.claude/commands/" in open(os.path.join(repo, ".gitignore")).read().splitlines()
 
 
 def t_adopt_secret_in_map(work, server):
@@ -398,7 +450,7 @@ def t_optin_claude_plugins(work, server):
     data = json.load(open(settings))
     assert data["enabledPlugins"] == {"claude-seo@agricidaniel-claude-seo": True}, data
     assert data["permissions"] == {"allow": ["Bash(ls:*)"]}, "other settings lost"
-    assert open(os.path.join(repo, ".ai", "enabled")).read().split() == ["seo"]
+    assert enabled_ids(repo) == ["seo"], enabled_ids(repo)
     res = run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--tools", "blog", "--no-knowledge",
                "--yes"], env=env, cwd=repo)
     data = json.load(open(settings))
@@ -454,6 +506,11 @@ def libs(work, repo, *args, url=DEAD_URL, state=None):
     env = {"HOME": os.path.join(work, "home-libs"), "AI_CONTEXT7_URL": url, "CONTEXT7_API_KEY": "test-key",
            "AI_STATE_DIR": state or os.path.join(work, "no-state")}
     return run([sys.executable, os.path.join(BIN, "ai-libs"), "--dir", repo] + list(args), env=env)
+
+
+def enabled_ids(repo):
+    text = open(os.path.join(repo, ".ai", "enabled")).read()
+    return [ln.split("#", 1)[0].strip() for ln in text.splitlines() if ln.split("#", 1)[0].strip()]
 
 
 def table(repo):

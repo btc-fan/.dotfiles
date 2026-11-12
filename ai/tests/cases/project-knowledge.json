@@ -2,7 +2,7 @@
  "rule": "project-knowledge",
  "cases": [
   {
-   "name": "code repo without Map: status line says so",
+   "name": "code repo without Map: status line says so (project opted out: no-serena, no-graph)",
    "expect": "fire",
    "event": "SessionStart",
    "payload": {
@@ -11,7 +11,8 @@
    "project": {
     "git_init": true,
     "files": {
-     "main.py": "print(1)\n"
+     "main.py": "print(1)\n",
+     ".ai/enabled": "no-serena\nno-graph\n"
     }
    },
    "contains": [

@@ -106,10 +106,12 @@ The global rules are the floor. A project adds its own text on top.
 my-project/
   AGENTS.md      project rules (stack, commands, conventions)
   CLAUDE.md      one line: @AGENTS.md
+  .gitignore     your lines plus one managed "AI tools" block (ai-adopt)
   .ai/
-    base-version   which routing version the project was set up with
-    enabled        opt-in rule ids, one per line
-  .serena/project.yml, graphify-out/   only when the project turned Serena or graphify on
+    base-version   which routing version the project was set up with (local, ignored)
+    enabled        opt-in tool ids and opt-outs (no-serena, no-graph), one per line (committed)
+  .claude/settings.json   project plugin opt-ins (committed); the rest of .claude/ is ignored
+  .serena/project.yml     Serena language config (committed); graphify-out/ and .serena/cache/ are ignored
 ```
 
 - **Project knowledge lives in the project AGENTS.md** (owner decision 2026-11-12). Every agent reads it with no tool call, which beats on-demand tools. `ai-adopt` writes two managed sections between markers and never touches text outside them:

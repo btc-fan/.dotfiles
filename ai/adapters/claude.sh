@@ -142,11 +142,14 @@ claude_plugins() {
     # Serena: opt-in per project (owner decision 2026-11-12). Installed, OFF at user scope; a project turns it
     # on with ai-adopt --tools serena (project enabledPlugins ai-serena@ai = true).
     # Playwright the same way (project .mcp.json no longer loads under the managed mcp lock).
+    # Serena: ON at user scope (owner decision 2026-11-12, evening: Serena and graphify on by default in every
+    # project; `no-serena` in a project's .ai/enabled turns it off there). Playwright stays opt-in per project.
     local op
     for op in ai-serena@ai ai-playwright@ai; do
         claude_plugin ai "$AI_HOME/ai/marketplace" "$op" || true
-        aiconf json-set "$CLAUDE_DIR/settings.json" "enabledPlugins/$op" false
     done
+    aiconf json-set "$CLAUDE_DIR/settings.json" "enabledPlugins/ai-serena@ai" true
+    aiconf json-set "$CLAUDE_DIR/settings.json" "enabledPlugins/ai-playwright@ai" false
     manual "Claude, once per machine, in a project with claude-seo on: /seo setup, then /seo doctor (venv + Chromium)"
 
     # Plugins the design dropped: report, never remove.
@@ -230,11 +233,10 @@ claude_allow_rules() {
     local t
     # context7 (resolve + query): every tool.
     printf '%s\n' "${CLAUDE_MCP_PREFIX}context7__*"
-    # Serena (opt-in plugin ai-serena): reads, symbol lookups, project memory. Symbol edits are NOT here.
-    for t in initial_instructions get_current_config onboarding check_onboarding_performed list_dir find_file \
-        read_file search_for_pattern get_symbols_overview find_symbol find_referencing_symbols find_declaration \
-        find_implementations get_diagnostics_for_file list_memories read_memory write_memory edit_memory \
-        rename_memory; do
+    # Serena (plugin ai-serena, on by default): the read-only symbol tools of the claude-code context (its file
+    # and shell tools are excluded there; memories and onboarding are off: mode no-memories). Edits still prompt.
+    for t in initial_instructions get_current_config search_for_pattern get_symbols_overview find_symbol \
+        find_referencing_symbols find_declaration find_implementations get_diagnostics_for_file; do
         printf 'mcp__plugin_ai-serena_serena__%s\n' "$t"
     done
     # GitHub through the gh CLI (the GitHub MCP was dropped): read-only forms only; everything else asks.

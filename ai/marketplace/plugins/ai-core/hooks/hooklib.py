@@ -1196,10 +1196,22 @@ def map_block(root):
     return m.group(1) if m else None
 
 
+# On by default in every project (owner decision 2026-11-12, evening); `no-serena` / `no-graph` in .ai/enabled
+# turns one off for that project.
+DEFAULT_ON = ("serena", "graph")
+
+
+def with_defaults(ids):
+    ids = set(ids)
+    return ids | {d for d in DEFAULT_ON if "no-" + d not in ids}
+
+
 def enabled_ids(root):
-    """Opt-in ids of the project (.ai/enabled) plus `serena` when the project enables the ai-serena plugin."""
+    """Opt-in ids of the project (.ai/enabled), the default-on tools, and `serena` when the project enables the
+    ai-serena plugin."""
     text = read_text(os.path.join(root, ".ai", "enabled")) if root else ""
-    ids = {ln.split("#", 1)[0].strip().lower() for ln in (text or "").splitlines() if ln.split("#", 1)[0].strip()}
+    ids = with_defaults({ln.split("#", 1)[0].strip().lower() for ln in (text or "").splitlines()
+                         if ln.split("#", 1)[0].strip()})
     for rel in (".claude/settings.json", ".claude/settings.local.json"):
         try:
             data = json.loads(read_text(os.path.join(root, rel)) or "{}") if root else {}
@@ -1330,7 +1342,7 @@ def graphify_hook_installed(root):
     return any("graphify" in (read_text(os.path.join(d, n)) or "") for n in ("post-commit", "post-checkout"))
 
 
-def knowledge_delta(root, new_docs_ids=False):
+def knowledge_delta(root, new_docs_ids=False, graph_refreshing=False):
     """One combined nudge after a fresh commit, or '' when nothing applies."""
     if not root:
         return ""
@@ -1344,11 +1356,112 @@ def knowledge_delta(root, new_docs_ids=False):
         todo.append("run ai-libs --sync and commit AGENTS.md")
     ids = enabled_ids(root)
     if ("graph" in ids or "graphify" in ids) and any(is_code_file(p) for _st, p in files) \
-            and not graphify_hook_installed(root):
+            and not graph_refreshing and not graphify_hook_installed(root):
         todo.append("run graphify update .")
     if not todo:
         return ""
     return "After this commit: " + "; ".join(todo) + "."
+
+
+# ---------------------------------------------------------------- graph refresh after agent git calls
+# The server's git guard turns git hooks off for agent git calls, so graphify's own post-commit hook does not
+# run for them. After a successful commit, merge, pull, checkout, switch or rebase the router starts
+# `graphify update <repo>` itself (graphify 0.9.105: code only, incremental, no LLM, no key): detached, nice 10,
+# one run per repo at a time (a call during a run marks one more pass), output to ~/.local/state/ai.
+GRAPH_GIT_SUBS = {"commit", "merge", "pull", "checkout", "switch", "rebase"}
+GIT_VALUE_OPTS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"}
+
+
+def graph_git_calls(stages, cwd):
+    """Folders of the git calls that change the checked-out code (git [-C dir] commit|merge|pull|...)."""
+    out = []
+    for st in stages:
+        if st.exe != "git":
+            continue
+        args, d, i = st.args, cwd, 0
+        while i < len(args):
+            a = args[i]
+            if a in GIT_VALUE_OPTS and i + 1 < len(args):
+                if a == "-C":
+                    d = os.path.join(d, args[i + 1])
+                i += 2
+                continue
+            if a.startswith("-"):
+                i += 1
+                continue
+            if a in GRAPH_GIT_SUBS:
+                out.append(d)
+            break
+    return out
+
+
+def graphify_bin():
+    """graphify by absolute path, never a PATH lookup: a root-owned copy first, else the user's uv tool link
+    (~/.local/bin, which sandboxed commands and agent edits cannot write)."""
+    override = os.environ.get("AI_GRAPHIFY_BIN")
+    if override:
+        return override if os.path.isfile(override) else ""
+    for d in ("/usr/local/bin", "/usr/bin"):
+        p = os.path.join(d, "graphify")
+        try:
+            st = os.stat(p)
+        except OSError:
+            continue
+        if st.st_uid == 0 and not st.st_mode & 0o022:
+            return p
+    p = os.path.expanduser("~/.local/bin/graphify")
+    return p if os.path.isfile(p) else ""
+
+
+GRAPH_RUNNER = r"""
+import fcntl, os, subprocess, sys
+root, gfy, lock, pending, log = sys.argv[1:6]
+open(pending, "w").close()
+f = open(lock, "w")
+try:
+    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except OSError:
+    sys.exit(0)                 # a run is going: it sees the pending mark and runs once more
+os.nice(10)
+env = dict(os.environ, GRAPHIFY_BACKEND="none", GRAPHIFY_NO_TIPS="1")
+with open(log, "a") as out:
+    while os.path.exists(pending):
+        os.remove(pending)
+        try:
+            subprocess.run([gfy, "update", root], cwd=root, env=env, stdin=subprocess.DEVNULL, stdout=out,
+                           stderr=out, timeout=1800)
+        except Exception as exc:
+            out.write("graph refresh failed: %s" % exc + chr(10))
+"""
+
+
+def start_graph_refresh(root):
+    """Start the detached refresh for one repo. True when started (or handed to a running one)."""
+    import hashlib
+    import subprocess
+    gfy = graphify_bin()
+    if not gfy or not os.path.isfile(os.path.join(root, "graphify-out", "graph.json")):
+        return False
+    key = hashlib.sha1(os.path.realpath(root).encode("utf-8")).hexdigest()[:12]
+    lock, pending = state_path("graph-%s.lock" % key), state_path("graph-%s.pending" % key)
+    log = state_path("graphify-update.log")
+    try:
+        os.makedirs(os.path.dirname(log), mode=0o700, exist_ok=True)
+    except OSError:
+        return False
+    py = "/usr/bin/python3" if os.path.isfile("/usr/bin/python3") else sys_executable()
+    try:
+        subprocess.Popen([py, "-I", "-c", GRAPH_RUNNER, root, gfy, lock, pending, log], cwd=root,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True, close_fds=True)
+    except OSError:
+        return False
+    return True
+
+
+def sys_executable():
+    import sys
+    return sys.executable
 
 
 CONTEXT7_ID_RX = re.compile(r"/[\w.-]{1,60}/[\w.-]{1,60}(?:/[\w.+-]{1,40})?")

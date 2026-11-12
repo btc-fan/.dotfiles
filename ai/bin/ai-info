@@ -31,7 +31,7 @@ PLUGINS = [
     ("i-have-adhd@i-have-adhd", "i-have-adhd", "global"),
     ("claude-seo@agricidaniel-claude-seo", "claude-seo", "per project: ai-adopt --tools seo"),
     ("claude-blog@agricidaniel-blog", "claude-blog", "per project: ai-adopt --tools blog"),
-    ("ai-serena@ai", "ai-serena", "per project: ai-adopt --tools serena"),
+    ("ai-serena@ai", "ai-serena", "global (every project; off here: no-serena in .ai/enabled)"),
     ("ai-playwright@ai", "ai-playwright", "per project: ai-adopt --tools browser"),
 ]
 MATT_SKILLS = ["grilling", "grill-me", "wait-what", "retro", "writing-for-agents"]
@@ -159,11 +159,12 @@ def render_short(f):
     lines = [
         "AI agents: " + agents,
         "Claude plugins on: %s%s" % (", ".join(on) or "none", ("; per project: " + ", ".join(optional)) if optional else ""),
-        "MCP: context7, box (global); serena, playwright (per project)",
+        "MCP: context7, box, serena (global); playwright (per project). graphify: CLI, every project",
         "Skills: %s" % (", ".join(matt) + ((" (+%d more)" % (len(skills) - len(matt))) if len(skills) > len(matt) else "")
                         if matt else "%d installed (ai-info lists them)" % len(skills)),
         "Gates: %s. %s" % (", ".join(f["gates"]) or "none", GATE_HINT),
-        "Opt-in per project: ai-adopt --tools " + "|".join(i for i, _t in f["optin"]),
+        "Every project: serena, graph. Opt-in per project: ai-adopt --tools "
+        + "|".join(i for i, _t in f["optin"] if i not in ("serena", "graph")),
     ]
     p = f["project"]
     if p:
@@ -175,8 +176,8 @@ def render_short(f):
 def render_full(f):
     out = ["AI setup on this machine (ai-info). Names and versions only.", "", "Agents:"]
     for a, v in f["agents"].items():
-        extra = " (Linux servers: off by default, AI_EXTRA_AGENTS=opencode,herdr)" if (
-            not v and a in ("opencode", "herdr") and sys.platform.startswith("linux")) else ""
+        extra = " (Linux servers: off by default, AI_EXTRA_AGENTS=opencode)" if (
+            not v and a == "opencode" and sys.platform.startswith("linux")) else ""
         out.append("  %-9s %s%s" % (a, v or "not installed", extra))
     out += ["", "Claude plugins (on for you / on in this folder):"]
     for short, is_in, on_user, on_here, scope in f["plugins"]:
@@ -190,12 +191,16 @@ def render_full(f):
             "  mattpocock: " + ", ".join("%s%s" % (s, "" if s in f["skills"] else " (missing)") for s in MATT_SKILLS)]
     out += ["", "MCP servers: context7 (global, library docs; IDs in the Libraries section of a repo AGENTS.md),",
             "  box (global, server boxes: list, new, exec, logs, status, restart, ports, url, snapshot, doctor, help).",
-            "  Per project only: serena (ai-adopt --tools serena), playwright (ai-adopt --tools browser)."]
+            "  serena (global, symbols: context claude-code / codex / ide, --project-from-cwd, no memories).",
+            "  Per project only: playwright (ai-adopt --tools browser).",
+            "  graphify: CLI, on in every project (graphify query; ai-adopt builds the graph and its git hooks)."]
     out += ["", "Gates: " + (", ".join(f["gates"]) or "none"), "  " + GATE_HINT,
             "  Agents never use sudo; a blocked gate or a sandbox error is final for them."]
-    out += ["", "Opt-in tools (run in the repo):"]
+    out += ["", "On by default in every project: serena, graph (a project turns one off: no-serena / no-graph in .ai/enabled).",
+            "Opt-in tools (run in the repo):"]
     for rid, tool in f["optin"]:
-        out.append("  ai-adopt --tools %-14s %s" % (rid, tool))
+        if rid not in ("serena", "graph"):
+            out.append("  ai-adopt --tools %-14s %s" % (rid, tool))
     p = f["project"]
     out += [""]
     if p:

@@ -68,7 +68,7 @@ Prompt to Codex inside `btc-page-claude`: "Add a small footer with the last upda
 ## 5. Project knowledge (agents do not explore from zero)
 Setup, once: a throwaway clone of a small code repo you own (or the app in `btc-page-claude`), with a lockfile.
 Run `ai-adopt --yes` in it. Then, before the tests: AGENTS.md has the `## Map` (at most 60 lines) and `## Libraries`
-sections, `ai-libs --check` exits 0, `git status --short` is clean, and there is no `.serena/` or `graphify-out/`.
+sections, `ai-libs --check` exits 0, `.serena/project.yml` exists, `graphify-out/graph.json` exists and is gitignored, `graphify hook status` shows the hooks, and `git status --short` is clean.
 Find the transcript of a Claude session: `ls -t ~/.claude/projects/*/*.jsonl | head -1`. Tool calls in order:
 `jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use") | .name + " " + (.input|tostring)[0:80]' <file>`.
 
@@ -76,11 +76,11 @@ Find the transcript of a Claude session: `ls -t ~/.claude/projects/*/*.jsonl | h
 |---|---|---|
 | K1 | New session (Claude, then Codex): "where is `<a function in the repo>` defined and who calls it?" | The answer starts from the Map; one or two narrow `rg`/Grep calls, then reads of the located lines only. No whole-folder listing, no reads of unrelated files. Input tokens (transcript `usage`) clearly below a session in the same repo with the Map removed (target: half or less) |
 | K2 | Ask the agent to add two new modules and commit | After the commit the agent sees "Update the Map section in AGENTS.md" and updates it inside the markers |
-| K3 | `.ai/enabled` without serena and graph | No Serena tools in `/mcp` or the tool list, no graphify calls, no "graph" or "Serena" in the session start line |
+| K3 | Add `no-serena` and `no-graph` to `.ai/enabled`, new session | No "Serena is on here" or "graphify is on here" line; no graphify calls; Serena tools unused. Remove the lines: both lines come back |
 | K4 | The Libraries section has httpx with a context7 ID. Prompt: "write httpx code with retries" (Claude and Codex) | `docs-lookup` fired (`fired.jsonl`) and names the cached ID; the first docs call is `query-docs` with that ID; no `resolve-library-id`, no web search. A row in `~/.local/state/ai/docs-ids.jsonl` |
 | K5 | Add a dependency, commit | The agent sees "Run ai-libs --sync and commit AGENTS.md" and does it; `ai-libs --check` exits 0 after |
 | K6 | No network for one command: `ai-libs --sync` with `AI_CONTEXT7_URL=http://127.0.0.1:9` | Exit 0, existing rows kept, the output says context7 is not reachable |
-| K7 | `ai-adopt --tools serena,graph` in a second throwaway repo | Project `.claude/settings.json` turns on `ai-serena@ai` and `.codex/config.toml` gets serena; `/mcp` shows Serena here only; `graphify-out/graph.json` exists with no LLM key in the environment; a new session line says Serena and graph are on |
+| K7 | New session in the adopted repo, question about structure ("what calls X?") | Order: Map, `graphify query`, Serena `find_symbol` / `find_referencing_symbols`, then narrow rg and located lines. After an agent commit the status line asks for `graphify update .` |
 | K8 | Put a fake token line inside the Map markers, run `ai-adopt --yes`, or let an agent commit it | ai-adopt refuses to commit; the `secret-scan` gate blocks the agent's commit |
 
 ### Token budget
@@ -107,7 +107,7 @@ Run as admin in a throwaway box `esc-test`; delete it after. Each must FAIL to g
 | P4 | Codex (default sandbox), blog prompt in an enabled project | Follows the claude-blog skill files; no `claude -p` unless the owner approved an escalated run |
 | P5 | `claude mcp list` as the main user on the server | No claude.ai connectors (Gmail, Calendar, Drive) |
 | P6 | Server, a project without `omc`: start Claude, list skills | No `oh-my-claudecode:` skills or agents, no OMC hooks. After `ai-adopt --tools omc` and a new session: the line "oh-my-claudecode is on here" and its skills |
-| P7 | Server: `command -v opencode herdr` as the main user | Nothing (not installed by default). `ai-info` shows them as off by default with the `AI_EXTRA_AGENTS` hint |
+| P7 | Server: `command -v opencode herdr` as the main user | herdr found; opencode not (off by default). `ai-info` shows opencode as off by default with the `AI_EXTRA_AGENTS=opencode` hint |
 
 ## 7. Cleanup
 `sudo proj wipe btc-page-codex` and `sudo proj wipe btc-page-hermes` (keep one box if the owner wants it).

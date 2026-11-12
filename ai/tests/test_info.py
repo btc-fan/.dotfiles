@@ -41,7 +41,8 @@ def t_full(home, fake, repo):
                  "ai-core       on", "claude-seo    off / on here", "ai-serena     not installed",
                  "mattpocock: grilling, grill-me, wait-what, retro, writing-for-agents (missing)",
                  "context7 (global", "box (global, server boxes", "Gates: audit-before-install, secret-scan, no-sudo, pr-rules",
-                 "sudo ai-gate-skip", "ai-adopt --tools serena", "ai-adopt --tools browser", "docs/SECURITY.md"):
+                 "sudo ai-gate-skip", "On by default in every project: serena, graph", "ai-adopt --tools browser",
+                 "serena (global", "docs/SECURITY.md"):
         assert want in out, "%r not in output:\n%s" % (want, out)
 
 
@@ -50,7 +51,8 @@ def t_short(home, fake, repo):
     lines = out.strip().splitlines()
     assert 6 <= len(lines) <= 10, "short output must be about 8 lines, got %d:\n%s" % (len(lines), out)
     assert lines[0].startswith("AI agents: claude 2.1.5, codex 0.120.0"), lines[0]
-    assert "per project: claude-seo" in out and "ai-adopt --tools serena|graph" in out, out
+    assert "per project: claude-seo" in out and "Every project: serena, graph" in out, out
+    assert "--tools serena" not in out and "|graph" not in out, out
     assert "More: ai-info" in out, out
 
 
@@ -106,7 +108,8 @@ def setup(work):
 
 
 def run(home, fake, cwd, *args, extra_env=None):
-    env = {"HOME": home, "PATH": fake + os.pathsep + "/usr/bin:/bin", "LANG": "C.UTF-8"}
+    env = {"HOME": home, "PATH": fake + os.pathsep + "/usr/bin:/bin", "LANG": "C.UTF-8",
+           "HERMES_USER": "ai-test-no-such-user"}      # a server has a real hermes user: never read it here
     env.update(extra_env or {})
     res = subprocess.run([sys.executable, INFO] + list(args), cwd=cwd, env=env, stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, timeout=30)

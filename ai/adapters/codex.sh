@@ -27,6 +27,14 @@ codex_mcp() {
     local skip=()
     box_present || skip=(--skip box)
     aiconf mcp-register codex --mcp-json "$(PLUGIN_DIR)/.mcp.json" --plugin-root "$(PLUGIN_DIR)" ${skip[@]+"${skip[@]}"}
+    # Serena for every project (owner 2026-11-12): context codex, --project-from-cwd. Language servers start
+    # slowly on a big repo: 60 s to start, a tool call may take 300 s (Serena's own tool_timeout is 240).
+    if has serena; then
+        aiconf mcp-register codex --mcp-json "$AI_HOME/ai/marketplace/plugins/ai-serena/.mcp.json" \
+            --plugin-root "$AI_HOME/ai/marketplace/plugins/ai-serena"
+        aiconf toml-set "$CODEX_DIR/config.toml" mcp_servers.serena startup_timeout_sec 60
+        aiconf toml-set "$CODEX_DIR/config.toml" mcp_servers.serena tool_timeout_sec 300
+    fi
     if box_present; then
         # The box server runs outside Codex's sandbox (MCP servers are not sandboxed): the only way a sandboxed
         # Codex reaches the root socket. exec may run 3600 s; box work runs without an approval prompt (the box
@@ -34,7 +42,7 @@ codex_mcp() {
         aiconf toml-set "$CODEX_DIR/config.toml" mcp_servers.box tool_timeout_sec 3720
         aiconf toml-set "$CODEX_DIR/config.toml" mcp_servers.box default_tools_approval_mode '"approve"'
     fi
-    ok "Codex MCP: context7$(box_present && echo ', box') (github, grounded-docs and the global serena were dropped)"
+    ok "Codex MCP: context7$(has serena && echo ', serena')$(box_present && echo ', box') (github and grounded-docs were dropped)"
 }
 
 # ---------------------------------------------------------------- step 8: plugins

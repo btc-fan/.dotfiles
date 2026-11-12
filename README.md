@@ -78,10 +78,10 @@ Read it from the top.
 
 | Part | What it is | Detail |
 |---|---|---|
-| Agents | Claude Code (main), Codex + OMX (main), Hermes. OMC: on on macOS, per project on servers (`ai-adopt --tools omc`). opencode and herdr: macOS; on servers only with `AI_EXTRA_AGENTS=opencode,herdr`. omo: optional | [docs/TOOLS.md](docs/TOOLS.md) |
+| Agents | Claude Code (main), Codex + OMX (main), Hermes. OMC: on on macOS, per project on servers (`ai-adopt --tools omc`). herdr: everywhere. opencode: macOS; on servers only with `AI_EXTRA_AGENTS=opencode`. omo: optional | [docs/TOOLS.md](docs/TOOLS.md) |
 | Plugin `ai-core` | our skills, hooks and MCP list, one folder, installed by Claude and Codex | `ai/marketplace/plugins/ai-core/` |
-| MCP servers | global: context7 (the one docs tool) and box (project boxes on a server). Per project only: Serena, Playwright | [docs/TOOLS.md](docs/TOOLS.md) |
-| Other tools | RTK, Ponytail, i-have-adhd, pinned mattpocock skills, `gh`. Per project only: graphify, claude-seo, claude-blog (`ai-adopt --tools graph,seo,blog`) | [docs/TOOLS.md](docs/TOOLS.md) |
+| MCP servers | global: context7 (the one docs tool), box (project boxes on a server) and Serena (on by default in every project; a line `no-serena` in `.ai/enabled` opts out). Per project only: Playwright | [docs/TOOLS.md](docs/TOOLS.md) |
+| Other tools | RTK, Ponytail, i-have-adhd, pinned mattpocock skills, `gh`, graphify (CLI, on by default; `no-graph` opts out). Per project only: claude-seo, claude-blog (`ai-adopt --tools seo,blog`) | [docs/TOOLS.md](docs/TOOLS.md) |
 | Root rules | the one AGENTS.md all agents read | [docs/AGENTS-MD.md](docs/AGENTS-MD.md) |
 | Usage contracts | `ai/rules/<tool>.md`, five sections each | [docs/EXTENDING.md](docs/EXTENDING.md) |
 | Router + gates | session-start status, a few prompt rows, four gates | section 3 below |
@@ -145,7 +145,7 @@ sudo /opt/ai-setup/install.sh --update --for-user <user>                        
 
 `install.sh` asks "Is this a new Ubuntu server that needs the base server setup first?" The default is No. Answer Yes only on a fresh server: it prints the `ubuntu-server` instructions and stops.
 
-Options: `--update`, `--for-user <user>`, `--dry-run`, `--agents claude,codex,hermes`, `--skip-packages`, `--yes`. Env `AI_EXTRA_AGENTS=opencode,herdr` adds those two on a server (off by default there). Run `install.sh --help` for the final list. More in [docs/INSTALL.md](docs/INSTALL.md).
+Options: `--update`, `--for-user <user>`, `--dry-run`, `--agents claude,codex,hermes`, `--skip-packages`, `--yes`. Env `AI_EXTRA_AGENTS=opencode` adds opencode on a server (off by default there). Run `install.sh --help` for the final list. More in [docs/INSTALL.md](docs/INSTALL.md).
 
 ### macOS (later)
 
@@ -237,7 +237,7 @@ You open a new Claude or Codex session and type: "add retries to the price fetch
 
 What it costs: the two sections are about 1,000 to 2,000 tokens, loaded every session with the rest of AGENTS.md. One narrow search plus a few located lines is about 1,000; one docs call about 2,000. The same task from zero (list folders, grep, read 5 to 10 files, resolve the library) is often 25,000 tokens or more, in every session. ACCEPTANCE T1 measures the always-on budget with `/context`.
 
-Big repos can add Serena or graphify for that project only (`ai-adopt --tools serena,graph`).
+Serena and graphify are on in every project (owner decision 2026-11-12 evening), so between steps 2 and 3 the agent can also run `graphify query` for structure and Serena `find_symbol` for the exact definition. A project opts out with `no-serena` / `no-graph` in `.ai/enabled`.
 
 ## 4. What runs where
 
@@ -249,9 +249,9 @@ Big repos can add Serena or graphify for that project only (`ai-adopt --tools se
 | OMC | per project (`ai-adopt --tools omc`) | per project | yes, everywhere |
 | Hermes | yes, as its own user `hermes` | no | not part of the plan |
 | opencode | only with `AI_EXTRA_AGENTS=opencode` | no | yes |
-| herdr | only with `AI_EXTRA_AGENTS=herdr` | no | yes |
+| herdr | yes | no | yes |
 | RTK, `gh` | yes | yes | yes |
-| Serena, graphify | installed; on per project only | per project only | per project only |
+| Serena, graphify | yes, on in every project unless opted out | yes | yes |
 | context7 | yes | yes | yes |
 | Playwright MCP | no | per project only | per project only |
 | Project code and project services | never | always | on your own disk |
@@ -266,7 +266,7 @@ The installer cannot do these. It prints them at the end.
 - Codex on macOS: open `/hooks` once and trust the plugin hooks. Linux admin installs run Ponytail and i-have-adhd from `/etc/codex/hooks.json` (their plugin copies are off), so no trust step there.
 - Claude: run `/seo setup` once, then `/seo doctor`.
 - Fill `~/.config/ai/secrets.env` (mode 600). Names only are in `secrets.env.example`.
-- Serena (only if a project turns it on): `serena download-ls-dependencies <language>` for the languages you use.
+- Serena: `serena download-ls-dependencies <language>` for the languages you use.
 - Ask the owner before anything a contract marks "owner decides".
 
 ## 6. Verify
@@ -284,7 +284,7 @@ It checks: plugin list and validation, MCP servers connected, pinned versions, t
 
 Spot checks:
 - A new Claude session says "ADHD MODE ACTIVE (always-on)".
-- `claude mcp list` shows context7 connected (Serena and Playwright only inside projects that turned them on).
+- `claude mcp list` shows context7, box and serena connected (Playwright only inside projects that turned it on).
 - `rtk gain --history` grows after you run `git status` in a session.
 - The full acceptance run for a server: [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md).
 
@@ -333,7 +333,8 @@ Per-tool cleanup details are in the "Setup checklist" of each `ai/rules/<tool>.m
 | `~/.config/ai/TOOLBOX.md` | ready tools that are not installed by default |
 | `~/.config/ai/secrets.env` | your keys, mode 600, never committed |
 | `~/.local/state/ai/` | `audit.log`, `gates.log`, `misses.jsonl`, `fired.jsonl`, `docs-ids.jsonl`, `nudges.json`, `router-errors.log`, `managed-keys.json` |
-| `<project>/AGENTS.md` | project knowledge, committed: the managed Map and Libraries sections. `graphify-out/` (opt-in) is generated and gitignored |
+| `<project>/AGENTS.md` | project knowledge, committed: the managed Map and Libraries sections. `graphify-out/` is generated and gitignored |
+| `<project>/.gitignore` | `ai-adopt` keeps one managed block (`# >>> AI tools` ... `# <<< AI tools`) on every run: `.omc/*`, `.codex/`, `.claude/*`, `.serena/*`, `graphify-out/`, `.ai/*`, with the shared files let through: `.claude/settings.json`, `.serena/project.yml`, `.ai/enabled`, `.omc/skills/`. After `ai-adopt` the only new files are `AGENTS.md`, `CLAUDE.md`, `.gitignore`, `.claude/settings.json`, `.ai/enabled`, `.serena/project.yml` |
 | `~/.local/bin/` | links to every command in `ai/bin/` |
 | `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, Hermes `SOUL.md` | each has one managed block `AI:core` that carries or points to the root rules |
 

@@ -17,6 +17,8 @@ Words used below:
 4. [Audit and safety tools](#4-audit-and-safety-tools)
 5. [Overlaps and how we decide](#5-overlaps-and-how-we-decide)
 6. [How they interact](#6-how-they-interact)
+7. [Defaults and configuration](#7-defaults-and-configuration)
+8. [Overlaps: one job each](#8-overlaps-one-job-each)
 
 ## 1. Agents and harnesses
 
@@ -48,7 +50,7 @@ An agent is the program that talks to a model and runs tools. A harness is an ag
 ### opencode
 
 - **What.** An open-source terminal agent that talks to many model providers.
-- **Where.** macOS: always installed. Linux servers: not installed by default (owner decision 2026-11-12); `AI_EXTRA_AGENTS=opencode,herdr` for install.sh brings it back.
+- **Where.** macOS: always installed. Linux servers: not installed by default (owner decision 2026-11-12); `AI_EXTRA_AGENTS=opencode` for install.sh brings it back.
 - **Why.** It is the front-end for other models (Grok, Kimi, DeepSeek) and a fallback. Always installed.
 - **How it works here.** It reads the root rules through the `instructions` key of `~/.config/opencode/opencode.json`. It reads the shared skills folder `~/.agents/skills`. It has no hooks, so no gates and no miss log inside it: only the root rules apply. Example: `opencode run "<prompt>" --format json`.
 - **Scope.** Global, always installed.
@@ -69,7 +71,7 @@ An agent is the program that talks to a model and runs tools. A harness is an ag
 ### herdr
 
 - **What.** A terminal multiplexer for agents: several agents in panes, with status and session ids.
-- **Where.** macOS: where present. Linux servers: not installed by default; `AI_EXTRA_AGENTS=opencode,herdr` brings it back.
+- **Where.** Installed by default on Linux servers ("should be installed, leave it alone", owner 2026-11-12 evening); macOS where present.
 - **Why.** It gives us the session ids that the PR "author-sessions" block needs, and a status view.
 - **How it works here.** `herdr integration install claude|codex` adds status hooks. The agent reads its own session id with `herdr agent get "$HERDR_PANE_ID"`. The `pr-rules` gate blocks a PR body without the author-sessions block. `pr-resume` reads that block later to resume the sessions. herdr is not a harness: it makes no model call.
 - **Scope.** Global, configured.
@@ -89,7 +91,7 @@ Later: Gemini CLI and Kimi CLI (wired when enabled). Grok, Kimi and DeepSeek are
 
 ## 2. MCP servers
 
-MCP servers give agents extra tools, and each one costs context in every session, so the global list is short: context7 and our `box` server, from `ai/marketplace/plugins/ai-core/.mcp.json` (tool names `mcp__plugin_ai-core_<server>__*`). Per project: Serena through the plugin `ai-serena@ai` (off at user scope, on with `enabledPlugins` in the project settings), Playwright through the plugin `ai-playwright@ai` (same mechanism, `ai-adopt --tools browser`). Managed settings block servers from a project `.mcp.json` (a planted file in a workspace must not start a process).
+MCP servers give agents extra tools, and each one costs context in every session, so the global list is short: context7 and our `box` server from `ai/marketplace/plugins/ai-core/.mcp.json` (tool names `mcp__plugin_ai-core_<server>__*`), and Serena from the plugin `ai-serena@ai` (on at user scope, deferred tools; a project opts out with `no-serena`). Per project: Playwright through the plugin `ai-playwright@ai` (off at user scope, on with `enabledPlugins` in the project settings, `ai-adopt --tools browser`). Managed settings block servers from a project `.mcp.json` (a planted file in a workspace must not start a process).
 
 ### context7
 
@@ -100,11 +102,11 @@ MCP servers give agents extra tools, and each one costs context in every session
 - **Pin.** `@upstash/context7-mcp@4.6.0`.
 - **Contract.** `ai/rules/context7.md`.
 
-### Serena (opt-in per project)
+### Serena (on in every project)
 
 - **What.** A code-intelligence server. It reads and edits code by symbol through language servers.
-- **Why.** On a big repo, a symbol lookup costs far fewer tokens than reading files, and edits by symbol are exact. On small projects the Map plus rg is enough, so it is off by default (owner decision 2026-11-12; the old global "Serena first" nudge was ignored in the logs).
-- **How it works here.** `ai-adopt --tools serena` turns on the plugin `ai-serena@ai` for that project (`enabledPlugins` in the project `.claude/settings.json`; the plugin holds only the Serena MCP entry and is off at user scope), writes a Codex entry in `.codex/config.toml` (trusted projects only), and indexes the project. Hermes and opencode get no Serena. There: `get_symbols_overview`, `find_symbol`, `replace_symbol_body`. No memories by default: project knowledge lives in AGENTS.md.
+- **Why.** A symbol lookup costs far fewer tokens than reading files, and edits by symbol are exact. On by default (owner decision 2026-11-12 evening); a project opts out with `no-serena` in `.ai/enabled`.
+- **How it works here.** Global for Claude (plugin `ai-serena@ai`, on at user scope, `--context=claude-code`), Codex (`--context=codex`) and Hermes (`--context=ide`), all with `--project-from-cwd` and mode `no-memories`: no memories and no onboarding, the AGENTS.md Map is the one knowledge place. `ai-adopt` indexes each project. Tools: `get_symbols_overview`, `find_symbol`, `find_referencing_symbols`, `replace_symbol_body`. Answers are cut at 40k characters; no dashboard. Section 7 has every setting.
 - **Pin.** `serena-agent==2.1.0`. **Telemetry off.** `SERENA_USAGE_REPORTING=false` in the server entry's `env`.
 - **Contract.** `ai/rules/serena.md`.
 
@@ -131,11 +133,11 @@ MCP servers give agents extra tools, and each one costs context in every session
 
 ## 3. Plugins, skills and CLI tools
 
-### graphify (opt-in per project)
+### graphify (on in every project)
 
-- **What.** Builds a code graph of a repo: which file calls which. Local, no LLM for code.
-- **Why.** "What calls Y" on a big, unfamiliar codebase. Off by default: unproven benefit on small projects.
-- **How it works here.** `ai-adopt --tools graph` runs `GRAPHIFY_BACKEND=none graphify extract . --code-only` (no key, nothing sent out; bare `graphify .` asks for an LLM key and fails, so never use it) and gitignores `graphify-out/`. There: `graphify query "..."`, and `graphify update .` after code changes. No git hook by default; optional owner step: `graphify hook install`.
+- **What.** Builds a code graph of a repo: which file calls which. Local, no LLM for code. CLI only (no MCP server).
+- **Why.** "Where is X, what depends on Y" from a local graph. On by default (owner decision 2026-11-12 evening); a project opts out with `no-graph` in `.ai/enabled`.
+- **How it works here.** `ai-adopt` runs `GRAPHIFY_BACKEND=none graphify extract . --code-only` (no key, nothing sent out; bare `graphify .` asks for an LLM key and fails, so never use it), gitignores `graphify-out/`, and runs `graphify hook install` (git hooks rebuild the graph after commit, checkout, merge and rebase). On a server the git guard turns hooks off for agent git calls, so after an agent commit the status line asks for `graphify update .`. Query with `graphify query "..."`.
 - **Pin.** 0.9.105 (PyPI `graphifyy`). **Telemetry.** None documented.
 - **Contract.** `ai/rules/graphify.md`.
 
@@ -267,15 +269,15 @@ Some tools can do the same job. The table in `ai/routing.yaml` (`tiebreaks`) nam
 | Chart or dashboard styling | `dataviz` | `blog-chart`, ui-ux-pro-max | Charts have one skill. |
 | A `.pptx` file | `anthropic-skills:pptx` | ui-ux-pro-max slides (HTML decks) | File type decides. |
 | "Wiki" | llmwiki where the project enabled it, else OMC wiki | the other | The project marker decides. |
-| Code lookup | the Map in AGENTS.md, then rg / Grep | Serena or graphify (only where turned on), OMC `lsp_*` | One default path; extra tools per project. |
+| Code lookup | the Map in AGENTS.md, then `graphify query`, then Serena symbols, then a narrow rg | OMC `lsp_*`, ast-grep (fallback) | One order everywhere; `no-serena` / `no-graph` skip a step. |
 | Library API docs | context7 with the ID from the Libraries section | web search | Cached ID first, web last. |
 
-### Finding code: Map, rg, then opt-in tools
+### Finding code: Map, graph, Serena, then rg
 
-- Default in every repo: read the Map section of AGENTS.md (no tool call), then one narrow `rg` / Grep, then read only the located lines.
-- Serena (symbols) and graphify (call graph) only in projects that turned them on, for big repos or heavy refactors.
+- Order in every repo: the Map section of AGENTS.md (no tool call), then `graphify query` (structure), then Serena symbol tools (definitions, references, edits), then a narrow `rg` and reading only the located lines.
+- A project can opt out of Serena or graphify with `no-serena` / `no-graph` in `.ai/enabled`; then that step is skipped.
 - OMC `lsp_*` and ast-grep: fallback, for diagnostics or a language Serena does not cover.
-Example: "who calls `calc_price`?" starts with the Map (which module), then `rg -n "calc_price(" src/`, then a read of three lines.
+Example: "who calls `calc_price`?" starts with the Map (which module), then `graphify query "calc_price callers"`, then Serena `find_referencing_symbols` for the exact list, then a read of three lines.
 
 ### Library docs: context7, then the source
 
@@ -293,8 +295,10 @@ The goal: an agent never explores a repo from zero. Evidence behind the design (
 | House rules | root AGENTS.md (`~/.config/ai/AGENTS.md`, short) | ai-render | rules change |
 | Where things live, how to run and test, conventions | "## Map" in the repo AGENTS.md (managed block, <= 60 lines, committed) | ai-adopt (facts from the repo, plus one read-only claude pass for conventions) | a commit adds, deletes or renames modules (`knowledge-check` says so); `ai-adopt --refresh-map` |
 | Library versions and context7 IDs | "## Libraries" in the repo AGENTS.md (managed block, committed) | `ai-libs --sync` | lockfile changes or a new ID was used |
-| Code structure (opt-in) | `graphify-out/` (gitignored) | `ai-adopt --tools graph` | `graphify update .` |
+| Code structure | `graphify-out/` (gitignored) | `ai-adopt` (unless `no-graph`) | git hooks after commit, checkout, merge, rebase; `graphify update .` after agent commits on a server |
 | Session notes | OMC notepad | the agent | never project truth |
+
+Tool folders stay out of git: `ai-adopt` writes one managed `.gitignore` block on every run (between `# >>> AI tools` and `# <<< AI tools`; your own lines are kept) for `.omc/*`, `.codex/`, `.claude/*`, `.serena/*`, `graphify-out/` and `.ai/*`. Shared on purpose: `.claude/settings.json` (project plugin opt-ins), `.serena/project.yml` (Serena language config), `.ai/enabled` (opt-ins and opt-outs) and `.omc/skills/`; `.claude/commands/` and `.claude/agents/` only when the repo already tracks them.
 
 Both blocks are committed and pushed, so they never hold secrets or personal data: ai-adopt scans them before its commit and the secret-scan gate scans every agent commit. Worked example with costs: [README.md](../README.md), section 3, example D.
 
@@ -337,3 +341,37 @@ One chain, from prompt to proof.
 So: router nudges, skill fires, proof is logged, a miss is logged, `ai-doctor` reports it, and you fix the rule. See [docs/EXTENDING.md](EXTENDING.md) for how.
 
 Known gaps: opencode has no hooks, so only the root rules apply there. Hermes has no per-prompt skill matching, so a small plugin does L2 and L3. Skills that only you can type (`grill-me`, `wait-what`, `retro`, `i-have-adhd`) cannot be forced: the agent suggests them.
+
+## 7. Defaults and configuration
+
+One row per tool: is it on, where we configure it, the exact settings, why, and what it costs in tokens. "Server" means a Linux install (`install.sh --for-user`); the Mac keeps its own defaults where a row says so. Token costs are first-call input tokens of a fresh Claude session, measured in the Fable readiness audit (2026-11-12) where a number is given; "deferred" means Claude loads the tool schemas only when it searches for them.
+
+| Tool | Default | Where configured | Exact settings | Why | Token cost | Source |
+|---|---|---|---|---|---|---|
+| RTK 1.2.0 | on (Claude, Codex) | Claude: managed-settings `hooks.PreToolUse` (`/usr/local/bin/rtk hook claude`); Codex: `/etc/codex/hooks.json`; RTK: `~/.config/rtk/config.toml` (macOS: `~/Library/Application Support/rtk/config.toml`) | `[hooks] exclude_commands = ["git push", "gh"]`; telemetry off by env `RTK_TELEMETRY_DISABLED=1`; tracking and the local sqlite retriever stay at RTK's defaults (local only) | Shorter command output. It rewrites git, gh, cargo, npm, pnpm, npx, bun, uv, pip, cat/head/tail, grep, rg, ls, find, tree, diff, curl, wget, pytest, mypy, ruff, go, docker, kubectl and more (`src/discover/rules.rs`). `git push` and `gh` are excluded: they must leave the sandbox as the exact absolute command the router writes. The gates see through `rtk` and `rtk proxy` | saves output tokens; check with `rtk gain` | https://github.com/rtk-ai/rtk/blob/v1.2.0/docs/guide/getting-started/configuration.md |
+| context7 MCP 4.6.0 | on (Claude, Codex, Hermes) | ai-core `.mcp.json` (`mcp/context7.sh`); key from `~/.config/ai/secrets.env` or the committed free key | pinned npm package under `~/.local/share/ai/npm`, no runtime npx; library IDs live in the repo AGENTS.md Libraries section (`ai-libs`); default client timeouts | Current library docs at the right version | deferred, near zero idle | https://github.com/upstash/context7 |
+| box MCP (ai-core) | on, server only (no tools elsewhere) | ai-core `.mcp.json` `box`: `/usr/bin/python3 -I mcp/box.py`; Claude `timeout` 3720000 ms; Codex `tool_timeout_sec = 3720`, `default_tools_approval_mode = "approve"` | talks to `/run/proj-agent.sock`; output cut at 40k characters per stream; exec up to 3600 s | Box work from a sandbox without opening unix sockets | deferred; zero tools on a Mac | `ai/marketplace/plugins/ai-core/mcp/box.py`, ubuntu-server `docs/NOTES.md` (socket protocol v1) |
+| Serena 2.1.0 | **on in every project** (Claude, Codex, Hermes); a project opts out with `no-serena` in `.ai/enabled` | `~/.serena/serena_config.yml`; Claude: plugin `ai-serena@ai` on at user scope; Codex: `[mcp_servers.serena]`; Hermes: `mcp_servers.serena` | `start-mcp-server --project-from-cwd --context=claude-code` (Codex `codex`, Hermes `ide`), `SERENA_USAGE_REPORTING=false`; `agent_interface: tools`, `excluded_tools: [execute_shell_command, serena_repl]`, `web_dashboard: false`, `gui_log_window: false`, `log_level: 30`, `tool_timeout: 240`, `default_max_tool_answer_chars: 40000`, `default_modes: [no-memories]`; Codex `startup_timeout_sec = 60`, `tool_timeout_sec = 300`; `ai-adopt` runs `serena project create --index` | Symbol reads, references and edits without reading whole files. The claude-code context already drops Serena's file and shell tools (Claude has them). No memories and no onboarding: the AGENTS.md Map is the one place for project knowledge; onboarding is a long first-run exploration that writes a second copy that drifts. Not used: the `cc_system_prompt_override` (its rule table forbids Read and Edit outright and conflicts with our navigation order), `serena-hooks remind` (false denials, issues #2251 and #2204; it also fights graphify's nudges), `alwaysLoad` (all schemas on every turn) | deferred tools; small | https://github.com/oraios/serena/tree/v2.1.0 (`serena_config.template.yml`, `contexts/`, `modes/no-memories.yml`) |
+| graphify 0.9.105 | **on in every project** (code only, no key); opt out with `no-graph` | env `GRAPHIFY_BACKEND=none`, `GRAPHIFY_HOOK_STRICT=0`; `ai-adopt`: `graphify extract . --code-only`, `graphify hook install`; allow list: `graphify query/path/explain/extract/update` | git hooks post-commit, post-checkout, post-merge, post-rewrite rebuild the graph in the background; its global CLAUDE.md/AGENTS.md install and its PreToolUse hooks are not used (removed if found) | Structure questions ("where is X, what depends on Y") from a local graph. The CLI is the query path: its MCP server (`graphify.serve`) needs the extra `mcp` dependency and adds about ten tool schemas | zero (CLI) | https://github.com/Graphify-Labs/graphify (0.9.105 wheel: `hooks.py`, `serve.py`) |
+| Ponytail 5.3.3 | on (Claude, Codex) | audited clone in `/opt`, Claude plugin; `~/.config/ponytail/config.json` | `defaultMode: "full"` | Smaller diffs | about 1.6k | https://github.com/DietrichGebert/ponytail |
+| i-have-adhd 0.4.1 | on (Claude, Codex) | audited clone, Claude plugin; flag file `~/.claude/.i-have-adhd-always` | always-on mode | Short answers (owner choice) | about 2.4k | https://github.com/ayghri/i-have-adhd |
+| mattpocock skills | on (5 skills) | pinned commit, linked into `~/.agents/skills` | grilling, grill-me, wait-what, retro, writing-for-agents | Interview and review habits | small (skill descriptions) | https://github.com/mattpocock/skills |
+| herdr 0.9.5 | on, server and where present on macOS | audited installer to `/usr/local/bin/herdr`; `~/.config/herdr/config.toml` | `[update] version_check = false`, `manifest_check = false`; `herdr integration install` per agent | Owner tool for watching agent sessions ("leave it alone") | none in the model context | https://herdr.dev (installer pinned by sha256 in `ai/pins.env`) |
+| oh-my-claudecode 5.8.4 | server: installed, OFF at user scope (the owner turns it on per project with `ai-adopt --tools omc`); macOS: on | Claude plugin `oh-my-claudecode@omc`; `~/.config/claude-omc/config.jsonc` | `security.disableAutoUpdate = true`, `mcpServers.exa.enabled = false` | Multi-agent workflows when wanted. Inside an OMC session our managed policy still applies: the sandbox, the managed deny rules and the managed router hooks run for every tool call, also in its subagents (hooks receive subagent calls; settings are per process). Nothing extra is injected | about 6.7k when on | https://github.com/Yeachan-Heo/oh-my-claudecode |
+| claude-seo 2.5.0, claude-blog 2.3.2 | opt-in per project | Claude plugins, off at user scope; `ai-adopt --tools seo,blog` | none | Large skill sets for SEO and blog work | about 12k each when on | https://github.com/AgriciDaniel/claude-seo, https://github.com/AgriciDaniel/claude-blog |
+| Playwright MCP 0.0.85 | opt-in per project | plugin `ai-playwright@ai` (off at user scope); `ai-adopt --tools browser` | `ai-playwright-mcp --headless --isolated`, pinned, no npx | Browser checks only where a project needs them | deferred when on | https://github.com/microsoft/playwright-mcp |
+
+Navigation order for agents (rules): AGENTS.md Map, then `graphify query` for structure, then Serena symbol tools for definitions, references and edits, then a narrow `rg` and reading only the lines found.
+
+## 8. Overlaps: one job each
+
+| Area | Who does it | Duplicates and what we did |
+|---|---|---|
+| Navigation | 1 AGENTS.md Map (what lives where), 2 `graphify query` (structure, dependencies), 3 Serena symbol tools (definitions, references, symbol edits), 4 built-in Grep/Read on the located lines | Serena's file and shell tools are off (claude-code context; `excluded_tools: execute_shell_command, serena_repl`). OMC `lsp_*` / `ast_grep_*`: OMC is off on servers; where it is on, rules say Serena first. No Claude LSP plugin is installed. graphify MCP not installed (CLI only) |
+| Hooks: SessionStart | router (status lines; L0 table after compact/clear), i-have-adhd, Ponytail, OMC (when on), Serena `activate` for Codex only | Serena `activate` skipped for Claude (single-project context). graphify's global hooks removed |
+| Hooks: PreToolUse Bash | RTK rewrites; router gates and absolute rewrite of excluded commands | No two rewrites of one command: RTK excludes `git push` and `gh`. Deny wins over any rewrite. Serena `remind` and graphify `hook-guard` not installed |
+| Hooks: Stop, SessionEnd, Notification | router, claude-notify, Serena `cleanup` | none |
+| Git hooks | graphify post-commit/checkout/merge/rewrite (owner's own git) | The server git guard turns them off for agent git calls |
+| Instructions | managed CLAUDE.md and AGENTS.md (one render of `ai/agents-md/`), rules files per tool | Serena's system-prompt override not used; graphify's CLAUDE.md/AGENTS.md section not installed |
+| Memory | facts about the repo: AGENTS.md Map and Libraries; owner preferences: Claude auto memory | Serena memories off (mode `no-memories`); OMC project memory only where the owner turns OMC on |
+| Library docs | context7 only | Grounded Docs and the GitHub MCP dropped |

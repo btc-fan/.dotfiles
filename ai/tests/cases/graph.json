@@ -21,7 +21,7 @@
    ]
   },
   {
-   "name": "code repo without graph enabled",
+   "name": "code repo without graph enabled (project opted out: no-serena, no-graph)",
    "expect": "nofire",
    "event": "SessionStart",
    "payload": {
@@ -31,7 +31,8 @@
     "git": true,
     "files": {
      "main.py": "print(1)\n",
-     ".ai/base-version": "4\n"
+     ".ai/base-version": "4\n",
+     ".ai/enabled": "no-serena\nno-graph\n"
     }
    }
   },
@@ -47,6 +48,21 @@
     "files": {
      "README.md": "# x\n",
      ".ai/enabled": "graph\n"
+    }
+   }
+  },
+  {
+   "name": "code repo, nothing in .ai/enabled: graphify is on by default",
+   "expect": "fire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "print(1)\n",
+     ".ai/base-version": "4\n"
     }
    }
   }

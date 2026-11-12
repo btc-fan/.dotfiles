@@ -21,8 +21,8 @@ For the explanation of each tool, how tools overlap and interact: [TOOLS.md](TOO
 | Map | `<!-- AI:map START -->` ... `<!-- AI:map END -->` in AGENTS.md: entry points, where things live, run and test, conventions; <= 60 lines | yes | `knowledge-check` asks for an update after a commit that adds, deletes or renames modules |
 | Libraries | `<!-- AI:libraries START lock: ... -->` ... `<!-- AI:libraries END -->` in AGENTS.md: lib, version, context7 ID, note | yes | the START line hashes equal the lockfiles (`ai-libs --check`) |
 | Playwright (opt-in) | `enabledPlugins` `ai-playwright@ai` in the project `.claude/settings.json`, `.codex/config.toml` | yes | - |
-| Serena (opt-in) | `enabledPlugins` `ai-serena@ai` in the project `.claude/settings.json`, `.codex/config.toml`, `.serena/project.yml`; `.serena/cache/` gitignored | yes, except the cache | Serena updates its index itself |
-| Code graph (opt-in) | `graphify-out/graph.json`, gitignored | no | newer than the last code commit |
+| Serena (default on; `no-serena` opts out) | `.serena/project.yml`; `.serena/cache/` gitignored | yes, except the cache | Serena updates its index itself |
+| Code graph (default on; `no-graph` opts out) | `graphify-out/graph.json`, gitignored; `graphify hook install` rebuilds it after commit, checkout, merge, rebase (not after agent git calls on a server: `graphify update .`) | no | newer than the last code commit |
 Worked example: `README.md`, section 3, example D.
 
 ## Agents
@@ -33,7 +33,7 @@ Worked example: `README.md`, section 3, example D.
 | oh-my-claudecode 5.8.4 (Claude plugin, exa off) | macOS: on; servers: per project (`ai-adopt --tools omc`) | `omc.md` |
 | Codex + oh-my-codex 0.22.6 | main (OMX not before 2026-11-17) | `omx.md` |
 | Hermes | configured, runs as user `hermes` | `hermes.md` |
-| herdr 0.9.5 | macOS; servers only with `AI_EXTRA_AGENTS=herdr` | `herdr.md` |
+| herdr 0.9.5 | installed by default (macOS where present) | `herdr.md` |
 | opencode 1.19.5 | macOS; servers only with `AI_EXTRA_AGENTS=opencode` | `opencode.md` |
 | oh-my-openagent (omo) | optional, only when asked | `omo.md` |
 | Gemini CLI, Kimi CLI | later | none yet |
@@ -42,7 +42,7 @@ Worked example: `README.md`, section 3, example D.
 
 | Server | Scope | Contract |
 |---|---|---|
-| Serena 2.1.0 | per project (`ai-adopt --tools serena`) | `serena.md` |
+| Serena 2.1.0 | global (Claude plugin ai-serena on at user scope, Codex, Hermes); `no-serena` opts a project out; mode no-memories | `serena.md` |
 | context7 4.6.0 | global | `context7.md` |
 | box (ours, ai-core) | global; does something only on a server with `proj-agent` | `box.md` |
 | Playwright MCP | per project only | `playwright.md` |
@@ -54,7 +54,7 @@ Worked example: `README.md`, section 3, example D.
 | ai-core (our plugin) | global | repo | this repo |
 | Ponytail | global | 96608e078b2d5ea607c5c3b8b5a54d1c1fba6846 | `ponytail.md` |
 | i-have-adhd | global | 1ecea1993b7fce257ffbd686c070948b5e07eda6 | `i-have-adhd.md` |
-| graphify 0.9.105 | per project (`ai-adopt --tools graph`) | PyPI | `graphify.md` |
+| graphify 0.9.105 | global CLI, on in every project (`no-graph` opts out) | PyPI | `graphify.md` |
 | RTK v1.2.0 | global | tag | `rtk.md` |
 | claude-seo v2.5.0 | per project (`ai-adopt --tools seo`) | 219ff485bb016314bb4c15bfc7978df61c668a4f | `claude-seo.md` |
 | claude-blog v2.3.2 | per project (`ai-adopt --tools blog`) | 4f9c2cb8fd17f594e868d6c2ce0e8fb2c971f987 | `claude-blog.md` |
@@ -90,7 +90,7 @@ Rules by group:
 - Gates: `audit-before-install`, `secret-scan`, `no-sudo`, `pr-rules`.
 - Lint and docs: `no-em-dash`, `docs-lookup` (also fires on a library name from the Libraries section).
 - Off in this project, suggest it: `seo-not-enabled`, `blog-not-enabled`, `browser-not-enabled`.
-- Opt-in catalog (`ai-adopt --tools <id>`): `serena`, `graph`, `omc`, `seo`, `blog`, `browser`, `ui`, `tracker-flow`, `domain-docs`, `knowledge-wiki`.
+- Default on (opt out with `no-serena`, `no-graph`): `serena`, `graph`. Opt-in catalog (`ai-adopt --tools <id>`): `omc`, `seo`, `blog`, `browser`, `ui`, `tracker-flow`, `domain-docs`, `knowledge-wiki`.
 - Removed in v4 (ignored in the logs or unmeasured): `kickoff`, `no-memories`, `no-graph`, `graph-first`, `serena-first`, `graph-update`, `docs-on-dependency`, `github`, `prompting-others`, `agent-docs`, `wait-what`, `toolbox`.
 Tie-breaks: post file means blog-*, a URL means seo-*; new app means grilling; "deep interview" means OMC deep-interview; library docs mean context7 with the Libraries ID, not web search.
 Action placeholders the router fills at fire time: `{knowledge_index}`, `{knowledge_delta}`, `{libs_hits}`, `{claude_handoff}`.
@@ -106,7 +106,7 @@ To read the full table: `ai/routing.yaml`. Do not copy it here.
 | `ai-sync` | after a pull: runs `ai-render`, refreshes this user's copied rule blocks (Codex; Hermes and `/etc` only through the admin `install.sh --update`). `--check` compares, `--install-hook` makes `git pull` run it |
 | `agent-audit npm\|pypi\|dir\|skill <target>` | audit before install |
 | `ai-start` | new project: grilling, propose tools, write project config |
-| `ai-adopt` | existing repo: project layer, the Map and Libraries sections of AGENTS.md, opt-in tools (`--tools serena,graph,seo,blog,browser,...`) |
+| `ai-adopt` | existing repo: project layer, the Map and Libraries sections of AGENTS.md, opt-in tools (`--tools omc,seo,blog,browser,...`), Serena index and graph build with git hooks |
 | `ai-libs` | the Libraries section of AGENTS.md: `--sync` writes it from the lockfiles, `--check` exits 1 when stale. Offline-safe. Sends only public library names to context7, one call per library once; local and private-registry packages never |
 | `claude-notify` | notifications |
 | `pr-resume` | reads the author-sessions block of a PR |
@@ -123,7 +123,7 @@ To read the full table: `ai/routing.yaml`. Do not copy it here.
 | `~/.local/state/ai/nudges.json` | quiet windows and once-per-library state |
 | `~/.local/state/ai/router-errors.log` | internal router errors (the router fails open) |
 | `~/.local/state/ai/managed-keys.json` | what install added (for uninstall) |
-| `~/.cache/graphify-queries.log` | graphify (opt-in projects) |
+| `~/.cache/graphify-queries.log` | graphify |
 | `rtk gain --history` | RTK |
 
 ## Evals

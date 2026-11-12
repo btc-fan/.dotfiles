@@ -10,8 +10,9 @@ ai-adopt is a link to this file; the mode comes from the command name. Rerun = u
 replaced by marker, project text outside the blocks is never touched).
 
 What it writes (project root):
-  .ai/base-version   routing.yaml version (the base version vN)
-  .ai/enabled        opt-in rule ids, one per line (the router reads it)
+  .ai/base-version   routing.yaml version (the base version vN; local, gitignored)
+  .ai/enabled        opt-in tool ids and opt-outs (no-serena, no-graph), one per line (the router reads it;
+                     committed, always written)
   AGENTS.md          project knowledge every agent reads with no tool call (owner decision 2026-11-12):
                      "## Map" between <!-- AI:map START/END --> (entry points, where things live, how to
                      run and test, non-obvious conventions; <= 60 lines; written when missing or with
@@ -25,11 +26,16 @@ What it writes (project root):
   .claude/settings.json   also enabledPlugins "ai-serena@ai" ("serena") and "ai-playwright@ai" ("browser"): each
                      plugin holds only its MCP entry; managed settings block project .mcp.json servers
   .codex/config.toml Codex entries for Playwright ("browser": ai-playwright-mcp, the pinned @playwright/mcp
-                     installed once per machine, no npx at runtime) and Serena (trusted projects only)
-  .gitignore         .serena/cache/, .serena/project.local.yml when "serena" is on; graphify-out/ when
-                     "graph" is on
-  Opt-in "serena":   serena project create --index (.serena/project.yml committed)
-  Opt-in "graph":    GRAPHIFY_BACKEND=none graphify extract . --code-only (local, no key, gitignored)
+                     installed once per machine, no npx at runtime) (local, gitignored)
+  .gitignore         one managed block between "# >>> AI tools" and "# <<< AI tools" markers, written on every
+                     run (other lines are kept; an older unmarked ai-adopt block is replaced): .omc/* (but
+                     .omc/skills/), .codex/, .claude/* (but settings.json, and commands/ or agents/ if the
+                     repo already tracks them), .serena/* (but project.yml), graphify-out/, .ai/* (but enabled).
+                     So after ai-adopt only AGENTS.md, CLAUDE.md, .gitignore, .claude/settings.json,
+                     .ai/enabled and .serena/project.yml are new; files it ignores are not committed.
+  Serena (default on, `no-serena` opts out): serena project create --index (.serena/project.yml committed)
+  graphify (default on, `no-graph` opts out): GRAPHIFY_BACKEND=none graphify extract . --code-only and
+                     graphify hook install (local, no key, gitignored)
 Map conventions: with --yes (or after a y/N), one headless `claude -p` pass with read-only tools (Read,
 Grep, Glob, rg, git ls-files) proposes the conventions lines; nothing else is written by it.
 An old .ai/libs.md is removed (its IDs move into the Libraries section).
@@ -66,7 +72,7 @@ def main(argv):
     plan = []
     plan.append(write_plan(os.path.join(root, ".ai", "base-version"), version + "\n"))
     enabled = sorted(set(current) | set(chosen))
-    plan.append(write_plan(os.path.join(root, ".ai", "enabled"), "\n".join(enabled) + "\n" if enabled else ""))
+    plan.append(write_plan(os.path.join(root, ".ai", "enabled"), enabled_text(enabled)))
     agents_path = os.path.join(root, "AGENTS.md")
     agents = read(agents_path) or "# %s\n" % os.path.basename(root)
     for rule in optin:
@@ -82,9 +88,9 @@ def main(argv):
     plan.extend(project_mcp_plan(root, enabled, opts["dry_run"]))
     plan.append(claude_plugins_plan(root, enabled))
     plan.append(write_plan(os.path.join(root, ".gitignore"), gitignore_text(read(os.path.join(root, ".gitignore")),
-                                                                            enabled)))
+                                                                            with_defaults(enabled), root)))
     plan = [p for p in plan if p]
-    steps = knowledge_steps(root, opts, enabled)
+    steps = knowledge_steps(root, opts, with_defaults(enabled))
 
     if not plan and not steps:
         print("ai-%s: nothing to change (base v%s)" % (mode, version))
@@ -108,6 +114,7 @@ def main(argv):
     paths = [os.path.relpath(p, root) for p, _ in plan]
     paths += [rel for rel in KNOWLEDGE_PATHS if (os.path.exists(os.path.join(root, rel)) or
                                                  git(root, "ls-files", "--", rel)) and rel not in paths]
+    paths = committable(root, paths)      # .ai/base-version, .codex/, .serena/.gitignore: local, ignored by the block
     if not paths or not git(root, "status", "--porcelain", "--", *paths):
         print("ai-%s: nothing to commit (generated files are gitignored)" % mode)
         return 0
@@ -268,9 +275,6 @@ def project_mcp_plan(root, enabled, dry_run=False):
     want = {}
     if "browser" in enabled and ensure_playwright(dry_run):
         want["playwright"] = (None, ("ai-playwright-mcp", ["--headless", "--isolated"], {}))
-    if "serena" in enabled:
-        want["serena"] = (None, ("serena", ["start-mcp-server", "--project-from-cwd", "--context=codex"],
-                                 {"SERENA_USAGE_REPORTING": "false"}))
     if not want:
         return []
     out = []
@@ -304,6 +308,16 @@ def project_mcp_plan(root, enabled, dry_run=False):
 
 # ---------------------------------------------------------------- knowledge layer
 
+# On by default in every code project (owner decision 2026-11-12, evening): Serena (symbols) and graphify
+# (structure). A project opts out with a line `no-serena` or `no-graph` in .ai/enabled.
+DEFAULT_ON = ("serena", "graph")
+
+
+def with_defaults(enabled):
+    ids = set(enabled)
+    return ids | {d for d in DEFAULT_ON if "no-" + d not in ids}
+
+
 KNOWLEDGE_PATHS = [".serena/project.yml", ".serena/.gitignore", ".ai/libs.md"]
 GITIGNORE = {"serena": [".serena/cache/", ".serena/project.local.yml"], "graph": ["graphify-out/"]}
 MAP_RX = re.compile(r"^<!-- AI:map START[^>]*-->\s*\n.*?^<!-- AI:map END -->\s*\n?", re.M | re.S)
@@ -324,14 +338,63 @@ MAP_PROMPT = (
 MAP_TOOLS = ["Read", "Grep", "Glob", "Bash(git ls-files:*)", "Bash(rg:*)"]
 
 
-def gitignore_text(text, enabled):
-    want = [ln for tool in sorted(GITIGNORE) if tool in enabled for ln in GITIGNORE[tool]]
-    have = {ln.strip() for ln in (text or "").splitlines()}
-    missing = [ln for ln in want if ln not in have and ln.rstrip("/") not in have]
-    if not missing:
-        return None
-    head = (text or "").rstrip("\n")
-    return (head + "\n\n" if head else "") + "# AI tools (ai-adopt): caches and generated graph\n" + "\n".join(missing) + "\n"
+# One managed .gitignore block for every folder our tools create (owner request 2026-11-12). Shared on purpose:
+# .claude/settings.json (project plugin opt-ins), .serena/project.yml (Serena language config), .ai/enabled
+# (opt-ins and opt-outs), .omc/skills/ (OMC's own rule). Everything else in those folders is local state.
+GI_START = "# >>> AI tools (managed by ai-adopt; edit outside this block) >>>"
+GI_END = "# <<< AI tools <<<"
+GI_RX = re.compile(r"^%s\n.*?^%s\n?" % (re.escape(GI_START), re.escape(GI_END)), re.M | re.S)
+GI_LINES = [".omc/*", "!.omc/skills/", ".codex/", ".claude/*", "!.claude/settings.json", ".serena/*",
+            "!.serena/project.yml", "graphify-out/", ".ai/*", "!.ai/enabled"]
+GI_OLD_HEAD = "# AI tools (ai-adopt): caches and generated graph"     # unmarked block of older ai-adopt runs
+GI_OLD_LINES = {".serena/cache/", ".serena/project.local.yml", ".serena/logs/", "graphify-out/"}
+ENABLED_HEAD = "# ai-adopt: opt-in tool ids, one per line; no-serena / no-graph switch a default tool off"
+
+
+def gitignore_text(text, enabled=None, root=None):
+    """The .gitignore with the managed block (added or replaced by marker). None when nothing changes.
+    .claude/commands/ and .claude/agents/ stay ignored unless the repo already tracks files there."""
+    lines = list(GI_LINES)
+    for sub in ("commands", "agents"):
+        if root and git(root, "ls-files", "--", ".claude/%s" % sub):
+            lines.insert(lines.index("!.claude/settings.json") + 1, "!.claude/%s/" % sub)
+    block = "\n".join([GI_START] + lines + [GI_END]) + "\n"
+    text = text or ""
+    if GI_RX.search(text):
+        new = GI_RX.sub(lambda _m: block, text, count=1)
+    else:
+        new = drop_old_block(text).rstrip("\n")
+        new = (new + "\n\n" if new else "") + block
+    return None if new == text else new
+
+
+def drop_old_block(text):
+    out, skipping = [], False
+    for ln in text.split("\n"):
+        if ln.strip() == GI_OLD_HEAD:
+            skipping = True
+            continue
+        if skipping and ln.strip() in GI_OLD_LINES:
+            continue
+        skipping = False
+        out.append(ln)
+    return "\n".join(out)
+
+
+def enabled_text(ids):
+    return ENABLED_HEAD + "\n" + "".join(i + "\n" for i in ids)
+
+
+def committable(root, paths):
+    """Paths git will take: tracked ones, and untracked ones the .gitignore does not ignore."""
+    out = []
+    for rel in paths:
+        tracked = git(root, "ls-files", "--", rel)
+        ignored = subprocess.call(["git", "-C", root, "check-ignore", "-q", "--", rel],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
+        if tracked or not ignored:
+            out.append(rel)
+    return out
 
 
 def upsert_map(agents, body):
@@ -468,10 +531,19 @@ def knowledge_steps(root, opts, enabled):
     if "graph" in enabled and code:
         if not which("graphify"):
             print("skip graph: graphify is not on PATH")
-        elif not os.path.isfile(os.path.join(root, "graphify-out", "graph.json")):
-            steps.append(("GRAPHIFY_BACKEND=none graphify extract . --code-only",
-                          lambda: run_step(["graphify", "extract", ".", "--code-only"], root, 1800,
-                                           env={"GRAPHIFY_BACKEND": "none"})))
+        else:
+            if not os.path.isfile(os.path.join(root, "graphify-out", "graph.json")):
+                steps.append(("GRAPHIFY_BACKEND=none graphify extract . --code-only",
+                              lambda: run_step(["graphify", "extract", ".", "--code-only"], root, 1800,
+                                               env={"GRAPHIFY_BACKEND": "none"})))
+            # Freshness: graphify's own git hooks (post-commit, post-checkout, post-merge, post-rewrite) rebuild
+            # the code graph in the background, keyless (GRAPHIFY_BACKEND=none comes from the env switches).
+            # On a server the git guard turns hooks off for agent git calls (agent mode): their commits do not
+            # rebuild; the router's graph status line asks for `graphify update .` when the graph is stale.
+            status = run_capture(["graphify", "hook", "status"], root) or ""
+            if "post-commit: installed" not in status or "out of date" in status:
+                steps.append(("graphify hook install (graph rebuilds after commit, checkout, merge, rebase)",
+                              lambda: run_step(["graphify", "hook", "install"], root, 120)))
     if opts["knowledge"] and libs_stale(root):
         steps.append(("ai-libs --sync", lambda: run_step([sys.executable, os.path.join(BIN, "ai-libs"), "--sync",
                                                           "--dir", root], root, 600)))
@@ -479,6 +551,14 @@ def knowledge_steps(root, opts, enabled):
         steps.append(("remove the old .ai/libs.md (IDs move into the Libraries section)",
                       lambda: os.remove(os.path.join(root, ".ai", "libs.md"))))
     return steps
+
+
+def run_capture(cmd, cwd):
+    try:
+        res = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return res.stdout.decode("utf-8", "replace")
 
 
 def map_conventions(root):

@@ -35,7 +35,7 @@ def main():
                      t_user_hook_match, t_verify_source, t_connectors_keep, t_sudo_gate, t_gate_skip_owner_only,
                      t_root_guard, t_update_clone, t_ai_sync_untrusted, t_plugin_files_tracked,
                      t_hooks_absolute, t_uv_copy, t_box_registration, t_readiness, t_managed_router,
-                     t_owner_2026_11_12):
+                     t_owner_2026_11_12, t_graph_refresh):
             try:
                 test(os.path.join(work, test.__name__))
                 print("ok   " + test.__name__)
@@ -277,7 +277,7 @@ def t_claude_permissions(work):
     assert perms["allow"][0] == "Bash(ls)" and "Bash(rm *)" in perms["deny"], "user rules must stay"
     assert stale not in perms["allow"], "a rule an earlier install added and the lists dropped must go"
     assert len(perms["allow"]) == len(set(perms["allow"])), "duplicates after a second run"
-    for rule in ("mcp__plugin_ai-serena_serena__find_symbol", "mcp__plugin_ai-serena_serena__read_memory",
+    for rule in ("mcp__plugin_ai-serena_serena__find_symbol", "mcp__plugin_ai-serena_serena__get_symbols_overview",
                  "mcp__plugin_ai-core_context7__*", "Bash(gh pr view *)", "Bash(gh issue list*)",
                  "Bash(graphify query *)", "Bash(agent-audit *)",
                  "Bash(ai-doctor*)", "WebFetch", "WebSearch", "Read(~/.claude/plugins/**)", "Read(~/.config/ai/**)"):
@@ -513,6 +513,7 @@ def t_sandbox_policy(work):
     stub(_b, "sysctl", "echo 1")
     stub(_b, "bwrap", "exit 0"); stub(_b, "socat", "exit 0"); stub(_b, "rg", "exit 0")
     stub(_b, "getent", "exit 2")       # group ai-sandbox does not exist yet
+    stub(_b, "id", 'if [ "$1" = -nG ]; then echo users; else exec /usr/bin/id "$@"; fi')   # not in the group yet
     code, out = bash(LIBS + "AI_OS=linux; AI_MODE=system; AI_DRY_RUN=1; AI_FOR_USER=ubuntu01; tools_sandbox_deps", env)
     assert code == 0 and "apparmor_parser -r /etc/apparmor.d/ai-claude-bwrap" in out \
         and "/etc/apparmor.d/bwrap " not in out, out
@@ -553,7 +554,12 @@ def t_knowledge_status(work):
           "|---|---|---|---|\n| httpx | 0.27 | /encode/httpx | |\n<!-- AI:libraries END -->\n" % h)
     assert hooklib.docs_map_status(proj) == "matches uv.lock"
     line = hooklib.knowledge_index(proj)
-    assert "Map: present (2 lines)" in line and "Libraries: match" in line and "Serena" not in line, line
+    assert "Map: present (2 lines)" in line and "Libraries: match" in line, line
+    assert "Serena on" in line and "Graph: missing" in line, "Serena and graphify are on by default: " + line
+    write(os.path.join(proj, ".ai", "enabled"), "no-serena\nno-graph\n")
+    line = hooklib.knowledge_index(proj)
+    assert "Serena" not in line and "Graph" not in line, "a project can opt out: " + line
+    os.remove(os.path.join(proj, ".ai", "enabled"))
     write(os.path.join(proj, "uv.lock"), "lock-b\n")
     assert hooklib.docs_map_status(proj) == "stale"
     assert "run ai-libs --sync" in hooklib.knowledge_index(proj)
@@ -812,12 +818,29 @@ def t_readiness(work):
     src = read(os.path.join(AI_DIR, "adapters", "codex.sh"))
     assert 'allowed_approval_policies = ["untrusted", "on-request", "never"]' in src
     assert 'allowed_sandbox_modes = ["read-only", "workspace-write"]' in src, "never must not come with full access"
-    # A global Serena in Codex (no record) is removed
+    # Serena is global again (owner 2026-11-12, evening): the drop step leaves it alone, Codex registers it.
     log = os.path.join(work, "codex.log")
-    stub(bindir, "codex", 'echo "$*" >> %s; if [ "$1 $2" = "mcp get" ]; then echo serena start-mcp-server; fi; exit 0'
-         % log)
-    code, out = bash(LIBS + "tools_drop_user", env)
-    assert code == 0 and "mcp remove serena" in read(log), (out, read(log))
+    stub(bindir, "codex", 'echo "$*" >> %s; if [ "$1 $2" = "mcp get" ]; then exit 1; fi; exit 0' % log)
+    stub(bindir, "serena", "exit 0")
+    code, out = bash(LIBS + "tools_drop_user; codex_mcp", env)
+    assert code == 0 and "mcp remove serena" not in read(log), (out, read(log))
+    assert "mcp add serena" in read(log) and "--context=codex" in read(log) and "--project-from-cwd" in read(log), read(log)
+    cfg = read(os.path.join(home, ".codex", "config.toml"))
+    assert "[mcp_servers.serena]" in cfg and "startup_timeout_sec = 60" in cfg and "tool_timeout_sec = 300" in cfg, cfg
+    # Serena global config (2.1.0 keys) and Claude: ai-serena on at user scope.
+    scfg = os.path.join(home, ".serena", "serena_config.yml")
+    write(scfg, "agent_interface: REPL\nweb_dashboard: True\n")
+    code, out = bash(LIBS + "base_serena_config", env)
+    text = read(scfg)
+    for kv in ("agent_interface: tools", "excluded_tools: [execute_shell_command, serena_repl]",
+               "web_dashboard: false", "gui_log_window: false", "log_level: 30",
+               "default_max_tool_answer_chars: 40000", "default_modes: [no-memories]"):
+        assert kv in text, (kv, text)
+    stub(bindir, "claude", "exit 0")
+    code, out = bash(LIBS + "claude_plugin() { :; }; claude_has_plugin() { return 1; }; plugin_src_dir() { echo /none; }; "
+                     "claude_plugins", env)
+    plugins = json.load(open(os.path.join(home, ".claude", "settings.json")))["enabledPlugins"]
+    assert plugins.get("ai-serena@ai") is True and plugins.get("ai-playwright@ai") is False, plugins
 
 
 def t_managed_router(work):
@@ -872,8 +895,8 @@ def t_owner_2026_11_12(work):
     pick = ('eval "$(sed -n \'/^pick_agents()/,/^}/p\' %s)"; has() { case "$1" in claude|codex|herdr|opencode) return 0;; '
             'esac; return 1; }; hermes_exists() { return 1; }; AI_MODE=all; AGENTS=; ' % os.path.join(REPO, "install.sh"))
     code, out = bash(pick + "AI_OS=linux; pick_agents; echo $AGENTS", env)
-    assert out.strip() == "claude,codex", out
-    code, out = bash(pick + "AI_OS=linux; AI_EXTRA_AGENTS=herdr,opencode; pick_agents; echo $AGENTS", env)
+    assert out.strip() == "claude,codex,herdr", out
+    code, out = bash(pick + "AI_OS=linux; AI_EXTRA_AGENTS=opencode; pick_agents; echo $AGENTS", env)
     assert out.strip() == "claude,codex,opencode,herdr", out
     code, out = bash(pick + "AI_OS=macos; pick_agents; echo $AGENTS", env)
     assert out.strip() == "claude,codex,opencode,herdr", out
@@ -904,6 +927,55 @@ def t_owner_2026_11_12(work):
     assert "env/GIT_GUARD_AGENT" in out, out
     herm = read(os.path.join(AI_DIR, "adapters", "hermes.sh"))
     assert "92-ai-agent.conf" in herm and "GIT_GUARD_AGENT=1" in herm
+
+
+def t_graph_refresh(work):
+    """After a successful agent git commit the router refreshes the graph in the background: detached (the hook
+    returns at once), absolute graphify, one run per repo at a time plus one more pass, opt-out respected."""
+    import time as _t
+    env, home, bindir = bash_env(work)
+    proj = os.path.join(work, "repo")
+    os.makedirs(os.path.join(proj, "graphify-out"))
+    subprocess.check_call(["git", "init", "-q", proj])
+    write(os.path.join(proj, "graphify-out", "graph.json"), "{}")
+    write(os.path.join(proj, "app.py"), "print(1)\n")
+    marker = os.path.join(work, "ran.log")
+    fake = os.path.join(work, "gfy", "graphify")
+    write(fake, '#!/bin/sh\necho "$GRAPHIFY_BACKEND $*" >> %s\nsleep 5\n' % marker, 0o755)
+    state = os.path.join(work, "st")
+    renv = dict(env, AI_GRAPHIFY_BIN=fake, AI_STATE_DIR=state, AI_CLAUDE_MANAGED_SETTINGS=os.devnull)
+    router = os.path.join(PLUGIN, "hooks", "router.py")
+
+    def post(cmd, agent="claude", resp=None):
+        payload = {"hook_event_name": "PostToolUse", "session_id": "g", "cwd": proj, "tool_name": "Bash",
+                   "tool_input": {"command": cmd}, "tool_response": resp or {"stdout": "", "stderr": ""}}
+        t0 = _t.time()
+        res = subprocess.run([sys.executable, router, "--agent", agent, "PostToolUse"],
+                             input=json.dumps(payload).encode(), env=renv, stdout=subprocess.PIPE, timeout=20)
+        return _t.time() - t0, res.stdout.decode()
+
+    took, out = post("git commit -m x")
+    assert took < 1.5, "the hook must not wait for the refresh: %.2f s" % took
+    assert "graphify update" not in out, "no nudge when the router refreshes the graph itself: " + out
+    deadline = _t.time() + 10
+    while _t.time() < deadline and not os.path.exists(marker):     # the first run has started
+        _t.sleep(0.1)
+    took, _ = post("rtk git pull", agent="codex")           # during the first run: one more pass, no third
+    post("git -C . checkout -b x")
+    deadline = _t.time() + 20
+    while _t.time() < deadline and (not os.path.exists(marker) or len(read(marker).splitlines()) < 2):
+        _t.sleep(0.2)
+    _t.sleep(6)
+    lines = read(marker).splitlines()
+    assert lines and all(ln == "none update %s" % proj for ln in lines), lines
+    assert len(lines) == 2, "one run plus one pending pass, not one per call: %s" % lines
+    os.remove(marker)
+    post("git status")                                      # not a code-changing call
+    post("git commit -m y", resp={"exit_code": 1})          # failed call
+    write(os.path.join(proj, ".ai", "enabled"), "no-graph\n")
+    post("git commit -m z")                                 # project opted out
+    _t.sleep(1.5)
+    assert not os.path.exists(marker), open(marker).read()
 
 
 def t_root_guard(work):

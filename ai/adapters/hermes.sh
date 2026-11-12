@@ -33,7 +33,15 @@ hermes_mcp() {
     box_present || skip=(--skip box)
     # box: the box MCP tools for Hermes too (Hermes may also run plain proj-agent; it is in the agents' group).
     aiconf_hermes mcp-register hermes --mcp-json "$root/.mcp.json" --plugin-root "$root" ${skip[@]+"${skip[@]}"}
-    ok "Hermes MCP: context7$(box_present && echo ', box') (github, grounded-docs and serena removed)"
+    # Serena for Hermes too (owner 2026-11-12): context ide, --project-from-cwd (no project = no tools active).
+    local sroot
+    if as_hermes_ro 'command -v serena' >/dev/null; then
+        sroot=$(hermes_stage_dir "$AI_HOME/ai/marketplace/plugins/ai-serena" plugin-ai-serena)
+        aiconf_hermes mcp-register hermes --mcp-json "$sroot/.mcp.json" --plugin-root "$sroot"
+    else
+        skip "Hermes Serena: serena is not on $HERMES_USER's PATH"
+    fi
+    ok "Hermes MCP: context7, serena$(box_present && echo ', box') (github and grounded-docs removed)"
 }
 
 hermes_serena_config() {

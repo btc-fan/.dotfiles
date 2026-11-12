@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from hooklib import (GATES, GATE_PROBES, ai_home, append_jsonl, command_text, gate_skips,  # noqa: E402
                      iso_now, knowledge_delta, knowledge_index, libs_hits, log_error, log_line, one_line,
                      origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
-                     state_path)
+                     state_path, with_defaults, graph_git_calls, start_graph_refresh)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
 CONTEXT_CAP = 9500          # additionalContext is cut here (hook output caps: Claude 10,000 chars, Codex ~2,500 tokens)
@@ -294,6 +294,11 @@ def on_post_tool(ctx):
             append_jsonl("fired.jsonl", ctx.row(kind="skill", via="tool", skill=name))
     if is_docs_tool(tool):
         log_docs_ids(ctx, tool, tin)
+    try:
+        ctx.graph_refresh = graph_refresh(ctx)
+    except Exception as exc:     # never break the session
+        log_error("graph_refresh", exc)
+        ctx.graph_refresh = False
     for rule in ctx.routing.get("rules", []):
         trig = rule.get("trigger", {})
         if not trig.get("tool_after") or not tool_matches(trig["tool_after"], tool):
@@ -594,7 +599,8 @@ def playwright_enabled(root):
 
 def enabled_tools(root):
     text = read_text(os.path.join(root, ".ai", "enabled")) if root else ""
-    return {ln.split("#", 1)[0].strip().lower() for ln in (text or "").splitlines() if ln.split("#", 1)[0].strip()}
+    return with_defaults({ln.split("#", 1)[0].strip().lower() for ln in (text or "").splitlines()
+                          if ln.split("#", 1)[0].strip()})
 
 
 # Claude-only skill packs, opt-in per project (owner decision 2026-11-12: about 12k tokens per session each).
@@ -695,7 +701,20 @@ def _ph_knowledge_index(ctx):
 def _ph_knowledge_delta(ctx):
     if ctx.event != "PostToolUse" or not commit_succeeded(ctx):
         return ""
-    return knowledge_delta(ctx.root, bool(ctx.state.load().get("docs_ids_new")))
+    return knowledge_delta(ctx.root, bool(ctx.state.load().get("docs_ids_new")),
+                           graph_refreshing=bool(getattr(ctx, "graph_refresh", False)))
+
+
+def graph_refresh(ctx):
+    """After a successful git call that changes the code: start the background graph refresh (graph on)."""
+    if ctx.agent not in ("claude", "codex") or not ctx.stages or not commit_succeeded(ctx):
+        return False
+    started = False
+    for d in graph_git_calls(ctx.stages, ctx.cwd or "."):
+        root = project_root(d)
+        if root and "graph" in enabled_tools(root) and start_graph_refresh(root):
+            started = True
+    return started
 
 
 def _ph_libs_hits(ctx):

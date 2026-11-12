@@ -33,7 +33,7 @@ Note: plugin skills cannot be hidden one by one. Think about the context cost.
 
 1. Intake and audit. Check telemetry and set it off in the server `env`. Check what leaves the machine.
 2. Pin the exact version in `ai/pins.env`. No `@latest`.
-3. Default: per project, not global (every global server costs context in every session; owner decision 2026-11-12). Add it to `project_mcp_plan` in `ai/bin/ai-start` with an opt-in routing row, like Serena and Playwright. Only a server every project needs (today: context7) goes into `ai/marketplace/plugins/ai-core/.mcp.json`. Keys: `${VAR}` from `~/.config/ai/secrets.env`, and add the name to `secrets.env.example`. Do not commit a key. (One owner exception exists: the free context7 key.)
+3. Default: per project, not global (every global server costs context in every session; owner decision 2026-11-12). Add it to `project_mcp_plan` in `ai/bin/ai-start` with an opt-in routing row, like Playwright. Only a server every project needs (today: context7) goes into `ai/marketplace/plugins/ai-core/.mcp.json`. Keys: `${VAR}` from `~/.config/ai/secrets.env`, and add the name to `secrets.env.example`. Do not commit a key. (One owner exception exists: the free context7 key.)
 4. Codex: the installer runs `codex mcp add`. Hermes: `hermes mcp add`.
 5. Plugin tool names are `mcp__plugin_ai-core_<server>__<tool>`. Use these names in hook matchers and in routing rows.
 6. If the server must be per project (like Playwright), do not put it in `.mcp.json` of the plugin. Add it through `ai-start` and `ai-adopt`.

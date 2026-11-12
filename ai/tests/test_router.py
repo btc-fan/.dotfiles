@@ -141,7 +141,10 @@ def run_case(rule_id, case, work, build):
 
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home, "AI_STATE_DIR": state,
            "AI_ROUTING_JSON": os.path.join(build, "routing.json"), "AI_HOME": ai_home, "AI_NOTIFY_DRY": "1",
-           "LANG": "C.UTF-8"}
+           "LANG": "C.UTF-8",
+           # never the host's /etc/claude-code/managed-settings.json (a server has real excludedCommands)
+           "AI_CLAUDE_MANAGED_SETTINGS": os.path.join(tmp, "no-managed-settings.json"),
+           "AI_GRAPHIFY_BIN": os.path.join(tmp, "no-graphify")}      # never start the host's graphify
     env.update(sub(case.get("env", {}), subs))
     if case.get("gate_skip"):
         env.update({"AI_GATE_SKIP_FILE": os.path.join(tmp, "gate-skip"), "AI_GATE_SKIP_INSECURE_TEST": "1"})
