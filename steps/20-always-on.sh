@@ -21,7 +21,9 @@ main() {
     setup_kdump
     setup_grub
     setup_wol
+    setup_wait_online
     if [ "$UNITS_CHANGED" = 1 ]; then run systemctl daemon-reload; fi
+    wait_online_reset
 }
 
 # Nothing can put the machine to sleep: the targets are masked and sleep.conf says no.
@@ -223,6 +225,38 @@ EOF
         warn "$NIC is not named in /etc/netplan/*.yaml: WoL is set for this boot only"
     fi
     ethtool "$NIC" | grep -i 'wake-on' | sed 's/^/   /'
+}
+
+# Boot waits for the network at most WAIT_ONLINE_TIMEOUT seconds (default 30), not 2 minutes.
+# Found on the server (2026-11-11, boot after a power cut): the NIC got its link only 235 s after
+# boot, because the router came back after the server. systemd-networkd-wait-online waited its
+# full 2 min, failed, and the boot carried a failed unit. Waiting longer helps nothing: services
+# that need the network (Docker, Incus, boot-notify) cope with a late network, and boot-notify
+# itself waits up to 15 min for DNS. Netplan's generated ExecStart lines are replaced (drop-in
+# 50-*, sorts after netplan's 10-netplan.conf): wait for NIC routable, 30 s, and a timeout is not
+# a failure ("-" prefix), so a slow router never marks the boot red. A real network problem
+# still shows: boot-notify reports how late the network came.
+setup_wait_online() {
+    local t=${WAIT_ONLINE_TIMEOUT:-30}
+    log "network wait at boot: $NIC routable, at most ${t}s, a timeout is not a failure"
+    put /etc/systemd/system/systemd-networkd-wait-online.service.d/50-server.conf 644 <<EOF
+# Managed by setup.sh (step 20-always-on). Why: a router that comes back after a power cut later
+# than the server (seen: 235 s) made this wait 2 min and fail. Now: $NIC routable, ${t}s, and a
+# timeout does not fail the unit. Services that need the network cope with a late one.
+[Service]
+ExecStart=
+ExecStart=-/usr/lib/systemd/systemd-networkd-wait-online -i $NIC:routable --timeout=$t
+EOF
+    note_unit
+}
+
+# The unit failed on an earlier boot: clear that state once the fix is in, so the failed-unit
+# checks (verify, proj doctor, digest) start clean.
+wait_online_reset() {
+    if [ "$(systemctl show -p Result --value systemd-networkd-wait-online.service 2>/dev/null)" != success ] \
+        && [ -f /etc/systemd/system/systemd-networkd-wait-online.service.d/50-server.conf ]; then
+        run systemctl reset-failed systemd-networkd-wait-online.service
+    fi
 }
 
 main "$@"
