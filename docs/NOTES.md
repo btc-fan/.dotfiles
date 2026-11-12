@@ -288,3 +288,28 @@ for a fork; `tar --zstd` on 26.04; the host reaching a box IP through ufw.
   The guard stops mistakes; the protection is that the docs give the admin only commands that
   start from `/opt/server-setup`.
 - The `ai` branch installer follows the same rule (`/opt/ai-setup`, `--update --for-user`).
+
+### git guard: allow-list instead of deny-list
+- The audit proved three bypasses of the old deny-list guard: `extensions.worktreeConfig` with a
+  filter in `config.worktree` (ran a planted command on `git status`); `core.worktree` pointing
+  outside (`git checkout -- .` overwrote a file outside); `--git-dir` from outside skipped the
+  check. Four more keys passed the regex (`submodule.<n>.update`, `pager.<cmd>`,
+  `interactive.diffFilter`, `trailer.<t>.command`).
+- Now: the guard finds the real repository (`rev-parse` with the caller's `-C`, `--git-dir`,
+  `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`; symlinks resolved) and checks
+  every config file (`config`, `config.worktree`, `worktrees/*`, `modules/*`) against an
+  allow-list. Plus `safe.bareRepository=explicit`, `protocol.ext.allow=never`, no submodule
+  recursion, URL checks, `.git` file and alternates must stay in the workspace. Outside the
+  workspaces with no folder named: plain git, no extra process (fast path).
+- `tests/git-guard.test.sh`: 65 checks. Against the old guard 26 fail (3 payloads ran).
+- Left open, said in HOSTING.md: a race between the check and git reading the config, and
+  local-path remotes (needed for a local bare remote) can copy a host repository in on fetch.
+  The full fix for the race is to freeze the config files for the git run (a private mount
+  namespace, bubblewrap) or to run git for box projects only inside the box.
+
+### Workspace mount is a hard dependency of Incus
+- `incus.service` and `incus.socket` get a drop-in with `Requires=` and `After=` the
+  `nosuid,nodev` bind mount of `WORK_ROOT`. When the mount fails, Incus does not start.
+- Step 70 never restarts that mount (a restart would restart Incus and stop every box): wrong
+  flags are fixed with `mount -o remount`. Setuid files there are only reported now: a root
+  `chmod` could be sent through a symlink an agent swaps in, and on `nosuid` the bit does nothing.

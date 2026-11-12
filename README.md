@@ -569,6 +569,7 @@ files/proj/proj       the proj CLI (to /usr/local/sbin/proj)
 files/sbin/proj-agent the only root command agents may run (sudo, no password, allow-list)
 tests/proj-agent.test.sh   offline tests for proj-agent (fake tools, run as a normal user)
 tests/proj-workspace.test.sh   offline tests for proj workspaces (new, fork, wipe, recreate)
+tests/git-guard.test.sh   offline tests for the workspace git guard (every known bypass + normal use)
 files/proj/box-bootstrap.sh   runs inside every new box (user dev, tools, docker, postgres)
 files/incus/*.yaml    Incus profiles: box-base, tier-try, tier-mvp, tier-long, docker
 docs/HOSTING.md       rules for project boxes (for people)

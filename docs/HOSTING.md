@@ -106,6 +106,18 @@ Owner decision 2026-11-11: agents (Claude Code and Codex as the main user, Herme
   (`security.idmap.isolated`). We do not use `raw.idmap`: it would run `dev` as the real main
   user on the host, so a box escape would get that user. `dev` joins a group with the devs gid
   inside the box, so it may write Hermes' files too.
+- **git in a workspace (security).** Code in the box can write `.git` there. On the host,
+  `/usr/local/bin/git` (a guard, step 70) checks every git call that touches a workspace: no
+  hooks, no fsmonitor, git never enters submodules, and the repository config may hold only
+  harmless keys (core basics, remotes with plain URLs, branches, user name and email, pull, push
+  and fetch basics). Anything else, `core.worktree`, includes, a `.git` file that points outside
+  the workspace, or alternates outside it: git refuses and says why. Fix it from inside the box
+  (`sudo proj-agent exec <box> -- git config --local --list`). `git submodule` and
+  `--recurse-submodules`: run them in the box. Test: `bash tests/git-guard.test.sh`.
+  Left open: the box could swap `.git/config` in the few milliseconds between the check and git
+  reading it (a race), and a remote set to a host folder lets `git fetch` copy that repository
+  into the workspace, where the box can read it. Look at `git remote -v` before a fetch.
+- The workspace mount is `nosuid,nodev`, and Incus does not start without it.
 - Boxes made before workspaces: `sudo proj workspace <box>` copies their `/srv/app` out (no
   owners or setuid bits from the box, links not followed) and mounts the workspace over it.
   Restart the box services after. `proj recreate` does the same copy first.

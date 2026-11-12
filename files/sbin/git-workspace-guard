@@ -1,45 +1,157 @@
-#!/bin/sh
-# git-workspace-guard: installed as /usr/local/bin/git by ~/.dotfiles setup.sh (step 70-hosting).
-# SECURITY. Code inside a box can write the box's workspace, including .git/config and .git/hooks.
+#!/bin/bash
+# git-workspace-guard: installed as /usr/local/bin/git by setup.sh (step 70-hosting).
+# SECURITY. Code inside a box can write the box's workspace (WORK_ROOT/<box> = /srv/app in the box),
+# including .git/config, .git/hooks, .git files that point elsewhere, and whole planted repositories.
 # The host agents (and Claude Code's own git status at startup) run git there as the main user.
-# So for any repository under the workspace root:
-#   - hooks never run (core.hooksPath=/dev/null) and fsmonitor is off;
-#   - git refuses to run when the repository's own config sets a key that can start a program
-#     (pager, editor, ssh command, diff/merge/filter drivers, aliases, includes, credential
-#     helpers, ...). Fix it from inside the box, or ask the owner.
-# Anywhere else this is plain /usr/bin/git.
+# For any git call that touches a workspace (current folder, -C, --git-dir, --work-tree,
+# GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR, or the repository git finds):
+#   - hooks never run, fsmonitor is off, bare repositories are used only when named
+#     (safe.bareRepository=explicit), the ext:: transport is off, git never enters submodules;
+#   - every config file of the repository (config, config.worktree, worktrees/*, modules/*) may
+#     hold only keys from the ALLOW-LIST below. Anything else is refused: a key that is not known
+#     to be harmless may start a program (pager, editor, filter, diff driver, alias, hook, ...);
+#   - core.worktree, includes, extensions other than objectformat/refstorage: refused;
+#   - remote and submodule URLs: plain https/http/ssh/git/file URLs, scp-like user@host:path,
+#     or paths. "transport::address" and anything starting with "-" are refused;
+#   - the repository git finds must live in the workspace (a .git file that points to a host
+#     repository is refused), and objects/info/alternates may not point outside the workspaces;
+#   - `git submodule` and --recurse-submodules are refused: run them inside the box.
+# Anywhere else this is plain /usr/bin/git. Fix a refused repository from inside the box:
+#   sudo proj-agent exec <box> -- git config --local --list
 REAL=/usr/bin/git
 WORK_ROOT="@WORK_ROOT@"
+SAFE=(-c core.hooksPath=/dev/null -c core.fsmonitor=false -c safe.bareRepository=explicit
+      -c protocol.ext.allow=never -c submodule.recurse=false -c fetch.recurseSubmodules=false
+      -c push.recurseSubmodules=no -c diff.ignoreSubmodules=all -c status.submoduleSummary=false)
 
+refuse() {
+    echo "git-workspace-guard: refused. $*" >&2
+    echo "git-workspace-guard: code in a box may have planted this. Check it from inside the box (sudo proj-agent exec <box> -- git config --local --list) or ask the owner." >&2
+    exit 1
+}
+
+# phys PATH [BASE]: the physical folder (symlinks resolved), or empty when it does not exist.
+phys() {
+    local p=$1
+    case "$p" in /*) ;; *) p=${2:-$PWD}/$p ;; esac
+    [ -d "$p" ] || p=$(dirname -- "$p")
+    (cd -- "$p" 2>/dev/null && pwd -P) || true
+}
+in_ws() { case "$1/" in "$WORK_ROOT"/?*) return 0 ;; *) return 1 ;; esac; }
+
+# 1. Global options before the subcommand: where git will look. Nothing is changed here.
 dir=$PWD
-# git -C <dir> ... (also repeated -C): the last one wins, relative to the previous.
-a=1
+explicit=0
+[ -z "${GIT_DIR:-}${GIT_WORK_TREE:-}${GIT_COMMON_DIR:-}" ] || explicit=1
+loc=()       # the location options, replayed for rev-parse
+paths=()     # every folder the call names
+sub=""
+take=""
 for arg in "$@"; do
-    if [ "$a" = C ]; then
-        case "$arg" in /*) dir=$arg ;; *) dir=$dir/$arg ;; esac
-        a=1; continue
+    if [ -n "$take" ]; then
+        case "$take" in
+            -C) case "$arg" in /*) dir=$arg ;; *) dir=$dir/$arg ;; esac; loc+=(-C "$arg") ;;
+            --git-dir|--work-tree) explicit=1; loc+=("$take=$arg"); paths+=("$(phys "$arg" "$dir")") ;;
+            -c) loc+=(-c "$arg") ;;
+        esac
+        take=""; continue
     fi
     case "$arg" in
-        -C) a=C ;;
+        -C|-c|--git-dir|--work-tree|--namespace|--config-env|--attr-source|--super-prefix|--list-cmds) take=$arg ;;
+        --git-dir=*|--work-tree=*) explicit=1; loc+=("$arg"); paths+=("$(phys "${arg#*=}" "$dir")") ;;
+        --bare) explicit=1; loc+=("$arg") ;;
         -*) ;;
-        *) break ;;
+        *) sub=$arg; break ;;
     esac
 done
-[ -n "${GIT_DIR:-}" ] && case "$GIT_DIR" in /*) dir=$GIT_DIR ;; *) dir=$dir/$GIT_DIR ;; esac
+cwd=$(phys "$dir")
+[ -z "${GIT_DIR:-}" ] || paths+=("$(phys "$GIT_DIR" "$cwd")")
+[ -z "${GIT_WORK_TREE:-}" ] || paths+=("$(phys "$GIT_WORK_TREE" "$cwd")")
+[ -z "${GIT_COMMON_DIR:-}" ] || paths+=("$(phys "$GIT_COMMON_DIR" "$cwd")")
 
-case "$(cd "$dir" 2>/dev/null && pwd -P)/" in
-    "$WORK_ROOT"/*) ;;
-    *) exec "$REAL" "$@" ;;
-esac
-
-# Inside a workspace. Reading the local config runs nothing (includes are only read as files).
-bad=$("$REAL" -C "$dir" -c core.hooksPath=/dev/null -c core.fsmonitor=false \
-      config --local --no-includes --name-only --list 2>/dev/null \
-    | grep -iE '^(core\.(fsmonitor|hookspath|pager|sshcommand|editor|askpass|gitproxy|alternaterefscommand)|sequence\.editor|diff\.external|diff\..+\.(command|textconv)|difftool\..+|merge\..+\.driver|mergetool\..+|filter\..+|alias\..+|include\.|includeif\..+|credential\..*helper|.+\.program|uploadpack\..+|receive\..+|protocol\..+\.allow|url\..+\.(insteadof|pushinsteadof)|remote\..+\.(uploadpack|receivepack|vcs)|gpg\..+|ssh\..+|http\..*(proxy|cookiefile))$' \
-    | sort -u | tr '\n' ' ')
-if [ -n "$bad" ]; then
-    echo "git-workspace-guard: refused. The repository config in $dir sets keys that can start a program: $bad" >&2
-    echo "git-workspace-guard: code in the box may have planted them. Check .git/config from inside the box (sudo proj-agent exec <box> -- git config --local --list) or ask the owner." >&2
-    exit 1
+# Fast path: the current folder is outside the workspaces and no folder was named. Git only
+# looks upward from here, so it cannot find a workspace repository.
+if [ "$explicit" = 0 ] && ! in_ws "$cwd"; then
+    exec "$REAL" "$@"
 fi
-exec "$REAL" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"
+
+# 2. Where the repository really is. rev-parse reads config but runs nothing (fsmonitor off).
+info=$("$REAL" ${loc[@]+"${loc[@]}"} "${SAFE[@]}" rev-parse --path-format=absolute --git-dir --git-common-dir 2>/dev/null) || info=""
+gitdir=""; common=""; top=""
+if [ -n "$info" ]; then
+    gitdir=$(phys "$(printf '%s\n' "$info" | sed -n 1p)")
+    common=$(phys "$(printf '%s\n' "$info" | sed -n 2p)")
+    top=$("$REAL" ${loc[@]+"${loc[@]}"} "${SAFE[@]}" rev-parse --show-toplevel 2>/dev/null) || top=""
+    [ -z "$top" ] || top=$(phys "$top")
+fi
+
+touch_ws=0
+for p in "$cwd" "$gitdir" "$common" "$top" ${paths[@]+"${paths[@]}"}; do
+    if [ -n "$p" ] && in_ws "$p"; then touch_ws=1; fi
+done
+[ "$touch_ws" = 1 ] || exec "$REAL" "$@"
+
+# 3. Inside a workspace.
+case "$sub" in submodule) refuse "git submodule enters other repositories: run it inside the box." ;; esac
+for arg in "$@"; do
+    case "$arg" in --recurse-submodules|--recurse-submodules=*|--recursive) refuse "$arg enters other repositories: run it inside the box." ;; esac
+done
+
+if [ -n "$gitdir" ]; then
+    if ! in_ws "$gitdir" || ! in_ws "$common"; then
+        # A host repository named by the caller (--git-dir, GIT_DIR) is the caller's choice.
+        # One that git FOUND from a workspace was pointed to by a .git file the box can write.
+        [ "$explicit" = 1 ] || refuse "the repository for $cwd is $gitdir, outside the workspace (a .git file points there)."
+        exec "$REAL" "${SAFE[@]}" "$@"
+    fi
+    # Alternates: other object folders git reads. Only inside the workspaces.
+    alt=$common/objects/info/alternates
+    if [ -f "$alt" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in ''|'#'*) continue ;; esac
+            a=$(phys "$line" "$common/objects")
+            [ -n "$a" ] && in_ws "$a" || refuse "$alt points outside the workspaces: $line"
+        done < "$alt"
+    fi
+    files=("$common/config" "$common/config.worktree" "$gitdir/config.worktree")
+    while IFS= read -r -d '' f; do files+=("$f"); done < <(
+        { find "$common/worktrees" -mindepth 2 -maxdepth 2 -type f -name config.worktree -print0
+          find "$common/modules" \( -name config -o -name config.worktree \) -type f -print0; } 2>/dev/null)
+    for f in "${files[@]}"; do
+        [ -e "$f" ] || continue
+        [ -f "$f" ] && [ ! -L "$f" ] || refuse "$f is not a plain file."
+        "$REAL" config --file "$f" --no-includes --list >/dev/null 2>&1 \
+            || refuse "$f cannot be read as a git config file."
+        bad=""
+        while IFS= read -r -d '' kv; do
+            key=${kv%%$'\n'*}
+            val=""
+            case "$kv" in *$'\n'*) val=${kv#*$'\n'} ;; esac
+            case "$key" in
+                core.repositoryformatversion|core.filemode|core.bare|core.logallrefupdates|\
+                core.ignorecase|core.precomposeunicode|core.symlinks|core.autocrlf|core.eol|\
+                core.sparsecheckout|core.sparsecheckoutcone|core.abbrev|\
+                extensions.objectformat|extensions.refstorage|\
+                user.name|user.email|init.defaultbranch|pull.rebase|pull.ff|\
+                push.default|push.autosetupremote|push.followtags|fetch.prune|fetch.prunetags|\
+                merge.ff|merge.conflictstyle|rebase.autostash|gc.auto|lfs.repositoryformatversion)
+                    ;;
+                remote.*.fetch|remote.*.push|remote.*.tagopt|remote.*.prune|remote.*.prunetags|\
+                remote.*.mirror|remote.*.skipdefaultupdate|remote.*.skipfetchall|\
+                branch.*.remote|branch.*.merge|branch.*.rebase|branch.*.pushremote|\
+                branch.*.description|submodule.*.active|submodule.*.branch)
+                    ;;
+                remote.*.url|remote.*.pushurl|submodule.*.url)
+                    case "$val" in
+                        -*|*::*|*@-*|*$'\n'*) bad="$bad $key=$val" ;;
+                        https://?*|http://?*|ssh://[!-]*|git://[!-]*|file://?*|/*|./*|../*) ;;
+                        [A-Za-z0-9_]*@[A-Za-z0-9]*:*) ;;
+                        *) bad="$bad $key=$val" ;;
+                    esac ;;
+                *) bad="$bad $key" ;;
+            esac
+        done < <("$REAL" config --file "$f" --no-includes --null --list 2>/dev/null)
+        [ -z "$bad" ] || refuse "$f sets keys that are not on the allow-list (they may start a program or write outside the workspace):$bad"
+    done
+fi
+exec "$REAL" "${SAFE[@]}" "$@"
