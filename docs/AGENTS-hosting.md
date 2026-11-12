@@ -23,26 +23,27 @@ Human rules: docs/HOSTING.md. The owner's root-owned files in /etc win over this
 - Pick a tier: try (deleted after 7 days), mvp (kept, can be wiped), long (protected).
   Unsure: try. A bot that must stay up: mvp.
 - Pick a name: lowercase letters, digits and -, 2 to 31 characters, starting with a letter.
-- Agents have no general sudo on the host. The one root command you may run, without a
-  password, is `sudo proj-agent` (`sudo proj-agent help` lists it all):
-  - new box, after the grill-me answers: `sudo proj-agent new <name> --tier try|mvp [--docker] [--pg]`.
+- Agents have no general sudo on the host. The one root command you may run is `proj-agent`,
+  WITHOUT sudo (a root service runs it for you, so it works in a sandbox too; `proj-agent help`
+  lists it all; `sudo proj-agent` is the old form and still works outside a sandbox):
+  - new box, after the grill-me answers: `proj-agent new <name> --tier try|mvp [--docker] [--pg]`.
     Tier long: ask the owner and give them `sudo proj new <name> --tier long`.
-  - `sudo proj-agent list`, `sudo proj-agent snapshot <box>`, `sudo proj-agent doctor`.
-  - logs: `sudo proj-agent logs <unit> [-n N]` (host unit) or `sudo proj-agent logs box <box> [-n N]`.
-  - `sudo proj-agent status <unit>` (read only).
-  - `sudo proj-agent restart <box> <service>`: restarts a service inside that box, never on the host.
-  - `sudo proj-agent exec <box> [--cwd DIR] [--timeout S] -- <command>`: runs the command inside
+  - `proj-agent list`, `proj-agent snapshot <box>`, `proj-agent doctor`.
+  - logs: `proj-agent logs <unit> [-n N]` (host unit) or `proj-agent logs box <box> [-n N]`.
+  - `proj-agent status <unit>` (read only).
+  - `proj-agent restart <box> <service>`: restarts a service inside that box, never on the host.
+  - `proj-agent exec <box> [--cwd DIR] [--timeout S] -- <command>`: runs the command inside
     the box as dev (default /srv/app, 600 s, at most 3600 s). For pipes, `&&` or quotes, pass
     the whole command as one quoted string: `-- 'npm ci && npm test'`.
-  - `sudo proj-agent ports <box>`, `sudo proj-agent url <box> [port]`: what listens in the box
+  - `proj-agent ports <box>`, `proj-agent url <box> [port]`: what listens in the box
     and the address to reach it from the host (http://<box IP>:<port>, host only, not the LAN).
 - Working on a box project from the host:
-  1. After `sudo proj-agent new <box> ...`, the code lives in /srv/proj/work/<box> (it is
+  1. After `proj-agent new <box> ...`, the code lives in /srv/proj/work/<box> (it is
      /srv/app in the box). Edit it there with your normal tools; git works there too.
-  2. Install, build, test and run with `sudo proj-agent exec <box> -- <cmd>`. Never run the
+  2. Install, build, test and run with `proj-agent exec <box> -- <cmd>`. Never run the
      project, its package manager, its tests or its database on the host.
-  3. Services run in the box: a systemd unit (`sudo proj-agent exec <box> -- sudo systemctl
-     enable --now <unit>`) or docker compose (`sudo proj-agent exec <box> -- docker compose up -d`).
+  3. Services run in the box: a systemd unit (`proj-agent exec <box> -- sudo systemctl
+     enable --now <unit>`) or docker compose (`proj-agent exec <box> -- docker compose up -d`).
      Check with `ports`, `url` and `logs box <box>`.
   4. Data belongs in /srv/data inside the box, never in the workspace. Secrets: /srv/app/.env,
      mode 600, in .gitignore, never printed or committed.

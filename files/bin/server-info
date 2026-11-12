@@ -59,8 +59,9 @@ done
 
 # ---- boxes ----
 boxes_full() {
-    if [ -z "$ROOT" ] && sudo -n -l /usr/local/sbin/proj-agent >/dev/null 2>&1; then
-        sudo -n /usr/local/sbin/proj-agent list 2>/dev/null && return 0
+    # proj-agent list: as a normal user it goes through the socket (no sudo); as root it runs directly.
+    if [ -z "$ROOT" ] && [ -x /usr/local/sbin/proj-agent ] && [ -S /run/proj-agent.sock -o "$(id -u)" = 0 ]; then
+        timeout 5 /usr/local/sbin/proj-agent list 2>/dev/null && return 0
     fi
     boxes_registry
 }
@@ -104,7 +105,7 @@ if [ "$short" = 1 ]; then
         line "   boxes ${n:-0}: ${list:-none}"
     fi
     line "   code of box X: $WORK_ROOT/X (= /srv/app in the box). Run it in the box, never here."
-    line "   agents: sudo proj-agent list | new <name> --tier try|mvp | exec <box> -- <cmd> | url <box>"
+    line "   agents: proj-agent list | new <name> --tier try|mvp | exec <box> -- <cmd> | url <box>"
     line "   owner:  sudo proj ...   sudo /opt/server-setup/setup.sh --update"
     line "   more:   server-info  (everything: boxes, agents, commands, docs)"
     # The login message runs as root (pam_motd): the user's AI facts come from
@@ -132,13 +133,13 @@ agents
 line ""
 cat <<EOF
 == commands
-agents (no password, sudo proj-agent help for all):
-  sudo proj-agent list                     boxes and host projects
-  sudo proj-agent new <name> --tier try|mvp [--docker] [--pg]
-  sudo proj-agent status <unit>            a host unit (read only)
-  sudo proj-agent snapshot <box>           snapshot box + workspace
-  sudo proj-agent exec <box> -- <command>  run in the box as dev, in /srv/app
-  sudo proj-agent ports <box> | url <box> [port] | logs box <box> [-n N]
+agents (no sudo needed: a root service runs it; proj-agent help for all):
+  proj-agent list                          boxes and host projects
+  proj-agent new <name> --tier try|mvp [--docker] [--pg]
+  proj-agent status <unit>                 a host unit (read only)
+  proj-agent snapshot <box>                snapshot box + workspace
+  proj-agent exec <box> -- <command>       run in the box as dev, in /srv/app
+  proj-agent ports <box> | url <box> [port] | logs box <box> [-n N]
   ai-adopt --tools ...                     add the AI setup to a project
   ai-doctor                                check the AI setup
   server-info                              this page (server-info --short: the login lines)

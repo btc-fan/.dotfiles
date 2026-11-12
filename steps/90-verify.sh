@@ -238,6 +238,9 @@ if [ -n "${BOX_DISK_SERIAL:-}" ]; then
         sh_chk "DOCKER-USER: box traffic handed to ufw (RETURN, no blanket ACCEPT)" "iptables -C DOCKER-USER -i incusbr0 -j RETURN && ! iptables -C DOCKER-USER -i incusbr0 -j ACCEPT"
     fi
     chk "proj installed" test -x /usr/local/sbin/proj
+    chk "proj-agent socket listening" systemctl is-active -q proj-agent.socket
+    sh_chk "/run/proj-agent.sock root:${SHARED_GROUP:-devs} 660" "[ \"\$(stat -c %U:%G:%a /run/proj-agent.sock)\" = root:${SHARED_GROUP:-devs}:660 ]"
+    chk "$MAIN_USER: proj-agent list without sudo (socket)" runuser -u "$MAIN_USER" -- /usr/local/sbin/proj-agent list
     agents_proj_checks
     sh_chk "marker /etc/proj-host (root 644)" "[ \"\$(stat -c %U:%a /etc/proj-host)\" = root:644 ] && grep -q '^role=host' /etc/proj-host"
     chk "agent rules for boxes in /usr/local/share/proj" test -s /usr/local/share/proj/AGENTS-hosting.md

@@ -375,7 +375,7 @@ Rules for people: [docs/HOSTING.md](docs/HOSTING.md). Rules for agents: [docs/AG
   `WORK_ROOT/<box>` (default `/srv/proj/work/<box>`) and is mounted in the box at `/srv/app`
   (Incus disk device `app`, `shift=true`: an idmapped mount, so `MAIN_USER` (uid 1000) is `dev` in
   the box). Agents on the host edit the code there with their normal tools and run it in the box
-  with `sudo proj-agent exec <box> -- <cmd>`. Folder `MAIN_USER:SHARED_GROUP`, mode 2775, default
+  with `proj-agent exec <box> -- <cmd>`. Folder `MAIN_USER:SHARED_GROUP`, mode 2775, default
   ACL `g:SHARED_GROUP:rwx`, so the main user, `AGENT_USER` and `dev` can all write. `recreate`
   keeps it, `fork` copies it, `wipe` moves it to `WORK_ROOT/.trash` unless you type `delete`,
   long boxes get it in the nightly backup. Data stays on the box volume (`/srv/data`).
@@ -638,7 +638,8 @@ Then read the `ai` branch README for logins and options.
 Where agents run: project agents work **inside the box of their project** (step 70, `proj`),
 never on the host. On the host, agent sessions are for server admin only, with you watching.
 No agent has general sudo on the host (owner decision 2026-11-11, `AGENT_SUDO="none"`). The one
-exception is `sudo proj-agent` (step 70, `AGENT_SUDO_ALLOW`): agents make try and mvp boxes, list,
+exception is `proj-agent` (step 70; no sudo needed, a root socket service runs it, so it works in
+sandboxes too; `sudo proj-agent` also works): agents make try and mvp boxes, list,
 snapshot, read logs and status, and restart services inside boxes. For anything else (tier long,
 wipe, restore, host changes) they give you the exact command and you run it.
 The `ai` branch imports [docs/AGENTS-hosting.md](docs/AGENTS-hosting.md) into AGENTS.md.

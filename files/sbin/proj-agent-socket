@@ -1,0 +1,250 @@
+#!/usr/bin/python3 -I
+"""proj-agent-socket: proj-agent without sudo, through a root-owned unix socket.
+
+Why: sandboxed agents (Claude Code's bubblewrap sets no_new_privs) cannot use sudo at all.
+They can connect to a socket. Installed by setup.sh (step 70-hosting) as
+/usr/local/lib/proj-agent/proj-agent-socket (root:root 755). Python standard library only.
+
+  serve   run by proj-agent@.service (socket proj-agent.socket, Accept=yes: one process per
+          connection, the connection is stdin). Reads ONE request, checks the caller, runs the
+          unchanged allow-list /usr/local/sbin/proj-agent as root with that argv (a list, never a
+          shell), streams its stdout and stderr back, then the exit code.
+  call    the client. /usr/local/sbin/proj-agent hands over to it when a normal user runs it
+          without sudo. Prints the streams as they come and exits with the remote exit code.
+
+Caller: the kernel's SO_PEERCRED uid of the connection (not anything the client sends). It
+must be a member of SHARED_GROUP (host.env, default devs); its name goes to proj-agent as
+PROJ_AGENT_CALLER, logged as user=<name> and used as the box owner, like SUDO_USER.
+Limits: a request is one JSON line {"v": 1, "argv": [...]}, at most 64 KiB, 512 arguments,
+32 KiB per argument, read within 10 s. A command runs at most 3700 s (proj-agent exec allows
+3600). The client going away stops the command. systemd limits connections (16, 8 per user).
+Wire format back: frames b"O<n>\\n"+data (stdout), b"E<n>\\n"+data (stderr), b"X<code>\\n" (end).
+"""
+import grp
+import json
+import os
+import pwd
+import select
+import signal
+import socket
+import struct
+import subprocess
+import sys
+import time
+
+SOCK = "/run/proj-agent.sock"
+AGENT = "/usr/local/sbin/proj-agent"
+HOST_ENV = "/etc/server/host.env"
+MAX_REQ = 64 * 1024
+MAX_ARGS = 512
+MAX_ARG = 32 * 1024
+READ_TIMEOUT = 10
+RUN_TIMEOUT = 3700
+SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Offline tests only (tests/proj-agent-socket.test.sh): a NORMAL user may point the socket, the
+# agent and the group at fakes. Ignored as root.
+TEST = os.getuid() != 0 and os.environ.get("PROJ_AGENT_SOCKET_TEST") == "1"
+if TEST:
+    SOCK = os.environ.get("PROJ_AGENT_SOCK", SOCK)
+    AGENT = os.environ.get("PROJ_AGENT_BIN", AGENT)
+    RUN_TIMEOUT = int(os.environ.get("PROJ_AGENT_RUN_TIMEOUT", RUN_TIMEOUT))
+
+
+def shared_group():
+    if TEST and "PROJ_AGENT_GROUP" in os.environ:
+        return os.environ["PROJ_AGENT_GROUP"]
+    try:
+        with open(HOST_ENV, encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("SHARED_GROUP="):
+                    v = line.split("=", 1)[1].split("#", 1)[0].strip().strip('"')
+                    if v:
+                        return v
+    except OSError:
+        pass
+    return "devs"
+
+
+def frame(conn, kind, data=b""):
+    conn.sendall(kind + str(len(data)).encode() + b"\n" + data)
+
+
+def fail(conn, msg, code=2):
+    try:
+        frame(conn, b"E", ("proj-agent: refused: " + msg + "\n").encode())
+        conn.sendall(b"X%d\n" % code)
+    except OSError:
+        pass
+    sys.exit(0)
+
+
+def read_request(conn):
+    conn.settimeout(READ_TIMEOUT)
+    buf = b""
+    deadline = time.monotonic() + READ_TIMEOUT
+    while b"\n" not in buf:
+        if len(buf) > MAX_REQ:
+            return None, "request too big (more than 64 KiB)"
+        if time.monotonic() > deadline:
+            return None, "request not complete within 10 s"
+        try:
+            chunk = conn.recv(65536)
+        except socket.timeout:
+            return None, "request not complete within 10 s"
+        if not chunk:
+            return None, "connection closed before the request was complete"
+        buf += chunk
+    line = buf.split(b"\n", 1)[0]
+    if len(line) > MAX_REQ:
+        return None, "request too big (more than 64 KiB)"
+    try:
+        req = json.loads(line.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None, "request is not valid JSON"
+    if not isinstance(req, dict) or req.get("v") != 1 or not isinstance(req.get("argv"), list):
+        return None, 'request must be {"v": 1, "argv": [...]}'
+    argv = req["argv"]
+    if not argv or len(argv) > MAX_ARGS:
+        return None, "1 to %d arguments" % MAX_ARGS
+    for a in argv:
+        if not isinstance(a, str) or len(a.encode("utf-8")) > MAX_ARG or "\0" in a:
+            return None, "every argument must be text, at most 32 KiB, without NUL"
+    return argv, None
+
+
+def serve():
+    conn = socket.socket(fileno=os.dup(0))
+    os.close(0)
+    os.open(os.devnull, os.O_RDONLY)  # fd 0 again, so nothing else reads the connection
+    pid, uid, gid = struct.unpack("3i", conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
+                                                        struct.calcsize("3i")))
+    try:
+        user = pwd.getpwuid(uid)
+    except KeyError:
+        fail(conn, "unknown user id %d" % uid)
+    gname = shared_group()
+    try:
+        g = grp.getgrnam(gname)
+        member = user.pw_name in g.gr_mem or user.pw_gid == g.gr_gid
+    except KeyError:
+        member = False
+    if not member:
+        fail(conn, "user %s is not in group %s: proj-agent through the socket is for the agents' group only"
+             % (user.pw_name, gname))
+    argv, err = read_request(conn)
+    if err:
+        fail(conn, err)
+    conn.settimeout(None)
+    env = {"PATH": SAFE_PATH, "LC_ALL": "C.UTF-8", "LANG": "C.UTF-8",
+           "PROJ_AGENT_CALLER": user.pw_name, "PROJ_AGENT_VIA": "socket"}
+    if TEST:
+        env.update({k: v for k, v in os.environ.items() if k.startswith("PROJ_AGENT_TEST")})
+    proc = subprocess.Popen([AGENT] + argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, env=env, cwd="/", start_new_session=True,
+                            close_fds=True)
+
+    def stop(*_):
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+            time.sleep(2)
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+    signal.signal(signal.SIGTERM, lambda *_: (stop(), sys.exit(1)))
+    streams = {proc.stdout.fileno(): b"O", proc.stderr.fileno(): b"E"}
+    poller = select.poll()
+    for fd in streams:
+        poller.register(fd, select.POLLIN | select.POLLHUP | select.POLLERR)
+    # The client sends nothing after the request. Only a hang-up of the connection matters
+    # (POLLIN is not watched, so extra bytes from a client cannot keep this loop busy).
+    poller.register(conn.fileno(), select.POLLRDHUP | select.POLLHUP | select.POLLERR)
+    deadline = time.monotonic() + RUN_TIMEOUT
+    gone = False
+    while streams and not gone:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            stop()
+            frame(conn, b"E", b"proj-agent: stopped: the call ran longer than %d s\n" % RUN_TIMEOUT)
+            break
+        for fd, ev in poller.poll(min(left, 5) * 1000):
+            if fd == conn.fileno():
+                gone = True
+                break
+            data = os.read(fd, 65536)
+            if not data:
+                poller.unregister(fd)
+                del streams[fd]
+                continue
+            try:
+                frame(conn, streams[fd], data)
+            except OSError:
+                gone = True
+                break
+    if gone:
+        stop()
+    try:
+        rc = proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        stop()
+        rc = proc.wait()
+    if rc < 0:
+        rc = 128 - rc
+    print("proj-agent-socket: user=%s args=%d rc=%d%s" % (user.pw_name, len(argv), rc,
+                                                         " client-gone" if gone else ""),
+          file=sys.stderr)
+    if not gone:
+        try:
+            conn.sendall(b"X%d\n" % rc)
+        except OSError:
+            pass
+
+
+def call(argv):
+    req = json.dumps({"v": 1, "argv": argv}).encode("utf-8") + b"\n"
+    if len(req) > MAX_REQ:
+        print("proj-agent: refused: the request is too big (more than 64 KiB)", file=sys.stderr)
+        return 2
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.connect(SOCK)
+    except OSError as e:
+        print("proj-agent: cannot reach %s (%s). Is proj-agent.socket running? "
+              "Outside a sandbox: sudo proj-agent ..." % (SOCK, e.strerror), file=sys.stderr)
+        return 1
+    s.sendall(req)
+    out = {b"O": sys.stdout.buffer, b"E": sys.stderr.buffer}
+    f = s.makefile("rb")
+    while True:
+        head = f.readline()
+        if not head:
+            print("proj-agent: the connection ended without an exit code", file=sys.stderr)
+            return 255
+        kind, num = head[:1], head[1:].strip()
+        if kind == b"X":
+            return int(num)
+        if kind not in out or not num.isdigit():
+            print("proj-agent: bad answer from the service", file=sys.stderr)
+            return 255
+        data = f.read(int(num))
+        out[kind].write(data)
+        out[kind].flush()
+
+
+def main():
+    if len(sys.argv) >= 2 and sys.argv[1] == "serve":
+        serve()
+        return 0
+    if len(sys.argv) >= 2 and sys.argv[1] == "call":
+        signal.signal(signal.SIGINT, lambda *_: sys.exit(130))
+        try:
+            return call(sys.argv[2:])
+        except BrokenPipeError:
+            return 141
+    print("usage: proj-agent-socket serve | call <proj-agent args...>", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

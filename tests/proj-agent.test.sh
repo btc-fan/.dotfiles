@@ -237,12 +237,17 @@ deny "list takes no arguments" list --all
 deny "doctor takes no arguments" doctor --net
 
 echo "== log"
-grep -q "user=agent1 args=\[new demo2 --tier try\] result=ok" "$LOGF" && ok || bad "allowed call not logged with result"
-grep -q "user=agent1 args=\[wipe demo\] result=refused" "$LOGF" && ok || bad "refused call not logged"
+grep -q "user=agent1 via=sudo args=\[new demo2 --tier try\] result=ok" "$LOGF" && ok || bad "allowed call not logged with result"
+grep -q "user=agent1 via=sudo args=\[wipe demo\] result=refused" "$LOGF" && ok || bad "refused call not logged"
 grep -qF 'args=[new $'"'"'demo\nid'"'"' --tier try] result=refused' "$LOGF" && ok || bad "newline in an argument not escaped in the log"
 [ "$(grep -c '' "$LOGF")" = "$(grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T.* user=' "$LOGF")" ] && ok || bad "a log line does not start with time + user"
-rc=0; env PATH="$T/bin:/usr/bin:/bin" bash -p "$AGENT" list >/dev/null 2>&1 || rc=$?
-[ "$rc" = 1 ] && ok || bad "without sudo and without test mode it must refuse (rc=$rc)"
+out=$(env PATH="$T/bin:/usr/bin:/bin" bash -p "$AGENT" help 2>&1) && grep -q '^Usage: proj-agent' <<< "$out" \
+    && ok || bad "help without sudo must print the usage: $out"
+grep -qx '        exec /usr/bin/python3 -I /usr/local/lib/proj-agent/proj-agent-socket call "\$@"' "$AGENT" \
+    && ok || bad "a normal user's call must go to the socket client (no sudo)"
+# A caller name from the environment counts only as root (set by proj-agent-socket), never for a normal user.
+rc=0; out=$(env PATH="$T/bin:$PATH" PROJ_AGENT_TEST=1 PROJ_AGENT_LOG="$LOGF" PROJ_AGENT_CALLER=mallory bash -p "$AGENT" list 2>&1) || rc=$?
+! tail -n 1 "$LOGF" | grep -q 'user=mallory' && ok || bad "PROJ_AGENT_CALLER was trusted for a normal user"
 
 echo "== nopasswd_effective (lib/common.sh)"
 # shellcheck source=../lib/common.sh

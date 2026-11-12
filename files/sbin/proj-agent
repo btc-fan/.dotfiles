@@ -1,9 +1,12 @@
 #!/bin/bash -p
-# proj-agent: the ONLY root command AI agents may run (sudo, no password). A strict allow-list
-# in front of proj, journalctl, systemctl and incus. Every other root action: ask the owner.
-# Installed by ~/.dotfiles setup.sh step 70-hosting (root:root 755). Sudoers: zzz-agents-proj.
+# proj-agent: the ONLY root command AI agents may run. A strict allow-list in front of proj,
+# journalctl, systemctl and incus. Every other root action: ask the owner.
+# Installed by setup.sh step 70-hosting (root:root 755). Two ways in, same checks:
+#   proj-agent ...       no sudo (works in sandboxes): a normal user's call goes through the root
+#                        socket service /run/proj-agent.sock (proj-agent-socket), group devs only
+#   sudo proj-agent ...  the older way (sudoers zzz-agents-proj), still works
 #
-# Usage: sudo proj-agent <command> [args]
+# Usage: proj-agent <command> [args]
 #   new <name> --tier try|mvp [--docker] [--pg]   new box (tier long: ask the owner)
 #   list                          all boxes and host projects
 #   snapshot <name>               snapshot a box, its data volume and its workspace
@@ -61,7 +64,7 @@ CWD_RE='^/[A-Za-z0-9@._/+-]{0,255}$'
 SECS_RE='^[1-9][0-9]{0,3}$'
 PORT_RE='^[1-9][0-9]{0,4}$'
 
-usage() { sed -n '6,28p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '9,31p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # Offline tests only: a NORMAL user with PROJ_AGENT_TEST=1 may point the tools, log and host list
 # at fakes. As root (that is, under sudo) all of this is ignored.
@@ -73,14 +76,21 @@ if [ "$(id -u)" -ne 0 ]; then
         PROJ=$(command -v proj) || { echo "proj-agent: test mode: no proj on PATH" >&2; exit 1; }
         CHILD_HOME=${HOME:-/}
     else
-        case "${1:-}" in help|-h|--help) usage; exit 0 ;; esac
-        echo "proj-agent: run it with sudo: sudo proj-agent ${1:-help} ..." >&2
-        exit 1
+        case "${1:-}" in help|-h|--help|"") usage; exit 0 ;; esac
+        # A normal user: the root service does the work (it checks the caller by the kernel's
+        # peer uid and runs this same script as root). No sudo, so it works under no_new_privs.
+        exec /usr/bin/python3 -I /usr/local/lib/proj-agent/proj-agent-socket call "$@"
     fi
 fi
 
 WHO=root
-if [ -n "${SUDO_USER:-}" ]; then
+VIA=sudo
+if [ -n "${PROJ_AGENT_CALLER:-}" ] && [ "$(id -u)" -eq 0 ]; then
+    # Set only by proj-agent-socket (from SO_PEERCRED). sudo's env_reset drops it, so a sudo
+    # caller cannot pretend to be someone else.
+    VIA=socket
+    if [[ $PROJ_AGENT_CALLER =~ $USER_RE ]]; then WHO=$PROJ_AGENT_CALLER; else WHO=unknown; fi
+elif [ -n "${SUDO_USER:-}" ]; then
     if [[ $SUDO_USER =~ $USER_RE ]]; then WHO=$SUDO_USER; else WHO=unknown; fi
 fi
 
@@ -103,14 +113,14 @@ quote_args() {
 quote_args "$@"
 
 logline() {
-    printf '%s user=%s args=[%s] %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$WHO" "$ARGS_Q" "$1" >> "$LOG"
+    printf '%s user=%s via=%s args=[%s] %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$WHO" "$VIA" "$ARGS_Q" "$1" >> "$LOG"
 }
 
 # refuse MSG: log it, explain it, exit 2. Nothing has run.
 refuse() {
     logline "result=refused reason=$(printf '%q' "$1")" 2>/dev/null || true
     echo "proj-agent: refused: $1" >&2
-    echo "proj-agent: allowed commands: sudo proj-agent help. For anything else, give the owner the exact command." >&2
+    echo "proj-agent: allowed commands: proj-agent help. For anything else, give the owner the exact command." >&2
     exit 2
 }
 
@@ -148,7 +158,7 @@ refuse_host() {
 need_box() {
     need_name "$1"
     refuse_host "$1"
-    incus query "/1.0/instances/$1" >/dev/null 2>&1 < /dev/null || refuse "no box named '$1' (see: sudo proj-agent list)"
+    incus query "/1.0/instances/$1" >/dev/null 2>&1 < /dev/null || refuse "no box named '$1' (see: proj-agent list)"
 }
 
 cmd_new() {
@@ -276,7 +286,7 @@ cmd_url() {
     ip=$(box_ip "$box")
     if [ -z "$ip" ]; then
         logline "result=no-address" || true
-        echo "proj-agent: $box has no IPv4 address (stopped? sudo proj-agent list)" >&2
+        echo "proj-agent: $box has no IPv4 address (stopped? proj-agent list)" >&2
         return 1
     fi
     if [ -n "$port" ]; then

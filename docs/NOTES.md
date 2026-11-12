@@ -385,3 +385,29 @@ for a fork; `tar --zstd` on 26.04; the host reaching a box IP through ufw.
   `/etc/profile.d/zz-ai-info.sh` (as the user, once per SSH session, not in tmux, 2 s cap; it
   also looks in `~/.local/bin`, which is not on PATH yet when profile.d runs). `server-info
   --short` run by hand adds it too; the full form appends plain `ai-info`.
+
+### proj-agent without sudo (owner decision 2026-11-12)
+- Why: Claude Code's sandbox (bubblewrap) sets no_new_privs, so `sudo` cannot work inside it,
+  and in `claude -p` nothing may leave the sandbox. A unix socket can be allowed.
+- How: `proj-agent.socket` listens on `/run/proj-agent.sock` (root:SHARED_GROUP 0660,
+  Accept=yes: one short root process per call, at most 16 at once, 8 per user, poll limit
+  40 per 2 s). `proj-agent-socket serve` reads the caller's uid from the kernel (SO_PEERCRED,
+  never from the client), requires membership of SHARED_GROUP, reads one JSON request (64 KiB,
+  512 args, 32 KiB each, 10 s), then runs the unchanged `/usr/local/sbin/proj-agent` as root
+  with that argv as a list (no shell) and a clean environment with `PROJ_AGENT_CALLER`. stdout
+  and stderr stream back in frames, then the exit code. The client going away stops the
+  command; 3700 s at most. `proj-agent` run by a normal user hands over to the client; as root
+  (sudo) it runs as before. The log line now says `via=socket` or `via=sudo`.
+- `PROJ_AGENT_CALLER` counts only when proj-agent runs as root (sudo's env_reset drops it, a
+  normal user's own value is ignored): the owner of a new box is the real caller.
+- Why Python (standard library only) and not bash + socat: socat gives the child neither the
+  peer uid nor separate stdout, stderr and exit code without our own framing; Python has
+  SO_PEERCRED, exact JSON argv and poll() in about 250 readable lines.
+- Hardening of `proj-agent@.service`: NoNewPrivileges, PrivateTmp, ProtectSystem=full,
+  ProtectHome=read-only (incus client config writable), kernel and cgroup protection,
+  RestrictSUIDSGID, native syscalls only, MemoryMax 512M, TasksMax 128. Not used:
+  ProtectSystem=strict and a capability bounding set (proj writes several trees and runs
+  runuser, chown, setfacl; too easy to break silently).
+- Tests: `tests/proj-agent-socket.test.sh` (Linux): caller name, exit code and stderr, streaming,
+  arguments kept as given (no shell), clean env, size and JSON refusals, group refusal, client
+  gone stops the command, run time limit, no socket.

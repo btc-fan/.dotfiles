@@ -83,9 +83,9 @@ Owner decision 2026-11-11: agents (Claude Code and Codex as the main user, Herme
   `g:devs:rwx`: files made by the main user, by Hermes or by `dev` in the box stay writable for
   all three.
 - Edit the code there with your normal tools. Build, test and run it in the box:
-  `sudo proj-agent exec <box> -- <command>` (as `dev`, in `/srv/app`). Services run in the box
+  `proj-agent exec <box> -- <command>` (as `dev`, in `/srv/app`). Services run in the box
   (a systemd unit or `docker compose`, started with exec). Never run the project on the host.
-- Reach a service from the host: `sudo proj-agent url <box> [port]` prints `http://<box IP>:<port>`.
+- Reach a service from the host: `proj-agent url <box> [port]` prints `http://<box IP>:<port>`.
   That address works on this host only. Nothing is opened to the LAN.
 - Secrets: `/srv/app/.env` (in the workspace), mode 600, listed in the repo's `.gitignore`.
   Mode 600 means only the main user (= `dev` in the box) can read it; Hermes cannot.
@@ -112,7 +112,7 @@ Owner decision 2026-11-11: agents (Claude Code and Codex as the main user, Herme
   harmless keys (core basics, remotes with plain URLs, branches, user name and email, pull, push
   and fetch basics). Anything else, `core.worktree`, includes, a `.git` file that points outside
   the workspace, or alternates outside it: git refuses and says why. Fix it from inside the box
-  (`sudo proj-agent exec <box> -- git config --local --list`). `git submodule` and
+  (`proj-agent exec <box> -- git config --local --list`). `git submodule` and
   `--recurse-submodules`: run them in the box. Test: `bash tests/git-guard.test.sh`.
   Left open: the box could swap `.git/config` in the few milliseconds between the check and git
   reading it (a race), and a remote set to a host folder lets `git fetch` copy that repository
@@ -175,25 +175,28 @@ Box names: lower case letters, digits and `-`, 2 to 31 characters. Forks: `<box>
 ## Agents
 
 - Agents run on the host (owner decision 2026-11-11) but the project runs in its box: they edit
-  the workspace and run everything with `sudo proj-agent exec <box> -- <cmd>`. Never on the host.
+  the workspace and run everything with `proj-agent exec <box> -- <cmd>`. Never on the host.
 - Inside its box an agent may do anything. Outside it, nothing but its workspace.
 - Agents never get general sudo on the host, the Docker group, the incus-admin group or `proj`
   itself (owner decision 2026-11-11, `AGENT_SUDO="none"`).
 - One exception (owner decision 2026-11-11, `AGENT_SUDO_ALLOW="proj-agent"`): the main user and
-  `AGENT_USER` may run `sudo proj-agent` without a password. It is a strict allow-list: new box
+  `AGENT_USER` may run `proj-agent`. No sudo needed: a normal user's call goes through the root
+  socket service `/run/proj-agent.sock` (group devs only, the kernel tells it who is calling),
+  so it also works inside a sandbox where sudo cannot (no_new_privs). `sudo proj-agent` still
+  works. It is a strict allow-list: new box
   (try or mvp only), list, snapshot, doctor, logs, status, restart a service inside a box, and
   exec / ports / url inside a box (exec runs any command there as `dev`, never as root, at most
   3600 s; the box is the boundary).
   It refuses host projects, tier long, every other proj command and any odd character, and logs
   every call to `/var/log/proj-agent.log`. Everything else the agent gives you as a command.
   ```bash
-  sudo proj-agent help
-  sudo proj-agent new test1 --tier try          # long: the owner runs sudo proj new
-  sudo proj-agent logs box test1 -n 100
-  sudo proj-agent restart test1 nginx
-  sudo proj-agent exec test1 -- npm test        # in /srv/app, as dev
-  sudo proj-agent exec test1 --timeout 1800 -- docker compose up -d --build
-  sudo proj-agent url test1 3000                # http://<box IP>:3000, from this host only
+  proj-agent help
+  proj-agent new test1 --tier try          # long: the owner runs sudo proj new
+  proj-agent logs box test1 -n 100
+  proj-agent restart test1 nginx
+  proj-agent exec test1 -- npm test        # in /srv/app, as dev
+  proj-agent exec test1 --timeout 1800 -- docker compose up -d --build
+  proj-agent url test1 3000                # http://<box IP>:3000, from this host only
   ```
   Turn it off: `AGENT_SUDO_ALLOW=""` in host.env, then `sudo /opt/server-setup/setup.sh --only hosting`.
 - Host agent sessions are for server admin only, with the owner watching.

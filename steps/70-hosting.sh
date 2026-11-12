@@ -41,6 +41,7 @@ main() {
     install_proj
     workspaces
     agents_sudo       # after install_proj: the rule and the binary it allows land together
+    proj_agent_socket # after workspaces: the socket's group must exist
     host_marker
     host_projects
     timers
@@ -478,6 +479,79 @@ install_proj() {
     create 0640 root root
 }
 EOF
+}
+
+# proj-agent without sudo (owner decision 2026-11-12): sandboxed agents (no_new_privs) cannot use
+# sudo, but they can connect to a socket. /run/proj-agent.sock, root:SHARED_GROUP 0660: only the
+# main user and the agent user reach it. Accept=yes: one short-lived root process per call
+# (proj-agent-socket serve): it reads the caller's uid from the kernel (SO_PEERCRED), checks the
+# group, and runs the same /usr/local/sbin/proj-agent allow-list with the argv as a list, no
+# shell. A normal user's `proj-agent ...` is the client. sudo proj-agent keeps working.
+# Hardening: only what proj and incus still work with (they write /srv, /var/log, /var/backups,
+# /root/.config/incus and talk to the incus socket); no new privileges, no kernel tunables.
+proj_agent_socket() {
+    local g=${SHARED_GROUP:-devs}
+    run install -d -m 755 /usr/local/lib/proj-agent
+    put_file sbin/proj-agent-socket /usr/local/lib/proj-agent/proj-agent-socket 755
+    put /etc/systemd/system/proj-agent.socket 644 <<EOF
+# Managed by setup.sh (step 70-hosting). proj-agent without sudo, for group $g only.
+[Unit]
+Description=proj-agent socket (agents' allow-listed root commands, no sudo)
+
+[Socket]
+ListenStream=/run/proj-agent.sock
+SocketUser=root
+SocketGroup=$g
+SocketMode=0660
+Accept=yes
+MaxConnections=16
+MaxConnectionsPerSource=8
+PollLimitIntervalSec=2s
+PollLimitBurst=40
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target
+EOF
+    unit_changed
+    put /etc/systemd/system/proj-agent@.service 644 <<'EOF'
+# Managed by setup.sh (step 70-hosting). One call of proj-agent through the socket, as root.
+[Unit]
+Description=proj-agent call (via socket)
+After=incus.service
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/python3 -I /usr/local/lib/proj-agent/proj-agent-socket serve
+StandardInput=socket
+StandardOutput=journal
+StandardError=journal
+User=root
+RuntimeMaxSec=3720
+TimeoutStopSec=15
+KillMode=control-group
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=-/root/.config/incus -/root/.cache
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+MemoryMax=512M
+TasksMax=128
+EOF
+    unit_changed
+    if [ "$UNITS" = 1 ] && ! dry; then systemctl daemon-reload; UNITS=0; fi
+    enable_unit proj-agent.socket --now
 }
 
 # Workspaces (owner decision 2026-11-11): agents run on the host and edit a box's code in
