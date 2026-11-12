@@ -173,6 +173,30 @@ mkdir -p "$WORK_ROOT/oldbox2"; echo mine > "$WORK_ROOT/oldbox2/keep"
 out=$( (cmd_workspace oldbox2) 2>&1 ); rc=$?
 [ "$rc" = 0 ] && [ "$(line_of 'tar -C /srv/app')" = 0 ] && grep -qx mine "$WORK_ROOT/oldbox2/keep" && ok || bad "non-empty workspace must not be overwritten: $out"
 
+echo "== restore of a workspace snapshot: extracted as MAIN_USER, links kept, no root chown"
+echo '{"devices":{"app":{"source":"'"$WORK_ROOT"'/snapbox"}}}' > "$T/state/snapbox"
+mkdir -p "$T/snapsrc/sub" "$T/outside"
+echo v1 > "$T/snapsrc/main.py"
+echo tool > "$T/snapsrc/sub/tool"; chmod 4755 "$T/snapsrc/sub/tool"
+echo victim > "$T/outside/victim"; chmod 640 "$T/outside/victim"
+ln -s "$T/outside/victim" "$T/snapsrc/link"
+WS_SNAP_ROOT=$WORK_ROOT/.snapshots
+mkdir -p "$WS_SNAP_ROOT/snapbox"
+tar -C "$T/snapsrc" --zstd -cf "$WS_SNAP_ROOT/snapbox/l1.tar.zst" . 2>/dev/null \
+    || tar -C "$T/snapsrc" -cf - . | zstd -q > "$WS_SNAP_ROOT/snapbox/l1.tar.zst"
+mkdir -p "$WORK_ROOT/snapbox"; echo now > "$WORK_ROOT/snapbox/main.py"
+out=$( (ws_unsnap snapbox l1) 2>&1 ); rc=$?
+w=$WORK_ROOT/snapbox
+[ "$rc" = 0 ] && grep -qx v1 "$w/main.py" && ok || bad "unsnap: rc=$rc $out"
+[ -L "$w/link" ] && ok || bad "unsnap: link not kept as a link"
+ls -l "$T/outside/victim" | grep -q '^-rw-r-----' && ok || bad "unsnap changed a file outside through a link: $(ls -l "$T/outside/victim")"
+[ ! -u "$w/sub/tool" ] && ok || bad "unsnap kept a setuid bit"
+ls -ld "$w/sub" | grep -q '^drwxrwsr-x' && ok || bad "unsnap folder not 2775: $(ls -ld "$w/sub")"
+ls "$WORK_ROOT/.trash" | grep -q '^snapbox-' && ok || bad "unsnap: the current workspace was not kept in .trash"
+# No root chown or chmod that walks a workspace is left in proj (only as_main ... find).
+bad_lines=$(grep -nE '^[^#]*find [^|]*-exec ch(own|mod)' "$REPO/files/proj/proj" | grep -v 'as_main find' || true)
+[ -z "$bad_lines" ] && ok || bad "root find -exec chown/chmod left in proj: $bad_lines"
+
 echo
 echo "proj workspace tests: $pass passed, $fail failed"
 [ "$fail" = 0 ]

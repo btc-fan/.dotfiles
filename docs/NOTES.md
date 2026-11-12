@@ -313,3 +313,12 @@ for a fork; `tar --zstd` on 26.04; the host reaching a box IP through ufw.
 - Step 70 never restarts that mount (a restart would restart Incus and stop every box): wrong
   flags are fixed with `mount -o remount`. Setuid files there are only reported now: a root
   `chmod` could be sent through a symlink an agent swaps in, and on `nosuid` the bit does nothing.
+
+### proj restore and workspace copy: no root chown in agent-writable folders
+- Before: `ws_unsnap` and `ws_copy_out` extracted as root, then root ran `find ... -exec chown`
+  and `chmod` over the workspace. Agents and box code can write there, so a link swapped in
+  between find and chown could send a root chown or chmod to any file on the host.
+- Now: root only opens the archive (or the box tar stream); MAIN_USER extracts it (`runuser`,
+  `as_main`), so the files are MAIN_USER's from the start and the setgid folder gives the group.
+  The mode fixes (`ws_fix_modes`: no setuid bits, group write, setgid folders) also run as
+  MAIN_USER with `find -P`. A test refuses any root `find -exec chown/chmod` left in proj.

@@ -198,9 +198,25 @@ ws_attach() {
     fi
 }
 
+# as_main CMD...: run as MAIN_USER. Everything that writes inside a workspace after it exists
+# runs this way: agents and box code can write there, and root would follow a symlink they swap in.
+as_main() {
+    if [ "$(id -u)" = 0 ]; then runuser -u "$MAIN_USER" -- "$@"; else "$@"; fi
+}
+
+# ws_fix_modes DIR: as MAIN_USER, never root. No setuid/setgid bits, group may write what it may
+# read, folders setgid (new files get WS_GROUP). find -P (the default) never follows links, and
+# chmod by MAIN_USER through a swapped-in link can reach only what MAIN_USER owns anyway.
+ws_fix_modes() {
+    as_main find -P "$1" -xdev ! -type l \( -perm -4000 -o -perm -2000 \) -exec chmod ug-s {} + 2>/dev/null || true
+    as_main find -P "$1" -xdev ! -type l -perm -g=r -exec chmod g+w {} + 2>/dev/null || true
+    as_main find -P "$1" -xdev -type d -exec chmod g+s {} + 2>/dev/null || true
+}
+
 # ws_copy_out NAME: a box made before workspaces keeps its code inside the box. Copy /srv/app out
-# into the (empty) workspace. As root on the host, so: no owners or setuid bits from the box,
-# links are never followed, then everything belongs to MAIN_USER:WS_GROUP.
+# into the (empty) workspace. Extracted BY MAIN_USER (runuser): files belong to MAIN_USER and the
+# folder's group from the start, no owners or setuid bits from the box, and root never chowns or
+# chmods inside a folder others can write.
 ws_copy_out() {
     local name=$1 d
     d=$(ws_dir "$name")
@@ -214,11 +230,9 @@ ws_copy_out() {
     fi
     incus exec "$name" -- test -d /srv/app || return 0
     say "copy $name:/srv/app -> $d"
-    incus exec "$name" -- tar -C /srv/app -cf - . | tar -C "$d" -xf - --no-same-owner --no-same-permissions
-    find "$d" -xdev ! -type l -exec chown "$MAIN_USER:$WS_GROUP" {} +
-    find "$d" -xdev ! -type l \( -perm -4000 -o -perm -2000 \) -exec chmod ug-s {} +
-    find "$d" -xdev ! -type l -perm -g=r -exec chmod g+w {} +
-    find "$d" -xdev -type d -exec chmod g+s {} +
+    incus exec "$name" -- tar -C /srv/app -cf - . \
+        | as_main tar -C "$d" -xf - --no-same-owner --no-same-permissions
+    ws_fix_modes "$d"
 }
 
 # ws_ask NAME: before a wipe. Sets WS_DROP=yes only when the owner types "delete".
@@ -309,11 +323,9 @@ ws_unsnap() {
     d=$(ws_dir "$name")
     ws_trash "$name"
     ws_make "$name"
-    tar -C "$d" --zstd -xf "$f" --no-same-owner --no-same-permissions
-    find "$d" -xdev ! -type l -exec chown "$MAIN_USER:$WS_GROUP" {} +
-    find "$d" -xdev ! -type l \( -perm -4000 -o -perm -2000 \) -exec chmod ug-s {} +
-    find "$d" -xdev ! -type l -perm -g=r -exec chmod g+w {} +
-    find "$d" -xdev -type d -exec chmod g+s {} +
+    # Root opens the root-only archive; MAIN_USER extracts it (see ws_copy_out).
+    as_main tar -C "$d" --zstd -xf - --no-same-owner --no-same-permissions < "$f"
+    ws_fix_modes "$d"
     say "workspace $d restored from $label (dependencies and caches were not in it: reinstall them)"
 }
 
