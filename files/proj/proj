@@ -201,7 +201,16 @@ ws_attach() {
 # as_main CMD...: run as MAIN_USER. Everything that writes inside a workspace after it exists
 # runs this way: agents and box code can write there, and root would follow a symlink they swap in.
 as_main() {
-    if [ "$(id -u)" = 0 ]; then runuser -u "$MAIN_USER" -- "$@"; else "$@"; fi
+    if [ "$(id -u)" = 0 ]; then as_user "$MAIN_USER" "$@"; else "$@"; fi
+}
+
+# as_user USER CMD...: run CMD as USER from root. setpriv, not runuser: runuser opens a PAM
+# session, and under the proj-agent@ socket unit pam_keyinit prints "cannot set user id" to
+# stderr, which agents rightly read as a permission error (seen 2026-11-12). No PAM, no login
+# environment: uid, gid and the supplementary groups only.
+as_user() {
+    local u=$1; shift
+    setpriv --reuid="$(id -u "$u")" --regid="$(id -g "$u")" --init-groups -- "$@"
 }
 
 # ws_fix_modes DIR: as MAIN_USER, never root. No setuid/setgid bits, group may write what it may
@@ -378,8 +387,8 @@ house_rules() {
     [ -n "$user" ] && id "$user" >/dev/null 2>&1 || return 1
     home=$(getent passwd "$user" | cut -d: -f6 || true)
     [ -n "$home" ] || return 1
-    runuser -u "$user" -- test -f "$home/.dotfiles-ai/ai/AGENTS.md" || return 1
-    runuser -u "$user" -- cat -- "$home/.dotfiles-ai/ai/AGENTS.md"
+    as_user "$user" test -f "$home/.dotfiles-ai/ai/AGENTS.md" || return 1
+    as_user "$user" cat -- "$home/.dotfiles-ai/ai/AGENTS.md"
 }
 
 # push_rules BOX: /etc/proj-rules/AGENTS.md (root 644) = house rules + AGENTS-hosting.md, and a
