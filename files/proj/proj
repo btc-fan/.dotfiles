@@ -9,7 +9,7 @@
 #   shell <name>                 log in to the box as dev (tmux session "main")
 #   snapshot <name> [label]      snapshot the box, its data volume and its workspace
 #   snapshots <name>             list snapshots
-#   restore <name> <label>       go back to a snapshot, workspace too (pre-restore snapshot first)
+#   restore <name> <label>       go back to a snapshot, workspace too. Later snapshots are removed
 #   fork <src> <new> [--tier try|mvp] [--ttl 3d]   instant copy of a box (and its workspace)
 #   wipe <name> [--yes]          delete box and data. Refused for long and protected boxes.
 #                                Asks about the workspace: kept in .trash unless you type delete
@@ -541,20 +541,61 @@ cmd_snapshots() {
     fi
 }
 
+# snaps_after NAME LABEL: box snapshots newer than LABEL (ZFS can only roll back by removing them).
+snaps_after() {
+    incus query "/1.0/instances/$1/snapshots?recursion=1" 2>/dev/null \
+        | jq -r --arg l "$2" 'sort_by(.created_at) | (map(.name) | index($l)) as $i
+                              | if $i == null then empty else .[$i+1:][].name end'
+}
+
+# zfs_remove_snaps NAME on|off: let a ZFS rollback remove the newer snapshots (box and data volume).
+zfs_remove_snaps() {
+    local v=true
+    [ "$2" = on ] || v=""
+    [ "$(incus query "/1.0/storage-pools/$POOL" 2>/dev/null | jq -r .driver)" = zfs ] || return 0
+    if [ -n "$v" ]; then
+        incus storage volume set "$POOL" "container/$1" zfs.remove_snapshots=true
+        if has_vol "$1"; then incus storage volume set "$POOL" "$1-data" zfs.remove_snapshots=true; fi
+    else
+        incus storage volume unset "$POOL" "container/$1" zfs.remove_snapshots 2>/dev/null || true
+        if has_vol "$1"; then incus storage volume unset "$POOL" "$1-data" zfs.remove_snapshots 2>/dev/null || true; fi
+    fi
+}
+
+# restore: like git reset. The box (and data volume) go back to LABEL; box snapshots made after
+# it are removed (ZFS rollback). The workspace goes back too; the current one is kept in .trash
+# and archived as pre-restore-<date> first, so the code is never lost. Long boxes: backup first.
 cmd_restore() {
-    local name=${1:?name} label=${2:?usage: proj restore <name> <label>}
+    local name=${1:?name} label=${2:?usage: proj restore <name> <label>} later
     need_box "$name"
-    say "restore $name to snapshot $label. Changes since then are lost (a pre-restore snapshot is made first)."
-    [ -z "$(ws_source "$name")" ] || say "the workspace $(ws_dir "$name") (/srv/app) goes back too, if snapshot $label has it (the current one is kept in .trash)"
+    incus query "/1.0/instances/$name/snapshots/$label" >/dev/null 2>&1 \
+        || die "no snapshot '$label' of $name (sudo proj snapshots $name)"
+    later=$(snaps_after "$name" "$label" | paste -sd' ' -)
+    say "restore $name to snapshot $label. Changes to the box since then are lost."
+    [ -z "$later" ] || say "these later snapshots are REMOVED (ZFS rolls back only that way): $later"
+    [ -z "$(ws_source "$name")" ] || say "the workspace $(ws_dir "$name") (/srv/app) goes back too; the current one is kept in .trash and archived as pre-restore"
     confirm "$name"
-    cmd_snapshot "$name" "pre-restore-$(stamp)"
+    if [ "$(tier_of "$name")" = long ]; then cmd_backup "$name"; fi
+    [ -z "$(ws_source "$name")" ] || ws_snap "$name" "pre-restore-$(stamp)" >/dev/null
     incus stop "$name" --timeout 60 2>/dev/null || incus stop "$name" --force
+    # Whatever happens next: the ZFS switch goes back off and the box runs again.
+    trap 'zfs_remove_snaps "'"$name"'" off; incus start "'"$name"'" 2>/dev/null || true' EXIT
+    zfs_remove_snaps "$name" on
     incus snapshot restore "$name" "$label" </dev/null
-    if has_vol "$name"; then incus storage volume snapshot restore "$POOL" "$name-data" "$label" </dev/null; fi
+    if has_vol "$name"; then
+        if incus query "/1.0/storage-pools/$POOL/volumes/custom/$name-data/snapshots/$label" >/dev/null 2>&1; then
+            incus storage volume snapshot restore "$POOL" "$name-data" "$label" </dev/null
+        else
+            say "WARN: the data volume has no snapshot $label: /srv/data stays as it is now"
+        fi
+    fi
     [ -z "$(ws_source "$name")" ] || ws_unsnap "$name" "$label"
+    zfs_remove_snaps "$name" off
     incus start "$name"
-    note "restore $name $label"
+    trap - EXIT
+    note "restore $name $label${later:+ (removed: $later)}"
     cmd_registry >/dev/null
+    say "restored $name to $label"
 }
 
 cmd_fork() {

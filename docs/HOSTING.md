@@ -56,7 +56,7 @@ sudo proj list                                 # all boxes and host projects
 sudo proj shell radar                          # log in (tmux session "main")
 sudo proj snapshot radar before-upgrade        # snapshot box + data
 sudo proj snapshots radar                      # list snapshots
-sudo proj restore radar before-upgrade         # go back (makes a pre-restore snapshot first)
+sudo proj restore radar before-upgrade         # go back, workspace too (later snapshots are removed)
 sudo proj fork radar radar--try1               # instant copy for a wild idea (try, 3 days)
 sudo proj wipe radar--try1                     # throw the copy away
 sudo proj recreate radar                       # rebuild the system, keep /srv/data and the workspace
@@ -96,7 +96,9 @@ Owner decision 2026-11-11: agents (Claude Code and Codex as the main user, Herme
   (root only, newest 10 kept, `PROJ_WS_SNAP_KEEP` in host.env changes that). Dependency and cache
   folders (`node_modules`, `.venv`, `__pycache__`, `.cache`, `.next`, ...) are left out: reinstall
   them after a restore. `restore` puts the workspace back too; the current one goes to `.trash`
-  first. Still commit and push often. Long boxes: the nightly backup includes it (`<date>-work.tar.zst`).
+  and is archived as `pre-restore-<date>` first. ZFS rolls back only by removing the box
+  snapshots made after the label, so `restore` lists them and removes them (long boxes get a
+  backup first). Still commit and push often. Long boxes: the nightly backup includes it (`<date>-work.tar.zst`).
 - The workspace root is `root:devs 750`: the group can look, only proj adds folders.
 - How the ids line up: the disk device has `shift=true`, an idmapped mount. The box sees host
   uid N as its own uid N, so the main user must be uid 1000 (= `dev` in every box); proj refuses
