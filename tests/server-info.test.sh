@@ -39,7 +39,10 @@ cat > "$T/bin/systemctl" <<'EOF'
 #!/bin/bash
 case "$*" in *--failed*) printf 'a.service loaded failed failed A\nb.service loaded failed failed B\n' ;; esac
 EOF
-printf '#!/bin/bash\nprintf "boxes\\tONLINE\\t3%%\\n"\n' > "$T/bin/zpool"
+cat > "$T/bin/zpool" <<'EOF'
+#!/bin/bash
+echo "boxes	ONLINE	3%"
+EOF
 printf '#!/bin/bash\necho "up 2 days, 3 hours"\n' > "$T/bin/uptime"
 printf '#!/bin/bash\necho "2.1.311 (Claude Code)"\n' > "$T/bin/claude"
 printf '#!/bin/bash\nsleep 10; echo never\n' > "$T/bin/codex"
