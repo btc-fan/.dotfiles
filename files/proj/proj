@@ -1078,11 +1078,14 @@ selftest_workspace() {
     # NOT give root on the host (WORK_ROOT is mounted nosuid, step 70).
     local out
     if incus exec "$n" -- sh -c 'cp "$(command -v id)" /srv/app/suid-id && chmod 4755 /srv/app/suid-id' 2>/dev/null; then
-        out=$(runuser -u nobody -- "$ws/suid-id" -u 2>/dev/null || echo "?")
-        if [ "$out" = 0 ]; then
+        # Run it as MAIN_USER: an agent user that can reach the workspace (nobody cannot even enter it).
+        out=$(runuser -u "$MAIN_USER" -- "$ws/suid-id" -u 2>/dev/null || echo "?")
+        if [ "$out" = "$(id -u "$MAIN_USER")" ]; then
+            echo "ok    workspace: a setuid-root file made in the box runs as $MAIN_USER on the host, not root"
+        elif [ "$out" = 0 ]; then
             echo "FAIL  workspace: a setuid-root file made in the box runs as ROOT on the host (WORK_ROOT needs nosuid: setup.sh step 70)"; fail=1
         else
-            echo "ok    workspace: a setuid-root file made in the box does not give root on the host (uid $out)"
+            echo "FAIL  workspace: setuid test file did not run as $MAIN_USER (got '$out')"; fail=1
         fi
         rm -f -- "$ws/suid-id"
     else
