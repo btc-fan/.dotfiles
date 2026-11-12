@@ -98,6 +98,7 @@ To read the full table: `ai/routing.yaml`. Do not copy it here.
 
 | Command | What |
 |---|---|
+| `ai-info` | what this machine offers (agents, plugins, skills, MCP, gates, opt-in tools, current repo state); `--short` for the login screen. Local, no network, no secrets |
 | `ai-doctor` | checks the whole setup |
 | `ai-render` | builds routing.json, L0 table and the root file |
 | `ai-sync` | after a pull: runs `ai-render`, refreshes this user's copied rule blocks (Codex; Hermes and `/etc` only through the admin `install.sh --update`). `--check` compares, `--install-hook` makes `git pull` run it |

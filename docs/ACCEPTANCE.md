@@ -9,6 +9,7 @@ The owner gives the prompts; the checks are commands an admin runs. Record resul
 ## 0. Before the tests
 - `ai-doctor` passes (as the main user). `sudo /opt/server-setup/setup.sh --only verify` passes (as admin).
 - `sudo proj list` shows no test boxes left from an earlier run.
+- `ai-info` and `ai-info --short` run as the main user, and `sudo -u hermes -H ai-info --short` runs as hermes: exit 0, under 2 s, agents and plugins listed, no secret values. `server-info` at login ends with the `ai-info --short` lines.
 - (Telegram bot test: later, when the owner has a test bot token. Until then use the web page task below.)
   the agent must ask for it and tell the owner where to put it (`/srv/app/.env` in the box).
 

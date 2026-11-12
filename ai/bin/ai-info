@@ -1,0 +1,249 @@
+#!/usr/bin/env python3
+"""ai-info: what this machine's AI setup offers, for the person or agent who just connected.
+
+  ai-info            full list: agents, Claude plugins, skills, MCP servers, gates, opt-in tools,
+                     the current project (when run inside a git repo), where the docs are
+  ai-info --short    about 8 lines, for the login screen (server-info appends it on a server)
+
+Fast and local: no network, no secrets (it prints names and versions, never file contents or env
+values). Reads ~/.claude/settings.json, ~/.claude/plugins/installed_plugins.json, the skill folders,
+the routing table and, in a repo, AGENTS.md, .ai/enabled and .claude/settings.json.
+Version probes run in parallel with a 3 s limit each; a slow or missing agent shows "-".
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+
+BIN = os.path.dirname(os.path.realpath(__file__))
+AI_DIR = os.path.dirname(BIN)
+AI_HOME = os.path.dirname(AI_DIR)
+HOME = os.path.expanduser("~")
+
+AGENTS = ["claude", "codex", "opencode", "hermes", "herdr"]
+# Claude plugins of this setup: id -> (short name, default scope)
+PLUGINS = [
+    ("ai-core@ai", "ai-core", "global"),
+    ("oh-my-claudecode@omc", "OMC", "global"),
+    ("ponytail@ponytail", "Ponytail", "global"),
+    ("i-have-adhd@i-have-adhd", "i-have-adhd", "global"),
+    ("claude-seo@agricidaniel-claude-seo", "claude-seo", "per project: ai-adopt --tools seo"),
+    ("claude-blog@agricidaniel-blog", "claude-blog", "per project: ai-adopt --tools blog"),
+    ("ai-serena@ai", "ai-serena", "per project: ai-adopt --tools serena"),
+    ("ai-playwright@ai", "ai-playwright", "per project: ai-adopt --tools browser"),
+]
+MATT_SKILLS = ["grilling", "grill-me", "wait-what", "retro", "writing-for-agents"]
+SKILL_DIRS = ["~/.agents/skills", "~/.claude/skills", "~/.hermes/skills"]
+GATE_HINT = "Owner only opens a gate: sudo ai-gate-skip <gate> <minutes max 60> <why>"
+DOCS = ["README.md", "docs/TOOLS.md", "docs/SECURITY.md", "docs/AUDIT-BRIEF.md"]
+
+
+def main(argv):
+    short = "--short" in argv
+    if "-h" in argv or "--help" in argv:
+        print(__doc__)
+        return 0
+    facts = collect()
+    print("\n".join(render_short(facts) if short else render_full(facts)))
+    return 0
+
+
+# ---------------------------------------------------------------- collect
+
+def collect():
+    with ThreadPoolExecutor(max_workers=len(AGENTS)) as pool:
+        versions = dict(zip(AGENTS, pool.map(agent_version, AGENTS)))
+    routing = load_routing()
+    rules = routing.get("rules", [])
+    root = git_root(os.getcwd())
+    return {
+        "agents": versions,
+        "plugins": plugin_states(root),
+        "skills": skill_names(),
+        "gates": [r["id"] for r in rules if r.get("strength") == "gate"],
+        "optin": [(r["id"], str(r.get("tool") or r["id"])) for r in rules if r.get("scope") == "opt-in"],
+        "project": project_state(root) if root else None,
+        "docs_home": AI_HOME,
+    }
+
+
+def agent_version(name):
+    from shutil import which
+    if not which(name):
+        return None
+    try:
+        res = subprocess.run([name, "--version"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             stdin=subprocess.DEVNULL, timeout=3)
+    except (OSError, subprocess.SubprocessError):
+        return "?"
+    m = re.search(r"\d+\.\d+(?:\.\d+)?(?:[-+.][\w.]+)?", res.stdout.decode("utf-8", "replace"))
+    return m.group(0) if m else "?"
+
+
+def plugin_states(root):
+    """[(short name, installed, on-for-user, on-here, scope)]. Missing from enabledPlugins = on (Claude default)."""
+    installed = set(((load_json(os.path.join(HOME, ".claude", "plugins", "installed_plugins.json")) or {})
+                     .get("plugins") or {}).keys())
+    user = (load_json(os.path.join(HOME, ".claude", "settings.json")) or {}).get("enabledPlugins") or {}
+    proj = {}
+    if root:
+        for name in ("settings.json", "settings.local.json"):
+            proj.update((load_json(os.path.join(root, ".claude", name)) or {}).get("enabledPlugins") or {})
+    out = []
+    for pid, short, scope in PLUGINS:
+        is_in = pid in installed
+        on_user = is_in and user.get(pid, True) is not False
+        on_here = is_in and proj.get(pid, on_user) is not False
+        out.append((short, is_in, on_user, on_here, scope))
+    return out
+
+
+def skill_names():
+    names = set()
+    for d in SKILL_DIRS:
+        path = os.path.expanduser(d)
+        try:
+            entries = os.listdir(path)
+        except OSError:
+            continue
+        for e in entries:
+            if os.path.isfile(os.path.join(path, e, "SKILL.md")):
+                names.add(e)
+    return sorted(names)
+
+
+def project_state(root):
+    agents = read(os.path.join(root, "AGENTS.md")) or ""
+    m = re.search(r"^<!-- AI:map START[^>]*-->\s*\n(.*?)^<!-- AI:map END -->", agents, re.M | re.S)
+    enabled = [ln.split("#", 1)[0].strip() for ln in (read(os.path.join(root, ".ai", "enabled")) or "").splitlines()]
+    return {
+        "name": os.path.basename(root),
+        "map": len([ln for ln in m.group(1).strip().splitlines() if ln.strip() and not ln.startswith("## Map")])
+               if m else None,
+        "libraries": libs_state(root, "<!-- AI:libraries START" in agents),
+        "enabled": [e for e in enabled if e],
+        "adopted": os.path.isfile(os.path.join(root, ".ai", "base-version")),
+    }
+
+
+def libs_state(root, present):
+    """ai-libs --check is read-only and local (no network)."""
+    try:
+        res = subprocess.run([sys.executable, os.path.join(BIN, "ai-libs"), "--check", "--dir", root],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    if res.returncode == 0:
+        return "in sync" if present else "not needed (no dependencies)"
+    return "stale (ai-libs --sync)" if present else "missing (ai-libs --sync)"
+
+
+# ---------------------------------------------------------------- render
+
+def render_short(f):
+    agents = ", ".join("%s %s" % (a, v) for a, v in f["agents"].items() if v) or "none found"
+    on = [p[0] for p in f["plugins"] if p[1] and p[2]]
+    optional = [p[0] for p in f["plugins"] if p[1] and not p[2]]
+    skills = f["skills"]
+    matt = [s for s in MATT_SKILLS if s in skills]
+    lines = [
+        "AI agents: " + agents,
+        "Claude plugins on: %s%s" % (", ".join(on) or "none", ("; per project: " + ", ".join(optional)) if optional else ""),
+        "MCP: context7 (global); serena, playwright (per project)",
+        "Skills: %s" % (", ".join(matt) + ((" (+%d more)" % (len(skills) - len(matt))) if len(skills) > len(matt) else "")
+                        if matt else "%d installed (ai-info lists them)" % len(skills)),
+        "Gates: %s. %s" % (", ".join(f["gates"]) or "none", GATE_HINT),
+        "Opt-in per project: ai-adopt --tools " + "|".join(i for i, _t in f["optin"]),
+    ]
+    p = f["project"]
+    if p:
+        lines.append("Project %s: %s" % (p["name"], project_line(p)))
+    lines.append("More: ai-info (full list), %s" % ", ".join(tilde(os.path.join(f["docs_home"], d)) for d in DOCS[:3]))
+    return lines
+
+
+def render_full(f):
+    out = ["AI setup on this machine (ai-info). Names and versions only.", "", "Agents:"]
+    for a, v in f["agents"].items():
+        out.append("  %-9s %s" % (a, v or "not installed"))
+    out += ["", "Claude plugins (on for you / on in this folder):"]
+    for short, is_in, on_user, on_here, scope in f["plugins"]:
+        if not is_in:
+            state = "not installed"
+        else:
+            state = ("on" if on_user else "off") + (" / on here" if on_here and not on_user else
+                                                     " / off here" if on_user and not on_here else "")
+        out.append("  %-13s %-22s %s" % (short, state, scope))
+    out += ["", "Skills (%d): %s" % (len(f["skills"]), ", ".join(f["skills"]) or "none"),
+            "  mattpocock: " + ", ".join("%s%s" % (s, "" if s in f["skills"] else " (missing)") for s in MATT_SKILLS)]
+    out += ["", "MCP servers: context7 (global, library docs; IDs in the Libraries section of a repo AGENTS.md).",
+            "  Per project only: serena (ai-adopt --tools serena), playwright (ai-adopt --tools browser)."]
+    out += ["", "Gates: " + (", ".join(f["gates"]) or "none"), "  " + GATE_HINT,
+            "  Agents never use sudo; a blocked gate or a sandbox error is final for them."]
+    out += ["", "Opt-in tools (run in the repo):"]
+    for rid, tool in f["optin"]:
+        out.append("  ai-adopt --tools %-14s %s" % (rid, tool))
+    p = f["project"]
+    out += [""]
+    if p:
+        out.append("This project (%s): %s" % (p["name"], project_line(p)))
+        if not p["adopted"]:
+            out.append("  Not adopted yet: ai-adopt writes the Map and Libraries sections.")
+    else:
+        out.append("Not inside a git repo: run ai-info in a project to see its state.")
+    out += ["", "Docs:"] + ["  " + tilde(os.path.join(f["docs_home"], d)) for d in DOCS
+                            if os.path.isfile(os.path.join(f["docs_home"], d))]
+    out.append("  Rules per tool: ~/.config/ai/rules/<tool>.md. Ready tools not installed: ~/.config/ai/TOOLBOX.md")
+    return out
+
+
+def project_line(p):
+    m = "Map present (%d lines)" % p["map"] if p["map"] is not None else "Map missing (ai-adopt)"
+    return "%s, Libraries %s, enabled: %s" % (m, p["libraries"], ", ".join(p["enabled"]) or "none")
+
+
+# ---------------------------------------------------------------- helpers
+
+def load_routing():
+    for p in (os.path.join(AI_DIR, "build", "routing.json"),
+              os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks", "routing.json")):
+        data = load_json(p)
+        if data:
+            return data
+    return {}
+
+
+def git_root(d):
+    try:
+        res = subprocess.run(["git", "-C", d, "rev-parse", "--show-toplevel"], stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, timeout=3)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    out = res.stdout.decode().strip()
+    return out if res.returncode == 0 and out else None
+
+
+def tilde(path):
+    return "~" + path[len(HOME):] if path.startswith(HOME + os.sep) else path
+
+
+def load_json(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def read(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

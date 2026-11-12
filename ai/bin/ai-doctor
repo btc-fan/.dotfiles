@@ -3,6 +3,7 @@
 
   ai-doctor           all checks (plugin validate, router tests, evals when present)
   ai-doctor --quick   fast checks only (install.sh runs this at the end)
+  ai-doctor --live    also one headless claude -p call that runs a sandboxed Bash command (costs one small call)
   ai-doctor --project PATH   also the project knowledge checks for PATH (default: the cwd when it is a
                       git repo with code): Serena memories, sizes, staleness, secrets, graph, .ai/libs.md
 
@@ -252,7 +253,7 @@ def check_validate():
 def check_tests():
     runner = os.path.join(AI_DIR, "tests", "run.sh")
     if os.path.isfile(runner):
-        code, out = run(["bash", runner])
+        code, out = run(["bash", runner], timeout=900)    # about 200 router cases plus setup tests: minutes on a slow box
         say("PASS" if code == 0 else "FAIL", "router tests (ai/tests/run.sh)", out[-600:] if code else "")
 
 
@@ -500,11 +501,45 @@ def check_claude_policy():
     for tool in ("bwrap", "socat", "rg"):
         if not shutil.which(tool):
             say("FAIL", "sandbox dependency %s installed" % tool, "admin: apt-get install bubblewrap socat ripgrep")
-    if shutil.which("bwrap"):
-        code, out = run(["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--unshare-user", "--unshare-net", "true"],
+    bw = sb.get("bwrapPath") or shutil.which("bwrap")
+    if bw and bw == sb.get("bwrapPath") and LINUX and not os.access(bw, os.X_OK):
+        import grp
+        import pwd
+        user = pwd.getpwuid(os.getuid()).pw_name
+        try:
+            members = grp.getgrnam("ai-sandbox").gr_mem
+            in_session = grp.getgrnam("ai-sandbox").gr_gid in os.getgroups()
+        except KeyError:
+            members, in_session = [], False
+        if user in members and not in_session:
+            say("WARN", "Claude sandbox: %s is in group ai-sandbox, this session is not yet" % user,
+                "log in again (new ssh session), then start Claude")
+        else:
+            say("FAIL" if os.getuid() != 0 else "SKIP", "Claude sandbox: %s may not run %s (group ai-sandbox)" % (user, bw),
+                "admin: sudo /opt/ai-setup/install.sh --update --for-user <user> (adds the agent user)")
+        bw = None
+    if bw:
+        # What the Claude sandbox really does: bubblewrap with user, pid and net namespaces, and inside it a
+        # NESTED user namespace with a root map (apply-seccomp writes /proc/self/setgroups there). Ubuntu's
+        # bwrap-userns-restrict (unpriv_bwrap) lets the outer step pass and fails exactly this inner one.
+        code, out = run([bw, "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--unshare-user",
+                         "--unshare-pid", "--unshare-net", "--", "unshare", "--user", "--map-root-user", "true"],
                         timeout=20)
-        say("PASS" if code == 0 else "FAIL", "bubblewrap can create a sandbox for this user",
-            "" if code == 0 else (out.strip()[-200:] + " (Ubuntu AppArmor: admin installs /etc/apparmor.d/bwrap)"))
+        say("PASS" if code == 0 else "FAIL", "Claude sandbox can start here (bubblewrap %s, nested user namespace)" % bw,
+            "" if code == 0 else (out.strip()[-240:] + "\nUbuntu AppArmor (bwrap-userns-restrict): admin runs "
+                                  "sudo /opt/ai-setup/install.sh --update --for-user <user> (bwrap copy + profile)"))
+        if LINUX and read_text_file("/proc/sys/kernel/apparmor_restrict_unprivileged_userns") == "1\n":
+            st = os.stat("/usr/local/lib/ai/bwrap") if os.path.exists("/usr/local/lib/ai/bwrap") else None
+            ok = sb.get("bwrapPath") == "/usr/local/lib/ai/bwrap" and os.path.exists("/etc/apparmor.d/ai-claude-bwrap") \
+                and st is not None and st.st_uid == 0 and (st.st_mode & 0o777) == 0o750
+            say("PASS" if ok else "FAIL", "userns restricted: Claude uses the profiled bubblewrap copy",
+                "" if ok else "managed sandbox.bwrapPath /usr/local/lib/ai/bwrap (root:ai-sandbox 0750) with /etc/apparmor.d/ai-claude-bwrap")
+    if "--live" in sys.argv and shutil.which("claude"):
+        # Optional end-to-end proof (one small model call): a headless Bash command through the sandbox.
+        code, out = run(["claude", "-p", "Run exactly this Bash command and print its output: echo AI_SANDBOX_OK",
+                         "--allowedTools", "Bash(echo *)"], timeout=180)
+        ok = code == 0 and "AI_SANDBOX_OK" in out
+        say("PASS" if ok else "FAIL", "live: claude -p runs a sandboxed Bash command", "" if ok else out[-300:])
     lock = ms.get("strictPluginOnlyCustomization")
     locked = lock is True or (isinstance(lock, list) and {"hooks", "mcp"} <= set(lock))
     say("PASS" if locked else "FAIL", "planted .claude/settings.json hooks and .mcp.json servers do not load "

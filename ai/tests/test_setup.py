@@ -430,6 +430,21 @@ def t_sandbox_policy(work):
     code, out = bash(LIBS + "AI_OS=linux; AI_DRY_RUN=1; claude_managed_policy; codex_system_policy() { :; }", env)
     assert code == 0 and "strictPluginOnlyCustomization" in out and "sandbox" in out, out
     assert "enabledPlugins/ai-core@ai = true" in out, "ai-core must be force-enabled from managed settings"
+    # Ubuntu with the userns restriction: Claude must use the profiled bubblewrap copy, never /usr/bin/bwrap.
+    code, out = bash(LIBS + "AI_SANDBOX_BWRAP_FORCE=1 claude_sandbox_json_final", env)
+    assert json.loads(out)["bwrapPath"] == "/usr/local/lib/ai/bwrap", out
+    prof = read(os.path.join(AI_DIR, "adapters", "linux", "apparmor-bwrap"))
+    assert "profile ai-claude-bwrap /usr/local/lib/ai/bwrap flags=(unconfined)" in prof and "userns," in prof
+    assert "/usr/bin/bwrap flags" not in prof, "Ubuntu's /usr/bin/bwrap restriction must stay for other programs"
+    stub(_b, "sysctl", "echo 1")
+    stub(_b, "bwrap", "exit 0"); stub(_b, "socat", "exit 0"); stub(_b, "rg", "exit 0")
+    stub(_b, "getent", "exit 2")       # group ai-sandbox does not exist yet
+    code, out = bash(LIBS + "AI_OS=linux; AI_MODE=system; AI_DRY_RUN=1; AI_FOR_USER=ubuntu01; tools_sandbox_deps", env)
+    assert code == 0 and "apparmor_parser -r /etc/apparmor.d/ai-claude-bwrap" in out \
+        and "/etc/apparmor.d/bwrap " not in out, out
+    assert "groupadd --system ai-sandbox" in out and "usermod -aG ai-sandbox ubuntu01" in out, out
+    assert "-g ai-sandbox -m 750 /usr/bin/bwrap /usr/local/lib/ai/bwrap" in out and "chmod 750" in out, out
+    assert "hermes" not in out and "admin" not in out.lower().replace("needs admin", ""), out
 
 
 def t_hooks_remove(work):

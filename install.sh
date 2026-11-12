@@ -251,6 +251,11 @@ do_system_layer() {
     base_env_system
     base_admin_layer
     base_webhook_helper
+    # ai-info for every user (also hermes, whose PATH has no ~/.local/bin of ours): a link to the root-owned
+    # copy. Only in system mode, where AI_HOME is that root-owned copy.
+    if [ "$AI_MODE" = system ] && [ -f "$AI_HOME/ai/bin/ai-info" ]; then
+        aiconf_root link /usr/local/bin/ai-info "$AI_HOME/ai/bin/ai-info"
+    fi
     # Owner-only gate skip: a root-owned copy (sudo must never run a user-writable script).
     aiconf_root file-put /usr/local/sbin/ai-gate-skip "$AI_HOME/ai/hooks/root/ai-gate-skip" --mode 755
     codex_system_hooks

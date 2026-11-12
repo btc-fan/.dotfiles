@@ -9,6 +9,7 @@ python3 "$here/test_router.py" "$@" || rc=1
 if [ $# -eq 0 ] || [ "$1" = "-v" ]; then
     python3 "$here/test_commands.py" || rc=1
     python3 "$here/test_knowledge.py" || rc=1
+    python3 "$here/test_info.py" || rc=1
     python3 "$here/test_setup.py" || rc=1
 fi
 exit "$rc"

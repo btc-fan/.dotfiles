@@ -430,6 +430,8 @@ tools_drop_user() {
 
 # The Claude Bash sandbox needs bubblewrap, socat and ripgrep (code.claude.com/docs/en/sandboxing). Ubuntu
 # restricts unprivileged user namespaces through AppArmor: bubblewrap needs the profile the docs give.
+AI_BWRAP=/usr/local/lib/ai/bwrap
+
 tools_sandbox_deps() {
     [ "$AI_OS" = linux ] || return 0
     local missing="" c
@@ -437,11 +439,31 @@ tools_sandbox_deps() {
     if [ -n "$missing" ]; then
         run_root apt-get install -y -q bubblewrap socat ripgrep && ok "apt-get install bubblewrap socat ripgrep (sandbox)"
     fi
-    if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ] \
-        && ! grep -rqs '/usr/bin/bwrap' /etc/apparmor.d/ 2>/dev/null; then
-        aiconf_root file-put /etc/apparmor.d/bwrap "$AI_HOME/ai/adapters/linux/apparmor-bwrap" --mode 644
-        run_root systemctl reload apparmor
-        ok "AppArmor profile for /usr/bin/bwrap (user namespaces for the Claude sandbox)"
+    [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ] || return 0
+    # Ubuntu's bwrap-userns-restrict confines /usr/bin/bwrap's children (unpriv_bwrap: no capabilities), which
+    # breaks the sandbox's apply-seccomp step. A root-owned copy at its own path gets the docs' bubblewrap
+    # profile (unconfined + userns); /usr/bin/bwrap and the sysctl stay as Ubuntu set them. Re-copied every
+    # install so it follows apt updates of bubblewrap.
+    # Only the user the agents run as may start it: group ai-sandbox (that user alone, not hermes, not admin),
+    # mode 0750. A user added just now must log in again before Claude can start.
+    if ! getent group ai-sandbox >/dev/null 2>&1; then
+        run_root groupadd --system ai-sandbox
+        aiconf_root record-cmd group:ai-sandbox -- groupdel ai-sandbox
     fi
-    return 0
+    if [ -n "${AI_FOR_USER:-}" ] && ! id -nG "$AI_FOR_USER" 2>/dev/null | tr ' ' '\n' | grep -qx ai-sandbox; then
+        run_root usermod -aG ai-sandbox "$AI_FOR_USER"
+        aiconf_root record-cmd "group:ai-sandbox:$AI_FOR_USER" -- gpasswd -d "$AI_FOR_USER" ai-sandbox
+        manual "$AI_FOR_USER was added to group ai-sandbox: log in again (new ssh session) before starting Claude"
+    fi
+    if [ "$AI_DRY_RUN" = 1 ] || ! cmp -s /usr/bin/bwrap "$AI_BWRAP" 2>/dev/null; then
+        run_root install -d -o root -g root -m 755 /usr/local/lib/ai
+        run_root install -o root -g ai-sandbox -m 750 /usr/bin/bwrap "$AI_BWRAP"
+        aiconf_root record-cmd bin:ai-bwrap -- rm -f "$AI_BWRAP"
+    fi
+    run_root chown root:ai-sandbox "$AI_BWRAP"
+    run_root chmod 750 "$AI_BWRAP"
+    aiconf_root file-put /etc/apparmor.d/ai-claude-bwrap "$AI_HOME/ai/adapters/linux/apparmor-bwrap" --mode 644
+    run_root apparmor_parser -r /etc/apparmor.d/ai-claude-bwrap
+    aiconf_root record-cmd apparmor:ai-claude-bwrap -- apparmor_parser -R /etc/apparmor.d/ai-claude-bwrap
+    ok "Claude sandbox: bubblewrap copy $AI_BWRAP (root:ai-sandbox 0750, group = ${AI_FOR_USER:-?} only) with its own AppArmor profile"
 }

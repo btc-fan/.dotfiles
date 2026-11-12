@@ -1,10 +1,15 @@
-# AppArmor profile for /usr/bin/bwrap: lets bubblewrap create user namespaces on Ubuntu, which the Claude
-# Code Bash sandbox needs. Text from code.claude.com/docs/en/sandboxing ("Add an AppArmor profile for
-# bubblewrap"). Installed by install.sh only when kernel.apparmor_restrict_unprivileged_userns=1.
+# AppArmor profile for the Claude Code sandbox's own bubblewrap COPY (/usr/local/lib/ai/bwrap), installed by
+# install.sh when kernel.apparmor_restrict_unprivileged_userns=1.
+# Why a copy: Ubuntu 24.04+ ships /etc/apparmor.d/bwrap-userns-restrict, whose `bwrap` profile attaches to
+# /usr/bin/bwrap and moves everything bwrap starts into `unpriv_bwrap`, which denies capabilities. The Claude
+# sandbox's apply-seccomp step then fails ("write /proc/self/setgroups ... caller must provide CAP_SYS_ADMIN",
+# kernel log: profile="unpriv_bwrap" capname="sys_admin"). This profile is the one the Claude Code docs give
+# for bubblewrap (unconfined + userns), attached to the copy only, so /usr/bin/bwrap and every other program
+# keep Ubuntu's restriction and the sysctl stays 1. Managed settings point Claude at the copy (sandbox.bwrapPath).
 abi <abi/4.0>,
 include <tunables/global>
 
-profile bwrap /usr/bin/bwrap flags=(unconfined) {
+profile ai-claude-bwrap /usr/local/lib/ai/bwrap flags=(unconfined) {
   userns,
-  include if exists <local/bwrap>
+  include if exists <local/ai-claude-bwrap>
 }

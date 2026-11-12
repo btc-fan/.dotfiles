@@ -270,6 +270,12 @@ The installer cannot do these. It prints them at the end.
 
 ## 6. Verify
 
+### What is available here: `ai-info`
+
+Run `ai-info` on any machine with this setup (every user, Hermes too) to see what it offers: installed agents and versions, Claude plugins on or off (for you and in the current folder), skills, MCP servers, the gates and how the owner opens one (`sudo ai-gate-skip`), the opt-in tools with the exact `ai-adopt --tools <id>` command, and, inside a repo, its state (Map, Libraries, enabled tools). It is local and fast: no network, no secrets, names and versions only. `ai-info --short` prints about 8 lines; on a server, `server-info` (ubuntu-server branch) shows them at login. Agents are told to run it when unsure which tools exist.
+
+### Checks
+
 ```
 ai-doctor
 ```
@@ -330,7 +336,7 @@ Per-tool cleanup details are in the "Setup checklist" of each `ai/rules/<tool>.m
 | `~/.local/bin/` | links to every command in `ai/bin/` |
 | `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, Hermes `SOUL.md` | each has one managed block `AI:core` that carries or points to the root rules |
 
-Commands in `ai/bin/`: `ai-doctor`, `ai-render`, `ai-sync`, `agent-audit`, `ai-start`, `ai-adopt`, `ai-libs`, `claude-notify`, `pr-resume`.
+Commands in `ai/bin/`: `ai-info`, `ai-doctor`, `ai-render`, `ai-sync`, `agent-audit`, `ai-start`, `ai-adopt`, `ai-libs`, `claude-notify`, `pr-resume`.
 
 ## 10. Troubleshooting
 

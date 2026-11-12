@@ -342,12 +342,23 @@ print(json.dumps({
 EOS
 }
 
+# Add bwrapPath when the AppArmor-profiled copy exists (Ubuntu with the userns restriction): managed-only key.
+claude_sandbox_json_final() {
+    local j; j=$(claude_sandbox_json)
+    if [ -e "${AI_BWRAP:-/usr/local/lib/ai/bwrap}" ] || [ "${AI_SANDBOX_BWRAP_FORCE:-0}" = 1 ]; then
+        python3 -c 'import json,sys; d=json.loads(sys.argv[1]); d["bwrapPath"]=sys.argv[2]; print(json.dumps(d, sort_keys=True))' \
+            "$j" "${AI_BWRAP:-/usr/local/lib/ai/bwrap}"
+    else
+        printf '%s\n' "$j"
+    fi
+}
+
 # managed-settings.json keys (merge; only these keys): the Bash sandbox, the planted-config lock, the RTK
 # hook as a managed hook, and a git setting that a planted .git/config cannot turn into code execution.
 claude_managed_policy() {
     [ "$AI_OS" = linux ] || return 0
     local ms=/etc/claude-code/managed-settings.json rtk_bin
-    aiconf_root json-set "$ms" sandbox "$(claude_sandbox_json)" --mode 644
+    aiconf_root json-set "$ms" sandbox "$(claude_sandbox_json_final)" --mode 644
     # Planted project config: project/user/local settings hooks and project .mcp.json / ~/.claude.json MCP
     # servers stop loading; plugin hooks, plugin MCP servers (ai-core, OMC, Ponytail, i-have-adhd, opt-in
     # ai-serena / claude-seo / claude-blog) and managed hooks keep working.
