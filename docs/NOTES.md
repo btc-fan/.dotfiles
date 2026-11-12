@@ -322,3 +322,51 @@ for a fork; `tar --zstd` on 26.04; the host reaching a box IP through ufw.
   `as_main`), so the files are MAIN_USER's from the start and the setgid folder gives the group.
   The mode fixes (`ws_fix_modes`: no setuid bits, group write, setgid folders) also run as
   MAIN_USER with `find -P`. A test refuses any root `find -exec chown/chmod` left in proj.
+
+### Backups with history, md999 included, monthly restore drill
+- Before: one dump folder a day on `/data` (same disk as Postgres), 3 days kept, mirrored with
+  `rsync --delete` (so the backup disk had no history), and md999 (in `PG_BACKUP_SKIP_DBS`) had
+  no backup at all.
+- Now: `pg-backup` writes straight to the backup disk (`BACKUP_MOUNT/postgres`), 7 daily + 4
+  weekly (weekly = hard links of the first good dump of the ISO week). `pg-backup --big`
+  (own timer, 04:30) dumps each `PG_BACKUP_SKIP_DBS` database on its own, same history; a
+  database that does not exist yet is noted (`.not-there-yet`), not an error. Every dump is a
+  `.partial-*` until `pg_restore -l` reads it back. zstd compression (Postgres 16+).
+- Choice: `pg_dump -Fc`, not `pg_basebackup`. A dump restores one database into a throwaway
+  database (the drill), crosses Postgres versions and leaves indexes out. A base backup is the
+  whole cluster and needs WAL archiving to give more than a nightly copy. If md999 later needs
+  point-in-time recovery, add WAL archiving plus a weekly base backup then.
+- `pg-restore-drill` (day 1 of the month): newest dump of each database into
+  `restore_drill_<db>`, table count compared with the dump's table of contents, dropped, one
+  Discord message. Needs 1.3x the database size free on the data disk, else it reports a failure.
+- Old dumps in `BACKUP_DIR/postgres` (the 3-day layout) are not touched; delete them by hand when
+  the new ones are there. `PG_BACKUP_KEEP_DAYS` is replaced by `PG_BACKUP_KEEP_DAILY`.
+- Tests: `tests/pg-backup.test.sh` (Linux, fakes): 50 simulated days, failed dump, drill.
+
+### Alerts: digest, ZFS, SMART changes, inodes, reboot needed
+- Owner choice: a daily digest (`server-digest`, `DIGEST_TIME`) instead of an outside heartbeat
+  service. A missing digest is the alarm. It lists uptime and last stop, failed units, disk and
+  inode use, ZFS, backup age per database (and alerts above `BACKUP_MAX_AGE_H`), reboot needed
+  (also once per new kernel to #info), boxes with expiry, Postgres, `DIGEST_UNITS`, workspace size.
+- zed: `ZED_EMAIL_PROG=zed-discord` (the URL stays in `/etc/server/webhooks`; zed.rc is
+  world-readable, so the Slack-style webhook setting was not used).
+- `disk-usage-check`: ZFS datasets, inodes (ext4, xfs), pool capacity (80 %) and health,
+  workspace size (`WORK_ROOT_ALERT_GB`, du at most once an hour).
+- `smart-digest` weekly: `smartctl -n standby -i -H -A` only, attributes 5, 187, 188, 197, 198,
+  199 compared with last week by serial. Never a self-test (verify checks the script for `-t`).
+- verify and `proj doctor` FAIL on any failed systemd unit.
+
+### Boot network wait
+- Measured on the server: after the power-cut test (2026-11-11) the NIC got link at 235 s (the
+  router came back after the server). `systemd-networkd-wait-online` (netplan:
+  `--any --dns -o routable -i <nic>`) waited its 2 min, failed, and stayed failed.
+- Fix: drop-in `50-server.conf`, `-i NIC:routable --timeout=WAIT_ONLINE_TIMEOUT` (30) with a
+  `-` prefix, so a slow router never fails the boot. boot-notify now waits up to 15 min for DNS
+  and says how late the network came.
+
+### Small
+- `BOX_EGRESS_REJECT` default has `10.0.0.0/8`. Incus applies reject before allow, so the box
+  network is cut out of any reject range that holds it (computed in step 70); DHCP and DNS to the
+  bridge are baseline rules and stay. Existing host.env files keep their own list: add it there.
+- ZFS `atime=off` on the boxes pool. logrotate for `/var/log/proj.log` and `proj-agent.log`
+  (weekly, 12). Workspace size alert (above).

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Nightly Postgres dumps, WORK_DIR snapshots, and a mirror of both to the backup disk. Times from host.env.
+# Postgres dumps with history (normal + big databases), monthly restore drill, WORK_DIR snapshots, mirror.
 # shellcheck source=../lib/common.sh
 . "$(dirname "$0")/../lib/common.sh"
 need_root
@@ -26,17 +26,21 @@ main() {
         run systemctl daemon-reload
         # Pick up new times in timers that are already running.
         local t
-        for t in pg-backup work-snapshot backup-mirror; do
+        for t in pg-backup pg-backup-big pg-restore-drill work-snapshot backup-mirror; do
             if systemctl is-active -q "$t.timer"; then run systemctl restart "$t.timer"; fi
         done
     fi
-    is_yes "${INSTALL_POSTGRES:-yes}" && enable_unit pg-backup.timer --now
+    if is_yes "${INSTALL_POSTGRES:-yes}"; then
+        enable_unit pg-backup.timer --now
+        enable_unit pg-backup-big.timer --now
+        enable_unit pg-restore-drill.timer --now
+    fi
     [ -z "${WORK_DIR:-}" ] || enable_unit work-snapshot.timer --now
     [ -z "${BACKUP_MOUNT:-}" ] || enable_unit backup-mirror.timer --now
-    dry || systemctl list-timers --all --no-pager 'pg-backup.timer' 'work-snapshot.timer' 'backup-mirror.timer' | sed 's/^/   /'
+    dry || systemctl list-timers --all --no-pager 'pg-backup*.timer' 'pg-restore-drill.timer' 'work-snapshot.timer' 'backup-mirror.timer' | sed 's/^/   /'
 }
 
-# timer NAME DESCRIPTION HH:MM
+# timer NAME DESCRIPTION HH:MM [DAYS]: DAYS is the OnCalendar date part (default every day).
 timer() {
     put "/etc/systemd/system/$1.timer" 644 <<EOF
 # Managed by ~/.dotfiles setup.sh (step 60-backups). Change the time in host.env.
@@ -44,7 +48,7 @@ timer() {
 Description=$2 at $3
 
 [Timer]
-OnCalendar=*-*-* $3
+OnCalendar=${4:-*-*-*} $3
 RandomizedDelaySec=5min
 Persistent=true
 
@@ -55,25 +59,43 @@ EOF
 }
 
 pg_backup() {
-    local at=${PG_BACKUP_TIME:-07:30}
-    log "pg-backup at $at: $BACKUP_DIR/postgres, keep ${PG_BACKUP_KEEP_DAYS:-3} days, skip: ${PG_BACKUP_SKIP_DBS:-none}"
+    local at=${PG_BACKUP_TIME:-07:30} big_at=${PG_BIG_BACKUP_TIME:-04:30} drill_at=${PG_DRILL_TIME:-05:30}
+    local dest=${PG_BACKUP_DIR:-${BACKUP_MOUNT:+$BACKUP_MOUNT/postgres}}
+    dest=${dest:-$BACKUP_DIR/postgres}
+    local big_dest=${PG_BIG_BACKUP_DIR:-${dest}-big} mounts
+    mounts="$dest $big_dest"
+    [ -z "${PG_BACKUP_KEEP_DAYS:-}" ] || [ -n "${PG_BACKUP_KEEP_DAILY:-}" ] \
+        || warn "PG_BACKUP_KEEP_DAYS is replaced by PG_BACKUP_KEEP_DAILY (default 7) and PG_BACKUP_KEEP_WEEKLY (default 4)"
+    log "pg-backup at $at: $dest, keep ${PG_BACKUP_KEEP_DAILY:-7} daily + ${PG_BACKUP_KEEP_WEEKLY:-4} weekly, skip: ${PG_BACKUP_SKIP_DBS:-none}"
+    log "pg-backup-big at $big_at: ${PG_BACKUP_SKIP_DBS:-none} -> $big_dest, keep ${PG_BIG_KEEP_DAILY:-7} daily + ${PG_BIG_KEEP_WEEKLY:-4} weekly"
+    log "pg-restore-drill monthly (day 1) at $drill_at: newest dumps into a throwaway database, result to Discord"
     put_file sbin/pg-backup /usr/local/sbin/pg-backup 750
-    put /etc/systemd/system/pg-backup.service 644 <<EOF
+    put_file sbin/pg-restore-drill /usr/local/sbin/pg-restore-drill 750
+    pg_unit pg-backup "Dump the PostgreSQL databases (with history)" "/usr/local/sbin/pg-backup" "$mounts"
+    timer pg-backup "PostgreSQL dumps" "$at"
+    pg_unit pg-backup-big "Dump the big PostgreSQL databases (PG_BACKUP_SKIP_DBS)" "/usr/local/sbin/pg-backup --big" "$mounts"
+    timer pg-backup-big "Big PostgreSQL dumps" "$big_at"
+    pg_unit pg-restore-drill "Restore the newest dumps into a throwaway database" "/usr/local/sbin/pg-restore-drill" "$mounts"
+    timer pg-restore-drill "Monthly PostgreSQL restore drill" "$drill_at" "*-*-01"
+}
+
+# pg_unit NAME DESCRIPTION EXEC MOUNTS
+pg_unit() {
+    put "/etc/systemd/system/$1.service" 644 <<EOF
 # Managed by ~/.dotfiles setup.sh (step 60-backups).
 [Unit]
-Description=Dump all PostgreSQL databases
+Description=$2
 Requires=postgresql@$PG_VERSION-main.service
 After=postgresql@$PG_VERSION-main.service
-RequiresMountsFor=$BACKUP_DIR
+RequiresMountsFor=$4
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/pg-backup
+ExecStart=$3
 Nice=10
 IOSchedulingClass=idle
 EOF
     unit_changed
-    timer pg-backup "Nightly PostgreSQL dump" "$at"
 }
 
 work_snapshot() {

@@ -1,73 +1,144 @@
 #!/usr/bin/env bash
-# pg-backup: dump every PostgreSQL database to BACKUP_DIR/postgres/<date>/, keep the newest N days.
-# Skips the databases in PG_BACKUP_SKIP_DBS (for example a big one with its own backup job).
-# Refuses to start when the free space is less than 2x the largest database it would dump.
-# Run by pg-backup.timer. Values come from /etc/server/host.env.
+# pg-backup: PostgreSQL dumps with daily and weekly history. Values from /etc/server/host.env.
+#
+#   pg-backup          every database except PG_BACKUP_SKIP_DBS, into PG_BACKUP_DIR
+#                      (default BACKUP_MOUNT/postgres: straight to the backup disk, not next to
+#                      the database): daily/<date>/{globals.sql,<db>.dump}
+#   pg-backup --big    each database in PG_BACKUP_SKIP_DBS (big ones, own timer), into
+#                      PG_BIG_BACKUP_DIR/<db>/daily/<date>/<db>.dump. A database that does not
+#                      exist yet is skipped with a note (exit 0).
+#
+# History: the first good dump of each ISO week is also kept as weekly/<year>-W<week> (hard links:
+# no extra space while the daily copy still exists). Kept: PG_BACKUP_KEEP_DAILY (7) daily and
+# PG_BACKUP_KEEP_WEEKLY (4) weekly; --big uses PG_BIG_KEEP_DAILY and PG_BIG_KEEP_WEEKLY.
+# A dump is written as .partial-*, checked (pg_restore -l reads its table of contents), and only
+# then gets its date name. A half-done dump from a killed run is removed on the next run.
+# Free space: refused when the target has less than 2x the largest database (normal) or 1.5x the
+# last dump of that database (--big, or half the database size when there is no dump yet).
+# Run by pg-backup.timer and pg-backup-big.timer.
 set -euo pipefail
 # shellcheck source=/dev/null
 . /etc/server/host.env
-dir=${BACKUP_DIR:?BACKUP_DIR is empty}/postgres
-keep=${PG_BACKUP_KEEP_DAYS:-3}
-day=$(date +%F)
 cd /
 
-# keep >= 1: keep=0 would delete every dump, also the one just made.
-if ! [[ "$keep" =~ ^[0-9]+$ ]] || [ "$keep" -lt 1 ]; then
-    echo "PG_BACKUP_KEEP_DAYS='$keep' is not 1 or more: using 1" >&2
-    keep=1
+big=0
+[ "${1:-}" = --big ] && big=1
+day=$(date +%F)
+week=$(date +%G-W%V)
+psqlq() { runuser -u postgres -- psql -XAtc "$1"; }
+quote() { printf '%s' "$1" | sed "s/'/''/g"; }
+num_or() { if [[ "${1:-}" =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ]; then echo "$1"; else echo "$2"; fi; }
+
+default_root=${BACKUP_MOUNT:+$BACKUP_MOUNT/postgres}
+default_root=${default_root:-${BACKUP_DIR:?BACKUP_DIR is empty}/postgres}
+if [ "$big" = 1 ]; then
+    root=${PG_BIG_BACKUP_DIR:-${default_root}-big}
+    keep_d=$(num_or "${PG_BIG_KEEP_DAILY:-}" 7)
+    keep_w=$(num_or "${PG_BIG_KEEP_WEEKLY:-}" 4)
+else
+    root=${PG_BACKUP_DIR:-$default_root}
+    keep_d=$(num_or "${PG_BACKUP_KEEP_DAILY:-}" 7)
+    keep_w=$(num_or "${PG_BACKUP_KEEP_WEEKLY:-}" 4)
+fi
+# The backup disk must really be mounted: never fill the system disk by mistake.
+if [ -n "${BACKUP_MOUNT:-}" ] && [[ "$root/" == "$BACKUP_MOUNT"/* ]]; then
+    mountpoint -q "$BACKUP_MOUNT" || { echo "$BACKUP_MOUNT is not mounted: no dump" >&2; exit 1; }
+fi
+compress=${PG_DUMP_COMPRESS:-}
+if [ -z "$compress" ]; then
+    major=$(runuser -u postgres -- pg_dump --version | grep -oE '[0-9]+' | head -n 1)
+    if [ "${major:-0}" -ge 16 ]; then compress=zstd:3; else compress=6; fi
 fi
 
-install -d -m 700 "$dir"
-# Half-done dumps from a run that was killed (power cut, OOM): never a backup, always removed.
-rm -rf -- "$dir"/.partial-*
-tmp="$dir/.partial-$day"
-
-mapfile -t all_dbs < <(runuser -u postgres -- psql -XAtc \
-    "select datname from pg_database where not datistemplate and datallowconn order by 1")
-dbs=()
-for db in "${all_dbs[@]}"; do
-    skip=0
-    for s in ${PG_BACKUP_SKIP_DBS:-}; do
-        if [ "$s" = "$db" ]; then skip=1; fi
-    done
-    if [ "$skip" = 1 ]; then
-        echo "skip $db (PG_BACKUP_SKIP_DBS)"
-    else
-        dbs+=("$db")
+# rotate SET: weekly hard-link copy of today's dump (once per ISO week), then keep the newest.
+rotate() {
+    local set=$1 d i all=()
+    install -d -m 700 "$set/weekly"
+    if [ ! -e "$set/weekly/$week" ]; then
+        cp -al "$set/daily/$day" "$set/weekly/.partial-$week"
+        mv "$set/weekly/.partial-$week" "$set/weekly/$week"
     fi
-done
+    for sub in daily weekly; do
+        local keep=$keep_d
+        [ "$sub" = daily ] || keep=$keep_w
+        all=()
+        for d in "$set/$sub"/[0-9][0-9][0-9][0-9]-*; do [ -d "$d" ] && all+=("$d"); done
+        for ((i = 0; i < ${#all[@]} - keep; i++)); do rm -rf -- "${all[$i]}"; done
+    done
+}
 
-# Free space check: a -Fc dump is usually smaller than the database, 2x leaves room for the
-# old dumps that are deleted only after this one is complete.
-largest=0
-largest_db=""
-for db in "${dbs[@]}"; do
-    size=$(runuser -u postgres -- psql -XAtc "select pg_database_size('$(printf '%s' "$db" | sed "s/'/''/g")')")
-    if [ "$size" -gt "$largest" ]; then largest=$size; largest_db=$db; fi
-done
-avail=$(df -PB1 "$dir" | awk 'NR == 2 {print $4}')
-if [ "$avail" -lt $((largest * 2)) ]; then
-    echo "REFUSE: $((avail / 1048576)) MB free in $dir, need 2x the largest database ($largest_db, $((largest / 1048576)) MB). No dump made." >&2
-    echo "Free space, or list big databases with their own backup job in PG_BACKUP_SKIP_DBS." >&2
-    exit 1
+# dump_db DB FILE: one custom-format dump, checked before it counts.
+dump_db() {
+    runuser -u postgres -- pg_dump -Fc -Z "$compress" "$1" > "$2"
+    runuser -u postgres -- pg_restore -l < "$2" > /dev/null \
+        || { echo "dump of $1 cannot be read back (pg_restore -l)" >&2; return 1; }
+}
+
+free_bytes() { df -PB1 "$1" | awk 'NR == 2 {print $4}'; }
+
+mapfile -t all_dbs < <(psqlq "select datname from pg_database where not datistemplate and datallowconn order by 1")
+in_list() { local x; for x in $2; do [ "$x" = "$1" ] && return 0; done; return 1; }
+
+if [ "$big" = 0 ]; then
+    dbs=()
+    for db in "${all_dbs[@]}"; do
+        if in_list "$db" "${PG_BACKUP_SKIP_DBS:-}"; then echo "skip $db (PG_BACKUP_SKIP_DBS: pg-backup --big)"; else dbs+=("$db"); fi
+    done
+    set=$root
+    install -d -m 700 "$set" "$set/daily"
+    rm -rf -- "$set/daily"/.partial-* "$set/weekly"/.partial-* 2>/dev/null || true
+    largest=0; largest_db=""
+    for db in "${dbs[@]}"; do
+        size=$(psqlq "select pg_database_size('$(quote "$db")')")
+        if [ "$size" -gt "$largest" ]; then largest=$size; largest_db=$db; fi
+    done
+    avail=$(free_bytes "$set")
+    if [ "$avail" -lt $((largest * 2)) ]; then
+        echo "REFUSE: $((avail / 1048576)) MB free in $set, need 2x the largest database ($largest_db, $((largest / 1048576)) MB). No dump made." >&2
+        exit 1
+    fi
+    tmp="$set/daily/.partial-$day"
+    install -d -m 700 "$tmp"
+    runuser -u postgres -- pg_dumpall --globals-only > "$tmp/globals.sql"
+    for db in "${dbs[@]}"; do dump_db "$db" "$tmp/$db.dump"; done
+    rm -rf -- "${set:?}/daily/$day"
+    mv "$tmp" "$set/daily/$day"
+    rotate "$set"
+    du -sh "$set/daily/$day"
+    exit 0
 fi
 
-install -d -m 700 "$tmp"
-runuser -u postgres -- pg_dumpall --globals-only > "$tmp/globals.sql"
-for db in "${dbs[@]}"; do
-    runuser -u postgres -- pg_dump -Fc "$db" > "$tmp/$db.dump"
+# --big
+[ -n "${PG_BACKUP_SKIP_DBS:-}" ] || { echo "PG_BACKUP_SKIP_DBS is empty: no big database to dump"; exit 0; }
+rc=0
+for db in ${PG_BACKUP_SKIP_DBS}; do
+    set=$root/$db
+    if ! in_list "$db" "${all_dbs[*]}"; then
+        echo "$db: not in this cluster yet, nothing to dump"
+        install -d -m 700 "$set"
+        date -Is > "$set/.not-there-yet"
+        continue
+    fi
+    rm -f -- "$set/.not-there-yet"
+    install -d -m 700 "$set" "$set/daily"
+    rm -rf -- "$set/daily"/.partial-* "$set/weekly"/.partial-* 2>/dev/null || true
+    last=$(find "$set/daily" -mindepth 2 -maxdepth 2 -name "$db.dump" -printf '%T@ %s\n' 2>/dev/null | sort -n | tail -n 1 | cut -d' ' -f2)
+    if [ -z "$last" ]; then
+        last=$(( $(psqlq "select pg_database_size('$(quote "$db")')") / 2 ))
+    fi
+    need=$((last * 3 / 2))
+    avail=$(free_bytes "$set")
+    if [ "$avail" -lt "$need" ]; then
+        echo "REFUSE $db: $((avail / 1048576)) MB free in $set, need $((need / 1048576)) MB (1.5x the last dump). No dump made." >&2
+        rc=1; continue
+    fi
+    tmp="$set/daily/.partial-$day"
+    install -d -m 700 "$tmp"
+    start=$(date +%s)
+    if ! dump_db "$db" "$tmp/$db.dump"; then rm -rf -- "$tmp"; rc=1; continue; fi
+    rm -rf -- "${set:?}/daily/$day"
+    mv "$tmp" "$set/daily/$day"
+    rotate "$set"
+    echo "$db: $(du -sh "$set/daily/$day/$db.dump" | cut -f1) in $(( ($(date +%s) - start) / 60 )) min"
 done
-
-# Only a complete dump gets the date name. A half-done one never looks like a backup.
-rm -rf "${dir:?}/$day"
-mv "$tmp" "$dir/$day"
-
-# Keep the newest $keep dated folders.
-all=()
-for d in "$dir"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do
-    if [ -d "$d" ]; then all+=("$d"); fi
-done
-for ((i = 0; i < ${#all[@]} - keep; i++)); do
-    rm -rf -- "${all[$i]}"
-done
-du -sh "$dir/$day"
+exit "$rc"

@@ -100,7 +100,7 @@ fi
 
 log "host.env"
 [ -e "/usr/share/zoneinfo/$TIMEZONE" ] && ok "timezone $TIMEZONE" || refuse "unknown TIMEZONE=$TIMEZONE"
-for t in PG_BACKUP_TIME WORK_SNAPSHOT_TIME BACKUP_MIRROR_TIME PROJ_BACKUP_TIME PROJ_EXPIRE_TIME; do
+for t in PG_BACKUP_TIME PG_BIG_BACKUP_TIME PG_DRILL_TIME DIGEST_TIME SMART_DIGEST_TIME WORK_SNAPSHOT_TIME BACKUP_MIRROR_TIME PROJ_BACKUP_TIME PROJ_EXPIRE_TIME; do
     v=${!t:-}
     [ -z "$v" ] || [[ "$v" =~ ^[0-2][0-9]:[0-5][0-9]$ ]] || refuse "$t=$v is not HH:MM"
 done
@@ -113,7 +113,7 @@ if [ -n "${BOX_DISK_SERIAL:-}" ]; then
 fi
 case "$SSH_PORT" in ''|*[!0-9]*) refuse "SSH_PORT=$SSH_PORT is not a number" ;; esac
 # Retention: 0 would delete every backup, including the one just made.
-for k in PG_BACKUP_KEEP_DAYS WORK_SNAPSHOT_KEEP_DAYS PROJ_BACKUP_KEEP; do
+for k in PG_BACKUP_KEEP_DAYS PG_BACKUP_KEEP_DAILY PG_BACKUP_KEEP_WEEKLY PG_BIG_KEEP_DAILY PG_BIG_KEEP_WEEKLY WORK_SNAPSHOT_KEEP_DAYS PROJ_BACKUP_KEEP; do
     v=${!k:-}
     [ -z "$v" ] || { [[ "$v" =~ ^[0-9]+$ ]] && [ "$v" -ge 1 ]; } || refuse "$k=$v must be a number, 1 or more"
 done

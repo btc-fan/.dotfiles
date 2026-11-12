@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# pg-restore-drill: prove the newest dumps can be restored. Monthly (pg-restore-drill.timer).
+# For every database in the newest normal dump (PG_BACKUP_DIR) and the newest big dump of each
+# PG_BACKUP_SKIP_DBS database (PG_BIG_BACKUP_DIR), except PG_DRILL_SKIP_DBS:
+#   restore into a throwaway database restore_drill_<db>, count its tables, compare with the
+#   tables listed in the dump, drop it. One Discord message: #info when all pass, #alerts if not.
+# Refused per database (reported as a failure) when the data disk has less free space than
+# 1.3x the size of that database. A database with no dump yet ("not there yet") is only noted.
+# Usage: pg-restore-drill [--test]   (--test: prints the message instead of posting it)
+set -uo pipefail
+# shellcheck source=/dev/null
+. /etc/server/host.env
+cd /
+
+test=()
+[ "${1:-}" = --test ] && test=(--test)
+psqlq() { runuser -u postgres -- psql -XAtc "$1" "${2:-postgres}"; }
+quote() { printf '%s' "$1" | sed "s/'/''/g"; }
+in_list() { local x; for x in $2; do [ "$x" = "$1" ] && return 0; done; return 1; }
+newest() { find "$1" -mindepth 1 -maxdepth 1 -type d -name '[0-9][0-9][0-9][0-9]-*' 2>/dev/null | sort | tail -n 1; }
+
+default_root=${BACKUP_MOUNT:+$BACKUP_MOUNT/postgres}
+default_root=${default_root:-${BACKUP_DIR:-/var/backups}/postgres}
+root=${PG_BACKUP_DIR:-$default_root}
+big_root=${PG_BIG_BACKUP_DIR:-${default_root}-big}
+data_dir=$(psqlq "show data_directory")
+
+lines=()
+fail=0
+drop() { runuser -u postgres -- dropdb --if-exists "$1" >/dev/null 2>&1 || true; }
+current=""
+trap '[ -z "$current" ] || drop "$current"' EXIT
+
+# drill DB FILE
+drill() {
+    local db=$1 file=$2 tdb want got size need avail start rc errs
+    tdb="restore_drill_${db}"
+    tdb=${tdb:0:63}
+    current=$tdb
+    drop "$tdb"
+    size=$(psqlq "select coalesce((select pg_database_size(datname) from pg_database where datname = '$(quote "$db")'), 0)")
+    [ "$size" -gt 0 ] || size=$(( $(stat -c %s "$file") * 5 ))
+    need=$((size * 13 / 10))
+    avail=$(df -PB1 "$data_dir" | awk 'NR == 2 {print $4}')
+    if [ "$avail" -lt "$need" ]; then
+        lines+=("FAIL $db: not enough room for the drill ($((avail / 1073741824)) GB free, need $((need / 1073741824)) GB)")
+        fail=1; current=""; return
+    fi
+    want=$(runuser -u postgres -- pg_restore -l < "$file" 2>/dev/null | grep -cE '^[0-9]+; [0-9]+ [0-9]+ TABLE ' || true)
+    start=$(date +%s)
+    runuser -u postgres -- createdb -T template0 "$tdb" || { lines+=("FAIL $db: createdb $tdb failed"); fail=1; current=""; return; }
+    # stdin, not a path: the dump folders are root-only (700), postgres cannot open them.
+    errs=$(runuser -u postgres -- pg_restore --no-owner --no-acl -d "$tdb" < "$file" 2>&1 >/dev/null); rc=$?
+    got=$(psqlq "select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace
+                 where c.relkind in ('r', 'p') and n.nspname not in ('pg_catalog', 'information_schema')
+                 and n.nspname not like 'pg\_toast%'" "$tdb" 2>/dev/null || echo "?")
+    drop "$tdb"; current=""
+    if [ "$rc" = 0 ] && [ "$got" = "$want" ] && [ "$want" -gt 0 ]; then
+        lines+=("ok   $db: $got tables restored from $(basename "$(dirname "$file")") in $(( ($(date +%s) - start) / 60 )) min")
+    else
+        lines+=("FAIL $db: pg_restore exit $rc, tables $got of $want. $(printf '%s' "$errs" | tail -n 2 | tr '\n' ' ' | cut -c1-200)")
+        fail=1
+    fi
+}
+
+n=0
+dir=$(newest "$root/daily")
+if [ -n "$dir" ]; then
+    for f in "$dir"/*.dump; do
+        [ -f "$f" ] || continue
+        db=$(basename "$f" .dump)
+        in_list "$db" "${PG_DRILL_SKIP_DBS:-}" && { lines+=("skip $db (PG_DRILL_SKIP_DBS)"); continue; }
+        drill "$db" "$f"; n=$((n + 1))
+    done
+else
+    lines+=("FAIL no normal dump found in $root/daily"); fail=1
+fi
+for db in ${PG_BACKUP_SKIP_DBS:-}; do
+    in_list "$db" "${PG_DRILL_SKIP_DBS:-}" && { lines+=("skip $db (PG_DRILL_SKIP_DBS)"); continue; }
+    dir=$(newest "$big_root/$db/daily")
+    if [ -n "$dir" ] && [ -f "$dir/$db.dump" ]; then
+        drill "$db" "$dir/$db.dump"; n=$((n + 1))
+    elif [ -e "$big_root/$db/.not-there-yet" ]; then
+        lines+=("note $db: not in this cluster yet, no dump to test")
+    else
+        lines+=("FAIL $db: no dump found in $big_root/$db/daily"); fail=1
+    fi
+done
+
+text=$(printf '%s\n' "${lines[@]}")
+printf '%s\n' "$text"
+if [ "$fail" = 0 ]; then
+    /usr/local/sbin/discord-notify "${test[@]}" info "restore drill passed ($n databases)" "$text" || true
+else
+    /usr/local/sbin/discord-notify "${test[@]}" alerts "restore drill FAILED" "$text" || true
+    exit 1
+fi

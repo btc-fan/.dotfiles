@@ -181,6 +181,9 @@ The server must run 24/7 and come back by itself.
 - **GRUB**: `fsck.repair=yes` (after a power cut, fsck repairs the disk and does not wait for a
   key press) and `GRUB_RECORDFAIL_TIMEOUT=5` (after a failed boot, the menu waits 5 s, not forever).
 - **Wake-on-LAN** on `NIC`: a way to start the box from another computer.
+- **Network wait at boot**: at most `WAIT_ONLINE_TIMEOUT` seconds (30) for `NIC`, and a timeout is
+  not a failure. After a power cut the router can come back minutes after the server (seen: link
+  after 235 s); the old 2 min wait helped nothing and left a failed unit.
 
 ### 30-disks
 
@@ -244,8 +247,8 @@ Messages go to two Discord channels through webhooks (channel names: `#<host>-al
 
 | Channel | File | What |
 |---|---|---|
-| `#<host>-alerts` (notifications on) | `/etc/server/webhooks/alerts.url` | a service failed, a disk has SMART problems, a disk is more than 85 % full, the SSH safety rollback fired |
-| `#<host>-info` (muted) | `/etc/server/webhooks/info.url` | server started (with the cause of the last stop), every SSH login |
+| `#<host>-alerts` (notifications on) | `/etc/server/webhooks/alerts.url` | a service failed, a disk has SMART problems or a SMART number went up, a disk, ZFS dataset or inode table is more than 85 % full, a ZFS pool is over 80 % or not healthy, a ZFS event (zed), the workspaces passed `WORK_ROOT_ALERT_GB`, a backup is too old, the restore drill failed, the SSH safety rollback fired |
+| `#<host>-info` (muted) | `/etc/server/webhooks/info.url` | server started (with the cause of the last stop), every SSH login, the daily digest, the weekly SMART report, reboot needed (once per kernel), restore drill passed |
 
 No URL file = no message. Everything works without Discord.
 
@@ -253,7 +256,10 @@ No URL file = no message. Everything works without Discord.
 |---|---|
 | Failed service | Every service gets `OnFailure=notify-failure@...`. The message has the last 20 log lines. The same service alerts at most once every `ALERT_REPEAT_MIN` minutes; the next message says how many were held back. |
 | SMART | smartd watches every disk and calls `smartd-notify`. It never starts a self-test: SMART tests run only by hand (a test stresses a weak disk). |
-| Disk full | `disk-usage-check.timer` every 30 min. One message per disk per day. |
+| Disk full | `disk-usage-check.timer` every 30 min: filesystems and ZFS datasets (`DISK_ALERT_PCT`), inodes (`INODE_ALERT_PCT`), ZFS pools (`ZFS_POOL_ALERT_PCT`, and health), workspace size (`WORK_ROOT_ALERT_GB`, measured once an hour). One message per item per day. |
+| ZFS events | zed (step 70) calls `zed-discord` instead of mailing root: device faulted, data errors, scrub or resilver with errors. |
+| Daily digest | `server-digest.timer` at `DIGEST_TIME` (09:15), one message: uptime and last stop, failed units, disk and inode use, ZFS, backup age per database, reboot needed, boxes with expiry, Postgres, the units in `DIGEST_UNITS` (for example the crawler), workspace size. **It is also the heartbeat: if a day has no digest, the server, its network or its alerts are broken. Look.** A backup older than `BACKUP_MAX_AGE_H` (30 h) also goes to alerts; "reboot needed" goes to info once per new kernel. |
+| SMART report | `smart-digest.timer` weekly (`SMART_DIGEST_DAY`, `SMART_DIGEST_TIME`): health, temperature and attributes 5, 187, 188, 197, 198, 199 of every disk, with the changes since last week. Read only (`smartctl -i -H -A`): it never starts a self-test. A number that went up also goes to alerts. |
 | Boot | `boot-notify.service` once per boot: "clean reboot", "clean shutdown", "crash" (kdump dump or panic in the log) or "power cut". Also how long it was down. |
 | SSH login | PAM (`pam_exec`, optional): user and address. It never blocks or slows a login. |
 
@@ -262,6 +268,8 @@ Test each piece without posting anything:
 ```bash
 sudo boot-notify --test
 sudo disk-usage-check --test
+sudo server-digest --test
+sudo smart-digest --test
 sudo smartd-notify --test
 sudo notify-failure --test ssh
 sudo ssh-login-notify --test
@@ -288,18 +296,32 @@ All times come from `host.env`. Defaults are after 07:30, when nothing heavy run
 
 | Job | Default | What | Keeps |
 |---|---|---|---|
-| `pg-backup` | 07:30 | `pg_dump` of every database except `PG_BACKUP_SKIP_DBS`, plus roles, to `BACKUP_DIR/postgres/<date>` | 3 days |
+| `pg-backup` | 07:30 | `pg_dump -Fc` (zstd) of every database except `PG_BACKUP_SKIP_DBS`, plus roles, straight to the backup disk: `PG_BACKUP_DIR` (default `BACKUP_MOUNT/postgres`)`/daily/<date>` | 7 daily + 4 weekly |
+| `pg-backup-big` | 04:30 | each database in `PG_BACKUP_SKIP_DBS` (big ones, for example md999), one dump each, to `PG_BIG_BACKUP_DIR` (default `BACKUP_MOUNT/postgres-big`)`/<db>/daily/<date>`. A database that does not exist yet is noted, not an error | 7 daily + 4 weekly |
+| `pg-restore-drill` | day 1, 05:30 | restores the newest dump of each database into a throwaway database, counts the tables against the dump, drops it. Result to Discord | - |
 | `work-snapshot` | 07:45 | copy of `WORK_DIR` to `BACKUP_DIR/work/<date>`. Unchanged files are hard links, so a day costs only what changed | 14 days |
-| `backup-mirror` | 08:30 | copy of `BACKUP_DIR` to the backup disk `BACKUP_MOUNT/data-backups`, except `BACKUP_MIRROR_EXCLUDE` (default `md999-move`) | same as source |
+| `backup-mirror` | 08:30 | copy of `BACKUP_DIR` (work snapshots, box exports) to the backup disk `BACKUP_MOUNT/data-backups`, except `BACKUP_MIRROR_EXCLUDE` (default `md999-move`) | same as source |
 
-A dump or snapshot is made in a `.partial-*` folder and gets its date name only when complete;
-half-done `.partial-*` folders from a killed run are deleted on the next run and never mirrored.
-`pg-backup` refuses to start when the free space is less than 2x the largest database it would
-dump. KEEP values below 1 are refused (0 would delete every backup). The mirror refuses to run
-when the source is empty or a disk is not mounted (so it never wipes the copy). A failed job
-sends an alert.
+Weekly = the first good dump of each ISO week, kept as `weekly/<year>-W<week>` with hard links
+(no extra space while the daily copy still exists). The counts are host.env values
+(`PG_BACKUP_KEEP_DAILY`, `PG_BACKUP_KEEP_WEEKLY`, `PG_BIG_KEEP_DAILY`, `PG_BIG_KEEP_WEEKLY`).
+Why `pg_dump -Fc` and not `pg_basebackup`: a dump restores one database into a throwaway
+database (the monthly drill), works across Postgres versions, and is much smaller. A base
+backup copies the whole cluster with its indexes and needs WAL archiving to be useful. The cost:
+a big dump takes long on the HDDs (md999 is 62 GB on disk; the first run will show the time) and holds a
+snapshot open during it.
 
-Restore one database: `pg_restore -d NAME --clean BACKUP_DIR/postgres/<date>/NAME.dump`.
+A dump or snapshot is made as `.partial-*` and gets its date name only when complete (a dump
+must also read back with `pg_restore -l`); half-done `.partial-*` from a killed run are deleted on
+the next run and never mirrored. `pg-backup` refuses when free space is less than 2x the largest
+database it would dump; `--big` when it is less than 1.5x the last dump of that database. KEEP
+values below 1 are refused (0 would delete every backup). The mirror refuses to run when the
+source is empty or a disk is not mounted (so it never wipes the copy). A failed job sends an
+alert; the daily digest shows the age of every dump.
+
+Restore one database: `sudo -u postgres pg_restore -d NAME --clean < /backup/postgres/daily/<date>/NAME.dump`
+(big ones: `/backup/postgres-big/NAME/daily/<date>/NAME.dump`). Test without touching anything:
+`sudo pg-restore-drill --test`.
 
 ### 70-hosting (optional)
 
@@ -376,7 +398,8 @@ Rules for people: [docs/HOSTING.md](docs/HOSTING.md). Rules for agents: [docs/AG
 
 ### 90-verify
 
-Prints PASS / FAIL / INFO for every item above. Exit code 1 when something FAILs.
+Prints PASS / FAIL / INFO for every item above. Exit code 1 when something FAILs, including any
+failed systemd unit (`proj doctor` too).
 It only reads, with one exception: with hosting on, `proj selftest` makes and deletes one
 throwaway box (about a minute). For `proj-agent` it checks: root:root 755, the sudoers file is
 valid and sorts last, and `sudo -n -l -U <user>` leaves proj-agent as the only passwordless
