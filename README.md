@@ -6,7 +6,7 @@ Then `setup.sh` does the rest: security, 24/7 power settings, disks, tools, aler
 and (optional) project hosting: one isolated box per project.
 
 You can run it again at any time. A second run changes nothing.
-To change the server, change `host.env` (or the scripts) and run it again.
+To change the server, change `/etc/server/host.env` (or push new scripts) and run it again.
 
 AI agents are not on this branch. They are on the `ai` branch (see the end).
 
@@ -46,16 +46,16 @@ two 500 GB HDDs (data + backup), one spare HDD. See [docs/NOTES.md](docs/NOTES.m
 
 ## New server: the commands
 
-Log in over SSH from your computer, then:
+Log in over SSH as the admin user (or, on a brand new server, as the user the installer made),
+then:
 
 ```bash
 sudo apt-get update && sudo apt-get install -y git
-git clone -b ubuntu-server https://github.com/btc-fan/.dotfiles.git ~/.dotfiles
-cd ~/.dotfiles
-cp host.env.example host.env
-nano host.env                 # put the values of THIS server
-sudo ./setup.sh --dry-run     # look first: shows what would change, writes nothing
-sudo ./setup.sh               # do it
+sudo git clone -b ubuntu-server https://github.com/btc-fan/.dotfiles.git /opt/server-setup
+sudo install -D -m 644 /opt/server-setup/host.env.example /etc/server/host.env
+sudo nano /etc/server/host.env                    # put the values of THIS server
+sudo /opt/server-setup/setup.sh --dry-run         # look first: shows what would change, writes nothing
+sudo /opt/server-setup/setup.sh                   # do it
 ```
 
 To find the values for `host.env`:
@@ -67,17 +67,22 @@ To find the values for `host.env`:
 | Disk serials for `DISKS` | `lsblk -d -o NAME,SIZE,MODEL,SERIAL` |
 | `TIMEZONE` | `timedatectl list-timezones` |
 
-`setup.sh` first copies the repo (with your `host.env`, without `.git`) to `/opt/server-setup`,
-owned by root (folders 755, files 644), and runs from there. Why: root runs these scripts, and a
-clone in your home can be changed by your user or by an agent running as your user. It refuses
-when the copy cannot be made root-owned. Edit `host.env` in your clone; the next run copies it again.
+**Where root runs from (security).** Root runs setup only from `/opt/server-setup`: a git clone
+that root owns, made by the admin with `sudo git clone`. `host.env` lives in
+`/etc/server/host.env` (root:root 644), never in a clone. Never run `sudo` on a script in the main
+user's home (`~<main user>/.dotfiles`): that user, or an agent running as that user, can change
+it, and then it would run as root. `setup.sh` refuses to start (and prints the right commands)
+when its folder, or any folder above it, or any file in it belongs to another user than root or
+the admin, when there is a symlink in it, or when `git status` is not clean. The main user's
+clone is for reading and for pushing changes to GitHub; the server takes them only through
+`sudo /opt/server-setup/setup.sh --update` (fetch, fast-forward only, then run).
 
 **The first run stops after step 10.** When SSH or the firewall changed, step 10 arms a 10 minute
 safety timer, and `setup.sh` stops there and prints two `ssh` test commands (main user and admin).
 
 1. Open a NEW terminal on your computer and run both. Both must print OK.
 2. Then: `sudo systemctl stop server-rollback.timer`.
-3. Run `sudo ./setup.sh` again: it does the remaining steps.
+3. Run `sudo /opt/server-setup/setup.sh` again: it does the remaining steps.
 
 If you do nothing, after 10 minutes the firewall turns off, the new SSH settings go away, and an
 alert goes to the alerts channel (and the journal: `journalctl -t server-rollback`).
@@ -88,20 +93,25 @@ When `setup.sh` ends:
 1. Test the admin login (see [Admin user and main user](#admin-user-and-main-user)).
 2. Log out and in again (new groups: docker).
 3. Reboot once: `sudo reboot`. Kernel options (fsck repair, crash kernel) need it.
-4. Run the check: `sudo ./setup.sh --only verify`.
+4. Run the check: `sudo /opt/server-setup/setup.sh --only verify`.
 5. Do [your manual steps](#your-manual-steps).
 
-Options:
+Options (`S=/opt/server-setup/setup.sh`):
 
 ```bash
-sudo ./setup.sh --list                 # list the steps
-sudo ./setup.sh --only security        # one step (number or name: 10, security, 10-security)
-sudo ./setup.sh --only 50 --only 60    # some steps
-sudo ./setup.sh --dry-run              # show changes, write nothing
-sudo ./setup.sh --only disks --format  # also format disks that are completely EMPTY
-sudo ./setup.sh --only security --drop-main-sudo   # main user: sudo with password (after the admin test)
+sudo $S --update                       # fetch the pushed branch (fast-forward only), then run it
+sudo $S --update --only hosting        # same, one step
+sudo $S --list                         # list the steps
+sudo $S --only security                # one step (number or name: 10, security, 10-security)
+sudo $S --only 50 --only 60            # some steps
+sudo $S --dry-run                      # show changes, write nothing
+sudo $S --only disks --format          # also format disks that are completely EMPTY
+sudo $S --only security --drop-main-sudo   # main user: out of sudo (after the admin test)
 ```
 
+`--update` with `--dry-run` still moves the clone to the pushed commit, then shows what that
+commit would change. It refuses when the clone has local commits or the remote history was
+rewritten (a force push): look at the new commits first.
 `00-preflight` (read only) always runs first, also with `--only`.
 Each step is also a normal script, run from the root-owned copy: `sudo bash /opt/server-setup/steps/20-always-on.sh`.
 The log of every run is in `/var/log/server-setup.log`.
@@ -394,7 +404,7 @@ Your main user is NOT changed until you ask, and only after the admin login is p
    ```
    It must print `ADMIN-OK`. This proves SSH login and passwordless sudo for the admin.
 2. Make sure your main user has a password you know: `sudo passwd <MAIN_USER>`.
-3. Then: `sudo ./setup.sh --only security --drop-main-sudo`.
+3. Then: `sudo /opt/server-setup/setup.sh --only security --drop-main-sudo`.
    It refuses (and changes nothing) if the marker file is missing, the admin is not in
    `AllowUsers`, the admin sudoers file is broken, or the main user has no password.
 
@@ -455,7 +465,7 @@ There is no UPS yet. See "Later" in [docs/NOTES.md](docs/NOTES.md).
 ## Check the server
 
 ```bash
-sudo ./setup.sh --only verify     # full PASS / FAIL report
+sudo /opt/server-setup/setup.sh --only verify     # full PASS / FAIL report
 systemctl --failed                # failed services
 systemctl list-timers             # when the backups run next
 journalctl -b -1 -n 50            # the end of the previous boot
@@ -465,14 +475,16 @@ sudo smartctl -H /dev/sda         # disk health
 
 ## Update
 
+As the admin user:
+
 ```bash
-cd ~/.dotfiles
-git pull
-sudo ./setup.sh --dry-run    # see what changes
-sudo ./setup.sh              # copies the new version to /opt/server-setup, runs from there
+sudo /opt/server-setup/setup.sh --update --dry-run   # fetch what was pushed, see what changes
+sudo /opt/server-setup/setup.sh                      # do it
 ```
 
-New settings in `host.env.example` that your `host.env` does not have: the preflight step lists
+To change a value: `sudo nano /etc/server/host.env`, then run setup (or the one step) again.
+
+New settings in `host.env.example` that `/etc/server/host.env` does not have: the preflight step lists
 them. Their defaults apply until you add them.
 
 ## Troubleshooting
@@ -508,8 +520,13 @@ RELATED,ESTABLISHED and RETURN), and `sudo ufw show added` has `route allow in o
 **setup.sh stopped after step 10.** The SSH safety timer is armed. Test a new login, stop the
 timer (`sudo systemctl stop server-rollback.timer`), run setup again. Exit code 3 means this stop.
 
+**setup.sh says "Root runs setup only from a clean git clone".** You started it from a folder
+another user owns (for example the main user's `~/.dotfiles`), or the clone has local edits. Use
+the commands it prints: `sudo /opt/server-setup/setup.sh --update`. Edits belong in a clone of
+your own, pushed to GitHub, never in `/opt/server-setup`.
+
 **A step failed.** Read the last lines. Fix the cause. Run only that step again:
-`sudo ./setup.sh --only <step>`. Every step is safe to repeat.
+`sudo /opt/server-setup/setup.sh --only <step>`. Every step is safe to repeat.
 
 **A disk is missing after a reboot.** `lsblk -o NAME,SIZE,SERIAL,MOUNTPOINT`. If the serial is
 there but not mounted: `sudo mount <MOUNT>` and look at `journalctl -b | grep -i <MOUNT>`.
@@ -543,7 +560,7 @@ there but not mounted: `sudo mount <MOUNT>` and look at `journalctl -b | grep -i
 
 ```
 setup.sh              runs the steps in order: [n/N], --only, --dry-run, --format, --drop-main-sudo
-host.env.example      every host value, as examples. Copy to host.env (git ignores it)
+host.env.example      every host value, as examples. Copy to /etc/server/host.env
 lib/common.sh         shared helpers (write only when changed, dry-run)
 steps/NN-*.sh         one script per step
 files/sbin/*          scripts copied to /usr/local/sbin (alerts, backups, watchdog, docker fix)
@@ -559,9 +576,9 @@ docs/AGENTS-hosting.md   rules for agents in boxes (the ai branch imports it int
 docs/NOTES.md         decisions and why, later items, what was tested
 ```
 
-On the server: `/opt/server-setup/` (root-owned copy of this repo that setup runs from),
-`/etc/server/host.env` (copy of your host.env, root:root 644, read by the alert and backup
-scripts), `/etc/server/webhooks/` (Discord URLs, root only), `/etc/proj/` (profiles, host
+On the server: `/opt/server-setup/` (root-owned git clone of this branch, the only place setup
+runs from), `/etc/server/host.env` (the host values, root:root 644, read by setup and by the alert
+and backup scripts), `/etc/server/webhooks/` (Discord URLs, root only), `/etc/proj/` (profiles, host
 projects), `/etc/proj-host` (marker: this is the host), `/srv/proj/REGISTRY.md` and
 `REGISTRY.json` (list of boxes), `/srv/proj/work/<box>` (the code of each box = `/srv/app` in
 the box; `.trash` holds workspaces of wiped boxes), `/var/log/proj.log` (every proj action),
@@ -569,14 +586,16 @@ the box; `.trash` holds workspaces of wiped boxes), `/var/log/proj.log` (every p
 
 ## AI setup
 
-AI agents and their rules are on the `ai` branch of this repo. Add it next to this one:
+AI agents and their rules are on the `ai` branch of this repo. Same rule as here: root runs its
+installer only from a root-owned clone, never from the main user's home. As the admin user:
 
 ```bash
-git -C ~/.dotfiles fetch origin ai && git -C ~/.dotfiles worktree add ~/.dotfiles-ai ai
-~/.dotfiles-ai/install.sh
+sudo git clone --branch ai https://github.com/btc-fan/.dotfiles.git /opt/ai-setup   # once
+sudo /opt/ai-setup/install.sh --update --for-user <main user> --dry-run             # look first
+sudo /opt/ai-setup/install.sh --update --for-user <main user>                       # do it (and every update)
 ```
 
-Then read `~/.dotfiles-ai/README.md` (the `ai` branch README) for logins and options.
+Then read the `ai` branch README for logins and options.
 
 Where agents run: project agents work **inside the box of their project** (step 70, `proj`),
 never on the host. On the host, agent sessions are for server admin only, with you watching.

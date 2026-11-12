@@ -183,7 +183,7 @@ Box names: lower case letters, digits and `-`, 2 to 31 characters. Forks: `<box>
   sudo proj-agent exec test1 --timeout 1800 -- docker compose up -d --build
   sudo proj-agent url test1 3000                # http://<box IP>:3000, from this host only
   ```
-  Turn it off: `AGENT_SUDO_ALLOW=""` in host.env, then `sudo ./setup.sh --only hosting`.
+  Turn it off: `AGENT_SUDO_ALLOW=""` in host.env, then `sudo /opt/server-setup/setup.sh --only hosting`.
 - Host agent sessions are for server admin only, with the owner watching.
 - Rules for the agents themselves: [AGENTS-hosting.md](AGENTS-hosting.md).
 
@@ -218,7 +218,7 @@ The box disk is a whole disk, used only for the ZFS pool `boxes`. Before step 70
    your call, by hand (`sudo smartctl -t long /dev/sdX`): it stresses a weak disk.
 3. A disk that is not mounted but holds data: only if nothing on it is needed,
    `sudo wipefs -a /dev/sdX1; sudo wipefs -a /dev/sdX`.
-4. Put its serial in `BOX_DISK_SERIAL` and run `sudo ./setup.sh --only hosting --format`.
+4. Put its serial in `BOX_DISK_SERIAL` and run `sudo /opt/server-setup/setup.sh --only hosting --format`.
 5. Network test: `sudo proj selftest` (address, DNS, internet, home gateway blocked).
 6. Test once: `sudo proj new test1 --tier try`, `sudo proj snapshot test1`, `sudo proj fork test1
    test1--a`, `sudo proj wipe test1--a`, `sudo proj wipe test1`, `sudo proj doctor`.

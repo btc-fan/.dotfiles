@@ -20,19 +20,125 @@ dry()  { [ "$DRY_RUN" = 1 ]; }
 changed() { [ "$CHANGED" = 1 ]; }
 
 need_root() {
-    [ "$(id -u)" -eq 0 ] || die "run as root: sudo ./setup.sh"
+    [ "$(id -u)" -eq 0 ] || die "run as root: sudo /opt/server-setup/setup.sh"
 }
 
-# host.env lives next to setup.sh. It is plain bash (variables and one array).
+# host.env lives in /etc/server/host.env (root:root 644). It is plain bash (variables and arrays),
+# sourced by root: so it must be root-owned and writable by root only. A clone holds only the
+# example (host.env.example); a host.env left in a clone is not read.
+HOST_ENV=$SERVER_ETC/host.env
+SETUP_REPO_URL_DEFAULT=https://github.com/btc-fan/.dotfiles.git
+
+host_env_trusted() {
+    [ -f "$HOST_ENV" ] || die "missing $HOST_ENV. First install: sudo install -D -m 644 $REPO_DIR/host.env.example $HOST_ENV ; sudo nano $HOST_ENV"
+    local d
+    for d in "$HOST_ENV" "$SERVER_ETC" /etc; do
+        [ "$(stat -c %u "$d")" = 0 ] || die "$d is not owned by root. Root sources $HOST_ENV: refused."
+        case "$(stat -c %A "$d")" in
+            ?????w????|????????w?) die "$d is writable by group or others. Root sources $HOST_ENV: refused (sudo chmod go-w $d)." ;;
+        esac
+    done
+}
+
 load_env() {
-    local f=$REPO_DIR/host.env
-    [ -f "$f" ] || die "missing $f. Copy host.env.example to host.env and edit it."
+    [ "${SOURCE_GUARD_OK:-0}" = 1 ] || source_guard
+    host_env_trusted
     # shellcheck source=/dev/null
-    . "$f"
+    . "$HOST_ENV"
     MAIN_USER=${MAIN_USER:?MAIN_USER is empty in host.env}
     LAN_CIDR=${LAN_CIDR:?LAN_CIDR is empty in host.env}
     SSH_PORT=${SSH_PORT:-22}
     TIMEZONE=${TIMEZONE:-UTC}
+}
+
+# git_root ARGS: the real git (never a wrapper in PATH), no hooks, and the clone trusted even when
+# the admin user owns it. Only called after source_guard has checked who owns the clone.
+git_root() {
+    /usr/bin/git -c safe.directory="$REPO_DIR" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"
+}
+
+# guard_fail WHY: the one message for every refused source, with the commands that work.
+guard_fail() {
+    local url=${SETUP_REPO_URL:-$SETUP_REPO_URL_DEFAULT}
+    cat >&2 <<EOF
+   ERROR: $1
+   Root runs setup only from a clean git clone owned by root (or by ${ADMIN_USER:-the admin user}),
+   never from a folder another user (or an agent running as that user) can change.
+   Once, as the admin user:
+       sudo git clone -b ubuntu-server $url /opt/server-setup
+   Then every time (fetches what was pushed, fast-forward only, then runs it):
+       sudo /opt/server-setup/setup.sh --update [--only STEP] [--dry-run]
+EOF
+    exit 1
+}
+
+# env_value KEY: one plain value from host.env, read as text (nothing runs). For the guard only.
+env_value() {
+    sed -n "s/^$1=\"\{0,1\}\([^\" ]*\)\"\{0,1\}.*/\1/p" "$HOST_ENV" | tail -n 1
+}
+
+# source_guard: SECURITY. Before root runs anything more from REPO_DIR:
+#   - /etc/server/host.env is root-owned and writable by root only (it is sourced);
+#   - REPO_DIR and every folder above it belong to root or ADMIN_USER and nobody else can write them;
+#   - every file in the clone (.git included) belongs to root or ADMIN_USER, and there is no symlink;
+#   - git status is clean: no edited, staged or untracked file runs as root.
+# setup.sh itself was read by bash before this check: so the guard stops mistakes, and the docs
+# give the admin only commands that start from /opt/server-setup. setup.sh exports
+# SOURCE_GUARD_OK=1 for its steps after the check passed.
+source_guard() {
+    [ "$(id -u)" -eq 0 ] || return 0
+    host_env_trusted
+    local auid=-1 agid=-1 d bad
+    ADMIN_USER=$(env_value ADMIN_USER)
+    ADMIN_USER=${ADMIN_USER:-admin}
+    SETUP_REPO_URL=$(env_value SETUP_REPO_URL)
+    if id "$ADMIN_USER" >/dev/null 2>&1; then auid=$(id -u "$ADMIN_USER"); agid=$(id -g "$ADMIN_USER"); fi
+    d=$REPO_DIR
+    while :; do
+        case "$(stat -c %u "$d")" in 0|"$auid") ;; *) guard_fail "$d belongs to $(stat -c %U "$d")." ;; esac
+        case "$(stat -c %A "$d")" in ????????w?) guard_fail "$d is writable by everybody." ;; esac
+        case "$(stat -c %A "$d")" in
+            ?????w????) case "$(stat -c %g "$d")" in 0|"$agid") ;; *) guard_fail "$d is writable by group $(stat -c %G "$d")." ;; esac ;;
+        esac
+        [ "$d" != / ] || break
+        d=$(dirname "$d")
+    done
+    [ -d "$REPO_DIR/.git" ] && [ ! -L "$REPO_DIR/.git" ] || guard_fail "$REPO_DIR is not a git clone (an old copy?)."
+    [ "$auid" != -1 ] || auid=0
+    [ "$agid" != -1 ] || agid=0
+    bad=$(find "$REPO_DIR" -xdev \( \( ! -uid 0 ! -uid "$auid" \) -o -type l \
+        -o \( ! -type l -perm -002 \) -o \( ! -type l -perm -020 ! -gid 0 ! -gid "$agid" \) \) -print -quit)
+    [ -z "$bad" ] || guard_fail "$bad: owned by another user, a symlink, or writable by others."
+    bad=$(git_root -C "$REPO_DIR" status --porcelain --untracked-files=all 2>&1) \
+        || guard_fail "git status failed in $REPO_DIR: $bad"
+    [ -z "$bad" ] || guard_fail "the clone $REPO_DIR has local changes (they would run as root):
+$(printf '%s\n' "$bad" | head -n 10 | sed 's/^/       /')
+   Look at them (sudo git -C $REPO_DIR status), then drop them (sudo git -C $REPO_DIR checkout -- .)."
+    SOURCE_GUARD_OK=1
+    export SOURCE_GUARD_OK
+}
+
+# update_clone: fetch the current branch from origin and fast-forward to it. Refused when the
+# branch has local commits or the remote history was rewritten (a force push): look first.
+update_clone() {
+    local branch old new
+    branch=$(git_root -C "$REPO_DIR" symbolic-ref --short -q HEAD) \
+        || die "$REPO_DIR is not on a branch (detached HEAD). Fix: sudo git -C $REPO_DIR checkout ubuntu-server"
+    old=$(git_root -C "$REPO_DIR" rev-parse HEAD)
+    log "update $REPO_DIR: fetch origin $branch"
+    git_root -C "$REPO_DIR" fetch --quiet origin "$branch" || die "git fetch failed. Nothing changed."
+    new=$(git_root -C "$REPO_DIR" rev-parse FETCH_HEAD)
+    if [ "$old" = "$new" ]; then
+        info "already at $(git_root -C "$REPO_DIR" log -1 --format='%h %s')"
+        return 0
+    fi
+    git_root -C "$REPO_DIR" merge-base --is-ancestor "$old" "$new" \
+        || die "origin/$branch ($new) does not continue $old: local commits or rewritten history. Look first: sudo git -C $REPO_DIR log --oneline -5 FETCH_HEAD. Nothing changed."
+    info "new commits:"
+    git_root -C "$REPO_DIR" log --oneline "$old..$new" | sed 's/^/     /'
+    git_root -C "$REPO_DIR" merge --ff-only --quiet "$new"
+    SOURCE_GUARD_OK=0
+    source_guard
 }
 
 # run CMD...: run a command, or only print it in dry-run mode.

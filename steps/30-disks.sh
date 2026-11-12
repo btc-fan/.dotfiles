@@ -49,7 +49,7 @@ handle_disk() {
             die "REFUSE: $dev has data signatures but no partitions. Check it by hand."
         fi
         if [ "$FORMAT" != 1 ]; then
-            warn "$dev is empty. To format it: sudo ./setup.sh --only disks --format"
+            warn "$dev is empty. To format it: sudo /opt/server-setup/setup.sh --only disks --format"
             return 0
         fi
         info "formatting $dev: GPT, one ext4 partition, label $label"

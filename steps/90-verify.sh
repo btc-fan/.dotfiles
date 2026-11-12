@@ -63,8 +63,10 @@ ws_box_ok() {  # ws_box_ok BOX: device attached right, folder MAIN_USER:SHARED_G
         && getfacl -p "$d" 2>/dev/null | grep -qx "default:group:$g:rwx"
 }
 
-echo "### setup copy"
-sh_chk "/opt/server-setup is root-owned, nobody else can write" "[ \"\$(stat -c %U:%G /opt/server-setup)\" = root:root ] && [ -z \"\$(find /opt/server-setup \\( ! -user root -o -perm /022 \\) -print -quit)\" ]"
+echo "### setup source"
+sh_chk "setup runs from a clean git clone owned by root or $ADMIN_USER ($REPO_DIR)" "[ -z \"\$(/usr/bin/git -c safe.directory='$REPO_DIR' -C '$REPO_DIR' status --porcelain --untracked-files=all)\" ] && case \"\$(stat -c %U '$REPO_DIR')\" in root|${ADMIN_USER:-admin}) true ;; *) false ;; esac"
+p INFO "setup clone at $(git_root -C "$REPO_DIR" log -1 --format='%h %cs %s' 2>/dev/null)"
+[ ! -e /opt/server-setup.old-copy ] || p INFO "/opt/server-setup.old-copy: the old tar copy, remove it: sudo rm -rf /opt/server-setup.old-copy"
 sh_chk "/etc/server/host.env root:root 644" "[ \"\$(stat -c %U:%G:%a $SERVER_ETC/host.env)\" = root:root:644 ]"
 
 echo "### 10 security"
@@ -82,7 +84,7 @@ if [ -f /etc/sudoers.d/zz-server-main-password ]; then
     sh_chk "$MAIN_USER not in docker group" "! id -nG '$MAIN_USER' | tr ' ' '\n' | grep -qx docker"
     # Added later to --drop-main-sudo: a hint until it runs again, not a FAIL.
     extra_groups=$(id -nG "$MAIN_USER" | tr ' ' '\n' | grep -xE 'lxd|adm|incus-admin' | tr '\n' ' ')
-    [ -z "$extra_groups" ] || p INFO "$MAIN_USER still in: $extra_groups(run: sudo ./setup.sh --only security --drop-main-sudo)"
+    [ -z "$extra_groups" ] || p INFO "$MAIN_USER still in: $extra_groups(run: sudo /opt/server-setup/setup.sh --only security --drop-main-sudo)"
 else
     p INFO "main user $MAIN_USER still has passwordless sudo (see README: --drop-main-sudo)"
 fi
@@ -258,7 +260,7 @@ p INFO "reboot needed: $([ -f /var/run/reboot-required ] && echo yes || echo no)
 
 echo
 if [ "$fails" -gt 0 ]; then
-    echo "verify: $fails FAIL line(s). Fix them, then: sudo ./setup.sh --only verify"
+    echo "verify: $fails FAIL line(s). Fix them, then: sudo /opt/server-setup/setup.sh --only verify"
     exit 1
 fi
 echo "verify: all PASS"

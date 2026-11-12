@@ -268,3 +268,23 @@ Not verified (test on the server): `shift=true` on the host filesystem of `/srv/
 setgid inheritance seen from the box; `setpriv --init-groups` in the 26.04 image; whether
 `incus exec --user` really drops supplementary groups; that `incus copy` keeps the `app` device
 for a fork; `tar --zstd` on 26.04; the host reaching a box IP through ufw.
+
+## Fix round 2026-11-12 (second audit)
+
+### Root runs only from a root-owned clone
+- Before: admin ran `sudo ~MAIN_USER/.dotfiles/setup.sh`. `setup.sh` and `lib/common.sh` ran as
+  root from that user-owned clone before the root-owned copy was made, and the copy took the
+  working tree (uncommitted edits by an agent included).
+- Now: `/opt/server-setup` is a git clone made by the admin (`sudo git clone`), root-owned.
+  `host.env` lives in `/etc/server/host.env` (root:root 644), not in any clone. `--update` fetches
+  the branch and fast-forwards only (refused on local commits or a rewritten history), prints the
+  new commits, then runs the new code.
+- `source_guard` (lib/common.sh) refuses as root when: `/etc/server/host.env` or a folder above it
+  is not root-only; the clone, or any folder above it, belongs to someone other than root or
+  `ADMIN_USER` or is writable by others; any file in it (`.git` too) belongs to another user, is a
+  symlink, or is writable by others; `git status` is not clean. The message prints the right
+  commands. Steps run alone (`sudo bash /opt/server-setup/steps/NN-x.sh`) run the same check.
+- Limit: bash has read `setup.sh` before the check runs, so a hostile copy can drop the check.
+  The guard stops mistakes; the protection is that the docs give the admin only commands that
+  start from `/opt/server-setup`.
+- The `ai` branch installer follows the same rule (`/opt/ai-setup`, `--update --for-user`).

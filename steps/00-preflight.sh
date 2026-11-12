@@ -124,7 +124,7 @@ case "${AGENT_SUDO:-none}" in none|full) ;; *) refuse "AGENT_SUDO=${AGENT_SUDO} 
 case "${AGENT_SUDO_ALLOW-proj-agent}" in proj-agent|"") ;; *) refuse "AGENT_SUDO_ALLOW=${AGENT_SUDO_ALLOW} must be proj-agent or empty" ;; esac
 # Keys that exist in the example but not in host.env: the defaults apply.
 missing=$(comm -23 <(grep -oE '^[A-Z_]+=' "$REPO_DIR/host.env.example" | sort -u) \
-                   <(grep -oE '^[A-Z_]+=' "$REPO_DIR/host.env" | sort -u) | tr -d '=' | tr '\n' ' ')
+                   <(grep -oE '^[A-Z_]+=' "$HOST_ENV" | sort -u) | tr -d '=' | tr '\n' ' ')
 [ -z "$missing" ] || warn "not in host.env (defaults used): $missing"
 
 if is_yes "${INSTALL_DOCKER:-yes}" && dpkg-query -W -f='${Status}' docker.io 2>/dev/null | grep -q 'install ok installed'; then

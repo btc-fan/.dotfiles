@@ -261,7 +261,7 @@ storage_pool() {
         return 0
     fi
     if [ "$FORMAT" != 1 ]; then
-        pool_stop "$dev is empty and healthy. To make the ZFS pool on it: sudo ./setup.sh --only hosting --format"
+        pool_stop "$dev is empty and healthy. To make the ZFS pool on it: sudo /opt/server-setup/setup.sh --only hosting --format"
         return 0
     fi
 
