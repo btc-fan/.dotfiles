@@ -29,6 +29,8 @@ set -euo pipefail
 export LC_ALL=C.UTF-8
 
 POOL=boxes
+# incus create/copy/restore commands read YAML from stdin when it is not a terminal: they get
+# </dev/null, so input piped into proj (for the confirm prompt) never reaches them.
 ETC=/etc/proj
 HOST_PROJECTS=$ETC/host-projects
 REGISTRY=/srv/proj/REGISTRY.md
@@ -420,7 +422,7 @@ launch() {  # name tier docker
     local args=() p
     IFS=, read -ra plist <<< "$(profiles_for "$2" "$3")"
     for p in "${plist[@]}"; do args+=(-p "$p"); done
-    if ! incus launch "$IMAGE" "$1" "${args[@]}"; then
+    if ! incus launch "$IMAGE" "$1" "${args[@]}" </dev/null; then
         die "launch failed. If it says the project memory limit is reached: proj list, then wipe or archive something."
     fi
 }
@@ -520,8 +522,8 @@ cmd_snapshot() {
     local label=${2:-manual-$(stamp)}
     local wsf=""
     [[ "$label" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$ ]] || die "bad label '$label': letters, digits, . _ -"
-    incus snapshot create "$1" "$label"
-    if has_vol "$1"; then incus storage volume snapshot create "$POOL" "$1-data" "$label"; fi
+    incus snapshot create "$1" "$label" </dev/null
+    if has_vol "$1"; then incus storage volume snapshot create "$POOL" "$1-data" "$label" </dev/null; fi
     wsf=$(ws_snap "$1" "$label")
     note "snapshot $1 $label"
     say "snapshot $label made (box$(has_vol "$1" && echo ' + data')${wsf:+ + workspace})"
@@ -547,8 +549,8 @@ cmd_restore() {
     confirm "$name"
     cmd_snapshot "$name" "pre-restore-$(stamp)"
     incus stop "$name" --timeout 60 2>/dev/null || incus stop "$name" --force
-    incus snapshot restore "$name" "$label"
-    if has_vol "$name"; then incus storage volume snapshot restore "$POOL" "$name-data" "$label"; fi
+    incus snapshot restore "$name" "$label" </dev/null
+    if has_vol "$name"; then incus storage volume snapshot restore "$POOL" "$name-data" "$label" </dev/null; fi
     [ -z "$(ws_source "$name")" ] || ws_unsnap "$name" "$label"
     incus start "$name"
     note "restore $name $label"
@@ -576,13 +578,13 @@ cmd_fork() {
     snap="pre-fork-$(stamp)"
     docker=$(key "$src" docker)
     cmd_snapshot "$src" "$snap"
-    incus copy "$src/$snap" "$new"
+    incus copy "$src/$snap" "$new" </dev/null
     incus config set "$new" security.protection.delete=false
     if ! incus profile assign "$new" "$(profiles_for "$tier" "${docker:-no}")"; then
         say "WARN: the fork does not fit tier $tier limits (disk too full?): it keeps the profiles of $src"
     fi
     if has_vol "$src"; then
-        incus storage volume copy "$POOL/$src-data/$snap" "$POOL/$new-data"
+        incus storage volume copy "$POOL/$src-data/$snap" "$POOL/$new-data" </dev/null
         incus config device set "$new" data source="$new-data"
     fi
     # The fork gets its own copy of the workspace, as it is NOW (workspaces are not in snapshots).
