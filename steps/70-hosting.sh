@@ -14,7 +14,7 @@ BOX_SUBNET=${BOX_SUBNET:-10.99.0.1/24}
 # RAM budget on the reference machine: see docs/HOSTING.md. No nr_hugepages here (the md999
 # move sets that for its own Postgres).
 BOX_MEMORY_BUDGET=${BOX_MEMORY_BUDGET:-4GiB}
-BOX_EGRESS_REJECT=${BOX_EGRESS_REJECT:-192.168.0.0/16 172.16.0.0/12 100.64.0.0/10 169.254.0.0/16}
+BOX_EGRESS_REJECT=${BOX_EGRESS_REJECT:-10.0.0.0/8 192.168.0.0/16 172.16.0.0/12 100.64.0.0/10 169.254.0.0/16}
 ZFS_ARC_MAX_MB=${ZFS_ARC_MAX_MB:-1536}
 UNITS=0
 unit_changed() { if changed; then UNITS=1; fi; }
@@ -30,6 +30,7 @@ main() {
     subid_ranges
     enable_unit incus --now
     zfs_arc
+    zed_alerts
     storage_pool
     bridge
     egress_acl        # before the profiles: box-base names the ACL on every box NIC
@@ -133,6 +134,29 @@ EOF
     if [ -w "$p" ] && [ "$(cat "$p")" != "$bytes" ]; then run sh -c "echo $bytes > $p"; fi
 }
 
+# ZFS events (device faulted, data errors, scrub or resilver with errors) to Discord #alerts:
+# zed's mail hook calls zed-discord (step 50) instead of mailing root, which nobody reads.
+# The webhook URL stays in /etc/server/webhooks (root only), never in zed.rc (world-readable).
+zed_alerts() {
+    local rc=/etc/zfs/zed.d/zed.rc tmp k v
+    [ -f "$rc" ] || { warn "$rc missing: ZFS events not sent to Discord"; return 0; }
+    log "ZFS events -> #alerts (zed.rc: ZED_EMAIL_PROG=zed-discord)"
+    tmp=$(mktemp)
+    cp "$rc" "$tmp"
+    for kv in 'ZED_EMAIL_ADDR=discord' 'ZED_EMAIL_PROG=/usr/local/sbin/zed-discord' "ZED_EMAIL_OPTS='@SUBJECT@'" 'ZED_NOTIFY_INTERVAL_SECS=3600'; do
+        k=${kv%%=*}; v=${kv#*=}
+        if grep -qE "^#?[[:space:]]*$k=" "$tmp"; then
+            awk -v k="$k" -v v="$v" 'done == 0 && $0 ~ "^#?[[:space:]]*" k "=" { print k "=\"" v "\""; done = 1; next } { print }' "$tmp" > "$tmp.new"
+        else
+            { cat "$tmp"; echo "$k=\"$v\""; } > "$tmp.new"
+        fi
+        mv "$tmp.new" "$tmp"
+    done
+    put "$rc" 644 < "$tmp"
+    rm -f "$tmp"
+    if changed && ! dry; then systemctl restart zfs-zed 2>/dev/null || warn "zfs-zed did not restart"; fi
+}
+
 dev_for_serial() { lsblk -dnro NAME,SERIAL | awk -v s="$1" '$2==s {print "/dev/"$1; exit}'; }
 
 # pool_stop MSG: a real run stops here (nothing changed). A dry run warns and goes on.
@@ -211,6 +235,7 @@ storage_pool() {
     log "storage pool $POOL (ZFS, whole disk $BOX_DISK_SERIAL)"
     if incus storage show "$POOL" >/dev/null 2>&1; then
         info "pool $POOL exists ($(incus storage get "$POOL" source 2>/dev/null || true))"
+        pool_atime
         return 0
     fi
     local dev root entry byid l
@@ -274,6 +299,15 @@ storage_pool() {
     [ -n "$byid" ] || byid=$dev
     info "create ZFS pool $POOL on $byid"
     run incus storage create "$POOL" zfs "source=$byid"
+    dry || pool_atime
+}
+
+# atime=off on the pool (children inherit): no write for every read. Nothing here needs atime.
+pool_atime() {
+    local zp
+    zp=$(incus storage get "$POOL" zfs.pool_name 2>/dev/null || true)
+    zp=${zp:-$POOL}
+    [ "$(zfs get -H -o value atime "$zp" 2>/dev/null)" = off ] || run zfs set atime=off "$zp"
 }
 
 bridge() {
@@ -305,10 +339,25 @@ profiles() {
 }
 
 # Boxes may reach the internet, not the home network, the tailnet or Docker networks.
+# A reject range that holds the box network itself (10.0.0.0/8 holds 10.99.0.0/24) is split so
+# the box network stays out of it: Incus applies reject before allow, so an allow rule could not
+# make the exception. Box to box is blocked anyway (port isolation), DHCP and DNS to the bridge
+# are Incus baseline rules.
 egress_acl() {
-    log "network ACL box-egress: reject ${BOX_EGRESS_REJECT}"
     local dst
-    dst=$(echo "$BOX_EGRESS_REJECT" | tr -s ' ' ',')
+    dst=$(python3 -I -c 'import ipaddress, sys
+box = ipaddress.ip_network(sys.argv[1], strict=False)
+out = []
+for c in sys.argv[2:]:
+    n = ipaddress.ip_network(c, strict=False)
+    if n.version == box.version and box.subnet_of(n):
+        out += [str(x) for x in sorted(n.address_exclude(box))]
+    elif n.version == box.version and n.subnet_of(box):
+        continue
+    else:
+        out.append(str(n))
+print(",".join(out))' "$BOX_SUBNET" $BOX_EGRESS_REJECT) || die "BOX_EGRESS_REJECT or BOX_SUBNET is not a valid network"
+    log "network ACL box-egress: reject ${BOX_EGRESS_REJECT} (box network $BOX_SUBNET left out)"
     put /etc/proj/incus/box-egress.yaml 644 <<EOF
 description: proj boxes - no LAN, tailnet or Docker networks (managed by ~/.dotfiles step 70-hosting)
 egress:
@@ -416,6 +465,19 @@ install_proj() {
     # The one root command agents may run (sudo, no password, see agents_sudo).
     put_file sbin/proj-agent /usr/local/sbin/proj-agent 755
     [ -e /var/log/proj-agent.log ] || run install -m 640 -o root -g root /dev/null /var/log/proj-agent.log
+    # Both logs grow with every call: weekly, 12 kept (about 3 months), compressed.
+    put /etc/logrotate.d/proj 644 <<'EOF'
+# Managed by setup.sh (step 70-hosting).
+/var/log/proj.log /var/log/proj-agent.log {
+    weekly
+    rotate 12
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 root root
+}
+EOF
 }
 
 # Workspaces (owner decision 2026-11-11): agents run on the host and edit a box's code in

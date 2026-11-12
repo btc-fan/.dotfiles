@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# zed-discord SUBJECT < message: ZFS event daemon (zed) mail replacement. zed.rc (step 70) sets
+# ZED_EMAIL_PROG to this script, so pool problems (device faulted, data errors, scrub or resilver
+# with errors) go to Discord #alerts instead of local mail. The same subject at most once an hour.
+set -uo pipefail
+subject=${1:-ZFS event}
+text=$(head -c 1500)
+exec /usr/local/sbin/discord-notify --key "zed-$subject" --every 60 alerts "ZFS: $subject" "$text"

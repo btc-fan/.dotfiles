@@ -10,11 +10,15 @@ set -euo pipefail
 test=()
 if [ "${1:-}" = --test ]; then test=(--test); fi
 
-# Wait up to 2 min for DNS, so the message is not lost right after boot.
+# Wait up to 15 min for DNS, so the message is not lost: after a power cut the router often comes
+# back minutes after the server (measured 2026-11-11: link up after 4 min). Type=exec: boot
+# does not wait for this.
+net_wait=0
 if [ "${#test[@]}" -eq 0 ]; then
-    for _ in $(seq 1 24); do
+    for _ in $(seq 1 180); do
         if getent hosts discord.com >/dev/null 2>&1; then break; fi
         sleep 5
+        net_wait=$((net_wait + 5))
     done
 fi
 
@@ -50,6 +54,13 @@ if journalctl -b -1 -n 1 --no-pager >/dev/null 2>&1; then
     down=$(( (boot_ts - last_ts) / 60 ))
     cause="$cause"$'\n'"last log $(fmt "$last_ts"), up again $(fmt "$boot_ts"): about $down min down"
 fi
+
+# For the daily digest (server-digest): the cause of the last stop, one line.
+if [ "${#test[@]}" -eq 0 ]; then
+    install -d -m 700 /var/lib/server-alerts
+    printf '%s\n' "$(printf '%s' "$cause" | head -n 1)" > /var/lib/server-alerts/last-boot-cause
+fi
+[ "$net_wait" = 0 ] || cause="$cause"$'\n'"network (DNS) came up about $net_wait s after this script started"
 
 failed=$(systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}' | tr '\n' ' ')
 ip=$(ip -4 -o route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i=="src") print $(i+1)}')

@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# smart-digest: weekly SMART report. READ ONLY: smartctl -i -H -A only. It NEVER starts a
+# self-test (owner rule: a test stresses a weak disk; tests only by hand, by the owner).
+# For each disk: health verdict, temperature, and the attributes that show a dying disk:
+#   5 reallocated sectors, 187 uncorrectable, 188 command timeouts, 197 pending sectors,
+#   198 offline uncorrectable, 199 CRC errors (cable).
+# Compared with last week (state kept by serial in /var/lib/server-alerts/smart-last, root only).
+# Posts the summary to #info; a health that is not PASSED or any of those numbers going up also
+# goes to #alerts. Run by smart-digest.timer (weekly).
+# Usage: smart-digest [--test]   (prints instead of posting; does not save the new state)
+set -uo pipefail
+
+test=0
+[ "${1:-}" = --test ] && test=1
+STATE_DIR=/var/lib/server-alerts
+STATE=$STATE_DIR/smart-last
+WATCH="5 187 188 197 198 199"
+declare -A old=()
+if [ -r "$STATE" ]; then
+    while IFS='|' read -r serial id raw; do old["$serial|$id"]=$raw; done < "$STATE"
+fi
+
+lines=()
+alerts=()
+new=()
+while read -r dev rest; do
+    case "$dev" in /dev/*) ;; *) continue ;; esac
+    # -n standby: a sleeping disk is not woken (exit bit 2), it is reported as asleep.
+    out=$(smartctl -n standby -i -H -A "$dev" 2>/dev/null); rc=$?
+    if [ $((rc & 2)) -ne 0 ] && grep -qi standby <<< "$out"; then
+        lines+=("$dev: asleep, not read"); continue
+    fi
+    model=$(sed -n 's/^\(Device Model\|Model Number\|Product\):[[:space:]]*//p' <<< "$out" | head -n 1)
+    serial=$(sed -n 's/^Serial [Nn]umber:[[:space:]]*//p' <<< "$out" | head -n 1)
+    size=$(sed -n 's/^User Capacity:.*\[\(.*\)\]/\1/p' <<< "$out" | head -n 1)
+    health=$(sed -n 's/^SMART overall-health self-assessment test result:[[:space:]]*//p; s/^SMART Health Status:[[:space:]]*//p' <<< "$out" | head -n 1)
+    temp=$(awk '$1 == 194 || $1 == 190 {print $10; exit}' <<< "$out")
+    name="$dev ${model:-?} ${size:-}"
+    [ -n "$serial" ] || serial=$dev
+    vals=""; changes=""
+    for id in $WATCH; do
+        raw=$(awk -v id="$id" '$1 == id {print $10; exit}' <<< "$out")
+        [ -n "$raw" ] || continue
+        raw=${raw%%[!0-9]*}
+        vals="$vals $id=$raw"
+        new+=("$serial|$id|$raw")
+        prev=${old["$serial|$id"]:-}
+        if [ -n "$prev" ] && [ "$raw" != "$prev" ]; then
+            changes="$changes $id: $prev -> $raw;"
+            if [ "${raw:-0}" -gt "${prev:-0}" ]; then alerts+=("$name: attribute$changes"); fi
+        fi
+    done
+    line="$name: ${health:-no verdict}, ${temp:+${temp} C, }${vals# }"
+    [ -z "$changes" ] || line="$line, CHANGED since last week:$changes"
+    [ ${#old[@]} -gt 0 ] || line="$line (first reading)"
+    lines+=("$line")
+    case "$health" in PASSED|OK) ;; *) alerts+=("$name: health '${health:-no verdict}'") ;; esac
+done < <(smartctl --scan 2>/dev/null)
+
+text=$(printf '%s\n' "${lines[@]}")
+[ -n "$text" ] || text="no disks found by smartctl --scan"
+t=()
+[ "$test" = 1 ] && t=(--test)
+/usr/local/sbin/discord-notify "${t[@]}" info "weekly SMART report (read only, no tests started)" "$text" || true
+if [ "${#alerts[@]}" -gt 0 ]; then
+    /usr/local/sbin/discord-notify "${t[@]}" alerts "SMART: a disk is getting worse" "$(printf '%s\n' "${alerts[@]}")" || true
+fi
+if [ "$test" = 0 ]; then
+    install -d -m 700 "$STATE_DIR"
+    printf '%s\n' "${new[@]}" > "$STATE.tmp" && mv "$STATE.tmp" "$STATE"
+fi
+exit 0

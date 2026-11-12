@@ -156,6 +156,9 @@ sh_chk "smartd calls smartd-notify" "grep -q 'smartd-notify' /etc/smartd.conf"
 sh_chk "smartd starts no self-tests (no -s schedule)" "! grep -v '^#' /etc/smartd.conf | grep -qE '(^|[[:space:]])-s[[:space:]]'"
 chk "disk-usage-check timer" systemctl is-active -q disk-usage-check.timer
 chk "boot-notify enabled" systemctl is-enabled -q boot-notify.service
+chk "daily digest timer (the heartbeat)" systemctl is-active -q server-digest.timer
+chk "weekly SMART report timer" systemctl is-active -q smart-digest.timer
+sh_chk "SMART report starts no self-test (smartctl -i -H -A only)" "! grep -qE 'smartctl[^|]*(-t|--test)' /usr/local/sbin/smart-digest"
 sh_chk "SSH login hook in PAM" "grep -q ssh-login-notify /etc/pam.d/sshd"
 for c in alerts info; do
     if [ -s "$SERVER_ETC/webhooks/$c.url" ]; then
@@ -187,14 +190,20 @@ fi
 
 if [ -n "${BACKUP_DIR:-}" ]; then
     echo "### 60 backups"
-    is_yes "${INSTALL_POSTGRES:-yes}" && chk "pg-backup timer" systemctl is-active -q pg-backup.timer
+    if is_yes "${INSTALL_POSTGRES:-yes}"; then
+        chk "pg-backup timer" systemctl is-active -q pg-backup.timer
+        chk "pg-backup-big timer (PG_BACKUP_SKIP_DBS)" systemctl is-active -q pg-backup-big.timer
+        chk "pg-restore-drill timer (monthly)" systemctl is-active -q pg-restore-drill.timer
+    fi
     [ -z "${WORK_DIR:-}" ] || chk "work-snapshot timer" systemctl is-active -q work-snapshot.timer
     if [ -n "${BACKUP_MOUNT:-}" ]; then
         chk "backup-mirror timer" systemctl is-active -q backup-mirror.timer
         p INFO "last mirror: $(cat "$BACKUP_MOUNT/data-backups/.last-mirror" 2>/dev/null || echo never)"
     fi
-    p INFO "newest pg dump: $(ls -1d "$BACKUP_DIR"/postgres/20* 2>/dev/null | tail -1 || true)"
-    for u in pg-backup work-snapshot backup-mirror; do
+    pgdest=${PG_BACKUP_DIR:-${BACKUP_MOUNT:+$BACKUP_MOUNT/postgres}}
+    pgdest=${pgdest:-$BACKUP_DIR/postgres}
+    p INFO "newest pg dump: $(ls -1d "$pgdest"/daily/20* 2>/dev/null | tail -1 || true)"
+    for u in pg-backup pg-backup-big work-snapshot backup-mirror; do
         r=$(systemctl show -p Result --value "$u.service" 2>/dev/null)
         if [ -n "$r" ] && [ "$r" != success ]; then
             p FAIL "last $u run: $r (journalctl -u $u)"
@@ -212,6 +221,8 @@ if [ -n "${BOX_DISK_SERIAL:-}" ]; then
         sh_chk "incus 6.0 LTS from the Ubuntu archive" "dpkg-query -W -f='\${Version}' incus | grep -Eq '^(1:)?6\\.0\\.'"
     fi
     chk "zfs pool boxes exists" zpool list boxes
+    sh_chk "zed sends ZFS events to Discord (zed-discord)" "grep -qx 'ZED_EMAIL_PROG=\"/usr/local/sbin/zed-discord\"' /etc/zfs/zed.d/zed.rc && systemctl is-active -q zfs-zed"
+    sh_chk "zfs pool boxes: atime=off" "[ \"\$(zfs get -H -o value atime boxes)\" = off ]"
     sh_chk "zfs pool boxes healthy" "zpool status -x boxes | grep -q 'is healthy'"
     for prof in box-base tier-try tier-mvp tier-long docker; do chk "profile $prof" incus profile show "$prof"; done
     sh_chk "box-base: isolated idmap" "incus profile get box-base security.idmap.isolated | grep -qx true"
@@ -259,7 +270,9 @@ fi
 echo "### system"
 p INFO "uptime: $(uptime -p), load $(cut -d' ' -f1-3 /proc/loadavg), free memory $(free -h | awk '/Mem/ {print $7}')"
 p INFO "disk use: $(df -h --output=target,pcent / ${DATA_MOUNT:-} ${BACKUP_MOUNT:-} 2>/dev/null | tail -n +2 | tr -s ' ' | tr '\n' ';')"
-p INFO "failed units: $(systemctl --failed --no-legend --plain | awk '{print $1}' | tr '\n' ' ')"
+failed_units=$(systemctl --failed --no-legend --plain | awk '{print $1}' | tr '\n' ' ')
+if [ -z "$failed_units" ]; then p PASS "no failed systemd units"
+else p FAIL "failed units: $failed_units(systemctl status <unit>; after the fix: sudo systemctl reset-failed)"; fails=$((fails + 1)); fi
 p INFO "pending updates: $(apt list --upgradable 2>/dev/null | tail -n +2 | wc -l)"
 p INFO "reboot needed: $([ -f /var/run/reboot-required ] && echo yes || echo no)"
 

@@ -1111,6 +1111,10 @@ cmd_doctor() {
     ok()   { echo "ok    $*"; }
     fail() { echo "FAIL  $*"; bad=1; }
     systemctl is-active -q incus && ok "incus running" || fail "incus not running"
+    local failed_units
+    failed_units=$(systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}' | tr '\n' ' ')
+    if [ -z "$failed_units" ]; then ok "no failed systemd units"
+    else fail "failed units: $failed_units(systemctl status <unit>)"; fi
     local cap
     cap=$(zpool list -H -o capacity "$POOL" 2>/dev/null | tr -d '%' || true)
     if [ -z "$cap" ]; then fail "zpool $POOL missing"

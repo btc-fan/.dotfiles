@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-# disk-usage-check: alert #alerts when a disk is fuller than DISK_ALERT_PCT (default 85 %).
-# Run every 30 min by disk-usage-check.timer. One alert per disk per day.
-# Usage: disk-usage-check [--test]   (--test prints every disk and the message, posts nothing)
+# disk-usage-check: alert #alerts when something fills up. Run every 30 min by disk-usage-check.timer.
+#   - a filesystem (ext4, xfs, btrfs, vfat, zfs datasets) fuller than DISK_ALERT_PCT (85 %)
+#   - inodes (ext4, xfs) more used than INODE_ALERT_PCT (default DISK_ALERT_PCT)
+#   - a ZFS pool fuller than ZFS_POOL_ALERT_PCT (80 %: ZFS slows down when fuller), or not healthy
+#   - the workspaces (WORK_ROOT, on the system disk) bigger than WORK_ROOT_ALERT_GB (measured
+#     at most once an hour; "" or 0 = off)
+# One alert per item per day (pool health: every 6 h while it lasts).
+# Usage: disk-usage-check [--test]   (--test prints every item and the messages, posts nothing)
 set -euo pipefail
 
 test=0
@@ -9,24 +14,67 @@ if [ "${1:-}" = --test ]; then test=1; fi
 # shellcheck source=/dev/null
 [ -r /etc/server/host.env ] && . /etc/server/host.env
 limit=${DISK_ALERT_PCT:-85}
+ilimit=${INODE_ALERT_PCT:-$limit}
+plimit=${ZFS_POOL_ALERT_PCT:-80}
+STATE=/var/lib/server-alerts
 
 found=0
-while read -r target; do
-    target=$(printf '%b' "$target")   # findmnt -r writes a space as \x20
-    pct=$(df -P "$target" | awk 'NR==2 {gsub("%", "", $5); print $5}')
-    free=$(df -hP "$target" | awk 'NR==2 {print $4}')
-    if [ "$test" = 1 ]; then printf '%-30s %s%% used, %s free\n' "$target" "$pct" "$free"; fi
-    [ "${pct:-0}" -ge "$limit" ] || continue
+# alert KEY EVERY_MIN TITLE TEXT
+alert() {
     found=1
     if [ "$test" = 1 ]; then
-        /usr/local/sbin/discord-notify --test alerts "disk almost full: $target" "${pct}% used, $free free (limit ${limit}%)"
+        /usr/local/sbin/discord-notify --test alerts "$3" "$4"
     else
-        /usr/local/sbin/discord-notify --key "disk-full-$target" --every 1440 \
-            alerts "disk almost full: $target" "${pct}% used, $free free (limit ${limit}%)" || true
+        /usr/local/sbin/discord-notify --key "$1" --every "$2" alerts "$3" "$4" || true
     fi
-done < <(findmnt -rn -o TARGET -t ext4,xfs,btrfs,vfat | sort -u)
+}
+
+while read -r target fstype; do
+    target=$(printf '%b' "$target")   # findmnt -r writes a space as \x20
+    read -r pct free < <(df -hP "$target" | awk 'NR==2 {gsub("%", "", $5); print $5, $4}')
+    ipct=-
+    case "$fstype" in ext4|xfs) ipct=$(df -Pi "$target" | awk 'NR==2 {gsub("%", "", $5); print $5}') ;; esac
+    if [ "$test" = 1 ]; then printf '%-60s %-5s %3s%% used, %s free, inodes %s%%\n' "$target" "$fstype" "$pct" "$free" "$ipct"; fi
+    if [ "${pct:-0}" -ge "$limit" ]; then
+        alert "disk-full-$target" 1440 "disk almost full: $target" "${pct}% used, $free free (limit ${limit}%)"
+    fi
+    if [ "$ipct" != - ] && [ "${ipct:-0}" -ge "$ilimit" ]; then
+        alert "inodes-$target" 1440 "inodes almost used up: $target" "${ipct}% of the inodes used (limit ${ilimit}%): many small files"
+    fi
+done < <(findmnt -rn -o TARGET,FSTYPE -t ext4,xfs,btrfs,vfat,zfs | sort -u)
+
+if command -v zpool >/dev/null 2>&1; then
+    while read -r pool cap health; do
+        cap=${cap%\%}
+        if [ "$test" = 1 ]; then printf 'zpool %-54s %3s%% used, %s\n' "$pool" "$cap" "$health"; fi
+        if [ "${cap:-0}" -ge "$plimit" ]; then
+            alert "zpool-full-$pool" 1440 "ZFS pool almost full: $pool" "${cap}% used (limit ${plimit}%). ZFS gets slow above 80 %."
+        fi
+        if [ "$health" != ONLINE ]; then
+            alert "zpool-health-$pool" 360 "ZFS pool $pool is $health" "$(zpool status "$pool" 2>&1 | head -n 25)"
+        fi
+    done < <(zpool list -H -o name,capacity,health 2>/dev/null)
+fi
+
+wlimit=${WORK_ROOT_ALERT_GB:-}
+if [ -n "$wlimit" ] && [ "$wlimit" != 0 ] && [ -d "${WORK_ROOT:-/srv/proj/work}" ]; then
+    ws=${WORK_ROOT:-/srv/proj/work}
+    stamp=$STATE/work-root-size
+    if [ "$test" = 1 ] || [ ! -f "$stamp" ] || [ $(( $(date +%s) - $(stat -c %Y "$stamp") )) -ge 3600 ]; then
+        bytes=$(timeout 300 nice -n 19 ionice -c 3 du -sxB1 "$ws" 2>/dev/null | cut -f1 || true)
+        if [ -n "$bytes" ]; then
+            install -d -m 700 "$STATE"
+            echo "$bytes" > "$stamp"
+            gb=$((bytes / 1073741824))
+            if [ "$test" = 1 ]; then printf '%-66s %s GB (limit %s GB)\n' "workspaces $ws" "$gb" "$wlimit"; fi
+            if [ "$gb" -ge "$wlimit" ]; then
+                alert "work-root-size" 1440 "workspaces are big: $ws" "$gb GB (limit $wlimit GB, WORK_ROOT_ALERT_GB). They are on the system disk: clean .trash, .snapshots and caches."
+            fi
+        fi
+    fi
+fi
 
 if [ "$test" = 1 ] && [ "$found" = 0 ]; then
-    echo "all disks are below ${limit}%: a real run posts nothing"
+    echo "all below the limits: a real run posts nothing"
 fi
 exit 0

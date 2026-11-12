@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# server-digest: ONE message a day to #info at DIGEST_TIME (server-digest.timer). It is also the
+# heartbeat: if a day passes with no digest, the server, its network or its alerts are broken.
+# Lines: uptime and the cause of the last stop, failed units, disk and inode use, ZFS pools,
+# backup age per database, reboot needed, boxes with expiry, Postgres, the units in DIGEST_UNITS
+# (host.env, e.g. a crawler), workspace size.
+# Side alerts (#alerts): a backup older than BACKUP_MAX_AGE_H (30 h); and #info once per new
+# kernel: "reboot needed".
+# Usage: server-digest [--test]   (prints the messages instead of posting them)
+set -uo pipefail
+# shellcheck source=/dev/null
+[ -r /etc/server/host.env ] && . /etc/server/host.env
+test=()
+[ "${1:-}" = --test ] && test=(--test)
+STATE=/var/lib/server-alerts
+now=$(date +%s)
+max_age_h=${BACKUP_MAX_AGE_H:-30}
+out=()
+warn=()
+add() { out+=("$*"); }
+age_h() { echo $(( (now - $1) / 3600 )); }
+
+# ---- system ----
+cause=$(cat "$STATE/last-boot-cause" 2>/dev/null || echo "unknown")
+add "up $(uptime -p | sed 's/^up //'), last stop: $cause, kernel $(uname -r)"
+failed=$(systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}' | tr '\n' ' ')
+add "failed units: ${failed:-none}"
+if [ -f /var/run/reboot-required ]; then
+    newest=$(ls -1 /boot/vmlinuz-* 2>/dev/null | sed 's|.*/vmlinuz-||' | sort -V | tail -n 1)
+    add "REBOOT NEEDED (running $(uname -r), installed ${newest:-?}): $(tr '\n' ' ' < /var/run/reboot-required.pkgs 2>/dev/null | cut -c1-120)"
+    key=${newest:-$(md5sum /var/run/reboot-required.pkgs 2>/dev/null | cut -c1-12)}
+    if [ "$(cat "$STATE/reboot-notice" 2>/dev/null)" != "$key" ]; then
+        /usr/local/sbin/discord-notify "${test[@]}" info "reboot needed" \
+            "Updates wait for a reboot (kernel ${newest:-?}, now $(uname -r)). Reboot when nothing runs: sudo reboot" || true
+        [ ${#test[@]} -gt 0 ] || { install -d -m 700 "$STATE"; echo "$key" > "$STATE/reboot-notice"; }
+    fi
+else
+    add "reboot needed: no"
+fi
+
+# ---- disks ----
+d=""
+while read -r target fstype; do
+    target=$(printf '%b' "$target")
+    case "$target" in /var/lib/incus/*|/boot*|/snap/*) continue ;; esac
+    p=$(df -P "$target" | awk 'NR==2 {print $5}')
+    i=""
+    case "$fstype" in ext4|xfs) i=" (inodes $(df -Pi "$target" | awk 'NR==2 {print $5}'))" ;; esac
+    d="$d $target $p$i,"
+done < <(findmnt -rn -o TARGET,FSTYPE -t ext4,xfs,btrfs | sort -u)
+add "disks:${d%,}"
+if command -v zpool >/dev/null 2>&1; then
+    z=$(zpool list -H -o name,health,capacity 2>/dev/null | awk '{printf " %s %s %s,", $1, $2, $3}')
+    add "ZFS:${z%,}$(zpool status -x 2>/dev/null | grep -q 'all pools are healthy' || echo ' PROBLEM: zpool status')"
+fi
+ws=${WORK_ROOT:-/srv/proj/work}
+if [ -r "$STATE/work-root-size" ]; then
+    add "workspaces $ws: $(( $(cat "$STATE/work-root-size") / 1048576 )) MB"
+fi
+
+# ---- backups ----
+default_root=${BACKUP_MOUNT:+$BACKUP_MOUNT/postgres}
+default_root=${default_root:-${BACKUP_DIR:-/var/backups}/postgres}
+root=${PG_BACKUP_DIR:-$default_root}
+big_root=${PG_BIG_BACKUP_DIR:-${default_root}-big}
+b=""
+newest_dir() { find "$1" -mindepth 1 -maxdepth 1 -type d -name '[0-9][0-9][0-9][0-9]-*' 2>/dev/null | sort | tail -n 1; }
+if [ -n "${BACKUP_DIR:-}" ] && { [ "${INSTALL_POSTGRES:-yes}" = yes ] || [ -d "$root" ]; }; then
+    n=$(newest_dir "$root/daily")
+    if [ -n "$n" ]; then
+        h=$(age_h "$(stat -c %Y "$n")")
+        dbs=$(find "$n" -maxdepth 1 -name '*.dump' -printf '%f\n' | sed 's/\.dump$//' | sort | tr '\n' ' ')
+        b="$b dumps ${h} h old (${dbs% }),"
+        [ "$h" -le "$max_age_h" ] || warn+=("normal dumps are $h h old (newest $n)")
+    else
+        b="$b dumps: NONE in $root/daily,"; warn+=("no normal dump in $root/daily")
+    fi
+    for db in ${PG_BACKUP_SKIP_DBS:-}; do
+        n=$(newest_dir "$big_root/$db/daily")
+        if [ -n "$n" ]; then
+            h=$(age_h "$(stat -c %Y "$n")")
+            b="$b $db ${h} h old ($(du -sh "$n" 2>/dev/null | cut -f1)),"
+            [ "$h" -le "$max_age_h" ] || warn+=("$db dump is $h h old (newest $n)")
+        elif [ -e "$big_root/$db/.not-there-yet" ]; then
+            b="$b $db: not there yet,"
+        else
+            b="$b $db: NO dump,"; warn+=("$db has no dump in $big_root/$db/daily")
+        fi
+    done
+    m=${BACKUP_MOUNT:+$BACKUP_MOUNT/data-backups/.last-mirror}
+    if [ -n "$m" ]; then
+        if [ -f "$m" ]; then
+            h=$(age_h "$(stat -c %Y "$m")")
+            b="$b mirror ${h} h old,"
+            [ "$h" -le "$max_age_h" ] || warn+=("backup mirror is $h h old")
+        else
+            b="$b mirror: never,"
+        fi
+    fi
+    add "backups:${b%,}"
+fi
+
+# ---- services ----
+if [ "${INSTALL_POSTGRES:-yes}" = yes ]; then
+    if systemctl is-active -q "postgresql@${PG_VERSION:-16}-main" && runuser -u postgres -- pg_isready -q 2>/dev/null; then
+        add "postgres: up"
+    else
+        add "postgres: DOWN"
+    fi
+fi
+for u in ${DIGEST_UNITS:-}; do
+    if ! systemctl cat "$u" >/dev/null 2>&1; then add "$u: not installed"; continue; fi
+    st=$(systemctl is-active "$u" 2>/dev/null)
+    since=$(systemctl show -p ActiveEnterTimestamp --value "$u" 2>/dev/null)
+    add "$u: $st${since:+ since $since}"
+done
+
+# ---- boxes ----
+if [ -r /srv/proj/REGISTRY.json ] && command -v jq >/dev/null; then
+    boxes=$(jq -r '.boxes[] | "\(.name) \(.tier) \(.state)\(if .expires then " until " + (.expires | .[0:10]) else "" end)"' /srv/proj/REGISTRY.json 2>/dev/null | paste -sd ',' - | sed 's/,/, /g')
+    add "boxes: ${boxes:-none}"
+fi
+
+text=$(printf '%s\n' "${out[@]}")
+/usr/local/sbin/discord-notify "${test[@]}" info "daily digest $(date +%F)" "$text" || true
+if [ "${#warn[@]}" -gt 0 ]; then
+    /usr/local/sbin/discord-notify "${test[@]}" alerts "backup too old or missing" "$(printf '%s\n' "${warn[@]}")" || true
+fi
+exit 0

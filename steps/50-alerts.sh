@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Discord alerts: failed services, SMART, disk full, boot reason, SSH logins. No webhook = no-op.
+# Discord alerts: failed services, SMART, disk full, boot reason, SSH logins, daily digest. No webhook = no-op.
 # shellcheck source=../lib/common.sh
 . "$(dirname "$0")/../lib/common.sh"
 need_root
@@ -17,10 +17,13 @@ main() {
     failure_alerts
     smart_alerts
     disk_full_timer
+    digest_timers
     boot_message
     ssh_login_message
     if [ "$UNITS" = 1 ]; then run systemctl daemon-reload; fi
     enable_unit disk-usage-check.timer --now
+    enable_unit server-digest.timer --now
+    enable_unit smart-digest.timer --now
     enable_unit boot-notify.service
     status
 }
@@ -28,7 +31,8 @@ main() {
 install_scripts() {
     log "alert scripts in $SBIN"
     local s
-    for s in discord-notify notify-failure smartd-notify disk-usage-check boot-notify ssh-login-notify; do
+    for s in discord-notify notify-failure smartd-notify disk-usage-check boot-notify ssh-login-notify \
+             server-digest smart-digest zed-discord; do
         put_file "sbin/$s" "$SBIN/$s" 755
     done
 }
@@ -106,6 +110,68 @@ EOF
     unit_changed
 }
 
+# server-digest: one #info message a day (the heartbeat: no digest on a day = look at the server).
+# smart-digest: weekly read-only SMART report (smartctl -i -H -A, never a self-test).
+digest_timers() {
+    local at=${DIGEST_TIME:-09:15} sat=${SMART_DIGEST_TIME:-09:30} sday=${SMART_DIGEST_DAY:-Sun}
+    log "daily digest -> #info at $at; weekly SMART report ($sday $sat, read only, no tests)"
+    put /etc/systemd/system/server-digest.service 644 <<'EOF'
+# Managed by ~/.dotfiles setup.sh (step 50-alerts).
+[Unit]
+Description=Daily digest of the server to Discord #info
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/server-digest
+Nice=10
+EOF
+    unit_changed
+    put /etc/systemd/system/server-digest.timer 644 <<EOF
+# Managed by ~/.dotfiles setup.sh (step 50-alerts). Time: host.env DIGEST_TIME.
+[Unit]
+Description=Daily digest at $at
+
+[Timer]
+OnCalendar=*-*-* $at
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+    unit_changed
+    put /etc/systemd/system/smart-digest.service 644 <<'EOF'
+# Managed by ~/.dotfiles setup.sh (step 50-alerts). Read only: smartctl -i -H -A, never a self-test.
+[Unit]
+Description=Weekly SMART report to Discord (read only)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/smart-digest
+EOF
+    unit_changed
+    put /etc/systemd/system/smart-digest.timer 644 <<EOF
+# Managed by ~/.dotfiles setup.sh (step 50-alerts). Time: host.env SMART_DIGEST_DAY, SMART_DIGEST_TIME.
+[Unit]
+Description=Weekly SMART report, $sday $sat
+
+[Timer]
+OnCalendar=$sday *-*-* $sat
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+    unit_changed
+    if [ "$UNITS" = 1 ] && ! dry; then
+        systemctl daemon-reload
+        local t
+        for t in server-digest smart-digest; do
+            if systemctl is-active -q "$t.timer"; then systemctl restart "$t.timer"; fi
+        done
+    fi
+}
+
 # Type=exec: boot does not wait for it. Enabled only, never started by setup:
 # starting it now would post "server is up" for a boot that happened long ago.
 boot_message() {
@@ -146,7 +212,7 @@ status() {
             info "$c: not set (alerts for it do nothing). Set it: sudo discord-notify --set $c"
         fi
     done
-    info "try without posting: sudo boot-notify --test ; sudo disk-usage-check --test"
+    info "try without posting: sudo boot-notify --test ; sudo disk-usage-check --test ; sudo server-digest --test ; sudo smart-digest --test"
 }
 
 main "$@"
