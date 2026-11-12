@@ -10,6 +10,38 @@ To change the server, change `/etc/server/host.env` (or push new scripts) and ru
 
 AI agents are not on this branch. They are on the `ai` branch (see the end).
 
+## Where we stopped (2026-11-12) and what to do next
+
+Read this first when you pick the work up again. Details of every fix: `docs/NOTES.md`.
+
+**Done and proven on the server** (deployed from `/opt/server-setup`, verify about 147 PASS):
+- Root runs setup only from the root-owned clone (`sudo /opt/server-setup/setup.sh --update`).
+- Main user without sudo (`MAIN_SUDO=none`); agents reach boxes only through the root
+  `proj-agent` socket (`/run/proj-agent.sock`, group devs) or the AI branch's box tool.
+- Workspaces mounted nosuid,nodev (setuid from a box gives no root), Incus requires that mount.
+- Git guard (`/usr/local/bin/git`): allow-list of repo config keys, hooks off for agents in every
+  repo (`GIT_GUARD_AGENT`, `CLAUDECODE`, Codex markers, the agent user).
+- Snapshots include the workspace; restore works on ZFS; `proj new` rolls back on failure; a lock
+  per box name; the socket unit no longer sets `RestrictSUIDSGID` (it blocked setgid workspaces).
+- Postgres main role is not superuser; backups 7 daily + 4 weekly on the backup disk, a big-DB job,
+  a monthly restore drill; daily digest, ZFS, inode and weekly read-only SMART alerts to Discord;
+  `server-info` and the login screen.
+
+**Open, in order:**
+1. **House rules do not reach boxes made through the socket.** In the socket-activated root
+   service `cap_setuid` is missing from the effective set (bounding set has it), so `setpriv` to the
+   main user fails in `house_rules` and only the hosting rules are pushed. Fix in progress (not
+   committed when this was written): read the AGENTS.md file as root with O_NOFOLLOW and an owner
+   check instead of switching users. Check `git status` in this checkout first.
+2. **Daily Claude ping** (owner request): every day at 05:00, as the main user,
+   `claude -p --model claude-opus-5-5 "Say hey. Respond to me with 1."`, the answer posted to the
+   Discord info channel; host.env `CLAUDE_DAILY_TIME`, `CLAUDE_DAILY_MODEL`, `CLAUDE_DAILY_PROMPT`.
+   Not built yet.
+3. Clean up test leftovers after the next live tests (boxes, workspaces, `/tmp` files).
+4. Moving the crawler project here needs its move kit adapted to this hardened server: run its
+   install as admin from a root-owned clone, restores through `sudo -u postgres`, one backup job
+   (this server's), the crawler unit in `DIGEST_UNITS`, and register it as a host project.
+
 ## Contents
 
 - [What you need](#what-you-need)
