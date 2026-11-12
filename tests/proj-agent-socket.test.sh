@@ -90,7 +90,7 @@ out=$(call list 2>&1); rc=$?
 [ "$rc" = 2 ] && grep -q "is not in group nosuchgroup-zz" <<< "$out" && ok || bad "a user outside the group must be refused: rc=$rc out=$out"
 id -gn > "$T/group"
 
-call sleep >/dev/null 2>&1 & c=$!
+python3 -I "$SRV" call sleep >/dev/null 2>&1 & c=$!   # not the call function: kill must reach python
 for _ in $(seq 1 30); do [ -s "$T/agent.pid" ] && break; sleep 0.1; done
 kill "$c" 2>/dev/null; wait "$c" 2>/dev/null
 sleep 3
