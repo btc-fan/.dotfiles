@@ -43,7 +43,7 @@ flowchart TD
     CFG -->|"@import line"| CLAUDE["Claude Code + OMC"]
     CFG -->|"instructions key"| OPEN["opencode"]
     ROOT -->|"managed block copy<br/>refreshed by ai-sync"| CODEX["Codex + OMX"]
-    ROOT -->|"managed block copy<br/>refreshed by ai-sync"| HERMES["Hermes (SOUL.md)"]
+    ROOT -->|"managed block copy<br/>refreshed by the admin install --update"| HERMES["Hermes (SOUL.md)"]
     PLUGIN -->|"plugin install"| CLAUDE
     PLUGIN -->|"plugin add"| CODEX
     JSON --> ROUTER["router hook<br/>session-start status,<br/>a few prompt rows"]
@@ -132,25 +132,24 @@ On a server, an admin user runs the install for the main user. The main user has
 git -C ~/.dotfiles fetch origin ai
 git -C ~/.dotfiles worktree add ~/.dotfiles-ai ai
 ```
-3. As the ADMIN user, in the admin's own clone (never the agent's `~/.dotfiles-ai`: root refuses to run code from there, from a dirty tree, or from a commit that is not origin/ai). Dry run first, read the output:
+3. As the ADMIN user, from a root-owned clone in `/opt/ai-setup` (owner decision: root never runs code from the agent's home). `--update` fetches and fast-forwards that clone (it refuses a dirty clone or rewritten history), then runs the updated script. Dry run first, read the output:
 ```
-git clone --branch ai https://github.com/btc-fan/.dotfiles.git ~/dotfiles-ai     # once
-git -C ~/dotfiles-ai fetch origin && git -C ~/dotfiles-ai checkout --detach origin/ai
-git -C ~/dotfiles-ai status --short                                         # must print nothing
-sudo ~/dotfiles-ai/install.sh --for-user <user> --dry-run
+sudo git clone --branch ai https://github.com/btc-fan/.dotfiles.git /opt/ai-setup   # once
+sudo /opt/ai-setup/install.sh --update --for-user <user> --dry-run                   # read it
+sudo /opt/ai-setup/install.sh --update --for-user <user>                             # install, and every update
 ```
-4. Install: `sudo ~/dotfiles-ai/install.sh --for-user <user>`. To update later: repeat the fetch, checkout and status lines, then install.
+4. `install.sh` and `uninstall.sh` refuse to run as root from a folder not owned by root or the admin, and print these commands. The main user's `~/.dotfiles-ai` stays a work tree for editing only.
 5. As the main user: copy `secrets.env.example` to `~/.config/ai/secrets.env`, set mode 600, fill the keys you need.
 6. Do the manual steps in section 5.
 7. Check: `ai-doctor`.
 
 `install.sh` asks "Is this a new Ubuntu server that needs the base server setup first?" The default is No. Answer Yes only on a fresh server: it prints the `ubuntu-server` instructions and stops.
 
-Options: `--dry-run`, `--agents claude,codex,hermes,opencode,herdr`, `--skip-packages`, `--docs-server`, `--yes`. Run `install.sh --help` for the final list. More in [docs/INSTALL.md](docs/INSTALL.md).
+Options: `--update`, `--for-user <user>`, `--dry-run`, `--agents claude,codex,hermes,opencode,herdr`, `--skip-packages`, `--yes`. Run `install.sh --help` for the final list. More in [docs/INSTALL.md](docs/INSTALL.md).
 
 ### macOS (later)
 
-Out of scope until the server test and the owner review are done. Then:
+Out of scope until the server test and the owner review are done. Then (one user, no sudo, the work tree is the install source):
 ```
 git -C ~/.dotfiles worktree add ~/.dotfiles-ai ai
 ~/.dotfiles-ai/install.sh --dry-run
@@ -288,14 +287,15 @@ To see that a tool really fires, read the logs in `~/.local/state/ai/` ([docs/CO
 
 Updates are never automatic.
 
-1. Pull: `git -C ~/.dotfiles-ai pull`. A git hook runs `ai-sync`, which re-renders the rules and refreshes the copies (Codex block, Hermes block). If the hook is not installed, run `ai-sync` yourself.
-2. A new tool version needs a new audit and a new pin. See [docs/EXTENDING.md](docs/EXTENDING.md), "Bump a pin".
-3. Run `~/.dotfiles-ai/install.sh` again if a pin or an adapter changed.
-4. Run `ai-doctor`.
+1. Server: as admin, `sudo /opt/ai-setup/install.sh --update --for-user <user>`. It fast-forwards the root-owned clone and refreshes everything, including the Hermes copies and the `/etc` rules, which only this admin command can refresh.
+2. macOS: `git -C ~/.dotfiles-ai pull`. A git hook runs `ai-sync`, which re-renders the rules and refreshes your own files (Claude, Codex, opencode). If a pin or an adapter changed, run `~/.dotfiles-ai/install.sh`.
+3. On a server, `ai-sync` from a user's `~/.dotfiles-ai` refreshes only that user's own files.
+4. A new tool version needs a new audit and a new pin. See [docs/EXTENDING.md](docs/EXTENDING.md), "Bump a pin".
+5. Run `ai-doctor`.
 
 ## 8. Remove or revert
 
-You can always go back. There are three levels. Pick the smallest that does the job.
+You can always go back. There are three levels. Pick the smallest that does the job. On a server the admin runs them from the root-owned clone: `sudo /opt/ai-setup/uninstall.sh --for-user <user>` (add `--dry-run` first). On macOS: `~/.dotfiles-ai/uninstall.sh`. The table uses the macOS form.
 
 | Level | Command | What it removes |
 |---|---|---|

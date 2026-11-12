@@ -66,7 +66,7 @@ Why small: the root file is loaded into every session. A big file costs tokens o
 | Claude Code | `~/.config/ai/AGENTS.md` is a link to the built file. `~/.claude/CLAUDE.md` has a managed block with one line: `@~/.config/ai/AGENTS.md` | `ai-render` alone (the link points to the built file; `ai-sync` runs it) |
 | opencode | `~/.config/opencode/opencode.json` has `instructions` pointing to `~/.config/ai/AGENTS.md` | `ai-render` alone |
 | Codex | `~/.codex/AGENTS.md` has a managed block `AI:core` with a **copy** of the root text (Codex cannot import) | `ai-sync` after `git pull` |
-| Hermes | `SOUL.md` of the `hermes` user has a managed block `AI:core` with a **copy** of the root text plus the i-have-adhd rules | `ai-sync` after `git pull` (needs sudo for that user) |
+| Hermes | `SOUL.md` of the `hermes` user has a managed block `AI:core` with a **copy** of the root text plus the i-have-adhd rules | only the admin command `sudo /opt/ai-setup/install.sh --update --for-user <user>` |
 | Project boxes (server) | `proj` copies the hosting rules into each box as `/etc/proj-rules/AGENTS.md` | `sudo proj sync-rules --all` (admin) |
 | Servers, system copy | root-owned copies under `/etc` so an agent running as the user cannot change them | **coming** (not confirmed in the code of this branch yet) |
 
@@ -159,10 +159,10 @@ Write commit messages in English.
 4. **Test the rule.** If it is a routing rule, add one should-fire and one should-not-fire eval (see [EXTENDING.md](EXTENDING.md)). Run `ai-doctor`.
 5. **Commit.** The changed part (and `ai/routing.yaml` if you changed it). The rendered file is not committed.
 6. **Push.** `git push origin ai`.
-7. **Pull on each machine.** `git -C ~/.dotfiles-ai pull`. The git hook runs `ai-sync`. Claude and opencode see the change at once (they read the link). Codex and Hermes get their copies refreshed by `ai-sync`.
+7. **Deliver.** Server: the admin runs `sudo /opt/ai-setup/install.sh --update --for-user <user>` (fast-forwards the root-owned clone, refreshes every user's files, the Hermes copy and the `/etc` rules). macOS: `git -C ~/.dotfiles-ai pull`; the git hook runs `ai-sync`, which refreshes your own files (Claude, Codex, opencode).
 8. **Check.** `ai-sync --check` and `ai-doctor` on each machine. On a server with boxes, an admin also runs `sudo proj sync-rules --all`.
 
-If the hook is not installed on a machine, run `ai-sync` by hand after the pull. Install the hook with `ai-sync --install-hook`.
+If the hook is not installed on a machine, run `ai-sync` by hand after the pull. Install the hook with `ai-sync --install-hook`. On a server, `ai-sync` from a user's `~/.dotfiles-ai` refreshes only that user's own files; the Hermes copy and `/etc` rules change only through the admin command.
 
 ### Example 2: add a tool to the routing table
 

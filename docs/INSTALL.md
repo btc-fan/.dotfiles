@@ -5,26 +5,29 @@ Full steps. The short version is in `README.md`, section 2. What each tool is: [
 ## Before you start
 
 - A base setup: `~/.dotfiles` (branch `ubuntu-server` on a server). Follow its README first.
-- git. On Ubuntu: passwordless sudo for the main user.
+- git. On Ubuntu: an admin user with sudo (the main user has none).
 - Facts about the Ubuntu server: Ubuntu 26.04 with Rust coreutils (`chown -h` and `stat -c` act differently), a CPU without AVX2 (RTK is built from source), no desktop, a second user `hermes` for Hermes.
 - Do not run a real install on a machine before the dry run. Read the dry run.
 
 ## Steps
 
-1. As the main user, add the worktree (separate folder):
+1. As the admin (never from the main user's home: root must not run code an agent can change), clone the
+   branch once into a root-owned folder:
 ```
-git -C ~/.dotfiles fetch origin ai
-git -C ~/.dotfiles worktree add ~/.dotfiles-ai ai
+sudo git clone --branch ai <repo URL> /opt/ai-setup
 ```
-2. Dry run. On a server the ADMIN user runs it for the main user, from the admin's OWN clone (root never runs code from the agent user's home: install.sh refuses that, and also a dirty tree or a commit that is not origin/ai):
+   The main user may keep `~/.dotfiles-ai` as a work tree for editing; root never runs it (install.sh
+   refuses to run as root from a folder owned by anyone but root or the admin).
+2. Dry run. `--update` fetches `origin/ai` and fast-forwards the clone first (it refuses a dirty clone or
+   rewritten history), then runs the updated script:
 ```
-git clone --branch ai https://github.com/btc-fan/.dotfiles.git ~/dotfiles-ai     # once
-git -C ~/dotfiles-ai fetch origin && git -C ~/dotfiles-ai checkout --detach origin/ai
-git -C ~/dotfiles-ai status --short                                         # must print nothing
-sudo ~/dotfiles-ai/install.sh --for-user <user> --dry-run
+sudo /opt/ai-setup/install.sh --update --for-user <user> --dry-run
 ```
-3. Install: the same, without `--dry-run`: `sudo ~/dotfiles-ai/install.sh --for-user <user>`. Update later: the fetch, checkout and status lines again, then install.
-   macOS: `~/.dotfiles-ai/install.sh`, no sudo.
+3. Install (and every later update: the same command):
+```
+sudo /opt/ai-setup/install.sh --update --for-user <user>
+```
+   macOS (one user, no admin layer): `~/.dotfiles-ai/install.sh`, no sudo.
 4. Fill the keys. `cp ~/.dotfiles-ai/secrets.env.example ~/.config/ai/secrets.env && chmod 600 ~/.config/ai/secrets.env`, then edit.
 5. Manual steps (below).
 6. `ai-doctor`.

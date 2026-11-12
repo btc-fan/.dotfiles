@@ -26,7 +26,7 @@ Judge the latest audited release for future machines. Do not rely on what one ma
 4. Contract: `ai/rules/<name>.md` (section 5).
 5. Routing: add a row in `ai/routing.yaml` (section 6) and a tie-break row if it overlaps another skill.
 6. Evals: 3 should-fire prompts (English, Romanian, Russian) and 2 should-not-fire prompts. Put them in `ai/evals/`.
-7. Reinstall and check: `~/.dotfiles-ai/install.sh`, then `ai-doctor`.
+7. Reinstall and check: macOS `~/.dotfiles-ai/install.sh`; server: the admin command `sudo /opt/ai-setup/install.sh --update --for-user <user>`. Then `ai-doctor`.
 Note: plugin skills cannot be hidden one by one. Think about the context cost.
 
 ## 2. Add an MCP server

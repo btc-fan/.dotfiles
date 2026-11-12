@@ -312,7 +312,7 @@ def check_rule_files():
             say("SKIP", "Hermes ~/.config/ai/{rules,TOOLBOX.md}", SKIP_HERMES)
         else:
             say("PASS" if code == 0 else "FAIL", "Hermes ~/.config/ai/{rules,TOOLBOX.md} present",
-                "" if code == 0 else "admin: re-run install.sh --for-user (copies them for hermes)")
+                "" if code == 0 else "admin: run sudo /opt/ai-setup/install.sh --update --for-user (copies them for hermes)")
 
 
 def check_rule_files_user():
@@ -347,7 +347,7 @@ def check_codex_trust():
                         bad.append("program not absolute or not root-owned: %s" % (why or cmd[:60]))
         ok = bool(data) and "router.py" in text and scripts and not bad
         say("PASS" if ok else "FAIL", "Codex: ai-core hooks in %s (managed layer, no trust needed)" % managed,
-            "" if ok else "missing or user-writable: %s; admin: re-run install.sh --for-user <user>" % (bad or "router.py"))
+            "" if ok else "missing or user-writable: %s; admin: sudo /opt/ai-setup/install.sh --update --for-user <user>" % (bad or "router.py"))
         sys.dont_write_bytecode = True
         aiconf = aiconf_module()
         root = aiconf.codex_active_plugin_root(CODEX_HOME, "ai-core", "ai")
@@ -466,10 +466,10 @@ def check_dropped():
     if LINUX and os.path.exists("/etc/systemd/system/ai-docs-mcp.service"):
         code, out = run(["systemctl", "is-active", "ai-docs-mcp.service"])
         say("FAIL", "Grounded Docs unit still installed (%s)" % out.strip(),
-            "admin: install.sh --for-user <user> removes it (recorded undo)")
+            "admin: sudo /opt/ai-setup/install.sh --update --for-user <user> removes it (recorded undo)")
     if shutil.which("github-mcp-server"):
         say("WARN", "github-mcp-server binary still on PATH (%s)" % shutil.which("github-mcp-server"),
-            "admin: install.sh --for-user <user> removes it")
+            "admin: sudo /opt/ai-setup/install.sh --update --for-user <user> removes it")
     plugin_mcp = load_json_file(os.path.join(PLUGIN, ".mcp.json")) or {}
     extra = sorted(set((plugin_mcp.get("mcpServers") or {})) - {"context7"})
     say("PASS" if not extra else "FAIL", "ai-core serves only context7 (Serena is the opt-in plugin ai-serena)",
@@ -490,7 +490,7 @@ def check_claude_policy():
     sb = ms.get("sandbox") or {}
     on = sb.get("enabled") is True and sb.get("failIfUnavailable") is True and sb.get("allowUnsandboxedCommands") is False
     say("PASS" if on else "FAIL", "Claude Bash sandbox required (enabled, failIfUnavailable, no unsandboxed retry)",
-        "" if on else "admin: install.sh --for-user <user> (managed-settings sandbox)")
+        "" if on else "admin: sudo /opt/ai-setup/install.sh --update --for-user <user> (managed-settings sandbox)")
     want = ["~/.ssh", "~/.config/gh", "~/.claude/.credentials.json", "~/.codex/auth.json", "~/.config/ai/secrets.env",
             "~/.hermes/.env"]
     denied = set((sb.get("filesystem") or {}).get("denyRead") or []) | {
@@ -508,10 +508,10 @@ def check_claude_policy():
     lock = ms.get("strictPluginOnlyCustomization")
     locked = lock is True or (isinstance(lock, list) and {"hooks", "mcp"} <= set(lock))
     say("PASS" if locked else "FAIL", "planted .claude/settings.json hooks and .mcp.json servers do not load "
-        "(strictPluginOnlyCustomization hooks+mcp)", "" if locked else "admin: install.sh --for-user <user>")
+        "(strictPluginOnlyCustomization hooks+mcp)", "" if locked else "admin: sudo /opt/ai-setup/install.sh --update --for-user <user>")
     forced = (ms.get("enabledPlugins") or {}).get("ai-core@ai") is True
     say("PASS" if forced else "FAIL", "ai-core force-enabled in managed settings (router and gates cannot be switched off)",
-        "" if forced else "admin: install.sh --for-user <user>")
+        "" if forced else "admin: sudo /opt/ai-setup/install.sh --update --for-user <user>")
     hooks = json.dumps(ms.get("hooks") or {})
     if shutil.which("rtk") and locked:
         say("PASS" if "rtk hook claude" in hooks else "WARN", "RTK hook runs as a managed hook (user hooks are locked)")
@@ -534,7 +534,7 @@ def check_codex_policy():
     req = read_text_file("/etc/codex/requirements.toml") or ""
     ok = re.search(r'^allowed_sandbox_modes\s*=\s*\[[^\]]*\]', req, re.M) and "danger-full-access" not in req
     say("PASS" if ok else "FAIL", "Codex sandbox pinned (requirements.toml: no danger-full-access)",
-        "" if ok else "admin: install.sh --for-user <user>")
+        "" if ok else "admin: sudo /opt/ai-setup/install.sh --update --for-user <user>")
 
 
 def hermes_present():
@@ -579,7 +579,7 @@ def check_hermes():
     sub = aiconf.yaml_extract_child(cfg, "mcp_servers", "context7") or ""
     enabled = bool(sub) and re.search(r"^\s*enabled:\s*(false|False|no|off)\s*$", sub, re.M) is None
     say("PASS" if enabled else "FAIL", "Hermes MCP context7 enabled",
-        "" if enabled else "admin: re-run install.sh --for-user <user> (adds it from hermes' home)")
+        "" if enabled else "admin: sudo /opt/ai-setup/install.sh --update --for-user <user> (adds it from hermes' home)")
     left = [n for n in ("github", "grounded-docs", "serena") if aiconf.yaml_extract_child(cfg, "mcp_servers", n)]
     say("PASS" if not left else "WARN", "Hermes MCP: dropped servers removed",
         ("still there: %s (re-run install.sh)" % ", ".join(left)) if left else "")
@@ -629,7 +629,7 @@ def check_handoff():
         say("WARN", "skill files for Hermes/Codex not checked", str(exc))
         return
     say("PASS" if len(paths) == 2 else "WARN", "claude-seo and claude-blog skill files readable (%d of 2)" % len(paths),
-        "" if len(paths) == 2 else "admin: install.sh --for-user <user> clones them to /opt/agent-plugins")
+        "" if len(paths) == 2 else "admin: sudo /opt/ai-setup/install.sh --update --for-user <user> clones them to /opt/agent-plugins")
     if hermes_present() and MODE != "no-hermes":
         code, _ = as_hermes("test -r /opt/agent-plugins/claude-seo/skills/seo/SKILL.md")
         if code is None:

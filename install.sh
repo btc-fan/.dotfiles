@@ -216,7 +216,7 @@ Do the base server setup first, from the `ubuntu-server` branch of this repo:
   then follow ~/.dotfiles/README.md (its last section points back here).
 Then add this branch as the user, and let admin run this script for that user:
   git -C ~/.dotfiles worktree add ~/.dotfiles-ai ai
-  sudo ~/dotfiles-ai/install.sh --for-user <user>             (as admin, from the admin's own clone)
+  sudo /opt/ai-setup/install.sh --update --for-user <user>     (as admin, root-owned clone)
 EOF
         exit 0
     fi

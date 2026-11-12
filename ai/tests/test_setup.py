@@ -615,7 +615,7 @@ def t_root_guard(work):
         return res.stdout.decode()
     assert "PASSED" in run_guard("ubuntu01", me), "admin-owned clean pushed tree must pass"
     out = run_guard("ubuntu01", "someone-else")
-    assert "refusing" in out and "admin-owned clone" in out, out
+    assert "refusing" in out and "/opt/ai-setup/install.sh --update" in out, out
     assert "refusing" in run_guard(me, me), "a tree owned by the --for-user target must be refused"
     write(os.path.join(tree, "f.txt"), "changed\n")
     assert "uncommitted" in run_guard("ubuntu01", me), "dirty tree must be refused"

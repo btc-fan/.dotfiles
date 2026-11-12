@@ -100,7 +100,7 @@ To read the full table: `ai/routing.yaml`. Do not copy it here.
 |---|---|
 | `ai-doctor` | checks the whole setup |
 | `ai-render` | builds routing.json, L0 table and the root file |
-| `ai-sync` | after a pull: runs `ai-render`, refreshes the copied rule blocks (Codex, Hermes). `--check` compares, `--install-hook` makes `git pull` run it |
+| `ai-sync` | after a pull: runs `ai-render`, refreshes this user's copied rule blocks (Codex; Hermes and `/etc` only through the admin `install.sh --update`). `--check` compares, `--install-hook` makes `git pull` run it |
 | `agent-audit npm\|pypi\|dir\|skill <target>` | audit before install |
 | `ai-start` | new project: grilling, propose tools, write project config |
 | `ai-adopt` | existing repo: project layer, the Map and Libraries sections of AGENTS.md, opt-in tools (`--tools serena,graph,seo,blog,browser,...`) |

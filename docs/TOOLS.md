@@ -58,7 +58,7 @@ An agent is the program that talks to a model and runs tools. A harness is an ag
 
 - **What.** A chat-gateway agent (Discord) with a daily summary.
 - **Why.** You can talk to the server from your phone.
-- **How it works here.** It runs as its own user `hermes`. Every change to it is made as that user and recorded in its own state file. Root rules go into a managed block of its `SOUL.md`, refreshed by `ai-sync`. A small plugin does the L2 and L3 routing. It uses plain skills only. SEO and blog work goes to Claude Code (`claude -p`, never `--bare`). Only the owner's Discord id may talk to it.
+- **How it works here.** It runs as its own user `hermes`. Every change to it is made as that user and recorded in its own state file. Root rules go into a managed block of its `SOUL.md`, refreshed only by the admin command `sudo /opt/ai-setup/install.sh --update --for-user <user>`. A small plugin does the L2 and L3 routing. It uses plain skills only. No sudo. SEO and blog work: it follows the claude-seo and claude-blog skill files itself (no hand-off to Claude). Only the owner's Discord id may talk to it.
 - **Scope.** Global, configured (Linux server).
 - **Pin.** No installer pin exists. The version after install is recorded in `pins.env`.
 - **Telemetry off.** Yes, in its config. Approvals stay manual.
