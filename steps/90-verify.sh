@@ -111,6 +111,9 @@ sh_chk "logind: power key = poweroff" "grep -qs 'HandlePowerKey=poweroff' /etc/s
 sh_chk "journal is persistent" "[ -d /var/log/journal ] && journalctl --list-boots --no-pager | grep -q ."
 chk "hdd-no-spindown enabled" systemctl is-enabled -q hdd-no-spindown.service
 chk "caffeinate installed" test -x /usr/local/bin/caffeinate
+if [ "${KEEP_MULTIPATHD:-no}" != yes ] && systemctl cat multipathd.service >/dev/null 2>&1; then
+    sh_chk "multipathd masked and not running (local disks only)" "[ \"\$(systemctl is-enabled multipathd.service 2>/dev/null)\" = masked ] && ! systemctl is-active -q multipathd.service multipathd.socket"
+fi
 chk "watchdog device present" test -e /dev/watchdog0
 sh_chk "systemd pings the watchdog" "[ \"\$(systemctl show -p RuntimeWatchdogUSec --value)\" != 0 ]"
 p INFO "watchdog: $(cat /sys/class/watchdog/watchdog0/identity 2>/dev/null || echo none)"
@@ -146,6 +149,9 @@ fi
 is_yes "${INSTALL_NODE:-yes}" && chk "node" command -v node
 if is_yes "${INSTALL_POSTGRES:-yes}"; then
     chk "postgresql@$PG_VERSION-main running" systemctl is-active -q "postgresql@$PG_VERSION-main"
+    sh_chk "postgres role $MAIN_USER is NOT superuser (no createrole, createdb ok)" "[ \"\$(runuser -u postgres -- psql -XAtc \"select rolsuper::text || rolcreaterole::text from pg_roles where rolname = '$MAIN_USER'\")\" = falsefalse ]"
+    sh_chk "only the postgres role is superuser" "[ \"\$(runuser -u postgres -- psql -XAtc \"select string_agg(rolname, ' ') from pg_roles where rolsuper\")\" = postgres ]"
+    sh_chk "pg_hba.conf has no trust line" "! grep -vE '^[[:space:]]*(#|\$)' \"\$(runuser -u postgres -- psql -XAtc 'show hba_file')\" | awk '{print \$NF}' | grep -qx trust"
     sh_chk "postgres listens on localhost only" "runuser -u postgres -- psql -XAtc 'show listen_addresses' | grep -qx localhost"
     [ -z "${DATA_MOUNT:-}" ] || sh_chk "postgres data on $DATA_MOUNT" "runuser -u postgres -- psql -XAtc 'show data_directory' | grep -q '^$DATA_MOUNT/'"
     p INFO "databases: $(runuser -u postgres -- psql -XAtc "select string_agg(datname||'='||pg_size_pretty(pg_database_size(datname)), ', ') from pg_database where not datistemplate" 2>/dev/null)"

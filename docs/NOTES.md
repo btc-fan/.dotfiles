@@ -411,3 +411,45 @@ for a fork; `tar --zstd` on 26.04; the host reaching a box IP through ufw.
 - Tests: `tests/proj-agent-socket.test.sh` (Linux): caller name, exit code and stderr, streaming,
   arguments kept as given (no shell), clean env, size and JSON refusals, group refusal, client
   gone stops the command, run time limit, no socket.
+
+#### proj-agent socket protocol, version 1 (stable: clients depend on it)
+- Socket: `/run/proj-agent.sock`, AF_UNIX stream, root:SHARED_GROUP 0660. One request per
+  connection. The caller is the connecting process's uid (SO_PEERCRED); it must be in
+  SHARED_GROUP. Nothing the client sends names the caller.
+- Request: one line of UTF-8 JSON ending in `\n`: `{"v": 1, "argv": ["list"]}`. `argv` = the
+  proj-agent arguments exactly as on the command line (no "proj-agent" in front), each a string,
+  no NUL. Limits: the line at most 65536 bytes, 1 to 512 arguments, each at most 32768 bytes
+  (UTF-8), the whole line within 10 s. Send nothing after it.
+- Answer: frames until the end frame. `O<n>\n` + n bytes = stdout; `E<n>\n` + n bytes = stderr
+  (n is decimal ASCII, the data are raw bytes, not always whole lines); `X<code>\n` = the end,
+  code = exit code of the call. Close after X.
+- Exit codes: 0 ok; 2 refused (proj-agent's allow-list, or the request itself: then one E frame
+  starting "proj-agent: refused: "); 124 or 137 an `exec` that hit its time limit; any other =
+  the command's own code (`exec` passes the box command's code); 128+N killed by signal N.
+  The client tool adds: 1 cannot connect (socket missing or no permission), 255 connection ended
+  without an X frame.
+- The service stops the command when the client closes the connection, when the client does not
+  read for 30 s, or after 3700 s. At most 16 calls at once, 8 per uid (systemd
+  MaxConnectionsPerSource, counted by peer uid on unix sockets).
+- Reference client: `/usr/local/lib/proj-agent/proj-agent-socket call <args...>` (Python,
+  standard library). A new client (the ai branch's box tool) must not use a shell to build argv.
+
+### Fix round 3 (2026-11-12, second Fable round on the socket)
+- Postgres: the main user was SUPERUSER (from `createuser -s` in step 40) and the local socket is
+  0777 (Postgres default). Any process of the main user, sandboxed or not, could run
+  `COPY ... TO PROGRAM` as the postgres OS user. Now step 40 makes the role NOSUPERUSER
+  NOCREATEROLE CREATEDB (existing role altered), refuses a `trust` line in pg_hba.conf, and
+  verify checks: main role not superuser, only `postgres` is superuser, no trust line. The
+  socket stays 0777: authentication is peer (the OS user), and that user is no longer super.
+  For the md999 move: the main user may create its own databases; a restore that needs
+  superuser (untrusted extensions, roles) is done by the admin with `sudo -u postgres`, then
+  `ALTER DATABASE ... OWNER TO <main user>` and `REASSIGN OWNED` as needed.
+- Socket service: every send has a 30 s timeout (a client that stops reading is treated as gone,
+  test with a stalled client). `PROJ_AGENT_CALLER` counts only when proj-agent's parent process
+  is the root socket service itself (checked in /proc); sudo-rs refuses to pass the variable
+  anyway (tested: "you are not allowed to set the following environment variables").
+  MaxConnectionsPerSource counts per peer uid on unix sockets (systemd.socket(5) on the server).
+- proj: a per-box-name lock (`/run/lock/proj/<name>.lock`, flock, 900 s wait) for new, snapshot,
+  restore, fork (the new name), wipe, recreate, workspace, protect, promote, extend.
+- multipathd: stopped and masked in step 20 (local disks only, its 666 socket had root bugs);
+  `KEEP_MULTIPATHD=yes` keeps it; verify checks it.

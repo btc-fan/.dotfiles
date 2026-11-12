@@ -366,10 +366,33 @@ EOF
     [ "$(systemctl is-enabled "$unit" 2>/dev/null || true)" = enabled ] \
         || warn "$unit runs but is not enabled (no start after a reboot): sudo systemctl enable $unit"
     sleep 2
-    if ! runuser -u postgres -- psql -XAtc "select 1 from pg_roles where rolname='$MAIN_USER'" | grep -q 1; then
-        runuser -u postgres -- createuser -s "$MAIN_USER"
-    fi
+    pg_main_role
+
     runuser -u postgres -- psql -XAtc "show data_directory; show listen_addresses; show data_checksums" | sed 's/^/   /'
+}
+
+# pg_main_role: SECURITY (owner decision 2026-11-12). The main user (and every agent running as
+# that user) gets a Postgres role WITHOUT superuser: CREATEDB, owner of the databases it makes,
+# no CREATEROLE. A superuser can run programs as the postgres OS user (COPY ... TO PROGRAM) and
+# read or drop every database. Work that needs superuser (extensions that are not trusted, a
+# restore of a whole cluster) is done by the admin: sudo -u postgres ... . The local socket is
+# peer authentication only; any "trust" line in pg_hba.conf is refused.
+pg_main_role() {
+    local q="select rolsuper::text || rolcreaterole::text || rolcreatedb::text from pg_roles where rolname = '$MAIN_USER'"
+    local now
+    now=$(runuser -u postgres -- psql -XAtc "$q")
+    if [ -z "$now" ]; then
+        info "Postgres role $MAIN_USER: CREATEDB, no superuser"
+        run runuser -u postgres -- createuser --createdb --no-superuser --no-createrole "$MAIN_USER"
+    elif [ "$now" != falsefalsetrue ]; then
+        info "Postgres role $MAIN_USER: was super/createrole/createdb = $now, now NOSUPERUSER NOCREATEROLE CREATEDB"
+        run runuser -u postgres -- psql -XAtc "alter role \"$MAIN_USER\" nosuperuser nocreaterole createdb"
+    fi
+    local hba
+    hba=$(runuser -u postgres -- psql -XAtc "show hba_file")
+    if grep -vE '^[[:space:]]*(#|$)' "$hba" | awk '{print $NF}' | grep -qx trust; then
+        die "$hba has a 'trust' line: anybody on this host could log in as any role. Fix it by hand (peer for local, scram-sha-256 for host)."
+    fi
 }
 
 # Memory from RAM size: shared_buffers about 1/7, effective_cache_size about 4/7.

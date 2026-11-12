@@ -23,9 +23,10 @@ Human rules: docs/HOSTING.md. The owner's root-owned files in /etc win over this
 - Pick a tier: try (deleted after 7 days), mvp (kept, can be wiped), long (protected).
   Unsure: try. A bot that must stay up: mvp.
 - Pick a name: lowercase letters, digits and -, 2 to 31 characters, starting with a letter.
-- Agents have no general sudo on the host. The one root command you may run is `proj-agent`,
-  WITHOUT sudo (a root service runs it for you, so it works in a sandbox too; `proj-agent help`
-  lists it all; `sudo proj-agent` is the old form and still works outside a sandbox):
+- Agents have no general sudo on the host. The one root command you may use is `proj-agent`
+  (`proj-agent help` lists it all). How to reach it: Claude Code uses the box tool (MCP, from
+  the ai branch), which talks to the root socket service; Codex, Hermes and the owner's shell run
+  plain `proj-agent ...` (no sudo). `sudo proj-agent` is the old form and still works. Commands:
   - new box, after the grill-me answers: `proj-agent new <name> --tier try|mvp [--docker] [--pg]`.
     Tier long: ask the owner and give them `sudo proj new <name> --tier long`.
   - `proj-agent list`, `proj-agent snapshot <box>`, `proj-agent doctor`.

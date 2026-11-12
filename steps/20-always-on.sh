@@ -22,6 +22,7 @@ main() {
     setup_grub
     setup_wol
     setup_wait_online
+    no_multipathd
     if [ "$UNITS_CHANGED" = 1 ]; then run systemctl daemon-reload; fi
     wait_online_reset
 }
@@ -248,6 +249,26 @@ ExecStart=
 ExecStart=-/usr/lib/systemd/systemd-networkd-wait-online -i $NIC:routable --timeout=$t
 EOF
     note_unit
+}
+
+# multipathd: for SAN disks with several paths. This box has plain local disks, nothing uses
+# it, and its control socket (/run/multipathd.socket, mode 666) has had root bugs. Stopped and
+# masked (a package upgrade cannot start it again) unless a multipath device exists or host.env
+# KEEP_MULTIPATHD=yes. Undo: sudo systemctl unmask --now multipathd.socket multipathd.service
+no_multipathd() {
+    systemctl cat multipathd.service >/dev/null 2>&1 || return 0
+    if is_yes "${KEEP_MULTIPATHD:-no}"; then info "multipathd kept (KEEP_MULTIPATHD=yes)"; return 0; fi
+    if lsblk -rno TYPE 2>/dev/null | grep -qx mpath; then
+        warn "a multipath device exists: multipathd left running"
+        return 0
+    fi
+    log "multipathd off (local disks only; masked)"
+    local u
+    for u in multipathd.socket multipathd.service; do
+        [ "$(systemctl is-enabled "$u" 2>/dev/null || true)" = masked ] && continue
+        run systemctl stop "$u" 2>/dev/null || true
+        run systemctl mask "$u"
+    done
 }
 
 # The unit failed on an earlier boot: clear that state once the fix is in, so the failed-unit

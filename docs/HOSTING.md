@@ -182,8 +182,9 @@ Box names: lower case letters, digits and `-`, 2 to 31 characters. Forks: `<box>
 - One exception (owner decision 2026-11-11, `AGENT_SUDO_ALLOW="proj-agent"`): the main user and
   `AGENT_USER` may run `proj-agent`. No sudo needed: a normal user's call goes through the root
   socket service `/run/proj-agent.sock` (group devs only, the kernel tells it who is calling),
-  so it also works inside a sandbox where sudo cannot (no_new_privs). `sudo proj-agent` still
-  works. It is a strict allow-list: new box
+  so it also works where sudo cannot (no_new_privs). Claude Code reaches it through the box tool
+  (MCP, ai branch; its Bash sandbox keeps unix sockets closed), Codex, Hermes and your shell run
+  plain `proj-agent`. `sudo proj-agent` still works. Protocol: docs/NOTES.md. It is a strict allow-list: new box
   (try or mvp only), list, snapshot, doctor, logs, status, restart a service inside a box, and
   exec / ports / url inside a box (exec runs any command there as `dev`, never as root, at most
   3600 s; the box is the boundary).

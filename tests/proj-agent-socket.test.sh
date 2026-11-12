@@ -22,6 +22,7 @@ case "\$1" in
     stream) echo first; sleep 2; echo second ;;
     sleep) echo \$\$ > "$T/agent.pid"; sleep 60 ;;
     args) shift; printf '<%s>\n' "\$@" ;;
+    flood) echo \$\$ > "$T/flood.pid"; exec yes flooding-the-client ;;
     env) env | sort ;;
 esac
 EOF
@@ -96,6 +97,18 @@ kill "$c" 2>/dev/null; wait "$c" 2>/dev/null
 sleep 3
 p=$(cat "$T/agent.pid" 2>/dev/null)
 [ -n "$p" ] && ! kill -0 "$p" 2>/dev/null && ok || bad "the command kept running after the client went away (pid $p)"
+
+# A client that sends the request and then never reads: the root process must not hang on it.
+kill "$LOOP"; wait "$LOOP" 2>/dev/null; rm -f "$SOCK"
+PROJ_AGENT_SEND_TIMEOUT=2 python3 "$T/loop.py" "$SOCK" "$SRV" "$T/group" & LOOP=$!
+for _ in $(seq 1 50); do [ -S "$SOCK" ] && break; sleep 0.1; done
+python3 -I -c 'import socket,sys,time
+s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.sendall(b"{\"v\":1,\"argv\":[\"flood\"]}\n"); time.sleep(12)' "$SOCK" &
+stall=$!
+sleep 8
+p=$(cat "$T/flood.pid" 2>/dev/null)
+[ -n "$p" ] && ! kill -0 "$p" 2>/dev/null && ok || bad "a client that stops reading kept the command running (pid $p)"
+kill "$stall" 2>/dev/null; wait "$stall" 2>/dev/null
 
 kill "$LOOP"; wait "$LOOP" 2>/dev/null; rm -f "$SOCK"
 PROJ_AGENT_RUN_TIMEOUT=2 python3 "$T/loop.py" "$SOCK" "$SRV" "$T/group" & LOOP=$!

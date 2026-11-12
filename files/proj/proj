@@ -329,6 +329,15 @@ ws_unsnap() {
     say "workspace $d restored from $label (dependencies and caches were not in it: reinstall them)"
 }
 
+# lock_box NAME: hold /run/lock/proj/NAME.lock for the rest of this proj run (fd 7). Another
+# proj command on the same name waits up to PROJ_LOCK_WAIT seconds (default 900), then gives up.
+lock_box() {
+    local d=${PROJ_LOCK_DIR:-/run/lock/proj}
+    mkdir -p "$d"
+    exec 7> "$d/$1.lock"
+    flock -w "${PROJ_LOCK_WAIT:-900}" 7 || die "box $1 is busy: another proj command is working on it. Try again later."
+}
+
 bootstrap() {  # name docker pg
     say "bootstrap $1 (user dev, tools$([ "$2" = yes ] && echo ', docker')$([ "$3" = yes ] && echo ', postgres'))"
     incus file push "$SHARE/box-bootstrap.sh" "$1/root/box-bootstrap.sh" --mode 0755
@@ -1201,6 +1210,12 @@ main() {
     case "$cmd" in -h|--help|help) usage 0 ;; esac
     need_root "$cmd"
     command -v incus >/dev/null || die "incus is not installed (setup.sh step 70-hosting)"
+    # One proj command at a time per box name: two agents running "new x" at once must not race.
+    case "$cmd" in
+        new|snapshot|restore|wipe|rm|recreate|reset|workspace|protect|unprotect|promote|extend)
+            [ -z "${1:-}" ] || { valid_name "$1"; lock_box "$1"; } ;;
+        fork) [ -z "${2:-}" ] || { valid_name "$2"; lock_box "$2"; } ;;
+    esac
     case "$cmd" in
         new) cmd_new "$@" ;;
         list|ls) cmd_list ;;

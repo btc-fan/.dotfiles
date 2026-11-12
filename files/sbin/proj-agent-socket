@@ -17,7 +17,9 @@ must be a member of SHARED_GROUP (host.env, default devs); its name goes to proj
 PROJ_AGENT_CALLER, logged as user=<name> and used as the box owner, like SUDO_USER.
 Limits: a request is one JSON line {"v": 1, "argv": [...]}, at most 64 KiB, 512 arguments,
 32 KiB per argument, read within 10 s. A command runs at most 3700 s (proj-agent exec allows
-3600). The client going away stops the command. systemd limits connections (16, 8 per user).
+3600). The client going away, or not reading for 30 s, stops the command. systemd limits
+connections (16, and 8 per uid: MaxConnectionsPerSource counts by peer uid on unix sockets).
+The full protocol (stable, version 1) is in docs/NOTES.md.
 Wire format back: frames b"O<n>\\n"+data (stdout), b"E<n>\\n"+data (stderr), b"X<code>\\n" (end).
 """
 import grp
@@ -39,6 +41,7 @@ MAX_REQ = 64 * 1024
 MAX_ARGS = 512
 MAX_ARG = 32 * 1024
 READ_TIMEOUT = 10
+SEND_TIMEOUT = 30   # a client that stops reading for this long is treated as gone
 RUN_TIMEOUT = 3700
 SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -49,6 +52,7 @@ if TEST:
     SOCK = os.environ.get("PROJ_AGENT_SOCK", SOCK)
     AGENT = os.environ.get("PROJ_AGENT_BIN", AGENT)
     RUN_TIMEOUT = int(os.environ.get("PROJ_AGENT_RUN_TIMEOUT", RUN_TIMEOUT))
+    SEND_TIMEOUT = int(os.environ.get("PROJ_AGENT_SEND_TIMEOUT", SEND_TIMEOUT))
 
 
 def shared_group():
@@ -135,7 +139,9 @@ def serve():
     argv, err = read_request(conn)
     if err:
         fail(conn, err)
-    conn.settimeout(None)
+    # Every send may block at most SEND_TIMEOUT: a client that stops reading cannot hold this
+    # root process (and one of the caller's connection slots) until RuntimeMaxSec.
+    conn.settimeout(SEND_TIMEOUT)
     env = {"PATH": SAFE_PATH, "LC_ALL": "C.UTF-8", "LANG": "C.UTF-8",
            "PROJ_AGENT_CALLER": user.pw_name, "PROJ_AGENT_VIA": "socket"}
     if TEST:

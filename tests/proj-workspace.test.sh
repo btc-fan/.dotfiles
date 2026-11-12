@@ -197,6 +197,21 @@ ls "$WORK_ROOT/.trash" | grep -q '^snapbox-' && ok || bad "unsnap: the current w
 bad_lines=$(grep -nE '^[^#]*find [^|]*-exec ch(own|mod)' "$REPO/files/proj/proj" | grep -v 'as_main find' || true)
 [ -z "$bad_lines" ] && ok || bad "root find -exec chown/chmod left in proj: $bad_lines"
 
+echo "== lock: two proj commands on the same box name never run at once"
+if command -v flock >/dev/null; then
+    ( PROJ_LOCK_DIR=$T/locks; lock_box racebox; sleep 3 ) & holder=$!
+    sleep 1
+    out=$( (PROJ_LOCK_DIR=$T/locks PROJ_LOCK_WAIT=1; lock_box racebox) 2>&1 ); rc=$?
+    [ "$rc" = 1 ] && grep -q "box racebox is busy" <<< "$out" && ok || bad "second lock on the same name was not refused: rc=$rc $out"
+    out=$( (PROJ_LOCK_DIR=$T/locks PROJ_LOCK_WAIT=1; lock_box otherbox; echo got) 2>&1 )
+    grep -qx got <<< "$out" && ok || bad "a lock on another name must not wait: $out"
+    wait "$holder"
+    out=$( (PROJ_LOCK_DIR=$T/locks PROJ_LOCK_WAIT=1; lock_box racebox; echo got) 2>&1 )
+    grep -qx got <<< "$out" && ok || bad "the lock was not free after the first command ended: $out"
+else
+    echo "(no flock here: lock test skipped, it runs on Linux)"
+fi
+
 echo
 echo "proj workspace tests: $pass passed, $fail failed"
 [ "$fail" = 0 ]

@@ -83,11 +83,27 @@ if [ "$(id -u)" -ne 0 ]; then
     fi
 fi
 
+# from_socket_service: true only when the parent process is the root socket service itself
+# (python3 -I /usr/local/lib/proj-agent/proj-agent-socket serve, all uids 0). Under sudo the
+# parent is sudo, so PROJ_AGENT_CALLER from anywhere else is ignored (sudo-rs also refuses to
+# pass it: "you are not allowed to set ... PROJ_AGENT_CALLER").
+from_socket_service() {
+    local st cmd
+    [ "$(id -u)" -eq 0 ] || return 1
+    st=$(cat "/proc/$PPID/status" 2>/dev/null) || return 1
+    grep -qE '^Uid:[[:space:]]+0[[:space:]]+0[[:space:]]+0[[:space:]]+0$' <<< "$st" || return 1
+    cmd=$(tr '\0' ' ' < "/proc/$PPID/cmdline" 2>/dev/null) || return 1
+    case "$cmd" in
+        "/usr/bin/python3 -I /usr/local/lib/proj-agent/proj-agent-socket serve "|\
+        "python3 -I /usr/local/lib/proj-agent/proj-agent-socket serve ") return 0 ;;
+    esac
+    return 1
+}
+
 WHO=root
 VIA=sudo
-if [ -n "${PROJ_AGENT_CALLER:-}" ] && [ "$(id -u)" -eq 0 ]; then
-    # Set only by proj-agent-socket (from SO_PEERCRED). sudo's env_reset drops it, so a sudo
-    # caller cannot pretend to be someone else.
+if [ -n "${PROJ_AGENT_CALLER:-}" ] && from_socket_service; then
+    # Set by proj-agent-socket from the kernel's SO_PEERCRED: the real caller.
     VIA=socket
     if [[ $PROJ_AGENT_CALLER =~ $USER_RE ]]; then WHO=$PROJ_AGENT_CALLER; else WHO=unknown; fi
 elif [ -n "${SUDO_USER:-}" ]; then
