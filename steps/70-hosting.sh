@@ -451,13 +451,13 @@ workspaces() {
 # workspace_nosuid ROOT: SECURITY. The workspace device uses shift=true, so root inside a box
 # writes files owned by real uid 0 on the host. A setuid-root file made in a box would then run as
 # root on the host (proven 2026-11-12). ROOT is bind-mounted onto itself with nosuid,nodev before
-# Incus starts: the host ignores setuid bits and device files there. setuid files already there
-# lose the bit. proj doctor and proj selftest check this.
+# Incus starts: the host ignores setuid bits and device files there. Hard dependency: incus.service and incus.socket Require= the mount (drop-ins),
+# so when the mount fails, Incus does not start at all. proj doctor and proj selftest check this.
 workspace_nosuid() {
-    local root=$1 unit opts
+    local root=$1 unit opts u
     unit="$(systemd-escape -p --suffix=mount "$root")"
     put "/etc/systemd/system/$unit" 644 <<EOF
-# Managed by ~/.dotfiles setup.sh (step 70-hosting). Box root writes real uid 0 here (shift=true):
+# Managed by setup.sh (step 70-hosting). Box root writes real uid 0 here (shift=true):
 # no setuid programs and no device files may work on the host.
 [Unit]
 Description=proj workspaces without setuid or device files
@@ -473,19 +473,38 @@ Options=bind,nosuid,nodev
 [Install]
 WantedBy=local-fs.target
 EOF
-    if dry; then info "[dry-run] systemctl enable --now $unit"; return 0; fi
+    for u in incus.service incus.socket; do
+        put "/etc/systemd/system/$u.d/10-workspace-nosuid.conf" 644 <<EOF
+# Managed by setup.sh (step 70-hosting). SECURITY: Incus starts only after $root is mounted
+# nosuid,nodev. If that mount fails, Incus does not start (and no box runs).
+[Unit]
+Requires=$unit
+After=$unit
+EOF
+    done
+    if dry; then info "[dry-run] systemctl daemon-reload; enable + start $unit"; return 0; fi
     systemctl daemon-reload
     systemctl enable -q "$unit"
     opts=$(findmnt -no OPTIONS -M "$root" 2>/dev/null || true)
-    if [[ ",$opts," != *,nosuid,* || ",$opts," != *,nodev,* ]]; then
-        if [ -n "$opts" ]; then systemctl restart "$unit"; else systemctl start "$unit"; fi
+    if [ -z "$opts" ]; then
+        systemctl start "$unit"
+    elif [[ ",$opts," != *,nosuid,* || ",$opts," != *,nodev,* ]]; then
+        # Never restart the unit here: Incus Requires= it, a restart would restart Incus (and
+        # stop every box). A remount changes only the flags.
+        mount -o remount,bind,nosuid,nodev "$root"
     fi
     opts=$(findmnt -no OPTIONS -M "$root" 2>/dev/null || true)
     [[ ",$opts," == *,nosuid,* && ",$opts," == *,nodev,* ]] \
         || die "$root is not mounted nosuid,nodev (got '$opts'): boxes could plant setuid-root files"
-    info "$root mounted nosuid,nodev"
-    find "$root" -xdev -type f -perm /6000 -print -exec chmod ug-s {} + 2>/dev/null \
-        | sed 's/^/   removed setuid\/setgid bit: /' || true
+    info "$root mounted nosuid,nodev; incus.service and incus.socket require it"
+    for u in incus.service incus.socket; do
+        systemctl show -p Requires --value "$u" | tr ' ' '\n' | grep -qxF "$unit" \
+            || die "$u does not Require= $unit after daemon-reload"
+    done
+    # Report only. A root chmod here could be sent through a symlink an agent swaps in between
+    # find and chmod; on a nosuid mount the bits do nothing on the host anyway.
+    find "$root" -xdev -type f -perm /6000 -print 2>/dev/null | head -n 20 \
+        | sed 's/^/   WARN setuid\/setgid file (does nothing here, nosuid): /' || true
 }
 
 # host.env AGENT_SUDO_ALLOW (default "proj-agent", owner decision 2026-11-11): MAIN_USER and

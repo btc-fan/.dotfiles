@@ -240,6 +240,11 @@ if [ -n "${BOX_DISK_SERIAL:-}" ]; then
     sh_chk "box-base NIC: port isolation + ACL" "incus profile device get box-base eth0 security.port_isolation | grep -qx true && incus profile device get box-base eth0 security.acls | grep -qx box-egress"
     sh_chk "workspace root $WORK_ROOT root:${SHARED_GROUP:-devs} 750" "[ \"\$(stat -c %U:%G:%a '$WORK_ROOT')\" = 'root:${SHARED_GROUP:-devs}:750' ]"
     sh_chk "workspace trash $WORK_ROOT/.trash root 700" "[ \"\$(stat -c %U:%a '$WORK_ROOT/.trash')\" = root:700 ]"
+    wsunit=$(systemd-escape -p --suffix=mount "$WORK_ROOT")
+    sh_chk "workspace mount $wsunit active, nosuid,nodev" "systemctl is-active -q '$wsunit' && findmnt -no OPTIONS -M '$WORK_ROOT' | tr ',' '\n' | grep -qx nosuid && findmnt -no OPTIONS -M '$WORK_ROOT' | tr ',' '\n' | grep -qx nodev"
+    for u in incus.service incus.socket; do
+        sh_chk "$u Requires= and After= $wsunit (no Incus without the nosuid mount)" "systemctl show -p Requires --value $u | tr ' ' '\n' | grep -qxF '$wsunit' && systemctl show -p After --value $u | tr ' ' '\n' | grep -qxF '$wsunit'"
+    done
     sh_chk "git trusts the workspaces (safe.directory $WORK_ROOT/*)" "git config --system --get-all safe.directory | grep -qxF '$WORK_ROOT/*'"
     sh_chk "$MAIN_USER is uid 1000 (= dev in every box, shift=true)" "[ \"\$(id -u '$MAIN_USER')\" = 1000 ]"
     for b in $(incus list -f json 2>/dev/null | jq -r '.[] | select(.config["user.proj.tier"] != null) | .name'); do
