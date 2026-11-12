@@ -393,8 +393,12 @@ scanner_ok() { has "$1" && "$1" --version 2>/dev/null | grep -q "$2"; }
 
 tools_scanners() {
     if [ "$AI_SKIP_PACKAGES" = 1 ]; then skip "audit scanners (--skip-packages)"; return 0; fi
-    local pair name ver bin
-    for pair in "guarddog:$GUARDDOG_VERSION:guarddog" "cisco-ai-skill-scanner:$SKILL_SCANNER_VERSION:skill-scanner"; do
+    local pair name ver bin skver=$SKILL_SCANNER_VERSION
+    # skill-scanner 2.1+ ships macOS 13+ binaries only; older macOS gets the last pure-Python release.
+    if [ "$AI_OS" = macos ] && [ "$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)" -lt 13 ] 2>/dev/null; then
+        skver=$SKILL_SCANNER_MACOS_LEGACY_VERSION
+    fi
+    for pair in "guarddog:$GUARDDOG_VERSION:guarddog" "cisco-ai-skill-scanner:$skver:skill-scanner"; do
         name=${pair%%:*}; ver=${pair#*:}; ver=${ver%%:*}; bin=${pair##*:}
         if scanner_ok "$bin" "$ver"; then info "$bin $ver present"; continue; fi
         if [ "$AI_OS" = linux ]; then
@@ -402,8 +406,13 @@ tools_scanners() {
                 uv tool install --force --no-build -p "$SCANNER_PYTHON" "$name==$ver" || { warn "$bin $ver install failed"; continue; }
             aiconf record-cmd "uv-root:$bin" -- $SUDO_UNDO env UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin uv tool uninstall "$name"
         else
-            run env UV_LINK_MODE=copy uv tool install --force --no-build -p "$SCANNER_PYTHON" "$name==$ver" \
-                || { warn "$bin $ver install failed"; continue; }
+            # Wheels first. Older macOS has no wheel for some native parts (yara-python, yara-x need macOS 13/14):
+            # then build from the pinned sdist (needs the Command Line Tools; yara-x needs cargo).
+            if ! run env UV_LINK_MODE=copy uv tool install --force --no-build -p "$SCANNER_PYTHON" "$name==$ver"; then
+                info "$bin $ver: no wheel for this macOS, building from source"
+                run env UV_LINK_MODE=copy uv tool install --force -p "$SCANNER_PYTHON" "$name==$ver" \
+                    || { warn "$bin $ver install failed (source build)"; continue; }
+            fi
             aiconf record-cmd "uv:$bin" -- uv tool uninstall "$name"
         fi
         ok "$bin $ver (pinned, wheels only)"
