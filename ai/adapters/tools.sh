@@ -49,8 +49,19 @@ uv_pinned() {
     local name=$1 ver=$2 py=${3:-} re=()
     audit_ok pypi "$name" "$ver" || return 1
     uv_tool_linked "$name" && re=(--reinstall)
-    if [ -n "$py" ]; then run env UV_LINK_MODE=copy uv tool install --force --no-build ${re[@]+"${re[@]}"} -p "$py" "$name==$ver"
-    else run env UV_LINK_MODE=copy uv tool install --force --no-build ${re[@]+"${re[@]}"} "$name==$ver"; fi
+    [ -n "$py" ] && re+=(-p "$py")
+    uv_install_wheels_first "$name==$ver" ${re[@]+"${re[@]}"}
+}
+
+# uv tool install, wheels only. On macOS only: when a pinned dependency has no wheel for this macOS version
+# (older Intel Macs: cryptography, yara-python, yara-x ship macOS 13/14+ wheels), retry as a source build of
+# the same pinned versions (needs the Command Line Tools; Rust parts need cargo).
+uv_install_wheels_first() {
+    local spec=$1; shift
+    run env UV_LINK_MODE=copy uv tool install --force --no-build "$@" "$spec" && return 0
+    [ "$AI_OS" = macos ] || return 1
+    info "$spec: no wheel for this macOS, building from source"
+    run env UV_LINK_MODE=copy uv tool install --force "$@" "$spec"
 }
 
 # uv_tool_linked <name>: true when a file of that installed uv tool has more than one hard link.
@@ -407,13 +418,7 @@ tools_scanners() {
                 uv tool install --force --no-build -p "$SCANNER_PYTHON" "$name==$ver" || { warn "$bin $ver install failed"; continue; }
             aiconf record-cmd "uv-root:$bin" -- $SUDO_UNDO env UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin uv tool uninstall "$name"
         else
-            # Wheels first. Older macOS has no wheel for some native parts (yara-python, yara-x need macOS 13/14):
-            # then build from the pinned sdist (needs the Command Line Tools; yara-x needs cargo).
-            if ! run env UV_LINK_MODE=copy uv tool install --force --no-build -p "$SCANNER_PYTHON" "$name==$ver"; then
-                info "$bin $ver: no wheel for this macOS, building from source"
-                run env UV_LINK_MODE=copy uv tool install --force -p "$SCANNER_PYTHON" "$name==$ver" \
-                    || { warn "$bin $ver install failed (source build)"; continue; }
-            fi
+            uv_install_wheels_first "$name==$ver" -p "$SCANNER_PYTHON" || { warn "$bin $ver install failed"; continue; }
             aiconf record-cmd "uv:$bin" -- uv tool uninstall "$name"
         fi
         ok "$bin $ver (pinned, wheels only)"
