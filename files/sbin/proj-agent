@@ -6,7 +6,7 @@
 # Usage: sudo proj-agent <command> [args]
 #   new <name> --tier try|mvp [--docker] [--pg]   new box (tier long: ask the owner)
 #   list                          all boxes and host projects
-#   snapshot <name>               snapshot a box and its data volume
+#   snapshot <name>               snapshot a box, its data volume and its workspace
 #   doctor                        proj health checks (no network test, no box is made)
 #   logs <unit> [-n N]            host journal of one unit, last N lines (1 to 2000, default 200)
 #   logs box <name> [-n N]        journal inside a box, last N lines ("box" is never a unit here)

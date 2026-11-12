@@ -7,9 +7,9 @@
 #   list                         all boxes and host projects
 #   status <name>                details of one box or host project
 #   shell <name>                 log in to the box as dev (tmux session "main")
-#   snapshot <name> [label]      snapshot the box and its data volume
+#   snapshot <name> [label]      snapshot the box, its data volume and its workspace
 #   snapshots <name>             list snapshots
-#   restore <name> <label>       go back to a snapshot (makes a pre-restore snapshot first)
+#   restore <name> <label>       go back to a snapshot, workspace too (pre-restore snapshot first)
 #   fork <src> <new> [--tier try|mvp] [--ttl 3d]   instant copy of a box (and its workspace)
 #   wipe <name> [--yes]          delete box and data. Refused for long and protected boxes.
 #                                Asks about the workspace: kept in .trash unless you type delete
@@ -247,17 +247,72 @@ ws_trash() {
 }
 
 # ws_dispose NAME: after a wipe (or expire, which never asks): trash, or delete when asked to.
+# The workspace snapshots follow the workspace: deleted with it, or kept next to it in .trash.
 ws_dispose() {
-    local d
+    local d s
     d=$(ws_dir "$1")
-    [ -d "$d" ] || return 0
+    s="$WS_SNAP_ROOT/$1"
     if [ "$WS_DROP" = yes ]; then
-        rm -rf -- "$d"
-        note "workspace deleted $d"
-        say "workspace deleted: $d"
+        if [ -d "$d" ]; then rm -rf -- "$d"; note "workspace deleted $d"; say "workspace deleted: $d"; fi
+        if [ -d "$s" ]; then rm -rf -- "$s"; say "workspace snapshots deleted: $s"; fi
     else
         ws_trash "$1"
+        if [ -d "$s" ]; then
+            local t
+            t="$WORK_ROOT/.trash/$1-snapshots-$(stamp)"
+            [ ! -e "$t" ] || t="$t-$(date +%S)"
+            mkdir -p "$WORK_ROOT/.trash"
+            chmod 700 "$WORK_ROOT/.trash"
+            mv -- "$s" "$t"
+            say "workspace snapshots kept: $t"
+        fi
     fi
+}
+
+# ---- Workspace snapshots: WORK_ROOT/.snapshots/<box>/<label>.tar.zst (root only) ----
+# Taken together with every box snapshot, so restore brings back the code too. Rebuildable
+# folders (dependencies, caches) are left out: reinstall them after a restore.
+WS_SNAP_ROOT="$WORK_ROOT/.snapshots"
+WS_SNAP_KEEP=${PROJ_WS_SNAP_KEEP:-10}
+[[ "$WS_SNAP_KEEP" =~ ^[0-9]+$ ]] && [ "$WS_SNAP_KEEP" -ge 1 ] || WS_SNAP_KEEP=1
+WS_SNAP_EXCLUDES=(node_modules .venv venv __pycache__ .cache .pytest_cache .mypy_cache .ruff_cache .next)
+
+ws_snap_file() { echo "$WS_SNAP_ROOT/$1/$2.tar.zst"; }
+
+# ws_snap NAME LABEL: archive the workspace (if the box has one). Keeps the newest WS_SNAP_KEEP.
+ws_snap() {
+    local name=$1 label=$2 d f ex=() x
+    d=$(ws_source "$name")
+    [ -n "$d" ] && [ -d "$d" ] || return 0
+    mkdir -p "$WS_SNAP_ROOT/$name"
+    chown root:root "$WS_SNAP_ROOT" "$WS_SNAP_ROOT/$name"
+    chmod 700 "$WS_SNAP_ROOT" "$WS_SNAP_ROOT/$name"
+    f=$(ws_snap_file "$name" "$label")
+    for x in "${WS_SNAP_EXCLUDES[@]}"; do ex+=(--exclude="$x"); done
+    tar -C "$d" "${ex[@]}" --zstd -cf "$f.partial" . \
+        && zstd -tq "$f.partial" && mv -- "$f.partial" "$f" \
+        || { rm -f -- "$f.partial"; die "workspace snapshot of $d failed"; }
+    # Prune: newest first, keep WS_SNAP_KEEP (the one just made is the newest).
+    ls -1t "$WS_SNAP_ROOT/$name"/*.tar.zst 2>/dev/null | tail -n +"$((WS_SNAP_KEEP + 1))" \
+        | while IFS= read -r old; do rm -f -- "$old"; done
+    echo "$f"
+}
+
+# ws_unsnap NAME LABEL: replace the workspace with the archive. The current one goes to .trash.
+ws_unsnap() {
+    local name=$1 label=$2 d f
+    f=$(ws_snap_file "$name" "$label")
+    [ -f "$f" ] || { say "no workspace snapshot $label: the workspace stays as it is now"; return 0; }
+    ws_check
+    d=$(ws_dir "$name")
+    ws_trash "$name"
+    ws_make "$name"
+    tar -C "$d" --zstd -xf "$f" --no-same-owner --no-same-permissions
+    find "$d" -xdev ! -type l -exec chown "$MAIN_USER:$WS_GROUP" {} +
+    find "$d" -xdev ! -type l \( -perm -4000 -o -perm -2000 \) -exec chmod ug-s {} +
+    find "$d" -xdev ! -type l -perm -g=r -exec chmod g+w {} +
+    find "$d" -xdev -type d -exec chmod g+s {} +
+    say "workspace $d restored from $label (dependencies and caches were not in it: reinstall them)"
 }
 
 bootstrap() {  # name docker pg
@@ -463,29 +518,38 @@ cmd_shell() {
 cmd_snapshot() {
     need_box "${1:?name}"
     local label=${2:-manual-$(stamp)}
+    local wsf=""
+    [[ "$label" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$ ]] || die "bad label '$label': letters, digits, . _ -"
     incus snapshot create "$1" "$label"
     if has_vol "$1"; then incus storage volume snapshot create "$POOL" "$1-data" "$label"; fi
+    wsf=$(ws_snap "$1" "$label")
     note "snapshot $1 $label"
-    say "snapshot $label made (box$(has_vol "$1" && echo ' + data'))"
-    [ -z "$(ws_source "$1")" ] || say "the workspace $(ws_dir "$1") (/srv/app) is on the host: not in the snapshot. Commit the code."
+    say "snapshot $label made (box$(has_vol "$1" && echo ' + data')${wsf:+ + workspace})"
 }
 
 cmd_snapshots() {
     need_box "${1:?name}"
     echo "box $1:"; incus snapshot list "$1"
     if has_vol "$1"; then echo "data $1-data:"; incus storage volume snapshot list "$POOL" "$1-data"; fi
+    if [ -d "$WS_SNAP_ROOT/$1" ]; then
+        echo "workspace (newest first, keeps $WS_SNAP_KEEP):"
+        ls -1t "$WS_SNAP_ROOT/$1"/*.tar.zst 2>/dev/null | while IFS= read -r f; do
+            printf '  %s  %s\n' "$(basename "$f" .tar.zst)" "$(du -h "$f" | cut -f1)"
+        done
+    fi
 }
 
 cmd_restore() {
     local name=${1:?name} label=${2:?usage: proj restore <name> <label>}
     need_box "$name"
     say "restore $name to snapshot $label. Changes since then are lost (a pre-restore snapshot is made first)."
-    [ -z "$(ws_source "$name")" ] || say "the workspace $(ws_dir "$name") (/srv/app) is not in snapshots: it stays as it is now"
+    [ -z "$(ws_source "$name")" ] || say "the workspace $(ws_dir "$name") (/srv/app) goes back too, if snapshot $label has it (the current one is kept in .trash)"
     confirm "$name"
     cmd_snapshot "$name" "pre-restore-$(stamp)"
     incus stop "$name" --timeout 60 2>/dev/null || incus stop "$name" --force
     incus snapshot restore "$name" "$label"
     if has_vol "$name"; then incus storage volume snapshot restore "$POOL" "$name-data" "$label"; fi
+    [ -z "$(ws_source "$name")" ] || ws_unsnap "$name" "$label"
     incus start "$name"
     note "restore $name $label"
     cmd_registry >/dev/null

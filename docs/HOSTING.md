@@ -92,8 +92,11 @@ Owner decision 2026-11-11: agents (Claude Code and Codex as the main user, Herme
 - `recreate` keeps the workspace and mounts it again: the code survives a rebuild. `fork`
   copies it (as it is now). `wipe` asks: Enter keeps it (moved to `/srv/proj/work/.trash/<box>-<date>`),
   typing `delete` deletes it. `--yes` and expired try boxes always keep it. Empty `.trash` by hand.
-- Box snapshots and `restore` do NOT cover the workspace (it is on the host). Commit and push
-  often. Long boxes: the nightly backup includes it (`<date>-work.tar.zst`).
+- Every `proj snapshot` also archives the workspace to `/srv/proj/work/.snapshots/<box>/<label>.tar.zst`
+  (root only, newest 10 kept, `PROJ_WS_SNAP_KEEP` in host.env changes that). Dependency and cache
+  folders (`node_modules`, `.venv`, `__pycache__`, `.cache`, `.next`, ...) are left out: reinstall
+  them after a restore. `restore` puts the workspace back too; the current one goes to `.trash`
+  first. Still commit and push often. Long boxes: the nightly backup includes it (`<date>-work.tar.zst`).
 - The workspace root is `root:devs 750`: the group can look, only proj adds folders.
 - How the ids line up: the disk device has `shift=true`, an idmapped mount. The box sees host
   uid N as its own uid N, so the main user must be uid 1000 (= `dev` in every box); proj refuses
@@ -140,7 +143,7 @@ Box names: lower case letters, digits and `-`, 2 to 31 characters. Forks: `<box>
 
 ## How to wipe and recreate
 
-- **Wipe** = gone. The box, its data volume and its snapshots are deleted. Use it for try and
+- **Wipe** = gone. The box, its data volume and its snapshots are deleted. Workspace snapshots follow the workspace (`.trash`, or deleted with it). Use it for try and
   mvp boxes you do not need. The workspace is moved to `/srv/proj/work/.trash` unless you type
   `delete`. The code also stays in git.
 - **Recreate** = clean system, same data, same code. The box is deleted and launched again from
