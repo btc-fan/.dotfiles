@@ -1074,6 +1074,20 @@ selftest_workspace() {
             echo "FAIL  workspace: $AGENT_USER and dev cannot write each other's files (group $WS_GROUP, default ACL)"; fail=1
         fi
     fi
+    # SECURITY: root in the box writes real uid 0 here. A setuid-root program made in the box must
+    # NOT give root on the host (WORK_ROOT is mounted nosuid, step 70).
+    local out
+    if incus exec "$n" -- sh -c 'cp "$(command -v id)" /srv/app/suid-id && chmod 4755 /srv/app/suid-id' 2>/dev/null; then
+        out=$(runuser -u nobody -- "$ws/suid-id" -u 2>/dev/null || echo "?")
+        if [ "$out" = 0 ]; then
+            echo "FAIL  workspace: a setuid-root file made in the box runs as ROOT on the host (WORK_ROOT needs nosuid: setup.sh step 70)"; fail=1
+        else
+            echo "ok    workspace: a setuid-root file made in the box does not give root on the host (uid $out)"
+        fi
+        rm -f -- "$ws/suid-id"
+    else
+        echo "FAIL  workspace: could not make the setuid test file in the box"; fail=1
+    fi
     return "$fail"
 }
 
@@ -1111,6 +1125,13 @@ cmd_doctor() {
         ok "workspace root $WORK_ROOT (root:$WS_GROUP 750)"
     else
         fail "workspace root $WORK_ROOT missing or not root:$WS_GROUP 750 (setup.sh step 70)"
+    fi
+    local wsopts
+    wsopts=$(findmnt -no OPTIONS -M "$WORK_ROOT" 2>/dev/null || true)
+    if [[ ",$wsopts," == *,nosuid,* && ",$wsopts," == *,nodev,* ]]; then
+        ok "workspace root mounted nosuid,nodev (setuid files from boxes do not run as root here)"
+    else
+        fail "workspace root $WORK_ROOT is NOT mounted nosuid,nodev: root in a box can plant a setuid-root program (setup.sh step 70)"
     fi
     if [ -d "$WORK_ROOT/.trash" ] && [ -n "$(ls -A "$WORK_ROOT/.trash")" ]; then
         echo "info  $WORK_ROOT/.trash: $(ls -A "$WORK_ROOT/.trash" | wc -l) old workspace(s), $(du -sh "$WORK_ROOT/.trash" | cut -f1) (empty it by hand)"

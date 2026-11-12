@@ -21,6 +21,7 @@ main() {
     setup_admin_user
     harden_ssh
     drop_main_sudo
+    remove_stale_main_nopasswd
     setup_firewall
     setup_fail2ban
     setup_updates
@@ -85,6 +86,23 @@ setup_admin_user() {
 # Managed by ~/.dotfiles setup.sh (step 10-security): the admin user has passwordless sudo.
 $ADMIN_USER ALL=(ALL:ALL) NOPASSWD: ALL
 EOF
+}
+
+# Once the main user is on "sudo with password" (zz-server-main-password exists), an older file
+# that still says "$MAIN_USER ... NOPASSWD: ALL" (cloud-init, or one made by hand before this repo)
+# is only beaten by file order. It goes: moved to /root/sudoers-removed/ (undo: move it back).
+remove_stale_main_nopasswd() {
+    local f
+    [ -f "$MAIN_PASSWD_SUDOERS" ] || return 0
+    for f in /etc/sudoers.d/*; do
+        [ -f "$f" ] && [ "$f" != "$MAIN_PASSWD_SUDOERS" ] || continue
+        grep -qE "^[[:space:]]*$MAIN_USER[[:space:]].*NOPASSWD:[[:space:]]*ALL[[:space:]]*$" "$f" 2>/dev/null || continue
+        log "remove stale passwordless sudo for $MAIN_USER: $f (kept in /root/sudoers-removed/)"
+        if dry; then info "[dry-run] mv $f /root/sudoers-removed/"; continue; fi
+        install -d -m 700 /root/sudoers-removed
+        mv -- "$f" "/root/sudoers-removed/$(basename "$f").$(date +%Y%m%d-%H%M%S)"
+    done
+    dry || visudo -c >/dev/null || die "sudoers invalid after removing a stale file: restore it from /root/sudoers-removed/"
 }
 
 # --drop-main-sudo: the main user keeps sudo, but WITH a password, and leaves the docker group.

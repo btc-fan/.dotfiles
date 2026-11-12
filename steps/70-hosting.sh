@@ -436,11 +436,52 @@ workspaces() {
     [ "$(stat -c %U:%G "$root" 2>/dev/null)" = "root:$g" ] || run chown "root:$g" "$root"
     [ "$(stat -c %a "$root" 2>/dev/null)" = 750 ] || run chmod 750 "$root"
     [ -d "$root/.trash" ] || run install -d -m 700 -o root -g root "$root/.trash"
+    workspace_nosuid "$root"
     # git refuses a repository owned by another user: AGENT_USER works in MAIN_USER's checkouts.
     git config --system --get-all safe.directory 2>/dev/null | grep -qxF "$root/*" \
         || run git config --system --add safe.directory "$root/*"
     uid=$(id -u "$MAIN_USER" 2>/dev/null || echo "?")
     [ "$uid" = 1000 ] || warn "$MAIN_USER has uid $uid, not 1000: proj refuses workspaces (the box shows host uid N as uid N, dev is 1000). See docs/HOSTING.md."
+}
+
+# workspace_nosuid ROOT: SECURITY. The workspace device uses shift=true, so root inside a box
+# writes files owned by real uid 0 on the host. A setuid-root file made in a box would then run as
+# root on the host (proven 2026-11-12). ROOT is bind-mounted onto itself with nosuid,nodev before
+# Incus starts: the host ignores setuid bits and device files there. setuid files already there
+# lose the bit. proj doctor and proj selftest check this.
+workspace_nosuid() {
+    local root=$1 unit opts
+    unit="$(systemd-escape -p --suffix=mount "$root")"
+    put "/etc/systemd/system/$unit" 644 <<EOF
+# Managed by ~/.dotfiles setup.sh (step 70-hosting). Box root writes real uid 0 here (shift=true):
+# no setuid programs and no device files may work on the host.
+[Unit]
+Description=proj workspaces without setuid or device files
+Before=incus.service incus.socket
+After=local-fs-pre.target
+
+[Mount]
+What=$root
+Where=$root
+Type=none
+Options=bind,nosuid,nodev
+
+[Install]
+WantedBy=local-fs.target
+EOF
+    if dry; then info "[dry-run] systemctl enable --now $unit"; return 0; fi
+    systemctl daemon-reload
+    systemctl enable -q "$unit"
+    opts=$(findmnt -no OPTIONS -M "$root" 2>/dev/null || true)
+    if [[ ",$opts," != *,nosuid,* || ",$opts," != *,nodev,* ]]; then
+        if [ -n "$opts" ]; then systemctl restart "$unit"; else systemctl start "$unit"; fi
+    fi
+    opts=$(findmnt -no OPTIONS -M "$root" 2>/dev/null || true)
+    [[ ",$opts," == *,nosuid,* && ",$opts," == *,nodev,* ]] \
+        || die "$root is not mounted nosuid,nodev (got '$opts'): boxes could plant setuid-root files"
+    info "$root mounted nosuid,nodev"
+    find "$root" -xdev -type f -perm /6000 -print -exec chmod ug-s {} + 2>/dev/null \
+        | sed 's/^/   removed setuid\/setgid bit: /' || true
 }
 
 # host.env AGENT_SUDO_ALLOW (default "proj-agent", owner decision 2026-11-11): MAIN_USER and
