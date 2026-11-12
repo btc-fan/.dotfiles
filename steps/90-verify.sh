@@ -113,6 +113,7 @@ chk "hdd-no-spindown enabled" systemctl is-enabled -q hdd-no-spindown.service
 chk "caffeinate installed" test -x /usr/local/bin/caffeinate
 if [ "${KEEP_MULTIPATHD:-no}" != yes ] && systemctl cat multipathd.service >/dev/null 2>&1; then
     sh_chk "multipathd masked and not running (local disks only)" "[ \"\$(systemctl is-enabled multipathd.service 2>/dev/null)\" = masked ] && ! systemctl is-active -q multipathd.service multipathd.socket"
+    sh_chk "no stale /run/multipathd.socket" "[ ! -e /run/multipathd.socket ]"
 fi
 chk "watchdog device present" test -e /dev/watchdog0
 sh_chk "systemd pings the watchdog" "[ \"\$(systemctl show -p RuntimeWatchdogUSec --value)\" != 0 ]"

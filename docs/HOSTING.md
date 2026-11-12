@@ -114,6 +114,9 @@ Owner decision 2026-11-11: agents (Claude Code and Codex as the main user, Herme
   the workspace, or alternates outside it: git refuses and says why. Fix it from inside the box
   (`proj-agent exec <box> -- git config --local --list`). `git submodule` and
   `--recurse-submodules`: run them in the box. Test: `bash tests/git-guard.test.sh`.
+  For an AGENT (GIT_GUARD_AGENT=1, Claude Code, Codex, or the agent user) the same rules apply to
+  EVERY repository on the host, not only workspaces: sandboxed code could plant a repository
+  with hooks anywhere, for a later approved `git push`. Your own shell is not affected.
   Left open: the box could swap `.git/config` in the few milliseconds between the check and git
   reading it (a race), and a remote set to a host folder lets `git fetch` copy that repository
   into the workspace, where the box can read it. Look at `git remote -v` before a fetch.

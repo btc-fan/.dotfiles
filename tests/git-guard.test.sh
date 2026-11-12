@@ -15,11 +15,13 @@ trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/work/box" "$T/outside" "$T/home" "$T/bin"
 WS=$T/work/box
 G=$T/bin/git
-sed -e "s|@WORK_ROOT@|$T/work|" -e "s|^REAL=/usr/bin/git|REAL=$REALGIT|" \
+sed -e "s|@WORK_ROOT@|$T/work|" -e "s|@AGENT_USER@|guard-test-agent-nobody|" -e "s|^REAL=/usr/bin/git|REAL=$REALGIT|" \
     "$REPO/files/sbin/git-workspace-guard" > "$G"
 chmod 755 "$G"
 export HOME=$T/home GIT_CONFIG_NOSYSTEM=1
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR
+# The tests may run inside an agent: start as "the owner" (no agent markers).
+unset GIT_GUARD_AGENT CLAUDECODE CODEX_SANDBOX CODEX_THREAD_ID
 "$REALGIT" config --global user.name tester
 "$REALGIT" config --global user.email tester@example.invalid
 "$REALGIT" config --global init.defaultBranch main
@@ -182,6 +184,45 @@ refused "--recurse-submodules" bash -c "cd '$WS' && '$G' checkout --recurse-subm
 "$REALGIT" init -q "$T/outside/own"
 "$REALGIT" -C "$T/outside/own" config color.ui auto
 works "own repo outside, any key" bash -c "cd '$T/outside/own' && '$G' status"
+
+# ---- agent mode: every repository, not only workspaces ----
+plant() {   # a repository OUTSIDE the workspaces, planted by sandboxed code
+    rm -rf "$T/outside/planted" "$T/outside/planted-remote.git"
+    "$REALGIT" init -q "$T/outside/planted"
+    echo x > "$T/outside/planted/f"; "$REALGIT" -C "$T/outside/planted" add f
+    "$REALGIT" -C "$T/outside/planted" commit -qm one
+    printf '#!/bin/sh\ntouch %s/pwned-agenthook\n' "$T" > "$T/outside/planted/.git/hooks/pre-push"
+    printf '#!/bin/sh\ntouch %s/pwned-agenthook2\n' "$T" > "$T/outside/planted/.git/hooks/post-checkout"
+    chmod +x "$T/outside/planted/.git/hooks/"*
+    "$REALGIT" init -q --bare "$T/outside/planted-remote.git"
+    "$REALGIT" -C "$T/outside/planted" remote add o "$T/outside/planted-remote.git"
+    clear_pwned
+}
+for marker in CLAUDECODE=1 GIT_GUARD_AGENT=1 CODEX_SANDBOX=landlock CODEX_THREAD_ID=abc; do
+    plant
+    not_run "agent ($marker): pre-push hook outside workspaces" env "$marker" "$G" -C "$T/outside/planted" push -q o HEAD
+    not_run "agent ($marker): post-checkout hook outside workspaces" env "$marker" "$G" -C "$T/outside/planted" checkout -q -b b2
+done
+plant
+"$REALGIT" -C "$T/outside/planted" config core.pager "touch $T/pwned-agentpager"
+refused "agent: core.pager in a repo outside workspaces" env CLAUDECODE=1 "$G" -C "$T/outside/planted" -p log
+plant
+"$REALGIT" -C "$T/outside/planted" config extensions.worktreeConfig true
+"$REALGIT" -C "$T/outside/planted" config --worktree filter.x.clean "touch $T/pwned-agentfilter"
+echo '* filter=x' > "$T/outside/planted/.gitattributes"
+refused "agent: worktree filter outside workspaces" env GIT_GUARD_AGENT=1 "$G" -C "$T/outside/planted" status
+plant
+"$REALGIT" -C "$T/outside/planted" config core.hooksPath .githooks
+"$REALGIT" -C "$T/outside/planted" config remote.o.gh-resolved base
+works "agent: hooksPath and gh-resolved keys are fine outside workspaces" env CLAUDECODE=1 "$G" -C "$T/outside/planted" status
+not_run "agent: hooksPath key does not run hooks" env CLAUDECODE=1 "$G" -C "$T/outside/planted" push -q o HEAD
+refused "agent: submodule outside workspaces" env CLAUDECODE=1 "$G" -C "$T/outside/planted" submodule status
+plant
+works "owner (no marker): hooks run in the owner's own repos" "$G" -C "$T/outside/planted" push -q o HEAD
+pwned && ok || bad "owner: the pre-push hook should have run (no agent marker)"
+clear_pwned
+works "agent: git clone outside workspaces" env CLAUDECODE=1 "$G" clone -q "$T/outside/planted-remote.git" "$T/outside/clone1"
+works "agent: commit in a clean repo outside" env CLAUDECODE=1 bash -c "cd '$T/outside/clone1' && echo y > g && '$G' add g && '$G' commit -qm two && '$G' log --oneline"
 
 echo "git-guard tests: $pass passed, $fail failed"
 [ "$fail" = 0 ]

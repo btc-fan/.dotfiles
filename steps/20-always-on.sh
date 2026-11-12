@@ -269,6 +269,13 @@ no_multipathd() {
         run systemctl stop "$u" 2>/dev/null || true
         run systemctl mask "$u"
     done
+    # The daemon leaves its 666 socket file behind (no listener after the stop): remove it, so
+    # nothing can mistake it for a live service. Only when nothing listens on it.
+    if [ -S /run/multipathd.socket ] && ! systemctl is-active -q multipathd.service multipathd.socket \
+        && ! ss -xlH 2>/dev/null | grep -qF /run/multipathd.socket; then
+        info "remove the stale /run/multipathd.socket"
+        run rm -f /run/multipathd.socket
+    fi
 }
 
 # The unit failed on an earlier boot: clear that state once the fix is in, so the failed-unit

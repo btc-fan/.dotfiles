@@ -16,10 +16,19 @@
 #   - the repository git finds must live in the workspace (a .git file that points to a host
 #     repository is refused), and objects/info/alternates may not point outside the workspaces;
 #   - `git submodule` and --recurse-submodules are refused: run them inside the box.
+# AGENT MODE: when the caller is an agent, the same hardened mode applies to EVERY repository,
+# not only workspaces: sandboxed code can plant a repository anywhere it may write (/tmp/x,
+# with hooks or a config), then an approved, unsandboxed `git -C /tmp/x push` would run it.
+# An agent is: GIT_GUARD_AGENT=1 (set by the ai branch for every agent), CLAUDECODE (Claude
+# Code), CODEX_SANDBOX or CODEX_THREAD_ID (Codex), or the agent user (AGENT_USER) itself.
+# Outside workspaces, agent mode also accepts core.hooksPath and core.fsmonitor (both forced off
+# anyway) and the gh and VS Code bookkeeping keys, and it does not require the repository to be
+# in a workspace. The owner's shell has none of the markers: plain git, hooks work.
 # Anywhere else this is plain /usr/bin/git. Fix a refused repository from inside the box:
 #   sudo proj-agent exec <box> -- git config --local --list
 REAL=/usr/bin/git
 WORK_ROOT="@WORK_ROOT@"
+AGENT_USER="@AGENT_USER@"
 SAFE=(-c core.hooksPath=/dev/null -c core.fsmonitor=false -c safe.bareRepository=explicit
       -c protocol.ext.allow=never -c submodule.recurse=false -c fetch.recurseSubmodules=false
       -c push.recurseSubmodules=no -c diff.ignoreSubmodules=all -c status.submoduleSummary=false)
@@ -69,9 +78,13 @@ cwd=$(phys "$dir")
 [ -z "${GIT_WORK_TREE:-}" ] || paths+=("$(phys "$GIT_WORK_TREE" "$cwd")")
 [ -z "${GIT_COMMON_DIR:-}" ] || paths+=("$(phys "$GIT_COMMON_DIR" "$cwd")")
 
-# Fast path: the current folder is outside the workspaces and no folder was named. Git only
-# looks upward from here, so it cannot find a workspace repository.
-if [ "$explicit" = 0 ] && ! in_ws "$cwd"; then
+agent=0
+if [ -n "${GIT_GUARD_AGENT:-}${CLAUDECODE:-}${CODEX_SANDBOX:-}${CODEX_THREAD_ID:-}" ]; then agent=1; fi
+if [ -n "$AGENT_USER" ] && [ "$AGENT_USER" != "@AGENT_""USER@" ] && [ "$(id -un 2>/dev/null)" = "$AGENT_USER" ]; then agent=1; fi
+
+# Fast path (not for agents): the current folder is outside the workspaces and no folder was
+# named. Git only looks upward from here, so it cannot find a workspace repository.
+if [ "$agent" = 0 ] && [ "$explicit" = 0 ] && ! in_ws "$cwd"; then
     exec "$REAL" "$@"
 fi
 
@@ -89,16 +102,19 @@ touch_ws=0
 for p in "$cwd" "$gitdir" "$common" "$top" ${paths[@]+"${paths[@]}"}; do
     if [ -n "$p" ] && in_ws "$p"; then touch_ws=1; fi
 done
-[ "$touch_ws" = 1 ] || exec "$REAL" "$@"
+[ "$touch_ws" = 1 ] || [ "$agent" = 1 ] || exec "$REAL" "$@"
+# outside=1: agent mode on a repository that is not in a workspace.
+outside=0
+[ "$touch_ws" = 1 ] || outside=1
 
-# 3. Inside a workspace.
-case "$sub" in submodule) refuse "git submodule enters other repositories: run it inside the box." ;; esac
+# 3. Inside a workspace (or any repository, for an agent).
+case "$sub" in submodule) refuse "git submodule enters other repositories (no submodules for agents or in workspaces; the owner runs it)." ;; esac
 for arg in "$@"; do
-    case "$arg" in --recurse-submodules|--recurse-submodules=*|--recursive) refuse "$arg enters other repositories: run it inside the box." ;; esac
+    case "$arg" in --recurse-submodules|--recurse-submodules=*|--recursive) refuse "$arg enters other repositories (no submodules for agents or in workspaces; the owner runs it)." ;; esac
 done
 
 if [ -n "$gitdir" ]; then
-    if ! in_ws "$gitdir" || ! in_ws "$common"; then
+    if [ "$outside" = 0 ] && { ! in_ws "$gitdir" || ! in_ws "$common"; }; then
         # A host repository named by the caller (--git-dir, GIT_DIR) is the caller's choice.
         # One that git FOUND from a workspace was pointed to by a .git file the box can write.
         [ "$explicit" = 1 ] || refuse "the repository for $cwd is $gitdir, outside the workspace (a .git file points there)."
@@ -110,7 +126,7 @@ if [ -n "$gitdir" ]; then
         while IFS= read -r line || [ -n "$line" ]; do
             case "$line" in ''|'#'*) continue ;; esac
             a=$(phys "$line" "$common/objects")
-            [ -n "$a" ] && in_ws "$a" || refuse "$alt points outside the workspaces: $line"
+            [ "$outside" = 1 ] || { [ -n "$a" ] && in_ws "$a"; } || refuse "$alt points outside the workspaces: $line"
         done < "$alt"
     fi
     files=("$common/config" "$common/config.worktree" "$gitdir/config.worktree")
@@ -141,6 +157,10 @@ if [ -n "$gitdir" ]; then
                 branch.*.remote|branch.*.merge|branch.*.rebase|branch.*.pushremote|\
                 branch.*.description|submodule.*.active|submodule.*.branch)
                     ;;
+                core.hookspath|core.fsmonitor|remote.*.gh-resolved|branch.*.vscode-merge-base)
+                    # Agent mode outside workspaces only: hooks and fsmonitor are forced off by
+                    # the -c options; the other two are gh / VS Code bookkeeping.
+                    [ "$outside" = 1 ] || bad="$bad $key" ;;
                 remote.*.url|remote.*.pushurl|submodule.*.url)
                     case "$val" in
                         -*|*::*|*@-*|*$'\n'*) bad="$bad $key=$val" ;;

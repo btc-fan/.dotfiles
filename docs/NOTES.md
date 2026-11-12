@@ -453,3 +453,23 @@ for a fork; `tar --zstd` on 26.04; the host reaching a box IP through ufw.
   restore, fork (the new name), wipe, recreate, workspace, protect, promote, extend.
 - multipathd: stopped and masked in step 20 (local disks only, its 666 socket had root bugs);
   `KEEP_MULTIPATHD=yes` keeps it; verify checks it.
+
+### Follow-ups to round 3
+- multipathd: step 20 also removes the stale `/run/multipathd.socket` the daemon leaves behind
+  (only when nothing listens on it); verify checks it is gone.
+- git guard AGENT MODE: sandboxed code can plant a repository anywhere it may write (`/tmp/x`
+  with a pre-push hook or a filter in its config); an approved, unsandboxed `git -C /tmp/x push`
+  runs `/usr/local/bin/git`, the guard, which used to pass everything outside the workspaces.
+  Now, when the caller is an agent (GIT_GUARD_AGENT=1, CLAUDECODE, CODEX_SANDBOX,
+  CODEX_THREAD_ID, or the AGENT_USER itself), every repository gets the hardened mode: hooks
+  and fsmonitor off, safe.bareRepository=explicit, no ext::, no submodules, and the config
+  allow-list. Outside workspaces the list also takes core.hooksPath and core.fsmonitor (forced
+  off anyway) and `remote.*.gh-resolved`, `branch.*.vscode-merge-base`; checked against the
+  real host repos (~/.dotfiles, the ai worktree): they pass. The owner's shell has no marker:
+  plain git, hooks run. Markers come from the agent's own environment, which sandboxed code
+  cannot change for later commands. The ai branch should set GIT_GUARD_AGENT=1 for every agent
+  (Claude settings env, Codex shell environment, the Hermes service), since Codex may not set
+  its own variables for approved commands outside its sandbox.
+- Cost: agents lose the fast path (two extra git calls per git call, a few ms).
+- Tests: `tests/git-guard.test.sh` 82 checks (17 new: each marker, hooks outside workspaces,
+  config refusals, owner's hooks still run, clone and commit for agents).
