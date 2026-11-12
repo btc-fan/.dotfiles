@@ -50,7 +50,7 @@ rules:
     scope: global
     trigger: {tool_after: 'Bash', command: '\bgit commit\b'}
     summary: 'after a git commit'
-    action: "{knowledge_delta}"   # full phrase from HEAD: update the Map, ai-libs --sync, graphify update; empty = silent
+    action: "{knowledge_delta}"   # full phrase from HEAD: update the Map, ai-libs --sync (graph: the router refreshes it); empty = silent
     once_per: 'session'
     proof: 'AGENTS.md|ai-libs|graphify update'
     strength: nudge

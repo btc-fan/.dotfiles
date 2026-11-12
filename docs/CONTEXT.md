@@ -22,7 +22,7 @@ For the explanation of each tool, how tools overlap and interact: [TOOLS.md](TOO
 | Libraries | `<!-- AI:libraries START lock: ... -->` ... `<!-- AI:libraries END -->` in AGENTS.md: lib, version, context7 ID, note | yes | the START line hashes equal the lockfiles (`ai-libs --check`) |
 | Playwright (opt-in) | `enabledPlugins` `ai-playwright@ai` in the project `.claude/settings.json`, `.codex/config.toml` | yes | - |
 | Serena (default on; `no-serena` opts out) | `.serena/project.yml`; `.serena/cache/` gitignored | yes, except the cache | Serena updates its index itself |
-| Code graph (default on; `no-graph` opts out) | `graphify-out/graph.json`, gitignored; `graphify hook install` rebuilds it after commit, checkout, merge, rebase (not after agent git calls on a server: `graphify update .`) | no | newer than the last code commit |
+| Code graph (default on; `no-graph` opts out) | `graphify-out/graph.json`, gitignored; `graphify hook install` rebuilds it after commit, checkout, merge, rebase (after agent git calls, which run no hooks on a server, the router starts `graphify update` in the background) | no | newer than the last code commit |
 Worked example: `README.md`, section 3, example D.
 
 ## Agents
@@ -86,7 +86,7 @@ Owner hooks come from the owner's hooks.json. Each hook finishes well under the 
 Source: `ai/routing.yaml` (version 4, owner decision 2026-11-12: passive context beats nudges). 22 rules (12 global, 10 opt-in, 4 are gates), a tie-break table of 5 rows, and a `layers` block.
 Rules by group:
 - Session start: `project-knowledge` (status line: Map, Libraries, opt-in tools), `no-ai-base`.
-- After a commit: `knowledge-check` (update the Map, `ai-libs --sync`, `graphify update .`; silent when nothing applies).
+- After a commit: `knowledge-check` (update the Map, `ai-libs --sync`; silent when nothing applies). The graph refreshes itself: after agent git calls the router starts `graphify update` in the background.
 - Gates: `audit-before-install`, `secret-scan`, `no-sudo`, `pr-rules`.
 - Lint and docs: `no-em-dash`, `docs-lookup` (also fires on a library name from the Libraries section).
 - Off in this project, suggest it: `seo-not-enabled`, `blog-not-enabled`, `browser-not-enabled`.

@@ -137,7 +137,7 @@ MCP servers give agents extra tools, and each one costs context in every session
 
 - **What.** Builds a code graph of a repo: which file calls which. Local, no LLM for code. CLI only (no MCP server).
 - **Why.** "Where is X, what depends on Y" from a local graph. On by default (owner decision 2026-11-12 evening); a project opts out with `no-graph` in `.ai/enabled`.
-- **How it works here.** `ai-adopt` runs `GRAPHIFY_BACKEND=none graphify extract . --code-only` (no key, nothing sent out; bare `graphify .` asks for an LLM key and fails, so never use it), gitignores `graphify-out/`, and runs `graphify hook install` (git hooks rebuild the graph after commit, checkout, merge and rebase). On a server the git guard turns hooks off for agent git calls, so after an agent commit the status line asks for `graphify update .`. Query with `graphify query "..."`.
+- **How it works here.** `ai-adopt` runs `GRAPHIFY_BACKEND=none graphify extract . --code-only` (no key, nothing sent out; bare `graphify .` asks for an LLM key and fails, so never use it), gitignores `graphify-out/`, and runs `graphify hook install` (git hooks rebuild the graph after commit, checkout, merge and rebase). Agent git calls run no hooks on a server (git guard), so the router refreshes the graph itself: after a successful commit, merge, pull, checkout, switch or rebase it starts `graphify update` in the background. Query with `graphify query "..."`.
 - **Pin.** 0.9.105 (PyPI `graphifyy`). **Telemetry.** None documented.
 - **Contract.** `ai/rules/graphify.md`.
 
@@ -295,7 +295,7 @@ The goal: an agent never explores a repo from zero. Evidence behind the design (
 | House rules | root AGENTS.md (`~/.config/ai/AGENTS.md`, short) | ai-render | rules change |
 | Where things live, how to run and test, conventions | "## Map" in the repo AGENTS.md (managed block, <= 60 lines, committed) | ai-adopt (facts from the repo, plus one read-only claude pass for conventions) | a commit adds, deletes or renames modules (`knowledge-check` says so); `ai-adopt --refresh-map` |
 | Library versions and context7 IDs | "## Libraries" in the repo AGENTS.md (managed block, committed) | `ai-libs --sync` | lockfile changes or a new ID was used |
-| Code structure | `graphify-out/` (gitignored) | `ai-adopt` (unless `no-graph`) | git hooks after commit, checkout, merge, rebase; `graphify update .` after agent commits on a server |
+| Code structure | `graphify-out/` (gitignored) | `ai-adopt` (unless `no-graph`) | git hooks after commit, checkout, merge, rebase; after agent git calls the router starts `graphify update` in the background |
 | Session notes | OMC notepad | the agent | never project truth |
 
 Tool folders stay out of git: `ai-adopt` writes one managed `.gitignore` block on every run (between `# >>> AI tools` and `# <<< AI tools`; your own lines are kept) for `.omc/*`, `.codex/`, `.claude/*`, `.serena/*`, `graphify-out/` and `.ai/*`. Shared on purpose: `.claude/settings.json` (project plugin opt-ins), `.serena/project.yml` (Serena language config), `.ai/enabled` (opt-ins and opt-outs) and `.omc/skills/`; `.claude/commands/` and `.claude/agents/` only when the repo already tracks them.

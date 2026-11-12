@@ -940,11 +940,17 @@ def t_graph_refresh(work):
     write(os.path.join(proj, "graphify-out", "graph.json"), "{}")
     write(os.path.join(proj, "app.py"), "print(1)\n")
     marker = os.path.join(work, "ran.log")
+    gate = os.path.join(work, "gate")            # the fake run waits here: run 1 is surely in progress
     fake = os.path.join(work, "gfy", "graphify")
-    write(fake, '#!/bin/sh\necho "$GRAPHIFY_BACKEND $*" >> %s\nsleep 5\n' % marker, 0o755)
+    write(fake, '#!/bin/sh\necho "$GRAPHIFY_BACKEND $*" >> %s\nn=0\nwhile [ ! -f %s ] && [ $n -lt 300 ]; do '
+                'sleep 0.1; n=$((n+1)); done\n' % (marker, gate), 0o755)
     state = os.path.join(work, "st")
     renv = dict(env, AI_GRAPHIFY_BIN=fake, AI_STATE_DIR=state, AI_CLAUDE_MANAGED_SETTINGS=os.devnull)
     router = os.path.join(PLUGIN, "hooks", "router.py")
+    import fcntl
+    import hashlib
+    key = hashlib.sha1(os.path.realpath(proj).encode("utf-8")).hexdigest()[:12]
+    lock, pending = os.path.join(state, "graph-%s.lock" % key), os.path.join(state, "graph-%s.pending" % key)
 
     def post(cmd, agent="claude", resp=None):
         payload = {"hook_event_name": "PostToolUse", "session_id": "g", "cwd": proj, "tool_name": "Bash",
@@ -954,28 +960,45 @@ def t_graph_refresh(work):
                              input=json.dumps(payload).encode(), env=renv, stdout=subprocess.PIPE, timeout=20)
         return _t.time() - t0, res.stdout.decode()
 
+    def wait(cond, secs):
+        deadline = _t.time() + secs
+        while _t.time() < deadline and not cond():
+            _t.sleep(0.05)
+        return cond()
+
+    def idle():
+        """No runner holds the lock and no pass is pending: the detached work is finished."""
+        if os.path.exists(pending) or not os.path.exists(lock):
+            return not os.path.exists(pending)
+        with open(lock, "w") as f:
+            try:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                return False
+            fcntl.flock(f, fcntl.LOCK_UN)
+        return not os.path.exists(pending)
+
+    def runs():
+        return read(marker).splitlines() if os.path.exists(marker) else []
+
     took, out = post("git commit -m x")
     assert took < 1.5, "the hook must not wait for the refresh: %.2f s" % took
     assert "graphify update" not in out, "no nudge when the router refreshes the graph itself: " + out
-    deadline = _t.time() + 10
-    while _t.time() < deadline and not os.path.exists(marker):     # the first run has started
-        _t.sleep(0.1)
-    took, _ = post("rtk git pull", agent="codex")           # during the first run: one more pass, no third
+    assert wait(lambda: len(runs()) == 1, 20), "the first run did not start"
+    post("rtk git pull", agent="codex")                     # during run 1: one more pass, not one per call
     post("git -C . checkout -b x")
-    deadline = _t.time() + 20
-    while _t.time() < deadline and (not os.path.exists(marker) or len(read(marker).splitlines()) < 2):
-        _t.sleep(0.2)
-    _t.sleep(6)
-    lines = read(marker).splitlines()
-    assert lines and all(ln == "none update %s" % proj for ln in lines), lines
+    write(gate, "")                                         # let the runs finish
+    assert wait(lambda: len(runs()) >= 2 and idle(), 30), "runner did not finish: %s" % runs()
+    lines = runs()
+    assert all(ln == "none update %s" % proj for ln in lines), lines
     assert len(lines) == 2, "one run plus one pending pass, not one per call: %s" % lines
     os.remove(marker)
     post("git status")                                      # not a code-changing call
     post("git commit -m y", resp={"exit_code": 1})          # failed call
     write(os.path.join(proj, ".ai", "enabled"), "no-graph\n")
     post("git commit -m z")                                 # project opted out
-    _t.sleep(1.5)
-    assert not os.path.exists(marker), open(marker).read()
+    assert not wait(lambda: os.path.exists(marker), 3), open(marker).read()
+    assert not os.path.exists(pending), "no pass was requested"
 
 
 def t_root_guard(work):

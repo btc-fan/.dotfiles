@@ -17,11 +17,11 @@ README at v0.9.105 (verbatim): "A code-only corpus requires no API key: `graphif
 ## Knowledge home, freshness, maintenance
 - Home: `<repo>/graphify-out/` (generated, gitignored).
 - Build: `ai-adopt` runs `GRAPHIFY_BACKEND=none graphify extract . --code-only` (local, no key, nothing leaves the machine) and `graphify hook install` (git hooks rebuild the graph after commit, checkout, merge and rebase).
-- On a server the git guard turns hooks off for agent git calls, so after an agent commit the graph is not rebuilt: the router status line and `knowledge-check` ask for `graphify update .`. Run it after your commits and after `git pull`.
+- Agent git calls run no git hooks on a server (the git guard), so the router refreshes the graph itself: after a successful git commit, merge, pull, checkout, switch or rebase (Claude and Codex) it starts `graphify update <repo>` in the background (keyless, code only). Agents do not run it by hand.
 - Fresh: `graph.json` newer than the last code commit; the session start line says "graph stale" otherwise.
 
 ## Enforcement
-- L1: routing row `graph` (session start line) in every code repo without `no-graph`. `knowledge-check` after a commit says `graphify update .`.
+- L1: routing row `graph` (session start line) in every code repo without `no-graph`. The router refreshes the graph after agent git calls; `knowledge-check` no longer asks for `graphify update .` when that refresh was started.
 - Advisory only. Never `--strict`. `GRAPHIFY_HOOK_STRICT=0`.
 - L7: `~/.cache/graphify-queries.log`.
 

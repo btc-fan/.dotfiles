@@ -1417,21 +1417,25 @@ GRAPH_RUNNER = r"""
 import fcntl, os, subprocess, sys
 root, gfy, lock, pending, log = sys.argv[1:6]
 open(pending, "w").close()
-f = open(lock, "w")
-try:
-    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-except OSError:
-    sys.exit(0)                 # a run is going: it sees the pending mark and runs once more
-os.nice(10)
 env = dict(os.environ, GRAPHIFY_BACKEND="none", GRAPHIFY_NO_TIPS="1")
+os.nice(10)
 with open(log, "a") as out:
-    while os.path.exists(pending):
-        os.remove(pending)
+    while True:
+        f = open(lock, "w")
         try:
-            subprocess.run([gfy, "update", root], cwd=root, env=env, stdin=subprocess.DEVNULL, stdout=out,
-                           stderr=out, timeout=1800)
-        except Exception as exc:
-            out.write("graph refresh failed: %s" % exc + chr(10))
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            sys.exit(0)         # a run is going: it sees the pending mark and runs once more
+        while os.path.exists(pending):
+            os.remove(pending)
+            try:
+                subprocess.run([gfy, "update", root], cwd=root, env=env, stdin=subprocess.DEVNULL, stdout=out,
+                               stderr=out, timeout=1800)
+            except Exception as exc:
+                out.write("graph refresh failed: %s" % exc + chr(10))
+        f.close()               # unlock, then look once more: a mark made while this run was ending is not lost
+        if not os.path.exists(pending):
+            break
 """
 
 

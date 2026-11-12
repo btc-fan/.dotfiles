@@ -80,7 +80,7 @@ Find the transcript of a Claude session: `ls -t ~/.claude/projects/*/*.jsonl | h
 | K4 | The Libraries section has httpx with a context7 ID. Prompt: "write httpx code with retries" (Claude and Codex) | `docs-lookup` fired (`fired.jsonl`) and names the cached ID; the first docs call is `query-docs` with that ID; no `resolve-library-id`, no web search. A row in `~/.local/state/ai/docs-ids.jsonl` |
 | K5 | Add a dependency, commit | The agent sees "Run ai-libs --sync and commit AGENTS.md" and does it; `ai-libs --check` exits 0 after |
 | K6 | No network for one command: `ai-libs --sync` with `AI_CONTEXT7_URL=http://127.0.0.1:9` | Exit 0, existing rows kept, the output says context7 is not reachable |
-| K7 | New session in the adopted repo, question about structure ("what calls X?") | Order: Map, `graphify query`, Serena `find_symbol` / `find_referencing_symbols`, then narrow rg and located lines. After an agent commit the status line asks for `graphify update .` |
+| K7 | New session in the adopted repo, question about structure ("what calls X?") | Order: Map, `graphify query`, Serena `find_symbol` / `find_referencing_symbols`, then narrow rg and located lines. After an agent commit `graphify-out/graph.json` is newer within a minute (the router's background `graphify update`), with no hand-run update |
 | K8 | Put a fake token line inside the Map markers, run `ai-adopt --yes`, or let an agent commit it | ai-adopt refuses to commit; the `secret-scan` gate blocks the agent's commit |
 
 ### Token budget
