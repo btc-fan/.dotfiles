@@ -76,10 +76,20 @@ def bash(script, env):
     return res.returncode, res.stdout.decode()
 
 
+def plugin_snapshot(work):
+    """A private copy of ai-core for one test. The live plugin folder can change under a running test
+    (ai-render rewrites hooks/routing.json and L0.md; another suite run in the same work tree does that),
+    so every hash comparison uses this snapshot as the source, never PLUGIN itself."""
+    snap = os.path.join(work, "plugin-src")
+    if not os.path.isdir(snap):
+        shutil.copytree(PLUGIN, snap, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    return snap
+
+
 def fake_codex_home(work):
     home = os.path.join(work, "codex")
     root = os.path.join(home, "plugins", "cache", "ai", "ai-core", "1.0.0")
-    shutil.copytree(PLUGIN, root, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copytree(plugin_snapshot(work), root)
     write(os.path.join(home, "hooks.json"), json.dumps({"hooks": {
         "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "rtk hook codex"}]}],
         "Stop": [{"hooks": [{"type": "command", "command": "node /x/omx-stop.js", "timeout": 30}]}]}}))
@@ -469,7 +479,11 @@ def t_session_start_order(work):
     os.makedirs(proj)
     subprocess.check_call(["git", "init", "-q", proj])
     write(os.path.join(proj, "main.py"), "print(1)\n")
-    env.update({"AI_STATE_DIR": os.path.join(work, "state")})
+    # Own rendered routing (the live ai/build/routing.json may be rewritten by a parallel run).
+    build = os.path.join(work, "build")
+    subprocess.check_call([sys.executable, os.path.join(AI_DIR, "bin", "ai-render"), "--out", build],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    env.update({"AI_STATE_DIR": os.path.join(work, "state"), "AI_ROUTING_JSON": os.path.join(build, "routing.json")})
     def start(source):
         payload = json.dumps({"hook_event_name": "SessionStart", "session_id": "t-" + source, "cwd": proj,
                               "source": source})
@@ -526,18 +540,18 @@ def t_verify_source(work):
     with open(os.path.join(root, "hooks", "router.py"), "a") as fh:
         fh.write("\n# tampered in the user-writable cache\n")
     code, out = aiconf(os.path.join(work, "s.json"), "codex-trust-hooks", cfg, "--auto", "--verify-source",
-                       "ai-core@ai=" + PLUGIN)
+                       "ai-core@ai=" + plugin_snapshot(work))
     assert code == 4 and "differs from its source" in out, out
     assert "ai-core@ai:" not in read(cfg), "a tampered cache must not be approved"
     code, out = aiconf(os.devnull, "codex-trust-hooks", cfg, "--auto", "--check", "--verify-source",
-                       "ai-core@ai=" + PLUGIN)
+                       "ai-core@ai=" + plugin_snapshot(work))
     assert code == 1 and "FAIL Codex plugin ai-core@ai" in out, out
     # --refresh-stale: the cache is replaced by a copy of the source (codex plugin add keeps a same-version cache).
     code, out = aiconf(os.path.join(work, "s.json"), "codex-trust-hooks", cfg, "--auto", "--refresh-stale",
-                       "--verify-source", "ai-core@ai=" + PLUGIN)
+                       "--verify-source", "ai-core@ai=" + plugin_snapshot(work))
     assert code == 0 and "ai-core@ai:" in read(cfg) and "tampered" not in read(os.path.join(root, "hooks", "router.py")), out
     code, out = aiconf(os.devnull, "codex-trust-hooks", cfg, "--auto", "--check", "--verify-source",
-                       "ai-core@ai=" + PLUGIN)
+                       "ai-core@ai=" + plugin_snapshot(work))
     assert code == 0, out
 
 
@@ -604,6 +618,7 @@ def t_root_guard(work):
     genv = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t.invalid", GIT_COMMITTER_NAME="t",
                 GIT_COMMITTER_EMAIL="t@t.invalid", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
     write(os.path.join(tree, "f.txt"), "x\n", 0o644)
+    os.symlink("f.txt", os.path.join(tree, "link.txt"))   # symlinks always show mode 777: must not count
     for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "x"], ["update-ref", "refs/remotes/origin/ai", "HEAD"]):
         subprocess.check_call(["git", "-C", tree] + args, env=genv)
     guard = os.path.join(AI_DIR, "lib", "root-guard.sh")

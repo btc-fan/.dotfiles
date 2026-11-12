@@ -92,8 +92,12 @@ def main(argv):
             stale += 1
             continue
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
+        # Atomic: hooks read routing.json at any moment (and a parallel run may render too); a reader sees
+        # the old file or the new one, never a half-written one.
+        tmp = "%s.tmp.%d" % (path, os.getpid())
+        with open(tmp, "w", encoding="utf-8") as fh:
             fh.write(text)
+        os.replace(tmp, path)
         print("ai-render: wrote " + path)
     if check:
         if not stale:

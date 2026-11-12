@@ -17,7 +17,8 @@ ai_root_guard() {
         why="the tree belongs to $target, the user the agents run as"
     elif [ -n "$(find "$tree" -path "$tree/.git" -prune -o \( ! -user "$owner" ! -user root \) -print 2>/dev/null | head -n 1)" ]; then
         why="files in the tree belong to other users"
-    elif [ -n "$(find "$tree" -path "$tree/.git" -prune -o -perm -0020 -print -o -perm -0002 -print 2>/dev/null | head -n 1)" ]; then
+    # Symlinks always show mode 777: only real files and folders count.
+    elif [ -n "$(find "$tree" -path "$tree/.git" -prune -o ! -type l \( -perm -0020 -o -perm -0002 \) -print 2>/dev/null | head -n 1)" ]; then
         why="files in the tree are writable by group or others"
     fi
     if [ -z "$why" ] && [ "$dirty_ok" != 1 ]; then
