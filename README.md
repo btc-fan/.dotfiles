@@ -10,6 +10,54 @@ One AI setup for every machine. Agents, tools, rules, hooks and gates. Pinned, a
 
 Status: server first. macOS later. Windows planned, not supported yet. Items marked **coming** are designed but not in the code yet.
 
+## Where we stopped (2026-11-12) and what to do next
+
+Read this first when you pick the work up again. Full history and design: `docs/AUDIT-BRIEF.md`.
+Audit reports (local, not in git) live next to the checkouts in `ai-audit/`.
+
+**Done and proven live on the server** (commit `2ab6f03` deployed from `/opt/ai-setup`):
+- Claude Bash sandbox required (bubblewrap copy with its own AppArmor profile); credentials hidden,
+  home read-only, network through the proxy. Unix sockets stay blocked.
+- Planted project config cannot run (`strictPluginOnlyCustomization` hooks + mcp).
+- Gates block in real sessions: live canary in `ai-doctor --live` (token commit, PR without blocks,
+  unaudited install all denied). Gates see through `rtk`, `env`, wrappers; deny always wins.
+- Box MCP tool (`box`) for Claude, Codex, Hermes: talks to the root `proj-agent` socket, no sudo.
+- Serena and graphify on by default (tuned: no shell tool, no memories, 40k answer cap; graph
+  refreshes itself after agent commits). One navigation order: AGENTS.md Map, graphify query,
+  Serena symbols, narrow rg. `ai-adopt` writes the Map, Libraries, Serena index, graph and one
+  managed `.gitignore` block.
+- OMC off by default on servers (`ai-adopt --tools omc`); claude-seo, claude-blog, Playwright opt-in.
+  GitHub MCP and Grounded Docs removed (agents use `gh`). opencode off on servers, herdr on.
+- Always-on context measured at about 34k tokens per fresh Claude session (was 49k).
+- docs/TOOLS.md sections 7 (every tool's default and configuration) and 8 (overlaps, one job each).
+
+**Open, in order:**
+1. **macOS installer bugs found on the first Mac install (macOS 12, Intel):**
+   - the `ai` marketplace already existed in an old cached form, so `ai-core`, `ai-serena` and
+     `ai-playwright` failed with "not found in marketplace": install must refresh the marketplace
+     (`claude plugin marketplace update ai`, or remove and re-add) before installing;
+   - the audit scanners (`guarddog`, `osv-scanner`, `skill-scanner`) are not installed on macOS, so
+     `agent-audit` errors and Serena, the skills and i-have-adhd were (correctly) not installed;
+     install must add the scanners on macOS first;
+   - the prerequisite check did not find Homebrew at `/usr/local/bin` when PATH lacked it.
+   After the fix: rerun `~/.dotfiles-ai/install.sh --agents claude,codex --yes` on that Mac, then
+   `ai-doctor`, then `ai-adopt` in the first project, then restart running Claude/OMC sessions.
+2. **RTK: latest stable compatible instead of an exact pin** (owner decision): a resolver that takes
+   the newest non-pre-release at least 7 days old that runs on the machine (prebuilt asset per OS
+   and arch; source build only where the prebuilt cannot run, e.g. a CPU without AVX2), still
+   audited, with the installed version recorded. Other tools stay pinned for now.
+3. **Claude live checks on the server** could not run today (the server's Claude account was out
+   of quota): rerun `ai-doctor --live` as the main user and the end-to-end test (a small web page in
+   a try box through the box tool, test, commit). Codex already passed context7 + box creation.
+4. **A/B test of navigation cost** on one real repo: same 3 tasks with Serena + graphify on and with
+   `no-serena` / `no-graph`. Keep the defaults only where they win.
+5. Hermes: one end-to-end test from the phone before trusting it.
+6. Later, in its own session (not part of this round): the owner's main Mac, the same way: dry run,
+   install, `ai-adopt` per project.
+
+How to continue on a server: `sudo /opt/ai-setup/install.sh --update --for-user <user>`.
+On a Mac: `git -C ~/.dotfiles-ai pull` (ai-sync runs), or rerun `~/.dotfiles-ai/install.sh`.
+
 ## Contents
 
 1. [How the whole thing fits together](#1-how-the-whole-thing-fits-together)
