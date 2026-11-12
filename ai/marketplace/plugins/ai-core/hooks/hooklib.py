@@ -1416,7 +1416,6 @@ def graphify_bin():
 GRAPH_RUNNER = r"""
 import fcntl, os, subprocess, sys
 root, gfy, lock, pending, log = sys.argv[1:6]
-open(pending, "w").close()
 env = dict(os.environ, GRAPHIFY_BACKEND="none", GRAPHIFY_NO_TIPS="1")
 os.nice(10)
 with open(log, "a") as out:
@@ -1451,6 +1450,7 @@ def start_graph_refresh(root):
     log = state_path("graphify-update.log")
     try:
         os.makedirs(os.path.dirname(log), mode=0o700, exist_ok=True)
+        open(pending, "w").close()      # the request, made before the hook returns (a slow runner start loses none)
     except OSError:
         return False
     py = "/usr/bin/python3" if os.path.isfile("/usr/bin/python3") else sys_executable()

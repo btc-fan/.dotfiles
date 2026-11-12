@@ -538,12 +538,21 @@ def knowledge_steps(root, opts, enabled):
                                                env={"GRAPHIFY_BACKEND": "none"})))
             # Freshness: graphify's own git hooks (post-commit, post-checkout, post-merge, post-rewrite) rebuild
             # the code graph in the background, keyless (GRAPHIFY_BACKEND=none comes from the env switches).
-            # On a server the git guard turns hooks off for agent git calls (agent mode): their commits do not
-            # rebuild; the router's graph status line asks for `graphify update .` when the graph is stale.
+            # On a server the git guard turns hooks off for agent git calls (agent mode): for those the router
+            # starts `graphify update <repo>` in the background after a successful commit, merge, pull, checkout.
             status = run_capture(["graphify", "hook", "status"], root) or ""
             if "post-commit: installed" not in status or "out of date" in status:
                 steps.append(("graphify hook install (graph rebuilds after commit, checkout, merge, rebase)",
                               lambda: run_step(["graphify", "hook", "install"], root, 120)))
+            # `graphify hook install` also registers a merge driver for graphify-out/graph.json: a program in
+            # .git/config (merge.graphify.driver) plus a .gitattributes line. graph.json is gitignored, so it never
+            # merges; and the server's git guard refuses unknown config keys for agents (agent mode), which would
+            # stop every agent git call in this repo. So the driver goes again, right after the install.
+            if "post-commit: installed" not in status or "out of date" in status \
+                    or git(root, "config", "--get", "merge.graphify.driver") \
+                    or "merge=graphify" in (read(os.path.join(root, ".gitattributes")) or ""):
+                steps.append(("graphify merge driver off (graph.json is not tracked; the git guard refuses it)",
+                              lambda: drop_graphify_merge_driver(root)))
     if opts["knowledge"] and libs_stale(root):
         steps.append(("ai-libs --sync", lambda: run_step([sys.executable, os.path.join(BIN, "ai-libs"), "--sync",
                                                           "--dir", root], root, 600)))
@@ -551,6 +560,23 @@ def knowledge_steps(root, opts, enabled):
         steps.append(("remove the old .ai/libs.md (IDs move into the Libraries section)",
                       lambda: os.remove(os.path.join(root, ".ai", "libs.md"))))
     return steps
+
+
+def drop_graphify_merge_driver(root):
+    subprocess.run(["git", "-C", root, "config", "--remove-section", "merge.graphify"],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    path = os.path.join(root, ".gitattributes")
+    text = read(path)
+    if text is None:
+        return
+    keep = [ln for ln in text.splitlines()
+            if not (ln.split() and ln.split()[0].endswith("graph.json") and "merge=graphify" in ln.split()[1:])]
+    tracked = bool(git(root, "ls-files", "--", ".gitattributes"))
+    if not any(ln.strip() for ln in keep) and not tracked:
+        os.remove(path)
+    elif len(keep) != len(text.splitlines()):
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(keep) + ("\n" if keep else ""))
 
 
 def run_capture(cmd, cwd):

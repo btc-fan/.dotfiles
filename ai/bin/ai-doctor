@@ -974,6 +974,9 @@ def check_project(path, explicit=False):
         code, out = run(["graphify", "hook", "status"], cwd=root)
         ok = "post-commit: installed" in out and "out of date" not in out
         say("PASS" if ok else "WARN", "graphify git hooks keep the graph fresh", "" if ok else "ai-adopt (graphify hook install)")
+        code, out = run(["git", "-C", root, "config", "--get", "merge.graphify.driver"])
+        say("PASS" if code != 0 else "FAIL", "no graphify merge driver in .git/config (the git guard refuses it for agents)",
+            "" if code != 0 else "ai-adopt removes it (git config --remove-section merge.graphify)")
     if "graph" in ids or "graphify" in ids:
         g = hl.graph_status(root, hl.git_history(root))
         say("PASS" if g == "fresh" else "WARN", "graphify graph %s" % g,

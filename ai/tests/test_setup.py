@@ -1030,16 +1030,19 @@ def _root_guard_cases(work, me):
         res = subprocess.run(["sh", "-c", '. "$0"; ai_root_guard "$1" "$2" "$3" install.sh; echo PASSED', guard, tree,
                               target, dirty_ok], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
         return res.stdout.decode()
-    assert "PASSED" in run_guard("ubuntu01", me), "admin-owned clean pushed tree must pass"
-    out = run_guard("ubuntu01", "someone-else")
+    # The --for-user target must differ from the tree owner (this test user). On the server this test runs as
+    # ubuntu01 itself, so a fixed "ubuntu01" target would make the tree "the target's" and be refused.
+    target = "ai-test-target"
+    assert "PASSED" in run_guard(target, me), "admin-owned clean pushed tree must pass"
+    out = run_guard(target, "someone-else")
     assert "refusing" in out and "/opt/ai-setup/install.sh --update" in out, out
     assert "refusing" in run_guard(me, me), "a tree owned by the --for-user target must be refused"
     write(os.path.join(tree, "f.txt"), "changed\n")
-    assert "uncommitted" in run_guard("ubuntu01", me), "dirty tree must be refused"
-    assert "PASSED" in run_guard("ubuntu01", me, "1"), "--allow-dirty skips only the clean check"
+    assert "uncommitted" in run_guard(target, me), "dirty tree must be refused"
+    assert "PASSED" in run_guard(target, me, "1"), "--allow-dirty skips only the clean check"
     subprocess.check_call(["git", "-C", tree, "checkout", "-q", "--", "f.txt"])
     os.chmod(os.path.join(tree, "f.txt"), 0o664)
-    assert "writable by group" in run_guard("ubuntu01", me), "group-writable file must be refused"
+    assert "writable by group" in run_guard(target, me), "group-writable file must be refused"
     os.chmod(os.path.join(tree, "f.txt"), 0o644)
     # install.sh itself stops before sourcing anything when its own tree is not root's or the admin's. Run from
     # the root-owned copy (/usr/local/lib/ai/repo, owned by root) that tree is allowed by design: nothing to see.

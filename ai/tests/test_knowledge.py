@@ -298,7 +298,12 @@ if [ "$1 $2" = "hook status" ]; then
     if [ -f .git/hooks/post-commit ]; then echo "post-commit: installed"; else echo "post-commit: not installed"; fi
     exit 0
 fi
-if [ "$1 $2" = "hook install" ]; then echo "# graphify" > .git/hooks/post-commit; echo "post-commit: installed"; exit 0; fi
+if [ "$1 $2" = "hook install" ]; then
+    echo "# graphify" > .git/hooks/post-commit
+    git config merge.graphify.driver "python3 -m graphify merge-driver %O %A %B"
+    echo "graphify-out/graph.json merge=graphify" >> .gitattributes
+    echo "post-commit: installed"; exit 0
+fi
 [ "$GRAPHIFY_BACKEND" = none ] || { echo "no LLM API key found" >&2; exit 3; }
 [ "$1 $2 $3" = "extract . --code-only" ] || exit 4
 mkdir -p graphify-out && echo '{"nodes": []}' > graphify-out/graph.json
@@ -329,6 +334,11 @@ def t_adopt_knowledge(work, server):
     assert ".serena/project.yml" in files, files
     assert not any(f.startswith(("graphify-out", ".ai/libs.md", ".serena/cache")) for f in files), files
     assert os.path.isfile(os.path.join(repo, ".git", "hooks", "post-commit")), "graphify hooks not installed"
+    # graphify's merge driver (a program in .git/config, refused by the server git guard for agents) is removed
+    # again, and no .gitattributes is left behind untracked.
+    assert run(["git", "-C", repo, "config", "--get", "merge.graphify.driver"]).returncode != 0, "merge driver left"
+    assert not os.path.exists(os.path.join(repo, ".gitattributes")), open(os.path.join(repo, ".gitattributes")).read()
+    assert run(["git", "-C", repo, "status", "--porcelain"]).stdout.strip() == "", run(["git", "-C", repo, "status"]).stdout
     text = open(os.path.join(repo, "AGENTS.md")).read()
     assert text.index("<!-- AI:map START") < text.index("<!-- AI:libraries START"), "Map must come first"
     m = text[text.index("## Map"):text.index("<!-- AI:map END -->")]
