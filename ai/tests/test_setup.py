@@ -33,13 +33,16 @@ def main():
         for test in (t_codex_trust, t_codex_trust_hash_pin, t_codex_managed, t_claude_permissions, t_path_block, t_hermes_disabled,
                      t_claude_handoff, t_codex_env, t_dropped, t_sandbox_policy, t_hooks_remove, t_knowledge_status, t_session_start_order,
                      t_user_hook_match, t_verify_source, t_connectors_keep, t_sudo_gate, t_gate_skip_owner_only,
-                     t_root_guard, t_update_clone, t_ai_sync_untrusted):
+                     t_root_guard, t_update_clone, t_ai_sync_untrusted, t_plugin_files_tracked):
             try:
                 test(os.path.join(work, test.__name__))
                 print("ok   " + test.__name__)
             except AssertionError as exc:
                 FAILS.append("%s: %s" % (test.__name__, exc))
                 print("FAIL %s: %s" % (test.__name__, exc))
+            except Exception as exc:        # a crash in one test must not stop the others
+                FAILS.append("%s: %s: %s" % (test.__name__, type(exc).__name__, exc))
+                print("FAIL %s: crashed: %s: %s" % (test.__name__, type(exc).__name__, exc))
     finally:
         shutil.rmtree(work, ignore_errors=True)
     print("%d setup tests failed" % len(FAILS))
@@ -83,6 +86,13 @@ def plugin_snapshot(work):
     snap = os.path.join(work, "plugin-src")
     if not os.path.isdir(snap):
         shutil.copytree(PLUGIN, snap, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        # A Linux admin install points the ROOT-OWNED copy's manifest at the empty managed hooks file (the
+        # hooks live in /etc/codex/hooks.json there). These tests are about plugin hooks: always use the
+        # repo form of the manifest, whichever copy the suite runs from.
+        man = os.path.join(snap, ".codex-plugin", "plugin.json")
+        data = json.load(open(man))
+        data["hooks"] = "./hooks/codex-hooks.json"
+        write(man, json.dumps(data, indent=2) + "\n")
     return snap
 
 
@@ -433,6 +443,15 @@ def t_sandbox_policy(work):
     # Ubuntu with the userns restriction: Claude must use the profiled bubblewrap copy, never /usr/bin/bwrap.
     code, out = bash(LIBS + "AI_SANDBOX_BWRAP_FORCE=1 claude_sandbox_json_final", env)
     assert json.loads(out)["bwrapPath"] == "/usr/local/lib/ai/bwrap", out
+    # Server with proj-agent: exactly `sudo [-n] proj-agent ...` leaves the sandbox (sudo cannot run inside it).
+    code, out = bash(LIBS + "AI_OS=linux; AI_PROJ_AGENT_FORCE=1 claude_sandbox_json_final", env)
+    exc = json.loads(out)["excludedCommands"]
+    assert "sudo proj-agent *" in exc and "sudo -n proj-agent *" in exc, exc
+    assert not any(e.startswith("sudo") and "proj-agent" not in e for e in exc), exc
+    code, out = bash(LIBS + "AI_OS=linux; AI_PROJ_AGENT_FORCE=1 claude_allow_rules", env)
+    assert "Bash(sudo proj-agent *)" in out and "Bash(sudo -n proj-agent *)" in out
+    code, out = bash(LIBS + "AI_OS=macos; AI_PROJ_AGENT_FORCE=1 claude_allow_rules; claude_sandbox_json_final", env)
+    assert "proj-agent" not in out, "macOS has no proj-agent: no rule"
     prof = read(os.path.join(AI_DIR, "adapters", "linux", "apparmor-bwrap"))
     assert "profile ai-claude-bwrap /usr/local/lib/ai/bwrap flags=(unconfined)" in prof and "userns," in prof
     assert "/usr/bin/bwrap flags" not in prof, "Ubuntu's /usr/bin/bwrap restriction must stay for other programs"
@@ -617,7 +636,10 @@ def t_sudo_gate(work):
         assert v is None, v
     else:
         assert v and v[0] == "deny", "macOS: no agent sudo at all"
-    for c in ("sudo proj-agent", "sudo -u root proj-agent create x", "sudo env proj-agent x", "sudo python3 -c 1"):
+    v = hooklib.gate_sudo(None, "sudo -n proj-agent list", hooklib.parse_command("sudo -n proj-agent list"))
+    assert (v is None) == sys.platform.startswith("linux"), v
+    for c in ("sudo proj-agent", "sudo -u root proj-agent create x", "sudo env proj-agent x", "sudo python3 -c 1",
+              "sudo -n -u root proj-agent list", "sudo -n bash"):
         v = hooklib.gate_sudo(None, c, hooklib.parse_command(c))
         assert v and v[0] == "deny", c
 
@@ -703,6 +725,47 @@ def t_ai_sync_untrusted(work):
     code, out = bash('AI_SYNC_NO_MAIN=1; . "$AI_HOME/ai/bin/ai-sync"; load_libs; AI_OS=linux; '
                      'if tree_trusted; then echo TRUSTED; else echo UNTRUSTED; fi', env)
     assert "UNTRUSTED" in out, out
+
+
+def t_plugin_files_tracked(work):
+    """Every file a plugin needs exists, and in a git work tree is tracked: a machine-local ignore (a global
+    .gitignore with .mcp.json) once dropped ai-serena/.mcp.json and ai-playwright/.mcp.json from a commit."""
+    import re as _re
+    market = os.path.join(AI_DIR, "marketplace")
+    need = [os.path.join(market, ".claude-plugin", "marketplace.json"), os.path.join(market, ".agents", "plugins",
+                                                                                   "marketplace.json")]
+    for entry in json.load(open(need[0]))["plugins"]:
+        root = os.path.normpath(os.path.join(market, entry["source"]))
+        need.append(os.path.join(root, ".claude-plugin", "plugin.json"))
+        need.append(os.path.join(root, ".mcp.json"))        # every plugin of ours serves at least one MCP server
+        if os.path.exists(os.path.join(root, "hooks", "hooks.json")):
+            need.append(os.path.join(root, "hooks", "hooks.json"))
+        cman = os.path.join(root, ".codex-plugin", "plugin.json")
+        if os.path.exists(cman):
+            need.append(cman)
+            hooks = json.load(open(cman)).get("hooks")
+            if isinstance(hooks, str):
+                need.append(os.path.join(root, hooks[2:]))
+        if entry["name"] == "ai-core":
+            need += [os.path.join(root, "hooks", f) for f in ("codex-hooks.json", "codex-hooks.managed.json",
+                                                               "router.py", "hooklib.py", "serena-hook")]
+        # Scripts named in hooks and MCP commands: ${CLAUDE_PLUGIN_ROOT}/x or ${PLUGIN_ROOT}/x
+        for jf in [os.path.join(root, ".mcp.json"), os.path.join(root, "hooks", "hooks.json"),
+                   os.path.join(root, "hooks", "codex-hooks.json")]:
+            if os.path.exists(jf):
+                for rel in _re.findall(r"\$\{(?:CLAUDE_)?PLUGIN_ROOT\}/([\w./-]+)", read(jf)):
+                    need.append(os.path.join(root, rel))
+    need = sorted(set(need))
+    missing = [os.path.relpath(p, REPO) for p in need if not os.path.isfile(p)]
+    assert not missing, "plugin files missing: %s" % missing
+    if subprocess.run(["git", "-C", REPO, "rev-parse", "--git-dir"], stdout=subprocess.DEVNULL,
+                      stderr=subprocess.DEVNULL).returncode != 0:
+        return      # a root-owned copy from git archive has no .git: files exist, tracking was checked at commit
+    res = subprocess.run(["git", "-C", REPO, "ls-files", "--"] + [os.path.relpath(p, REPO) for p in need],
+                         stdout=subprocess.PIPE)
+    tracked = set(res.stdout.decode().split())
+    untracked = [os.path.relpath(p, REPO) for p in need if os.path.relpath(p, REPO) not in tracked]
+    assert not untracked, "plugin files not tracked by git (a local ignore?): %s" % untracked
 
 
 if __name__ == "__main__":

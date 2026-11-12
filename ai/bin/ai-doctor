@@ -540,6 +540,13 @@ def check_claude_policy():
                          "--allowedTools", "Bash(echo *)"], timeout=180)
         ok = code == 0 and "AI_SANDBOX_OK" in out
         say("PASS" if ok else "FAIL", "live: claude -p runs a sandboxed Bash command", "" if ok else out[-300:])
+        if os.path.exists("/usr/local/sbin/proj-agent"):
+            # The box tool runs outside the sandbox (excludedCommands): sudo works there, not inside.
+            code, out = run(["claude", "-p", "Run exactly this Bash command and print its full output: "
+                             "sudo -n proj-agent list", "--allowedTools", "Bash(sudo -n proj-agent *)"], timeout=180)
+            bad = "no new privileges" in out or "a password is required" in out or code != 0
+            say("FAIL" if bad else "PASS", "live: claude -p runs sudo -n proj-agent list (outside the sandbox)",
+                out[-300:] if bad else "")
     lock = ms.get("strictPluginOnlyCustomization")
     locked = lock is True or (isinstance(lock, list) and {"hooks", "mcp"} <= set(lock))
     say("PASS" if locked else "FAIL", "planted .claude/settings.json hooks and .mcp.json servers do not load "

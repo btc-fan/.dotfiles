@@ -253,6 +253,9 @@ claude_allow_rules() {
         'Bash(rtk wc*)' 'Bash(rtk grep *)' 'Bash(rtk rg *)' 'Bash(rtk find *)' 'Bash(rtk tree*)' 'Bash(rtk diff *)' \
         'Bash(rtk git status*)' 'Bash(rtk git diff*)' 'Bash(rtk git log*)' 'Bash(rtk git show*)'
     printf '%s\n' WebFetch WebSearch 'Read(~/.claude/plugins/**)' 'Read(~/.config/ai/**)'
+    # Box work runs unattended: proj-agent refuses everything outside its own menu (Linux servers only).
+    if proj_agent_present; then printf '%s\n' 'Bash(sudo proj-agent *)' 'Bash(sudo -n proj-agent *)'; fi
+    return 0
 }
 
 # graphify subcommands that write agent config or git hooks: always ask, even under Bash(graphify *).
@@ -342,9 +345,19 @@ print(json.dumps({
 EOS
 }
 
+# The box tool: sudo cannot run inside the sandbox ("no new privileges"), so `sudo proj-agent ...` runs outside
+# it. proj-agent is itself the allow-list (new try/mvp, list, status, snapshot, doctor, logs, restart, exec,
+# ports, url; it refuses the rest). Excluded-command entries use Bash-rule syntax and every command of a call
+# must match, so only these exact forms leave the sandbox; the no-sudo gate blocks every other sudo.
+PROJ_AGENT=/usr/local/sbin/proj-agent
+proj_agent_present() { [ "$AI_OS" = linux ] && { [ -x "$PROJ_AGENT" ] || [ "${AI_PROJ_AGENT_FORCE:-0}" = 1 ]; }; }
+
 # Add bwrapPath when the AppArmor-profiled copy exists (Ubuntu with the userns restriction): managed-only key.
 claude_sandbox_json_final() {
     local j; j=$(claude_sandbox_json)
+    if proj_agent_present; then
+        j=$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); d["excludedCommands"] += ["sudo proj-agent *", "sudo -n proj-agent *"]; print(json.dumps(d, sort_keys=True))' "$j")
+    fi
     if [ -e "${AI_BWRAP:-/usr/local/lib/ai/bwrap}" ] || [ "${AI_SANDBOX_BWRAP_FORCE:-0}" = 1 ]; then
         python3 -c 'import json,sys; d=json.loads(sys.argv[1]); d["bwrapPath"]=sys.argv[2]; print(json.dumps(d, sort_keys=True))' \
             "$j" "${AI_BWRAP:-/usr/local/lib/ai/bwrap}"

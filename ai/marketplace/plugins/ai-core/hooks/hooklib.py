@@ -990,7 +990,7 @@ def root_calls(cmd, depth=0):
             continue
         at_cmd = False
         if not kind and base in ROOT_TOOLS:
-            rest = [t for t, k in toks[i + 1:i + 4] if k is not None and k != "redir" or (k is None and t not in OPS)]
+            rest = [t for t, k in toks[i + 1:i + 5] if k is not None and k != "redir" or (k is None and t not in OPS)]
             out.append((base, rest))
     if depth < 2:
         for st in parse_command(cmd):
@@ -1008,7 +1008,13 @@ def gate_sudo(ctx, cmd, stages):
     if not calls:
         return None
     linux = _sys.platform.startswith("linux")
-    bad = [t for t, rest in calls if not (linux and t == "sudo" and rest[:1] == ["proj-agent"] and len(rest) > 1)]
+
+    def is_proj_agent(rest):
+        words = list(rest)
+        while words and words[0] in ("-n", "--non-interactive"):    # sudo -n proj-agent ... (no prompt)
+            words.pop(0)
+        return words[:1] == ["proj-agent"] and len(words) > 1
+    bad = [t for t, rest in calls if not (linux and t == "sudo" and is_proj_agent(rest))]
     if not bad:
         return None
     return ("deny", "No sudo for agents (%s). Do not try another way to get root. Give the owner the exact command "
