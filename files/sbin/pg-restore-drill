@@ -55,7 +55,9 @@ drill() {
                  where c.relkind in ('r', 'p') and n.nspname not in ('pg_catalog', 'information_schema')
                  and n.nspname not like 'pg\_toast%'" "$tdb" 2>/dev/null || echo "?")
     drop "$tdb"; current=""
-    if [ "$rc" = 0 ] && [ "$got" = "$want" ] && [ "$want" -gt 0 ]; then
+    if [ "$rc" = 0 ] && [ "$got" = 0 ] && [ "$want" = 0 ]; then
+        lines+=("ok   $db: empty database (no tables in the dump), restore ran clean")
+    elif [ "$rc" = 0 ] && [ "$got" = "$want" ]; then
         lines+=("ok   $db: $got tables restored from $(basename "$(dirname "$file")") in $(( ($(date +%s) - start) / 60 )) min")
     else
         lines+=("FAIL $db: pg_restore exit $rc, tables $got of $want. $(printf '%s' "$errs" | tail -n 2 | tr '\n' ' ' | cut -c1-200)")

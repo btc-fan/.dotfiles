@@ -49,6 +49,7 @@ cat > "$T/bin/pg_restore" <<'EOF'
 #!/bin/bash
 if [ "$1" = -l ]; then
     grep -q '^DUMP' || exit 1
+    [ -n "${FAKE_EMPTY:-}" ] && { printf '1; 2615 1 SCHEMA - public\n'; exit 0; }
     printf '1; 2615 1 SCHEMA - public\n2; 1259 16390 TABLE public a u\n3; 1259 16391 TABLE public b u\n4; 1259 16392 TABLE public c u\n'
     exit 0
 fi
@@ -111,6 +112,10 @@ grep -q 'restore_drill_appdb' "$T/drops" && ok || bad "drill did not drop its th
 rm -f "$T/posts"
 FAKE_TABLES=2 bash "$T/pg-restore-drill" > "$T/out" 2>&1 && bad "drill with missing tables returned 0" || ok
 grep -q '^POST alerts restore drill FAILED' "$T/posts" && ok || bad "drill failure not sent to alerts"
+
+rm -f "$T/posts"
+FAKE_TABLES=0 FAKE_EMPTY=1 bash "$T/pg-restore-drill" > "$T/out" 2>&1 && ok || bad "drill of empty databases failed: $(cat "$T/out")"
+grep -q 'empty database' "$T/out" && ok || bad "empty database line missing: $(cat "$T/out")"
 
 echo
 echo "pg-backup tests: $pass passed, $fail failed"
