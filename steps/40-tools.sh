@@ -37,6 +37,19 @@ server_info() {
 # Managed by setup.sh (step 40-tools): the short server-info on every SSH login (3 s at most).
 timeout 3 /usr/local/bin/server-info --short 2>/dev/null || true
 EOF
+    # ai-info (ai branch) is per user, often in ~/.local/bin: shown at login AS that user, once
+    # per SSH session, never inside tmux, at most 2 s. update-motd runs as root, so not there.
+    put /etc/profile.d/zz-ai-info.sh 644 <<'EOF'
+# Managed by setup.sh (step 40-tools): the user's ai-info --short once per SSH login.
+case $- in *i*) ;; *) return 0 2>/dev/null ;; esac
+if [ -n "${SSH_CONNECTION:-}" ] && [ -z "${TMUX:-}" ] && [ -z "${AI_INFO_SHOWN:-}" ]; then
+    export AI_INFO_SHOWN=1
+    _ai=$(command -v ai-info 2>/dev/null || true)
+    [ -n "$_ai" ] || { [ -x "$HOME/.local/bin/ai-info" ] && _ai=$HOME/.local/bin/ai-info; }
+    [ -z "$_ai" ] || timeout 2 "$_ai" --short 2>/dev/null | head -n 6
+    unset _ai
+fi
+EOF
     local f
     for f in $MOTD_OFF; do
         f=/etc/update-motd.d/$f

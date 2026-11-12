@@ -381,3 +381,7 @@ for a fork; `tar --zstd` on 26.04; the host reaching a box IP through ufw.
   50-motd-news (also `ENABLED=0`), 50-landscape-sysinfo (slow, prints IPs), 91-contract-ua-esm-status.
   A package upgrade may turn one back on; the next step 40 run and verify catch it.
 - AGENTS-hosting.md: "Run `server-info` first when unsure what this machine offers."
+- `ai-info --short`: update-motd runs as root, so the user's AI facts come from
+  `/etc/profile.d/zz-ai-info.sh` (as the user, once per SSH session, not in tmux, 2 s cap; it
+  also looks in `~/.local/bin`, which is not on PATH yet when profile.d runs). `server-info
+  --short` run by hand adds it too; the full form appends plain `ai-info`.

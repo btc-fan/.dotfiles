@@ -244,8 +244,10 @@ Your own notes in that file stay.
 2 s, never prints secrets, IP addresses or URLs. What this server is, health (uptime, failed
 units, disk and inode use, ZFS, backup age per database, reboot needed), boxes with tier and
 expiry, agents (versions, the agent user's gateway), the main commands and where the docs are.
-If `ai-info` exists (ai branch), its output is added. The SSH login message shows the short
-form (`/etc/update-motd.d/60-server-info`). Ubuntu's help links, news, Pro ads and
+If `ai-info` exists (ai branch), its output is added (`ai-info --short` in the short form). The
+SSH login message shows the short form (`/etc/update-motd.d/60-server-info`, run as root), then
+`/etc/profile.d/zz-ai-info.sh` adds the user's own `ai-info --short`, as that user, once per SSH
+login (not in tmux, 2 s at most). Ubuntu's help links, news, Pro ads and
 landscape-sysinfo are turned off at login; update, security, release, reboot and fsck notices stay.
 
 ### 50-alerts

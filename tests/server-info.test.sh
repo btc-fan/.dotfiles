@@ -48,7 +48,10 @@ printf '#!/bin/bash\necho "2.1.311 (Claude Code)"\n' > "$T/bin/claude"
 printf '#!/bin/bash\nsleep 10; echo never\n' > "$T/bin/codex"
 printf '#!/bin/bash\nexit 0\n' > "$T/bin/pgrep"
 printf '#!/bin/bash\n[ "$1" = hermes ] && exit 0; exec /usr/bin/id "$@"\n' > "$T/bin/id"
-printf '#!/bin/bash\necho "== ai\nai layer ok"\n' > "$T/bin/ai-info"
+cat > "$T/bin/ai-info" <<'EOF'
+#!/bin/bash
+if [ "${1:-}" = --short ]; then echo "ai short ok"; else echo "== ai"; echo "ai layer ok"; fi
+EOF
 printf '#!/bin/bash\nexit 1\n' > "$T/bin/sudo"
 chmod +x "$T/bin/"*
 export PATH="$T/bin:$PATH"
@@ -89,6 +92,7 @@ n=$(printf '%s\n' "$short" | wc -l)
 has "$short" "boxes 2: radar (long), trybox (try to 12-01)"
 has "$short" "failed units 2, reboot needed YES"
 has "$short" "server-info"
+has "$short" "ai short ok"
 
 for out in "$full" "$short"; do
     if grep -qE '([0-9]{1,3}\.){3}[0-9]{1,3}|https?://|enp9s0|example\.invalid|webhook' <<< "$out"; then

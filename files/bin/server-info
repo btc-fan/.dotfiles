@@ -107,6 +107,11 @@ if [ "$short" = 1 ]; then
     line "   agents: sudo proj-agent list | new <name> --tier try|mvp | exec <box> -- <cmd> | url <box>"
     line "   owner:  sudo proj ...   sudo /opt/server-setup/setup.sh --update"
     line "   more:   server-info  (everything: boxes, agents, commands, docs)"
+    # The login message runs as root (pam_motd): the user's AI facts come from
+    # /etc/profile.d/zz-ai-info.sh instead, as that user. Run by hand, add them here.
+    if [ "$(id -u)" != 0 ] && command -v ai-info >/dev/null 2>&1; then
+        timeout 2 ai-info --short 2>/dev/null | head -n 6 | sed 's/^/   /'
+    fi
     exit 0
 fi
 
