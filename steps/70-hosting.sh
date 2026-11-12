@@ -437,6 +437,10 @@ workspaces() {
     [ "$(stat -c %a "$root" 2>/dev/null)" = 750 ] || run chmod 750 "$root"
     [ -d "$root/.trash" ] || run install -d -m 700 -o root -g root "$root/.trash"
     workspace_nosuid "$root"
+    # SECURITY: boxes can write .git/config and .git/hooks in their workspace. /usr/local/bin/git
+    # (before /usr/bin in PATH) turns hooks and fsmonitor off there and refuses repo configs that can
+    # start a program. Everywhere else it is plain /usr/bin/git.
+    sed "s|@WORK_ROOT@|$root|" "$REPO_DIR/files/sbin/git-workspace-guard" | put /usr/local/bin/git 755
     # git refuses a repository owned by another user: AGENT_USER works in MAIN_USER's checkouts.
     git config --system --get-all safe.directory 2>/dev/null | grep -qxF "$root/*" \
         || run git config --system --add safe.directory "$root/*"

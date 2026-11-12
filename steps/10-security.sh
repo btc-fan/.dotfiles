@@ -105,6 +105,39 @@ remove_stale_main_nopasswd() {
     dry || visudo -c >/dev/null || die "sudoers invalid after removing a stale file: restore it from /root/sudoers-removed/"
 }
 
+# main_sudo_rule: host.env MAIN_SUDO decides what the main user keeps after --drop-main-sudo.
+#   password (default): sudo with the password.
+#   none (owner decision 2026-11-12): no sudo at all, out of the sudo/admin groups. Agents run as the
+#        main user and could fake a "sudo" prompt in its shell to catch the password; admin work is
+#        done as ADMIN_USER. The allow-listed `sudo proj-agent` (step 70) stays.
+# The last matching sudoers rule wins, and zz- sorts last: this beats any older rule.
+main_sudo_rule() {
+    local g
+    case "${MAIN_SUDO:-password}" in
+        none)
+            put_sudoers "$MAIN_PASSWD_SUDOERS" <<EOF
+# Managed by ~/.dotfiles setup.sh (step 10-security, host.env MAIN_SUDO=none).
+# $MAIN_USER has NO sudo (only the allow-listed proj-agent of step 70). Admin work: log in as $ADMIN_USER.
+# Undo: MAIN_SUDO=password in host.env, run setup.sh --only 10, then: sudo usermod -aG sudo $MAIN_USER
+EOF
+            for g in sudo admin wheel; do
+                if getent group "$g" >/dev/null && id -nG "$MAIN_USER" | tr ' ' '\n' | grep -qx "$g"; then
+                    run gpasswd -d "$MAIN_USER" "$g"
+                    info "$MAIN_USER left the $g group: no sudo (takes effect at the next login)"
+                fi
+            done ;;
+        password)
+            put_sudoers "$MAIN_PASSWD_SUDOERS" <<EOF
+# Managed by ~/.dotfiles setup.sh (step 10-security, --drop-main-sudo).
+# $MAIN_USER keeps sudo, but must type the password. Admin work: log in as $ADMIN_USER.
+# Undo: sudo rm $MAIN_PASSWD_SUDOERS
+$MAIN_USER ALL=(ALL:ALL) PASSWD: ALL
+EOF
+            ;;
+        *) die "host.env MAIN_SUDO must be password or none (got '${MAIN_SUDO}')" ;;
+    esac
+}
+
 # --drop-main-sudo: the main user keeps sudo, but WITH a password, and leaves the docker group.
 # Done only after the admin login is proven (the owner creates the marker file through it).
 drop_main_sudo() {
@@ -114,6 +147,9 @@ drop_main_sudo() {
     if [ "$DROP_MAIN_SUDO" != 1 ]; then
         if [ ! -f "$MAIN_PASSWD_SUDOERS" ]; then
             info "main user $MAIN_USER keeps passwordless sudo (pass --drop-main-sudo to change it)"
+        else
+            # Already dropped once: apply host.env MAIN_SUDO (password | none) on every run.
+            main_sudo_rule
         fi
         return 0
     fi
@@ -143,14 +179,7 @@ drop_main_sudo() {
     fi
     [ "$fail" = 0 ] || die "--drop-main-sudo refused. Nothing changed for $MAIN_USER."
 
-    # The last matching sudoers rule wins, and zz- sorts last: this beats any older NOPASSWD rule
-    # (for example the one cloud-init writes) without editing files we do not own.
-    put_sudoers "$MAIN_PASSWD_SUDOERS" <<EOF
-# Managed by ~/.dotfiles setup.sh (step 10-security, --drop-main-sudo).
-# $MAIN_USER keeps sudo, but must type the password. Admin work: log in as $ADMIN_USER.
-# Undo: sudo rm $MAIN_PASSWD_SUDOERS
-$MAIN_USER ALL=(ALL:ALL) PASSWD: ALL
-EOF
+    main_sudo_rule
     if id -nG "$MAIN_USER" | tr ' ' '\n' | grep -qx docker; then
         run gpasswd -d "$MAIN_USER" docker
         info "$MAIN_USER left the docker group (takes effect at the next login)"

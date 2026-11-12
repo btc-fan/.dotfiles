@@ -1,0 +1,45 @@
+#!/bin/sh
+# git-workspace-guard: installed as /usr/local/bin/git by ~/.dotfiles setup.sh (step 70-hosting).
+# SECURITY. Code inside a box can write the box's workspace, including .git/config and .git/hooks.
+# The host agents (and Claude Code's own git status at startup) run git there as the main user.
+# So for any repository under the workspace root:
+#   - hooks never run (core.hooksPath=/dev/null) and fsmonitor is off;
+#   - git refuses to run when the repository's own config sets a key that can start a program
+#     (pager, editor, ssh command, diff/merge/filter drivers, aliases, includes, credential
+#     helpers, ...). Fix it from inside the box, or ask the owner.
+# Anywhere else this is plain /usr/bin/git.
+REAL=/usr/bin/git
+WORK_ROOT="@WORK_ROOT@"
+
+dir=$PWD
+# git -C <dir> ... (also repeated -C): the last one wins, relative to the previous.
+a=1
+for arg in "$@"; do
+    if [ "$a" = C ]; then
+        case "$arg" in /*) dir=$arg ;; *) dir=$dir/$arg ;; esac
+        a=1; continue
+    fi
+    case "$arg" in
+        -C) a=C ;;
+        -*) ;;
+        *) break ;;
+    esac
+done
+[ -n "${GIT_DIR:-}" ] && case "$GIT_DIR" in /*) dir=$GIT_DIR ;; *) dir=$dir/$GIT_DIR ;; esac
+
+case "$(cd "$dir" 2>/dev/null && pwd -P)/" in
+    "$WORK_ROOT"/*) ;;
+    *) exec "$REAL" "$@" ;;
+esac
+
+# Inside a workspace. Reading the local config runs nothing (includes are only read as files).
+bad=$("$REAL" -C "$dir" -c core.hooksPath=/dev/null -c core.fsmonitor=false \
+      config --local --no-includes --name-only --list 2>/dev/null \
+    | grep -iE '^(core\.(fsmonitor|hookspath|pager|sshcommand|editor|askpass|gitproxy|alternaterefscommand)|sequence\.editor|diff\.external|diff\..+\.(command|textconv)|difftool\..+|merge\..+\.driver|mergetool\..+|filter\..+|alias\..+|include\.|includeif\..+|credential\..*helper|.+\.program|uploadpack\..+|receive\..+|protocol\..+\.allow|url\..+\.(insteadof|pushinsteadof)|remote\..+\.(uploadpack|receivepack|vcs)|gpg\..+|ssh\..+|http\..*(proxy|cookiefile))$' \
+    | sort -u | tr '\n' ' ')
+if [ -n "$bad" ]; then
+    echo "git-workspace-guard: refused. The repository config in $dir sets keys that can start a program: $bad" >&2
+    echo "git-workspace-guard: code in the box may have planted them. Check .git/config from inside the box (sudo proj-agent exec <box> -- git config --local --list) or ask the owner." >&2
+    exit 1
+fi
+exec "$REAL" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"

@@ -161,6 +161,12 @@ for c in alerts info; do
     fi
 done
 
+if [ "${MAIN_SUDO:-password}" = none ] && [ -f /etc/sudoers.d/zz-server-main-password ]; then
+    echo "### 10 main user without sudo (MAIN_SUDO=none)"
+    sh_chk "$MAIN_USER not in the sudo/admin/wheel groups" "! id -nG '$MAIN_USER' | tr ' ' '\n' | grep -qx -e sudo -e admin -e wheel"
+    sh_chk "$MAIN_USER may run only allow-listed commands with sudo" "! sudo -l -U '$MAIN_USER' | grep -E '\(ALL( : ALL)?\) (NOPASSWD: |PASSWD: )?ALL\$'"
+fi
+
 if [ -n "${AGENT_USER:-}" ]; then
     echo "### 55 shared users"
     chk "user $AGENT_USER exists" id "$AGENT_USER"
