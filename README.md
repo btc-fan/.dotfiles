@@ -240,6 +240,14 @@ Your own notes in that file stay.
   - Setup starts (and enables) the cluster only when this run created it. A cluster that already
     exists and is stopped stays stopped (a move or restore may be going on): it only warns.
 
+**server-info** (`/usr/local/bin/server-info`): for people and agents, any user, no sudo, under
+2 s, never prints secrets, IP addresses or URLs. What this server is, health (uptime, failed
+units, disk and inode use, ZFS, backup age per database, reboot needed), boxes with tier and
+expiry, agents (versions, the agent user's gateway), the main commands and where the docs are.
+If `ai-info` exists (ai branch), its output is added. The SSH login message shows the short
+form (`/etc/update-motd.d/60-server-info`). Ubuntu's help links, news, Pro ads and
+landscape-sysinfo are turned off at login; update, security, release, reboot and fsck notices stay.
+
 ### 50-alerts
 
 Messages go to two Discord channels through webhooks (channel names: `#<host>-alerts`,
@@ -488,6 +496,7 @@ There is no UPS yet. See "Later" in [docs/NOTES.md](docs/NOTES.md).
 ## Check the server
 
 ```bash
+server-info                       # what is here: health, backups, boxes, agents, commands, docs (any user, no sudo)
 sudo /opt/server-setup/setup.sh --only verify     # full PASS / FAIL report
 systemctl --failed                # failed services
 systemctl list-timers             # when the backups run next
@@ -593,6 +602,9 @@ files/sbin/proj-agent the only root command agents may run (sudo, no password, a
 tests/proj-agent.test.sh   offline tests for proj-agent (fake tools, run as a normal user)
 tests/proj-workspace.test.sh   offline tests for proj workspaces (new, fork, wipe, recreate)
 tests/git-guard.test.sh   offline tests for the workspace git guard (every known bypass + normal use)
+tests/pg-backup.test.sh   offline tests for pg-backup and the restore drill (Linux)
+tests/server-info.test.sh offline tests for server-info (Linux)
+files/bin/server-info "what is here" for every user (to /usr/local/bin)
 files/proj/box-bootstrap.sh   runs inside every new box (user dev, tools, docker, postgres)
 files/incus/*.yaml    Incus profiles: box-base, tier-try, tier-mvp, tier-long, docker
 docs/HOSTING.md       rules for project boxes (for people)

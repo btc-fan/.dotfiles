@@ -13,6 +13,7 @@ Human rules: docs/HOSTING.md. The owner's root-owned files in /etc win over this
 - If neither exists, stop and ask the owner.
 
 ### On the host
+- Run `server-info` first when unsure what this machine offers (boxes, agents, commands, docs).
 - Never create a project folder on the host: not in ~, /work, /opt, /srv or /tmp. The only
   project code on the host is a box workspace, /srv/proj/work/<box>, and proj makes it.
 - Host projects are listed in /srv/proj/REGISTRY.md (for scripts: REGISTRY.json).

@@ -370,3 +370,14 @@ for a fork; `tar --zstd` on 26.04; the host reaching a box IP through ufw.
   bridge are baseline rules and stay. Existing host.env files keep their own list: add it there.
 - ZFS `atime=off` on the boxes pool. logrotate for `/var/log/proj.log` and `proj-agent.log`
   (weekly, 12). Workspace size alert (above).
+
+### server-info and the login message (owner request)
+- `/usr/local/bin/server-info`: any user, no sudo, read only, under 2 s (agent CLI versions run in
+  parallel, each cut at 1.5 s). host.env is read as text for a few plain values only; nothing
+  with an address, URL or secret is printed (the test plants some and checks). Backup ages come
+  from small status files pg-backup writes to `/var/lib/server-info/pg-<db>` (644), because the
+  dump folders are root-only. Boxes: `sudo -n proj-agent list` when allowed, else REGISTRY.json.
+- Login: `/etc/update-motd.d/60-server-info` (short form, 3 s cap). Off: 10-help-text,
+  50-motd-news (also `ENABLED=0`), 50-landscape-sysinfo (slow, prints IPs), 91-contract-ua-esm-status.
+  A package upgrade may turn one back on; the next step 40 run and verify catch it.
+- AGENTS-hosting.md: "Run `server-info` first when unsure what this machine offers."

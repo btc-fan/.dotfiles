@@ -20,7 +20,33 @@ main() {
     install_uv
     if is_yes "${INSTALL_DOCKER:-yes}"; then install_lazydocker; fi
     if is_yes "${INSTALL_POSTGRES:-yes}"; then setup_postgres; fi
+    server_info
     report
+}
+
+# server-info: "what is here" for every user and agent, no sudo (files/bin/server-info).
+# The SSH login message shows its short form. Quiet Ubuntu login parts that add nothing here
+# (help links, news and Pro ads, landscape-sysinfo, which also prints IP addresses) are made
+# not executable; update, security, release, reboot and fsck notices stay.
+MOTD_OFF="10-help-text 50-motd-news 50-landscape-sysinfo 91-contract-ua-esm-status"
+server_info() {
+    log "server-info (/usr/local/bin) and the login message"
+    put_file bin/server-info /usr/local/bin/server-info 755
+    put /etc/update-motd.d/60-server-info 755 <<'EOF'
+#!/bin/sh
+# Managed by setup.sh (step 40-tools): the short server-info on every SSH login (3 s at most).
+timeout 3 /usr/local/bin/server-info --short 2>/dev/null || true
+EOF
+    local f
+    for f in $MOTD_OFF; do
+        f=/etc/update-motd.d/$f
+        if [ -e "$f" ] && [ -x "$(readlink -f "$f")" ] && [ ! -L "$f" ]; then run chmod -x "$f"; fi
+        # A symlink (landscape) points into /usr: replace the link by an empty, non-executable file.
+        if [ -L "$f" ]; then run rm -f "$f"; run install -m 644 /dev/null "$f"; fi
+    done
+    if [ -f /etc/default/motd-news ] && grep -q '^ENABLED=1' /etc/default/motd-news; then
+        run sed -i 's/^ENABLED=1/ENABLED=0/' /etc/default/motd-news
+    fi
 }
 
 # Distro packages. fd and bat have Debian names; add the usual short names.

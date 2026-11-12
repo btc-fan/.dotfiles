@@ -15,6 +15,7 @@
 # then gets its date name. A half-done dump from a killed run is removed on the next run.
 # Free space: refused when the target has less than 2x the largest database (normal) or 1.5x the
 # last dump of that database (--big, or half the database size when there is no dump yet).
+# Status for server-info: /var/lib/server-info/pg-<db> ("<epoch> <bytes>" or "missing", 644).
 # Run by pg-backup.timer and pg-backup-big.timer.
 set -euo pipefail
 # shellcheck source=/dev/null
@@ -74,6 +75,14 @@ dump_db() {
         || { echo "dump of $1 cannot be read back (pg_restore -l)" >&2; return 1; }
 }
 
+# info_note DB WHAT: a small status file for server-info (any user may read it): when the newest
+# good dump was made and its size, or "missing". No data, no paths, no secrets.
+info_note() {
+    install -d -m 755 /var/lib/server-info
+    printf '%s\n' "$2" > "/var/lib/server-info/pg-$1.tmp" && chmod 644 "/var/lib/server-info/pg-$1.tmp" \
+        && mv "/var/lib/server-info/pg-$1.tmp" "/var/lib/server-info/pg-$1"
+}
+
 free_bytes() { df -PB1 "$1" | awk 'NR == 2 {print $4}'; }
 
 mapfile -t all_dbs < <(psqlq "select datname from pg_database where not datistemplate and datallowconn order by 1")
@@ -104,6 +113,7 @@ if [ "$big" = 0 ]; then
     rm -rf -- "${set:?}/daily/$day"
     mv "$tmp" "$set/daily/$day"
     rotate "$set"
+    for db in "${dbs[@]}"; do info_note "$db" "$(date +%s) $(stat -c %s "$set/daily/$day/$db.dump")"; done
     du -sh "$set/daily/$day"
     exit 0
 fi
@@ -117,6 +127,7 @@ for db in ${PG_BACKUP_SKIP_DBS}; do
         echo "$db: not in this cluster yet, nothing to dump"
         install -d -m 700 "$set"
         date -Is > "$set/.not-there-yet"
+        info_note "$db" missing
         continue
     fi
     rm -f -- "$set/.not-there-yet"
@@ -139,6 +150,7 @@ for db in ${PG_BACKUP_SKIP_DBS}; do
     rm -rf -- "${set:?}/daily/$day"
     mv "$tmp" "$set/daily/$day"
     rotate "$set"
+    info_note "$db" "$(date +%s) $(stat -c %s "$set/daily/$day/$db.dump")"
     echo "$db: $(du -sh "$set/daily/$day/$db.dump" | cut -f1) in $(( ($(date +%s) - start) / 60 )) min"
 done
 exit "$rc"

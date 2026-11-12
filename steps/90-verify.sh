@@ -131,6 +131,9 @@ done
 [ -z "${DATA_MOUNT:-}" ] || chk "DISK-ROLES.md on $DATA_MOUNT" test -s "$DATA_MOUNT/DISK-ROLES.md"
 
 echo "### 40 tools"
+chk "server-info works for any user (no sudo)" runuser -u "$MAIN_USER" -- timeout 5 /usr/local/bin/server-info --short
+sh_chk "login message shows server-info" "[ -x /etc/update-motd.d/60-server-info ]"
+sh_chk "noisy login parts off (help, news, landscape, Pro ads)" "for f in 10-help-text 50-motd-news 50-landscape-sysinfo 91-contract-ua-esm-status; do [ -x /etc/update-motd.d/\$f ] && exit 1; done; exit 0"
 for c in git curl jq tmux htop btop gh rg fzf ncdu uv; do chk "cmd $c" command -v "$c"; done
 if is_yes "${INSTALL_DOCKER:-yes}"; then
     chk "docker running" systemctl is-active -q docker

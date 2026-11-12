@@ -20,7 +20,7 @@ PG_BACKUP_SKIP_DBS="bigdb laterdb"
 INSTALL_POSTGRES="yes"
 EOF
 for s in pg-backup pg-restore-drill; do
-    sed "s|/etc/server/host.env|$T/host.env|; s|/usr/local/sbin/discord-notify|$T/bin/discord-notify|" \
+    sed "s|/etc/server/host.env|$T/host.env|; s|/usr/local/sbin/discord-notify|$T/bin/discord-notify|; s|/var/lib/server-info|$T/info|g" \
         "$REPO/files/sbin/$s" > "$T/$s"
 done
 cat > "$T/bin/runuser" <<'EOF'
@@ -88,6 +88,10 @@ w=$(ls -1 "$B/weekly" | head -n 1)
 [ "$(stat -c %h "$B/weekly/$(ls -1 "$B/weekly" | tail -n 1)/bigdb.dump")" -ge 2 ] && ok || bad "weekly is not a hard link of the daily"
 [ -e "$T/backup/postgres-big/laterdb/.not-there-yet" ] && [ ! -d "$T/backup/postgres-big/laterdb/daily" ] && ok || bad "missing db not noted as not there yet"
 grep -q 'laterdb: not in this cluster yet' "$T/out" && ok || bad "missing db message"
+
+[ "$(cut -d' ' -f1 "$T/info/pg-appdb")" = "$($REALDATE -d '2026-03-21 07:30' +%s)" ] && ok || bad "status note pg-appdb: $(cat "$T/info/pg-appdb" 2>&1)"
+[ "$(cat "$T/info/pg-laterdb")" = missing ] && [ -s "$T/info/pg-bigdb" ] && ok || bad "status notes for big dbs"
+[ "$(stat -c %a "$T/info/pg-appdb")" = 644 ] && ok || bad "status note not 644"
 
 echo "== 30 more days: weekly stops at 4"
 for i in $(seq 20 49); do

@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+# server-info: what this server is, how it is doing, what runs here, and the main commands.
+# For people and agents: any user, no sudo needed, fast (under 2 s), read only.
+# Never prints secrets, IP addresses or URLs. Installed by setup.sh (step 40-tools) as
+# /usr/local/bin/server-info; the login message (/etc/update-motd.d/60-server-info) runs --short.
+# Usage: server-info [--short]
+set -uo pipefail
+export LC_ALL=C.UTF-8
+
+ROOT=${SERVER_INFO_ROOT:-}   # tests only: a folder that stands in for / (fake files)
+short=0
+[ "${1:-}" = --short ] && short=1
+
+HOST_ENV=$ROOT/etc/server/host.env
+SERVER_NAME="" MAIN_USER="" AGENT_USER="" DATA_MOUNT="" BACKUP_MOUNT="" WORK_ROOT=""
+# host.env is root-owned (644, no secrets): read only the plain values used here, run nothing.
+val() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}[[:space:]]*\(#.*\)\{0,1\}$/\1/p" "$HOST_ENV" 2>/dev/null | tail -n 1; }
+if [ -r "$HOST_ENV" ]; then
+    SERVER_NAME=$(val SERVER_NAME); MAIN_USER=$(val MAIN_USER); AGENT_USER=$(val AGENT_USER)
+    DATA_MOUNT=$(val DATA_MOUNT); BACKUP_MOUNT=$(val BACKUP_MOUNT); WORK_ROOT=$(val WORK_ROOT)
+fi
+WORK_ROOT=${WORK_ROOT:-/srv/proj/work}
+name=${SERVER_NAME:-$(hostname 2>/dev/null)}
+now=$(date +%s)
+
+role="unknown (no /etc/proj-host or /etc/proj-box)"
+if [ -r "$ROOT/etc/proj-box" ]; then
+    role="inside box $(sed -n 's/^name=//p' "$ROOT/etc/proj-box" | head -n 1) (a project box, not the host)"
+elif [ -r "$ROOT/etc/proj-host" ]; then
+    role="host: one Incus box per project; never build projects on the host"
+fi
+
+# ---- health ----
+up=$(uptime -p 2>/dev/null | sed 's/^up //')
+nfailed=$(systemctl --failed --no-legend --plain 2>/dev/null | grep -c . || true)
+fs=""
+for m in / ${DATA_MOUNT:-} ${BACKUP_MOUNT:-}; do
+    [ -d "$ROOT$m" ] || continue
+    p=$(df -P "$ROOT$m" 2>/dev/null | awk 'NR==2 {print $5}')
+    i=$(df -Pi "$ROOT$m" 2>/dev/null | awk 'NR==2 {print $5}')
+    fs="$fs $m ${p:-?} (inodes ${i:-?}),"
+done
+zfs=""
+if command -v zpool >/dev/null 2>&1; then
+    zfs=$(zpool list -H -o name,health,capacity 2>/dev/null | awk '{printf " %s %s %s,", $1, $2, $3}')
+fi
+reboot=no
+[ -e "$ROOT/var/run/reboot-required" ] && reboot=YES
+
+# Backup ages: pg-backup leaves one small status file per database (no data, readable by all).
+bk=""
+for f in "$ROOT"/var/lib/server-info/pg-*; do
+    [ -r "$f" ] || continue
+    db=${f##*/pg-}
+    read -r ts size < "$f" || continue
+    if [ "$ts" = missing ]; then bk="$bk $db not there yet,"
+    else bk="$bk $db $(( (now - ts) / 3600 )) h,"; fi
+done
+
+# ---- boxes ----
+boxes_full() {
+    if [ -z "$ROOT" ] && sudo -n -l /usr/local/sbin/proj-agent >/dev/null 2>&1; then
+        sudo -n /usr/local/sbin/proj-agent list 2>/dev/null && return 0
+    fi
+    boxes_registry
+}
+boxes_registry() {
+    local r=$ROOT/srv/proj/REGISTRY.json
+    [ -r "$r" ] && command -v jq >/dev/null || { echo "  (no box list: $r not readable)"; return 0; }
+    jq -r '(.boxes // [])[] | "  \(.name)  \(.tier)  \(.state)\(if .expires then "  until " + (.expires | .[0:10]) else "" end)"' "$r" 2>/dev/null
+    jq -r '(.host_projects // [])[] | "  \(.name)  (host project, not a box)"' "$r" 2>/dev/null
+}
+
+# ---- agents ----
+agents() {
+    local t v pid=() out
+    out=$(mktemp)
+    for t in claude codex opencode hermes; do
+        command -v "$t" >/dev/null 2>&1 || continue
+        ( v=$(timeout 1.5 "$t" --version 2>/dev/null | head -n 1); echo "$t ${v:-installed}" >> "$out" ) &
+        pid+=($!)
+    done
+    [ ${#pid[@]} -eq 0 ] || wait "${pid[@]}"
+    sort "$out" | sed 's/^/  /'
+    rm -f "$out"
+    if [ -n "$AGENT_USER" ] && id "$AGENT_USER" >/dev/null 2>&1; then
+        if pgrep -u "$AGENT_USER" -f gateway >/dev/null 2>&1; then
+            echo "  $AGENT_USER gateway: running"
+        else
+            echo "  $AGENT_USER gateway: NOT running"
+        fi
+    fi
+}
+
+line() { printf '%s\n' "$*"; }
+if [ "$short" = 1 ]; then
+    line "== $name: $role"
+    line "   up ${up:-?}, failed units ${nfailed:-?}, reboot needed $reboot"
+    line "   disks:${fs%,}${zfs:+  ZFS:${zfs%,}}"
+    [ -z "$bk" ] || line "   backups:${bk%,}"
+    if [ -r "$ROOT/srv/proj/REGISTRY.json" ] && command -v jq >/dev/null; then
+        n=$(jq -r '(.boxes // []) | length' "$ROOT/srv/proj/REGISTRY.json" 2>/dev/null)
+        list=$(jq -r '(.boxes // [])[:6][] | "\(.name) (\(.tier)\(if .expires then " to " + (.expires | .[5:10]) else "" end))"' "$ROOT/srv/proj/REGISTRY.json" 2>/dev/null | paste -sd ',' - | sed 's/,/, /g')
+        line "   boxes ${n:-0}: ${list:-none}"
+    fi
+    line "   code of box X: $WORK_ROOT/X (= /srv/app in the box). Run it in the box, never here."
+    line "   agents: sudo proj-agent list | new <name> --tier try|mvp | exec <box> -- <cmd> | url <box>"
+    line "   owner:  sudo proj ...   sudo /opt/server-setup/setup.sh --update"
+    line "   more:   server-info  (everything: boxes, agents, commands, docs)"
+    exit 0
+fi
+
+line "== $name"
+line "role: $role"
+line ""
+line "== health"
+line "up ${up:-?}, failed units: ${nfailed:-?} (systemctl --failed), reboot needed: $reboot"
+line "disks:${fs%,}"
+[ -z "$zfs" ] || line "ZFS:${zfs%,}"
+line "backups (age of the newest dump):${bk:- no status yet (pg-backup has not run)}"
+line ""
+line "== boxes (one per project)"
+boxes_full
+line ""
+line "== agents"
+agents
+line ""
+cat <<EOF
+== commands
+agents (no password, sudo proj-agent help for all):
+  sudo proj-agent list                     boxes and host projects
+  sudo proj-agent new <name> --tier try|mvp [--docker] [--pg]
+  sudo proj-agent status <unit>            a host unit (read only)
+  sudo proj-agent snapshot <box>           snapshot box + workspace
+  sudo proj-agent exec <box> -- <command>  run in the box as dev, in /srv/app
+  sudo proj-agent ports <box> | url <box> [port] | logs box <box> [-n N]
+  ai-adopt --tools ...                     add the AI setup to a project
+  ai-doctor                                check the AI setup
+  server-info                              this page (server-info --short: the login lines)
+owner (admin user):
+  sudo proj new|wipe|restore|promote ...   everything about boxes (sudo proj help)
+  sudo /opt/server-setup/setup.sh --update             this server's setup (fetch + run)
+  sudo /opt/server-setup/setup.sh --only verify        full check
+  sudo /opt/ai-setup/install.sh --update --for-user <user>   the AI setup
+
+== docs
+  rules for agents:  /usr/local/share/proj/AGENTS-hosting.md (in a box: /etc/proj-rules/AGENTS.md)
+  box list:          /srv/proj/REGISTRY.md
+  server setup:      /opt/server-setup/README.md, /opt/server-setup/docs/HOSTING.md, docs/NOTES.md
+  AI setup:          /opt/ai-setup/README.md
+  code of box X:     $WORK_ROOT/X (= /srv/app in the box)
+EOF
+if command -v ai-info >/dev/null 2>&1; then
+    line ""
+    timeout 2 ai-info 2>/dev/null || line "(ai-info gave no answer in 2 s)"
+fi
+exit 0
