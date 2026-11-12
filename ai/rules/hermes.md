@@ -9,7 +9,7 @@ No rules text to import. Facts, verbatim:
 - `pre_llm_call` runs "once per turn before the loop; all valid string/{"context": ...} returns are joined and injected into the user message; the first valid {"action": "block", ...} ends the turn".
 
 ## When / when not
-- Chat gateway (Discord DMs and a private channel) and a daily 09:00 summary. Runs as the user `hermes`, with no sudo (owner decision 2026-11-11: no agent has sudo; the server has no sudoers entry for hermes). The no-root rule applies: never sudo or try to get root. Only `sudo proj-agent <subcommand>` on a server, where the hosting rules allow it. For anything else that needs root, give the owner the exact command.
+- Chat gateway (Discord DMs and a private channel) and a daily 09:00 summary. Runs as the user `hermes`, with no sudo (owner decision 2026-11-11: no agent has sudo; the server has no sudoers entry for hermes). The no-root rule applies: never sudo or try to get root. Only box commands on a server, where the hosting rules allow it: `ai-box <subcommand>` or `sudo proj-agent <subcommand>` (Hermes has no Claude sandbox, so both work). For anything else that needs root, give the owner the exact command.
 - Plain SKILL.md skills only. No hand-off to Claude Code (owner decision 2026-11-12). For SEO and blog work, follow the claude-seo or claude-blog skill files directly (paths in `claude-seo.md`): read `skills/seo/SKILL.md` or `skills/blog/SKILL.md`, then the sub-skill it names. ui-ux-pro-max: tell the owner it needs a Claude session.
 - Skills from `official/` only. Never `--force`. Hermes has no manual-only flag, so every installed skill is model-reachable.
 

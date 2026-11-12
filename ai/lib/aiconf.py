@@ -69,6 +69,10 @@ def main():
     s.add_argument("--jsonc", action="store_true", help="file may hold // and /* */ comments")
     s.add_argument("--mode", default="")
 
+    s = sub.add_parser("json-list-sync", help="list key holds our items: add missing ones, drop ones WE added earlier "
+                                              "that are no longer in ITEMS_FILE (one JSON value per line)")
+    s.add_argument("file"); s.add_argument("path"); s.add_argument("items_file"); s.add_argument("--mode", default="")
+
     s = sub.add_parser("json-del", help="remove one key (path a/b/c); recorded, undo puts it back")
     s.add_argument("file"); s.add_argument("path"); s.add_argument("--mode", default="")
 
@@ -194,6 +198,32 @@ def cmd_json_set(a):
     record({"kind": "json", "file": a.file, "path": path, "had": had, "prev": old, "value": new},
            key="json:%s:%s" % (a.file, "/".join(path)))
     say("set", a.file, "%s = %s" % (a.path, short(new)))
+
+
+def cmd_json_list_sync(a):
+    want = [json.loads(ln) for ln in read_text(a.items_file).splitlines() if ln.strip()]
+    path = split_path(a.path)
+    prefix = "json-item:%s:%s:" % (a.file, "/".join(path))
+    ours = [e for e in load_state()["entries"] if e.get("key", "").startswith(prefix)]
+    stale = [e for e in ours if e.get("item") not in want]
+    data, _ = load_json(a.file)
+    had, cur = get_path(data, path)
+    cur = list(cur) if had and isinstance(cur, list) else []
+    removed = [e["item"] for e in stale if e["item"] in cur]
+    for item in removed:
+        cur.remove(item)
+    if removed:
+        set_path(data, path, cur)
+        write_json(a.file, data, a.mode)
+        for item in removed:
+            say("remove", a.file, "%s -= %s (no longer ours)" % (a.path, short(item)))
+    if stale and not DRY:
+        st = load_state()
+        keys = {e["key"] for e in stale}
+        st["entries"] = [e for e in st["entries"] if e.get("key") not in keys]
+        save_state(st)
+    for item in want:
+        cmd_json_add(argparse.Namespace(file=a.file, path=a.path, value=json.dumps(item)))
 
 
 def cmd_json_del(a):

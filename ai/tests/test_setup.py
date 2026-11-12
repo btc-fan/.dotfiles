@@ -237,7 +237,8 @@ def bash_env(work, extra=None):
     os.makedirs(home, exist_ok=True)
     os.makedirs(bindir, exist_ok=True)
     env = {"PATH": bindir + ":" + os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home, "LANG": "C.UTF-8",
-           "AI_HOME": REPO, "PYTHONDONTWRITEBYTECODE": "1"}
+           "AI_HOME": REPO, "PYTHONDONTWRITEBYTECODE": "1",
+           "AI_PROJ_AGENT_PATH": "/nonexistent/proj-agent"}   # same result on a server that has proj-agent
     env.update(extra or {})
     return env, home, bindir
 
@@ -251,7 +252,12 @@ def t_claude_permissions(work):
     env, home, bindir = bash_env(work)
     stub(bindir, "claude")
     settings = os.path.join(home, ".claude", "settings.json")
-    write(settings, json.dumps({"model": "opus", "permissions": {"allow": ["Bash(ls)"], "deny": ["Bash(rm *)"]}}))
+    stale = "mcp__plugin_ai-core_github__projects_list"
+    write(settings, json.dumps({"model": "opus", "permissions": {"allow": ["Bash(ls)", stale], "deny": ["Bash(rm *)"]}}))
+    # An earlier install recorded the GitHub MCP allow rule as ours (the server had it left over).
+    write(os.path.join(home, ".local", "state", "ai", "managed-keys.json"), json.dumps({"version": 1, "entries": [
+        {"kind": "json-item", "file": settings, "path": ["permissions", "allow"], "item": stale, "had_list": True,
+         "key": "json-item:%s:permissions/allow:%s" % (settings, json.dumps(stale))}]}))
     for _ in range(2):
         code, out = bash(LIBS + 'AI_OS=linux; claude_permissions', env)
         assert code == 0, out
@@ -259,6 +265,7 @@ def t_claude_permissions(work):
     perms = data["permissions"]
     assert data["model"] == "opus", "other keys must stay"
     assert perms["allow"][0] == "Bash(ls)" and "Bash(rm *)" in perms["deny"], "user rules must stay"
+    assert stale not in perms["allow"], "a rule an earlier install added and the lists dropped must go"
     assert len(perms["allow"]) == len(set(perms["allow"])), "duplicates after a second run"
     for rule in ("mcp__plugin_ai-serena_serena__find_symbol", "mcp__plugin_ai-serena_serena__read_memory",
                  "mcp__plugin_ai-core_context7__*", "Bash(gh pr view *)", "Bash(gh issue list*)",
@@ -439,17 +446,25 @@ def t_sandbox_policy(work):
     # Dry run of the whole managed policy (no root needed): the lock and the RTK managed hook are planned.
     code, out = bash(LIBS + "AI_OS=linux; AI_DRY_RUN=1; claude_managed_policy; codex_system_policy() { :; }", env)
     assert code == 0 and "strictPluginOnlyCustomization" in out and "sandbox" in out, out
-    assert "enabledPlugins/ai-core@ai = true" in out, "ai-core must be force-enabled from managed settings"
+    # "set ... = true" on a fresh machine, "same ..." where the managed file already holds it (the server).
+    assert "enabledPlugins/ai-core@ai" in out, "ai-core must be force-enabled from managed settings"
     # Ubuntu with the userns restriction: Claude must use the profiled bubblewrap copy, never /usr/bin/bwrap.
     code, out = bash(LIBS + "AI_SANDBOX_BWRAP_FORCE=1 claude_sandbox_json_final", env)
     assert json.loads(out)["bwrapPath"] == "/usr/local/lib/ai/bwrap", out
-    # Server with proj-agent: exactly `sudo [-n] proj-agent ...` leaves the sandbox (sudo cannot run inside it).
+    # Server with the proj-agent socket client: sandboxed commands may use unix sockets (Linux has no per-path
+    # list), the other sockets a user can reach are hidden, and no sudo or proj-agent excluded entry exists
+    # (excludedCommands never apply in claude -p).
     code, out = bash(LIBS + "AI_OS=linux; AI_PROJ_AGENT_FORCE=1 claude_sandbox_json_final", env)
-    exc = json.loads(out)["excludedCommands"]
-    assert "sudo proj-agent *" in exc and "sudo -n proj-agent *" in exc, exc
-    assert not any(e.startswith("sudo") and "proj-agent" not in e for e in exc), exc
+    sbj = json.loads(out)
+    assert sbj["network"]["allowAllUnixSockets"] is True, sbj["network"]
+    for hidden in ("/run/user", "/run/dbus", "/run/docker.sock", "/run/tailscale", "/var/lib/incus"):
+        assert hidden in sbj["filesystem"]["denyRead"], hidden
+    assert "/run/proj-agent.sock" not in sbj["filesystem"]["denyRead"]
+    assert not any("proj-agent" in e or e.startswith("sudo") for e in sbj["excludedCommands"]), sbj["excludedCommands"]
     code, out = bash(LIBS + "AI_OS=linux; AI_PROJ_AGENT_FORCE=1 claude_allow_rules", env)
-    assert "Bash(sudo proj-agent *)" in out and "Bash(sudo -n proj-agent *)" in out
+    assert "Bash(proj-agent *)" in out and "Bash(sudo proj-agent *)" in out and "Bash(sudo -n proj-agent *)" in out, out
+    code, out = bash(LIBS + "AI_OS=linux; claude_sandbox_json_final", env)
+    assert json.loads(out)["network"]["allowAllUnixSockets"] is False, "no proj-agent: unix sockets stay blocked"
     code, out = bash(LIBS + "AI_OS=macos; AI_PROJ_AGENT_FORCE=1 claude_allow_rules; claude_sandbox_json_final", env)
     assert "proj-agent" not in out, "macOS has no proj-agent: no rule"
     prof = read(os.path.join(AI_DIR, "adapters", "linux", "apparmor-bwrap"))
@@ -648,6 +663,14 @@ def t_root_guard(work):
     """As root, install/uninstall run only an admin-owned, clean tree at origin/ai (id is faked to 0 here)."""
     import getpass
     me = getpass.getuser()
+    old_umask = os.umask(0o022)    # Ubuntu users default to 002: group-writable test files would be refused
+    try:
+        _root_guard_cases(work, me)
+    finally:
+        os.umask(old_umask)
+
+
+def _root_guard_cases(work, me):
     fake = os.path.join(work, "fakebin")
     stub(fake, "id", 'if [ "${1:-}" = -u ]; then echo 0; else exec /usr/bin/id "$@"; fi')
     tree = os.path.join(work, "clone")
@@ -721,7 +744,10 @@ def t_update_clone(work):
 
 def t_ai_sync_untrusted(work):
     """ai-sync from a user's own tree on Linux leaves Hermes copies and /etc rules to the admin."""
-    env, home, _b = bash_env(work)
+    # A user-owned copy of the tree (the suite may itself run from the root-owned install copy).
+    tree = os.path.join(work, "usertree")
+    shutil.copytree(AI_DIR, os.path.join(tree, "ai"), ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "tests"))
+    env, home, _b = bash_env(work, {"AI_HOME": tree})
     code, out = bash('AI_SYNC_NO_MAIN=1; . "$AI_HOME/ai/bin/ai-sync"; load_libs; AI_OS=linux; '
                      'if tree_trusted; then echo TRUSTED; else echo UNTRUSTED; fi', env)
     assert "UNTRUSTED" in out, out

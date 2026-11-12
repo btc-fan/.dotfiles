@@ -179,6 +179,22 @@ def on_pre_tool(ctx):
         if text and ctx.state.allow_nudge(rule, nudge_key(rule, tool, tin, cmd)):
             ctx.fired(rule, "PreToolUse")
             ctx.add_context("[ai router: %s] %s" % (rule["id"], text))
+    box_rewrite(ctx, tool, tin, cmd)
+
+
+# sudo cannot run in Claude's sandbox ("no new privileges"). proj-agent is now a plain client of a root socket
+# service, so a plain `sudo [-n] proj-agent <args>` becomes `proj-agent <args>`. Only that exact single
+# command: no operators, no redirection, no substitution.
+AI_BOX = os.environ.get("AI_PROJ_AGENT_CLIENT") or "/usr/local/bin/proj-agent"
+BOX_RX = re.compile(r"\s*sudo\s+(?:(?:-n|--non-interactive)\s+)?proj-agent((?:\s+[^;&|<>`$()\\\n]+)?)\s*")
+
+
+def box_rewrite(ctx, tool, tin, cmd):
+    if ctx.agent != "claude" or tool != "Bash" or not cmd or ctx.decision is not None:
+        return
+    m = BOX_RX.fullmatch(cmd)
+    if m and os.path.isfile(AI_BOX):
+        ctx.updated_input = dict(tin, command="proj-agent" + m.group(1).rstrip())
 
 
 def on_post_tool(ctx):
@@ -259,6 +275,7 @@ class Ctx(object):
         self.cmd_text = ""        # the command with quoted words removed, for rule regexes
         self.skips = ({}, [])
         self.named_libs = None    # libraries named by the prompt or the dependency change ({libs_hits})
+        self.updated_input = None  # PreToolUse rewrite (sudo proj-agent -> proj-agent)
         self._prompt_libs = None
 
     def prompt_libs(self, prompt):
@@ -334,6 +351,11 @@ class Ctx(object):
             return 0
         if self.decision == "ask":
             self.emit({"permissionDecision": "ask", "permissionDecisionReason": "\n".join(self.reasons)})
+            return 0
+        if self.updated_input is not None:
+            self.emit({"permissionDecision": "allow", "updatedInput": self.updated_input,
+                       "permissionDecisionReason": "sudo cannot run in the sandbox: proj-agent is a plain "
+                                                   "client of the root socket service (it refuses anything off its menu)"})
             return 0
         if self.contexts:
             self.emit({})

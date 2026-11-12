@@ -1007,7 +1007,8 @@ def gate_sudo(ctx, cmd, stages):
     calls = root_calls(cmd)
     if not calls:
         return None
-    linux = _sys.platform.startswith("linux")
+    # AI_GATE_PLATFORM: tests only (the hook's own environment, which an agent's command cannot set).
+    linux = (os.environ.get("AI_GATE_PLATFORM") or _sys.platform).startswith("linux")
 
     def is_proj_agent(rest):
         words = list(rest)

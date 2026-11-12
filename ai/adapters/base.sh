@@ -385,12 +385,13 @@ $(env_pairs)
 EOT
     claude_connectors_env "$ms" aiconf_root
     aiconf_root json-set "$ms" skillListingBudgetFraction 0.02 --mode 644
-    # Managed deny rules cannot be removed by user or project settings (agents cannot edit /etc).
-    while IFS= read -r line; do
-        [ -n "$line" ] && aiconf_root json-add "$ms" permissions/deny "$(json_str "$line")"
-    done <<EOT
-$(claude_deny_rules)
-EOT
+    # Managed deny rules cannot be removed by user or project settings (agents cannot edit /etc). Synced:
+    # deny rules of an earlier install that the current list dropped (the old sudo forms) go away.
+    local denyf; denyf=$(mktemp "${TMPDIR:-/tmp}/ai-deny.XXXXXX")
+    claude_deny_rules | while IFS= read -r line; do [ -n "$line" ] && json_str "$line"; done > "$denyf"
+    chmod 644 "$denyf"
+    aiconf_root json-list-sync "$ms" permissions/deny "$denyf" --mode 644
+    rm -f "$denyf"
     claude_managed_policy
     ok "Ubuntu: /etc/profile.d/ai-env.sh, /etc/environment.d/91-ai.conf, /etc/environment, $ms (env, deny rules)"
 }

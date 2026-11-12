@@ -381,6 +381,10 @@ def claude_settings():
     return load_json_file(os.path.join(CLAUDE_DIR, "settings.json")) or {}
 
 
+# Intended on Linux server installs: the old sudo forms of the box tool (proj-agent refuses everything else).
+PROJ_AGENT_SUDO_ALLOW = ("Bash(sudo proj-agent *)", "Bash(sudo -n proj-agent *)")
+
+
 def check_claude_permissions():
     if not shutil.which("claude"):
         return
@@ -399,7 +403,7 @@ def check_claude_permissions():
     say("PASS" if not miss_d else "FAIL", "Claude permissions.deny protects rule and config files",
         ("missing: " + ", ".join(miss_d)) if miss_d else "")
     bad = [r for r in allow if r in ("Bash", "Bash(*)", "Edit", "Write", "Bash(graphify *)", "Bash(rtk *)")
-           or r.startswith(("Bash(git push", "Bash(sudo"))]
+           or (r.startswith(("Bash(git push", "Bash(sudo")) and not (LINUX and r in PROJ_AGENT_SUDO_ALLOW))]
     # rtk forms that pass arguments to a program that can run others: their exec forms must be denied.
     for allow_rule, deny_rule in (("Bash(rtk find *)", "Bash(rtk find *-exec*)"), ("Bash(rtk grep *)", "Bash(rtk grep *--pre*)"),
                                   ("Bash(rtk rg *)", "Bash(rtk rg *--pre*)"), ("Bash(rtk tree*)", "Bash(rtk tree* -o*)"),
@@ -540,12 +544,13 @@ def check_claude_policy():
                          "--allowedTools", "Bash(echo *)"], timeout=180)
         ok = code == 0 and "AI_SANDBOX_OK" in out
         say("PASS" if ok else "FAIL", "live: claude -p runs a sandboxed Bash command", "" if ok else out[-300:])
-        if os.path.exists("/usr/local/sbin/proj-agent"):
-            # The box tool runs outside the sandbox (excludedCommands): sudo works there, not inside.
-            code, out = run(["claude", "-p", "Run exactly this Bash command and print its full output: "
-                             "sudo -n proj-agent list", "--allowedTools", "Bash(sudo -n proj-agent *)"], timeout=180)
-            bad = "no new privileges" in out or "a password is required" in out or code != 0
-            say("FAIL" if bad else "PASS", "live: claude -p runs sudo -n proj-agent list (outside the sandbox)",
+        if os.path.exists("/usr/local/bin/proj-agent"):
+            # The box tool from inside the sandbox: a plain client talking to /run/proj-agent.sock.
+            code, out = run(["claude", "-p", "Run exactly this Bash command and print its full output: proj-agent list",
+                             "--allowedTools", "Bash(proj-agent *)"], timeout=180)
+            bad = code != 0 or any(x in out for x in ("no new privileges", "Operation not permitted",
+                                                      "Permission denied", "Connection refused", "No such file"))
+            say("FAIL" if bad else "PASS", "live: claude -p runs proj-agent list (socket client, sandboxed)",
                 out[-300:] if bad else "")
     lock = ms.get("strictPluginOnlyCustomization")
     locked = lock is True or (isinstance(lock, list) and {"hooks", "mcp"} <= set(lock))
@@ -561,6 +566,16 @@ def check_claude_policy():
         val = (claude_settings().get("enabledPlugins") or {}).get(n)
         if val is not None:
             say("PASS" if val is False else "WARN", "%s off at user scope (opt-in per project)" % n.split("@")[0])
+    if os.path.exists("/usr/local/bin/proj-agent"):
+        net = sb.get("network") or {}
+        sock = "/run/proj-agent.sock"
+        ok = net.get("allowAllUnixSockets") is True and "/run/user" in ((sb.get("filesystem") or {}).get("denyRead") or [])
+        say("PASS" if ok else "FAIL", "box tool for sandboxed agents: unix sockets on, other sockets hidden",
+            "" if ok else "admin: sudo /opt/ai-setup/install.sh --update --for-user <user>")
+        if os.path.exists(sock):
+            can = os.access(sock, os.R_OK | os.W_OK)
+            say("PASS" if can else "FAIL", "%s reachable by this user (group devs)" % sock,
+                "" if can else "add the user to group devs (ubuntu-server branch), then log in again")
     work = "/srv/proj/work"
     if os.path.isdir(work):
         code, out = run(["findmnt", "-n", "-o", "OPTIONS", "--target", work])

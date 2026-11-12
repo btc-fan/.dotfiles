@@ -253,8 +253,12 @@ claude_allow_rules() {
         'Bash(rtk wc*)' 'Bash(rtk grep *)' 'Bash(rtk rg *)' 'Bash(rtk find *)' 'Bash(rtk tree*)' 'Bash(rtk diff *)' \
         'Bash(rtk git status*)' 'Bash(rtk git diff*)' 'Bash(rtk git log*)' 'Bash(rtk git show*)'
     printf '%s\n' WebFetch WebSearch 'Read(~/.claude/plugins/**)' 'Read(~/.config/ai/**)'
-    # Box work runs unattended: proj-agent refuses everything outside its own menu (Linux servers only).
-    if proj_agent_present; then printf '%s\n' 'Bash(sudo proj-agent *)' 'Bash(sudo -n proj-agent *)'; fi
+    # Box work runs unattended: proj-agent is a plain client of the root socket service, which refuses
+    # everything outside its own menu (Linux servers only). The old sudo forms stay allowed for agents
+    # outside the Claude sandbox; in Claude the router turns them into the plain client call.
+    if proj_agent_present; then
+        printf '%s\n' 'Bash(proj-agent *)' 'Bash(sudo proj-agent *)' 'Bash(sudo -n proj-agent *)'
+    fi
     return 0
 }
 
@@ -297,15 +301,15 @@ claude_deny_rules() {
 # Merge (never replace) into permissions.allow / ask / deny. Each item is recorded for uninstall.
 claude_permissions() {
     has claude || { skip "Claude permissions: claude not found"; return 0; }
-    local f="$CLAUDE_DIR/settings.json" kind r
+    local f="$CLAUDE_DIR/settings.json" kind tmp
+    # Sync, not just add: a rule an earlier install added and the current lists no longer hold (GitHub MCP
+    # tools, old rtk/graphify forms) is removed; rules the user added by hand are never touched.
+    tmp=$(mktemp "${TMPDIR:-/tmp}/ai-perm.XXXXXX")
     for kind in allow ask deny; do
-        while IFS= read -r r; do
-            [ -n "$r" ] || continue
-            aiconf json-add "$f" "permissions/$kind" "$(json_str "$r")" >/dev/null
-        done <<EOF
-$("claude_${kind}_rules")
-EOF
+        "claude_${kind}_rules" | while IFS= read -r r; do [ -n "$r" ] && json_str "$r"; done > "$tmp"
+        aiconf json-list-sync "$f" "permissions/$kind" "$tmp" >/dev/null
     done
+    rm -f "$tmp"
     ok "Claude permissions merged into $f: allow read-only tools, ask graphify install/hook, deny rule/config edits and secrets.env"
 }
 
@@ -345,18 +349,21 @@ print(json.dumps({
 EOS
 }
 
-# The box tool: sudo cannot run inside the sandbox ("no new privileges"), so `sudo proj-agent ...` runs outside
-# it. proj-agent is itself the allow-list (new try/mvp, list, status, snapshot, doctor, logs, restart, exec,
-# ports, url; it refuses the rest). Excluded-command entries use Bash-rule syntax and every command of a call
-# must match, so only these exact forms leave the sandbox; the no-sudo gate blocks every other sudo.
-PROJ_AGENT=/usr/local/sbin/proj-agent
+# The box tool: sudo cannot run in the sandbox ("no new privileges") and excludedCommands never apply in
+# claude -p, so proj-agent is a plain client (/usr/local/bin/proj-agent) of a root socket service
+# (/run/proj-agent.sock, root:devs 0660; ubuntu-server branch). The sandboxed command reaches the socket:
+# on Linux the seccomp filter blocks every AF_UNIX socket unless network.allowAllUnixSockets is true (the docs:
+# the path list allowUnixSockets is macOS only), so that is on, and the other sockets a user could reach are
+# hidden by denyRead (user bus, D-Bus, Tailscale, Docker, containerd, Incus, snapd).
+PROJ_AGENT=${AI_PROJ_AGENT_PATH:-/usr/local/bin/proj-agent}
+SANDBOX_SOCKET_HIDE="/run/user /run/dbus /run/tailscale /run/docker.sock /run/containerd /var/lib/incus /run/snapd.socket /run/snapd-snap.socket"
 proj_agent_present() { [ "$AI_OS" = linux ] && { [ -x "$PROJ_AGENT" ] || [ "${AI_PROJ_AGENT_FORCE:-0}" = 1 ]; }; }
 
 # Add bwrapPath when the AppArmor-profiled copy exists (Ubuntu with the userns restriction): managed-only key.
 claude_sandbox_json_final() {
     local j; j=$(claude_sandbox_json)
     if proj_agent_present; then
-        j=$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); d["excludedCommands"] += ["sudo proj-agent *", "sudo -n proj-agent *"]; print(json.dumps(d, sort_keys=True))' "$j")
+        j=$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); d["network"]["allowAllUnixSockets"] = True; d["filesystem"]["denyRead"] += sys.argv[2].split(); print(json.dumps(d, sort_keys=True))' "$j" "$SANDBOX_SOCKET_HIDE")
     fi
     if [ -e "${AI_BWRAP:-/usr/local/lib/ai/bwrap}" ] || [ "${AI_SANDBOX_BWRAP_FORCE:-0}" = 1 ]; then
         python3 -c 'import json,sys; d=json.loads(sys.argv[1]); d["bwrapPath"]=sys.argv[2]; print(json.dumps(d, sort_keys=True))' \

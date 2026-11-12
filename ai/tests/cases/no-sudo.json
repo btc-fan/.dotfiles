@@ -91,6 +91,75 @@
      "command": "ls -la"
     }
    }
+  },
+  {
+   "name": "Linux: sudo proj-agent becomes the plain socket client call",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "sudo -n proj-agent exec web -- ls"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "proj-agent": "#!/bin/sh\n"
+    }
+   },
+   "env": {
+    "AI_GATE_PLATFORM": "linux",
+    "AI_PROJ_AGENT_CLIENT": "{{PROJ}}/proj-agent"
+   },
+   "contains": "\"command\": \"proj-agent exec web -- ls\""
+  },
+  {
+   "name": "Linux: chained sudo proj-agent is not rewritten",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "sudo proj-agent list && ls"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "proj-agent": "#!/bin/sh\n"
+    }
+   },
+   "env": {
+    "AI_GATE_PLATFORM": "linux",
+    "AI_PROJ_AGENT_CLIENT": "{{PROJ}}/proj-agent"
+   },
+   "not_contains": "updatedInput"
+  },
+  {
+   "name": "Linux: other sudo still blocked",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "sudo -n bash"
+    }
+   },
+   "env": {
+    "AI_GATE_PLATFORM": "linux"
+   }
+  },
+  {
+   "name": "plain proj-agent is not sudo",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "proj-agent new try web"
+    }
+   }
   }
  ]
 }
