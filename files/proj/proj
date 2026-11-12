@@ -119,7 +119,7 @@ add_volume() {
     local name=$1 tier=$2 path=${3:-/srv/data}
     if ! has_vol "$name"; then
         say "create data volume $name-data ($(vol_size "$tier"))"
-        incus storage volume create "$POOL" "$name-data" "size=$(vol_size "$tier")"
+        incus storage volume create "$POOL" "$name-data" "size=$(vol_size "$tier")" </dev/null
     fi
     set_volume_schedule "$name" "$tier"
     incus storage volume attach "$POOL" "$name-data" "$name" data "$path"
@@ -192,7 +192,7 @@ ws_attach() {
     d=$(ws_dir "$1")
     src=$(ws_source "$1")
     if [ -z "$src" ]; then
-        incus config device add "$1" app disk source="$d" path=/srv/app shift=true >/dev/null
+        incus config device add "$1" app disk source="$d" path=/srv/app shift=true </dev/null >/dev/null
     elif [ "$src" != "$d" ]; then
         incus config device set "$1" app source="$d"
     fi
@@ -995,7 +995,7 @@ cmd_selftest() {
     local n ip="" gw port i fail=0
     n="proj-selftest-$(date +%s | tail -c 7)"
     say "selftest: launch $n (box-base + tier-try), check network, then delete it"
-    if ! incus launch "$IMAGE" "$n" -p box-base -p tier-try >/dev/null; then
+    if ! incus launch "$IMAGE" "$n" -p box-base -p tier-try </dev/null >/dev/null; then
         die "selftest: launch failed (image $IMAGE? memory budget full? see: incus project info default)"
     fi
     trap 'incus delete --force "'"$n"'" >/dev/null 2>&1 || true; rm -rf -- "'"$WORK_ROOT/.selftest-$n"'"' EXIT
@@ -1049,7 +1049,7 @@ selftest_workspace() {
     chown "$MAIN_USER:$WS_GROUP" "$ws"
     chmod 2775 "$ws"
     ws_acl "$ws"
-    if ! incus config device add "$n" app disk source="$ws" path=/srv/app shift=true >/dev/null; then
+    if ! incus config device add "$n" app disk source="$ws" path=/srv/app shift=true </dev/null >/dev/null; then
         echo "FAIL  workspace: disk device with shift=true refused (idmapped mounts? incus info | grep idmapped_mounts)"
         return 1
     fi
