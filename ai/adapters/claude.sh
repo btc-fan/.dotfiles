@@ -469,6 +469,10 @@ for event, groups in data.items():
     for g in groups:
         hooks = [dict(h, command=h["command"].replace("${CLAUDE_PLUGIN_ROOT}", root) + " --managed")
                  for h in g.get("hooks", []) if "/hooks/router.py" in h.get("command", "")]
+        if event == "PreToolUse":
+            # Gates fail closed: a crash, bad output or timeout of the router blocks the call (Claude 2.1.295+;
+            # hooks fail open by default). Managed only: the server's Claude version is known.
+            hooks = [dict(h, onFailure="block") for h in hooks]
         if hooks:
             out.setdefault(event, []).append(dict(g, hooks=hooks))
 if rtk:
@@ -487,6 +491,9 @@ claude_managed_policy() {
     # servers stop loading; plugin hooks, plugin MCP servers (ai-core, OMC, Ponytail, i-have-adhd, opt-in
     # ai-serena / claude-seo / claude-blog) and managed hooks keep working.
     aiconf_root json-set "$ms" strictPluginOnlyCustomization '["hooks","mcp"]' --mode 644
+    # Several managed sources (claude.ai server-managed, MDM, this file): the default "first-wins" silently
+    # ignores this file when a higher source sends any key. "merge" unions lists and keeps the strictest locks.
+    aiconf_root json-set "$ms" managedSourcesBehavior '"merge"' --mode 644
     # ai-core (router, gates) force-enabled from managed settings: no user or agent can switch it off.
     # OMC, Ponytail and i-have-adhd stay as the owner set them (owner decision 2026-11-12).
     aiconf_root json-set "$ms" "enabledPlugins/ai-core@ai" true --mode 644

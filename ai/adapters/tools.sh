@@ -94,7 +94,8 @@ plugin_clone() {
     git clone -q "$repo" "$tmp/$name" || { warn "clone of $repo failed"; return 1; }
     git -C "$tmp/$name" -c advice.detachedHead=false checkout -q "$sha" || { warn "$name: commit $sha not found"; return 1; }
     [ "$(git -C "$tmp/$name" rev-parse HEAD)" = "$sha" ] || { warn "$name not at $sha"; return 1; }
-    audit_ok dir "$tmp/$name" "$ref" "$name" || { rm -rf "$tmp"; return 1; }
+    # Accept-list key: the tag, or the first 12 characters of the pinned commit when there is no tag.
+    audit_ok dir "$tmp/$name" "${ref:-${sha:0:12}}" "$name" || { rm -rf "$tmp"; return 1; }
     # S8: a recursive chown/chmod as root must never follow a link out of the tree.
     if [ -n "$(find "$tmp/$name" -type l -print -quit)" ]; then
         warn "$name tree contains symlinks: not installed as root (review: find $tmp/$name -type l)"
@@ -478,7 +479,11 @@ print(best, end="")
 tools_rtk() {
     local tag ver
     tag=$(rtk_resolve_tag); ver=${tag#v}
-    if has rtk && rtk --version 2>/dev/null | grep -q "$ver"; then info "rtk $ver present (latest stable compatible)"; return 0; fi
+    # The build stamp says how the installed binary was built; a changed build mode (cargo update on/off) rebuilds.
+    local stamp="$AI_STATE_DIR/rtk.build" want_stamp="$tag cargo-update=${RTK_CARGO_UPDATE:-0}"
+    if has rtk && rtk --version 2>/dev/null | grep -q "$ver" && [ "$(cat "$stamp" 2>/dev/null)" = "$want_stamp" ]; then
+        info "rtk $ver present (latest stable compatible)"; return 0
+    fi
     if ! has cargo; then
         if [ "$AI_OS" = linux ] && confirm "apt-get install cargo rustc pkg-config libssl-dev (to build RTK)?" y; then
             run_root apt-get install -y -q cargo rustc pkg-config libssl-dev
@@ -505,12 +510,19 @@ tools_rtk() {
         warn "rtk tag $RTK_TAG now points to $rtkhead, pin is $RTK_COMMIT: not built (tag moved, new audit needed)"
         return 0
     fi
-    audit_ok dir "$src" || return 0
+    # Owner decision 2026-11-12: patch the lockfile before the audit, so known CVEs that a semver-compatible
+    # update fixes are gone (rustls, webpki, rustix ...). Breaking updates (quick-xml 0.37->0.41, libsqlite3-sys)
+    # need upstream: those stay, and the accept list names them for this exact tag.
+    if [ "${RTK_CARGO_UPDATE:-0}" = 1 ]; then
+        as_target sh -c "cd '$src' && cargo update -q" || { warn "rtk cargo update failed"; return 0; }
+    fi
+    audit_ok dir "$src" "$tag" rtk || return 0
     as_target sh -c "cd '$src' && cargo build --release --locked" || { warn "rtk build failed"; return 0; }
     install_bin "$src/target/release/rtk" rtk
     aiconf record-cmd bin:rtk -- $SUDO_UNDO rm -f "$(bin_dir)/rtk"
     mkdir -p "$AI_STATE_DIR"
-    printf '%s rtk %s %s built (latest stable compatible)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$tag" "$rtkhead" >> "$AI_STATE_DIR/audit.log"
+    printf '%s rtk %s %s built (latest stable compatible)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$tag" "$rtkhead $want_stamp" >> "$AI_STATE_DIR/audit.log"
+    printf '%s\n' "$want_stamp" > "$stamp"
     ok "rtk $ver built from source ($tag, $rtkhead)"
 }
 

@@ -77,6 +77,13 @@ def main(argv):
         handler(ctx)
     except Exception as exc:  # never break the session; a decision made before the error still counts
         log_error(event, exc)
+        # Fail closed for shell commands: the gates (secret-scan, no-sudo, audit-before-install, pr-rules)
+        # may not have run, so the command must not run either. Other tools keep fail-open (nudges only).
+        tool = str(payload.get("tool_name") or "")
+        if event == "PreToolUse" and ctx.decision is None and (tool == "Bash" or ctx.stages):
+            ctx.decision = "deny"
+            ctx.reasons.append("A safety gate failed with an internal error (logged), so this command was not "
+                               "run. Retry once; if it repeats, stop and tell the owner (ai-doctor shows the error).")
     try:
         return ctx.finish()
     except Exception as exc:

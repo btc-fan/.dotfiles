@@ -80,6 +80,7 @@ def main(argv):
         if not only:
             failures.extend(check_coverage(routing, coverage))
             failures.extend(check_tiebreak_regex(routing))
+            failures.extend(check_fail_closed(work))
         print("\n%d cases, %d failed" % (total, len(failures)))
         for f in failures:
             if "->" not in f:
@@ -87,6 +88,41 @@ def main(argv):
         return 1 if failures else 0
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+FAIL_CLOSED_PROBE = r"""
+import io, json, sys, contextlib
+sys.path.insert(0, sys.argv[1])
+import router
+def boom(ctx):
+    raise RuntimeError("forced test crash")
+router.HANDLERS["PreToolUse"] = boom
+res = {}
+for tool, inp in (("Bash", {"command": "echo hi"}), ("Read", {"file_path": "/tmp/x"})):
+    sys.stdin = io.StringIO(json.dumps({"hook_event_name": "PreToolUse", "tool_name": tool,
+                                        "tool_input": inp, "cwd": "/tmp"}))
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        router.main(["--agent", "claude", "--managed", "PreToolUse"])
+    o = out.getvalue().strip()
+    res[tool] = json.loads(o)["hookSpecificOutput"]["permissionDecision"] if o else "allow"
+print(json.dumps(res))
+"""
+
+
+def check_fail_closed(work):
+    """A crashing PreToolUse handler must deny a shell command (gates did not run) and leave Read alone."""
+    hooks = os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks")
+    env = dict(os.environ, HOME=os.path.join(work, "home-fc"))
+    res = subprocess.run([sys.executable, "-c", FAIL_CLOSED_PROBE, hooks], stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, env=env)
+    try:
+        got = json.loads(res.stdout.decode().strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return ["fail-closed probe gave no result: " + short(res.stderr.decode())]
+    if got != {"Bash": "deny", "Read": "allow"}:
+        return ["fail-closed: crashing gate gave %s, want Bash deny and Read allow" % got]
+    return []
 
 
 def check_coverage(routing, coverage):
