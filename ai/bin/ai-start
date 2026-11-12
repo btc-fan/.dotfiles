@@ -527,7 +527,10 @@ def knowledge_steps(root, opts, enabled):
             print("skip Serena: serena is not on PATH (install.sh installs it)")
         elif not os.path.isfile(os.path.join(serena_dir, "project.yml")):
             steps.append(("serena project create --index",
-                          lambda: run_step(["serena", "project", "create", "--index", root], root, 1800)))
+                          lambda: run_step(["serena", "project", "create", "--index", root], root, 1800,
+                                           # Serena asks y/N per extra language server it detects (it aborts
+                                           # on end of input): No to all, the main language is always on.
+                                           answers="n\n" * 50)))
     if "graph" in enabled and code:
         if not which("graphify"):
             print("skip graph: graphify is not on PATH")
@@ -642,11 +645,14 @@ def repo_has_code(root):
     return has_code_files(root)
 
 
-def run_step(argv, cwd, timeout, env=None):
+def run_step(argv, cwd, timeout, env=None, answers=None):
+    """answers: text fed to the step's stdin (None: inherit the terminal)."""
     full = dict(os.environ)
     full.update(env or {})
     print("$ " + " ".join(a if len(a) < 80 else a[:77] + "..." for a in argv))
-    return subprocess.call(argv, cwd=cwd, env=full, timeout=timeout)
+    if answers is None:
+        return subprocess.call(argv, cwd=cwd, env=full, timeout=timeout)
+    return subprocess.run(argv, cwd=cwd, env=full, timeout=timeout, input=answers.encode()).returncode
 
 
 def which(name):

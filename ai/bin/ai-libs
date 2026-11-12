@@ -108,6 +108,56 @@ def parse(argv):
 
 # ---------------------------------------------------------------- sync and status
 
+# Over MAX_ROWS dependencies (a frozen requirements.txt lists indirect packages too): keep the ones the code
+# imports most. Package name -> import name: normalized name, plus the common cases where they differ.
+IMPORT_ALIASES = {
+    "pyyaml": "yaml", "beautifulsoup4": "bs4", "pillow": "pil", "python-dotenv": "dotenv",
+    "scikit-learn": "sklearn", "opencv-python": "cv2", "psycopg2-binary": "psycopg2", "pyjwt": "jwt",
+    "python-multipart": "multipart", "attrs": "attr", "dnspython": "dns", "python-dateutil": "dateutil",
+    "google-api-python-client": "googleapiclient", "websocket-client": "websocket", "faiss-cpu": "faiss",
+    "protobuf": "google", "pymysql": "pymysql", "python-jose": "jose", "msgpack-python": "msgpack",
+}
+SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "__pycache__", ".next", "site-packages",
+             "graphify-out", ".serena", ".omc", ".tox"}
+PY_IMPORT = re.compile(r"^\s*(?:from|import)\s+([A-Za-z_]\w*)", re.M)
+JS_IMPORT = re.compile(r"""(?:from\s+|require\(\s*|import\(\s*)['"]((?:@[\w.-]+/)?[\w.-]+)""")
+
+
+def import_counts(root, limit=5000):
+    counts, seen = {}, 0
+    for base, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for f in files:
+            ext = os.path.splitext(f)[1]
+            if ext not in (".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx"):
+                continue
+            seen += 1
+            if seen > limit:
+                return counts
+            text = read(os.path.join(base, f)) or ""
+            names = set(PY_IMPORT.findall(text)) if ext == ".py" else set(JS_IMPORT.findall(text))
+            for n in names:
+                counts[n.lower()] = counts.get(n.lower(), 0) + 1
+    return counts
+
+
+def top_deps(root, deps):
+    if len(deps) <= MAX_ROWS:
+        return deps
+    counts = import_counts(root)
+
+    def used(dep):
+        name = dep["name"].lower()
+        cands = {name, name.replace("-", "_").replace(".", "_"), IMPORT_ALIASES.get(name, "")}
+        for pre in ("python-", "py-"):
+            if name.startswith(pre):
+                cands.add(name[len(pre):].replace("-", "_"))
+        return max(counts.get(c, 0) for c in cands if c)
+
+    order = {id(d): i for i, d in enumerate(deps)}
+    return sorted(deps, key=lambda d: (-used(d), order[id(d)]))[:MAX_ROWS]
+
+
 def sync(root, deps, current, opts):
     if not deps:
         print("ai-libs: no manifest with dependencies found in %s: nothing to write" % root)
@@ -117,7 +167,7 @@ def sync(root, deps, current, opts):
     cache = logged_ids(root)
     resolver = Context7(offline=opts["offline"])
     rows, resolved_now = [], []
-    for dep in deps[:MAX_ROWS]:
+    for dep in top_deps(root, deps):
         lib, version = dep["name"], dep["version"] or UNKNOWN
         prev = old.get(lib, {})
         ctx = prev.get("context7") or ""
@@ -148,7 +198,7 @@ def sync(root, deps, current, opts):
     if os.path.isfile(os.path.join(root, OLD_LIBS_FILE)):
         print("ai-libs: %s is no longer used (its IDs are in AGENTS.md now): delete it" % OLD_LIBS_FILE)
     if len(deps) > MAX_ROWS:
-        print("ai-libs: %d direct dependencies, kept the first %d" % (len(deps), MAX_ROWS))
+        print("ai-libs: %d direct dependencies, kept the %d imported by the most source files" % (len(deps), MAX_ROWS))
     if resolved_now:
         print("ai-libs: context7 IDs looked up now: %s" % ", ".join(resolved_now))
     if resolver.failed:
@@ -172,7 +222,7 @@ def status(root, deps, current):
     if changed:
         out.append("stale: %s changed since the last sync. Run: ai-libs --sync" % ", ".join(changed))
     have = {r["lib"] for r in current["rows"]}
-    gone = [d["name"] for d in deps[:MAX_ROWS] if d["name"] not in have]
+    gone = [d["name"] for d in top_deps(root, deps) if d["name"] not in have]
     if gone:
         out.append("missing rows for direct dependencies: %s" % ", ".join(gone))
     return out
