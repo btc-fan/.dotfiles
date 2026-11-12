@@ -1,4 +1,5 @@
-"""hooklib: shared helpers for router.py: shell command parsing and the three L4 gates.
+"""hooklib: shared helpers for router.py: shell command parsing, the three L4 gates, and the project
+knowledge status (Serena memories, graphify graph, .ai/libs.md docs map) for the router placeholders.
 
 Gates catch honest mistakes. They are not a sandbox against an adversary (known limits: README.md).
 
@@ -546,7 +547,7 @@ def gate_audit(ctx, cmd, stages):
     return None
 
 
-def probe_audit(stages):
+def probe_audit(stages, cmd=""):
     return curl_to_shell(stages) or npx_latest(stages) or bool(install_targets(stages, "."))
 
 
@@ -623,7 +624,7 @@ class Budget(object):
 
 
 def gate_secrets(ctx, cmd, stages):
-    actions = git_actions(stages, ctx.cwd)
+    actions = git_actions(stages, ctx.cwd, cmd)
     if not actions:
         return None
     try:
@@ -650,6 +651,12 @@ def scan_actions(actions, budget):
                 text += scan_git(repo, ["diff", "--no-color", "-U0"], budget) + untracked_text(repo, budget)
             what.add("files to commit")
             hits.extend(gitleaks_scan(repo, "commit", None, allowed, budget))
+            msg = message_text(act, repo)
+            if msg:
+                msg_hits = builtin_scan(as_added(msg), allowed)
+                if msg_hits:
+                    what.add("commit message")
+                    hits.extend(msg_hits)
         else:
             text = scan_git(repo, ["log", "-p", "--no-color", "-U0", "-n", "300", "HEAD", "--not", "--remotes"], budget)
             what.add("unpushed commits")
@@ -672,7 +679,7 @@ def scan_git(repo, args, budget):
     return res.stdout.decode("utf-8", "replace") if res.returncode == 0 else ""
 
 
-def probe_secrets(stages):
+def probe_secrets(stages, cmd=""):
     return bool(git_actions(stages, "."))
 
 
@@ -682,9 +689,10 @@ COMMIT_LONG_VALUE = {"--message", "--file", "--reuse-message", "--reedit-message
                      "--date", "--template", "--cleanup", "--trailer", "--pathspec-from-file", "-S", "--gpg-sign"}
 
 
-def git_actions(stages, cwd):
+def git_actions(stages, cwd, raw_cmd=""):
     """Ordered commit/push actions with their repo dir; commit.worktree = also scan unstaged + untracked files
-    (git add earlier in the command, commit -a, or a commit pathspec)."""
+    (git add earlier in the command, commit -a, or a commit pathspec). commit.messages = -m values,
+    commit.message_files = -F paths ("-" = stdin: the raw command text is scanned, it holds the heredoc)."""
     base, saw_add, out = cwd, False, []
     for st in stages:
         if st.exe in ("cd", "pushd") and st.args:
@@ -704,7 +712,9 @@ def git_actions(stages, cwd):
             saw_add = True
         elif sub == "commit":
             all_flag, pathspec = commit_flags(rest)
-            out.append({"sub": "commit", "dir": gdir, "worktree": saw_add or all_flag or pathspec})
+            messages, files = commit_messages(rest)
+            out.append({"sub": "commit", "dir": gdir, "worktree": saw_add or all_flag or pathspec,
+                        "messages": messages, "message_files": files, "raw": raw_cmd})
         elif sub == "push":
             out.append({"sub": "push", "dir": gdir, "worktree": False})
     return out
@@ -734,6 +744,61 @@ def commit_flags(rest):
             pathspec = True
         i += 1
     return all_flag, pathspec
+
+
+def commit_messages(rest):
+    """-m/--message values and -F/--file paths of a git commit (attached forms too: -mtext, -Ffile, --file=x)."""
+    msgs, files, i = [], [], 0
+    while i < len(rest):
+        a = rest[i]
+        if a == "--":
+            break
+        nxt = rest[i + 1] if i + 1 < len(rest) else None
+        opt, eq, val = a.partition("=")
+        if opt in ("--message", "--file") and a.startswith("--"):
+            value = val if eq else nxt
+            if value is not None:
+                (msgs if opt == "--message" else files).append(value)
+            elif opt == "--file":
+                files.append("-")
+            i += 1 if eq else 2
+            continue
+        if a.startswith("-") and not a.startswith("--") and len(a) > 1:
+            for k, letter in enumerate(a[1:]):
+                if letter in COMMIT_VALUE_LETTERS:
+                    attached = a[k + 2:]
+                    value = attached if attached else nxt
+                    if letter == "m" and value is not None:
+                        msgs.append(value)
+                    elif letter == "F":
+                        files.append(value if value is not None else "-")   # -F <(...): the file is a pipe
+                    if not attached:
+                        i += 1
+                    break
+        i += 1
+    return msgs, files
+
+
+def message_text(act, repo, max_bytes=256 * 1024):
+    """The commit message text the command will use: -m values, -F file contents, stdin heredoc (raw command)."""
+    parts = list(act.get("messages") or [])
+    for path in act.get("message_files") or []:
+        # stdin, a pipe or a process substitution: the text is in the command itself (heredoc, <(echo ...)).
+        if path in ("-", "/dev/stdin") or path.startswith(("/dev/fd/", "/proc/self/fd/")):
+            parts.append(act.get("raw") or "")
+            continue
+        full = os.path.join(act["dir"] or repo, os.path.expanduser(path))
+        try:
+            with open(full, "rb") as fh:
+                parts.append(fh.read(max_bytes).decode("utf-8", "replace"))
+        except OSError:
+            continue
+    return "\n".join(p for p in parts if p)
+
+
+def as_added(text):
+    """Text as added diff lines, so builtin_scan reads every line."""
+    return "\n".join("+" + ln for ln in text.splitlines())
 
 
 def untracked_text(repo, budget, max_files=300, max_bytes=512 * 1024):
@@ -856,12 +921,407 @@ def gate_pr(ctx, cmd, stages):
             % " and ".join(missing_all))
 
 
-def probe_pr(stages):
+def probe_pr(stages, cmd=""):
     return any(st.exe == "gh" and st.args[:1] == ["pr"] and st.args[1:2] in (["create"], ["edit"]) for st in stages)
 
 
-GATES = {"audit-before-install": gate_audit, "secret-scan": gate_secrets, "pr-rules": gate_pr}
-GATE_PROBES = {"audit-before-install": probe_audit, "secret-scan": probe_secrets, "pr-rules": probe_pr}
+# ---------------------------------------------------------------- no-sudo
+
+ROOT_TOOLS = {"sudo", "doas", "pkexec", "sudoedit", "su", "run0"}
+
+
+def root_calls(cmd, depth=0):
+    """[(tool, next words)] for every privilege tool at a command position, also inside bash -c / eval.
+    Quoted words are text, never commands. Leading NAME=value words and plain wrappers are skipped."""
+    out = []
+    try:
+        toks = tokenize(cmd or "")
+    except Exception:
+        toks = [(w, False) for w in (cmd or "").split()]
+    at_cmd, after_wrapper = True, False
+    for i, (text, kind) in enumerate(toks):
+        if kind is None and text in OPS:
+            at_cmd, after_wrapper = True, False
+            continue
+        if kind == "redir":
+            continue
+        if not at_cmd:
+            continue
+        if not kind and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", text):
+            continue
+        if after_wrapper and not kind and (text.startswith("-") or re.match(r"^\d+(\.\d+)?[smhd]?$", text)):
+            continue        # wrapper options and values: timeout 5, nice -n 10, env -i
+        base = os.path.basename(text)
+        if not kind and base in PLAIN_WRAPPERS | {"env", "nice", "timeout", "xargs", "stdbuf"}:
+            after_wrapper = True
+            continue
+        at_cmd = False
+        if not kind and base in ROOT_TOOLS:
+            rest = [t for t, k in toks[i + 1:i + 4] if k is not None and k != "redir" or (k is None and t not in OPS)]
+            out.append((base, rest))
+    if depth < 2:
+        for st in parse_command(cmd):
+            if st.inner_text:
+                out.extend(root_calls(st.inner_text, depth + 1))
+    return out
+
+
+def gate_sudo(ctx, cmd, stages):
+    """House rule 45-no-root: agents never use sudo. The one exception, on a Linux server only, is
+    `sudo proj-agent <subcommand>` (the hosting rules). Everything else: give the owner the command.
+    Containment is the sudoers file; this gate catches the honest attempt early."""
+    import sys as _sys
+    calls = root_calls(cmd)
+    if not calls:
+        return None
+    linux = _sys.platform.startswith("linux")
+    bad = [t for t, rest in calls if not (linux and t == "sudo" and rest[:1] == ["proj-agent"] and len(rest) > 1)]
+    if not bad:
+        return None
+    return ("deny", "No sudo for agents (%s). Do not try another way to get root. Give the owner the exact command "
+            "to run himself.%s" % (", ".join(sorted(set(bad))),
+                                   " Only `sudo proj-agent <subcommand>` is allowed on this server." if linux else ""))
+
+
+def probe_sudo(stages, cmd=""):
+    return bool(root_calls(cmd)) or any("sudo" in st.wrappers or st.exe in ROOT_TOOLS for st in stages)
+
+
+GATES = {"audit-before-install": gate_audit, "secret-scan": gate_secrets, "pr-rules": gate_pr, "no-sudo": gate_sudo}
+GATE_PROBES = {"audit-before-install": probe_audit, "secret-scan": probe_secrets, "pr-rules": probe_pr,
+               "no-sudo": probe_sudo}
+
+
+# ---------------------------------------------------------------- project knowledge (router placeholders)
+# One-line pointers only: counts, freshness and file names. Never memory content (Serena: memories are read
+# on purpose, the harness does not inject them). Every git call: 2 s timeout, fails open (no text).
+
+CODE_EXT = {
+    ".py", ".pyi", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".kt", ".kts",
+    ".rb", ".php", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".cs", ".swift", ".scala", ".sh", ".bash",
+    ".zsh", ".lua", ".vue", ".svelte", ".ex", ".exs", ".dart", ".m", ".mm", ".sql", ".r", ".jl", ".zig",
+    ".erl", ".clj", ".fs", ".ml", ".hs", ".pl", ".ps1", ".tf",
+}
+MEMORY_DIR = os.path.join(".serena", "memories")
+# Same list as ai/bin/ai-libs (its lock line records these, sha256 first 12 hex).
+LOCKFILES = ("uv.lock", "poetry.lock", "requirements.txt", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
+             "go.sum", "Cargo.lock")
+MANIFESTS = ("pyproject.toml", "package.json", "Cargo.toml", "go.mod", "Gemfile", "composer.json")
+STALE_COMMITS = 20
+STALE_MOVES = 5
+KNOWLEDGE_CAP = 600
+
+
+def is_code_file(path):
+    return os.path.splitext((path or "").rstrip("/:"))[1].lower() in CODE_EXT
+
+
+def is_dep_file(path):
+    base = os.path.basename(path or "")
+    return base in LOCKFILES or base in MANIFESTS or re.match(r"^requirements.*\.txt$", base) is not None
+
+
+def git_quick(repo, args, timeout=2):
+    """git output or None (timeout, error, not a repo). Never raises."""
+    import subprocess
+    try:
+        res = subprocess.run(["git", "-C", repo] + args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                             timeout=timeout)
+    except Exception:
+        return None
+    return res.stdout.decode("utf-8", "replace") if res.returncode == 0 else None
+
+
+def git_history(repo, limit=500):
+    """[(sha, commit_time, [(status, path)])], newest first, or None."""
+    out = git_quick(repo, ["log", "-n", str(limit), "--no-color", "--format=%x00%H %ct", "--name-status",
+                           "--no-renames"])
+    if out is None:
+        return None
+    commits = []
+    for chunk in out.split("\0")[1:]:
+        lines = chunk.strip("\n").splitlines()
+        if not lines:
+            continue
+        head = lines[0].split()
+        if len(head) < 2:
+            continue
+        files = []
+        for ln in lines[1:]:
+            parts = ln.split("\t")
+            if len(parts) >= 2:
+                files.append((parts[0][:1], parts[-1]))
+        try:
+            commits.append((head[0], int(head[1]), files))
+        except ValueError:
+            continue
+    return commits
+
+
+def memory_files(root):
+    d = os.path.join(root, MEMORY_DIR)
+    out = []
+    for dirpath, _dirs, files in os.walk(d):
+        out.extend(os.path.join(dirpath, f) for f in files if f.endswith(".md"))
+    return out
+
+
+def memory_status(root, history):
+    """(count, code_commits_since, moved_since, stale) for .serena/memories; count 0 = none."""
+    count = len(memory_files(root))
+    if not count or history is None:
+        return count, 0, 0, False
+    commits = code_moves = 0
+    for _sha, _ct, files in history:
+        if any(p.startswith(".serena/memories/") for _st, p in files):
+            break
+        if any(is_code_file(p) for _st, p in files):
+            commits += 1
+        code_moves += sum(1 for st, p in files if st in "AD" and is_code_file(p))
+    return count, commits, code_moves, commits >= STALE_COMMITS or code_moves >= STALE_MOVES
+
+
+def graph_status(root, history):
+    """'fresh' | 'stale' | 'missing' for graphify-out/graph.json against the last commit that touched code."""
+    g = os.path.join(root, "graphify-out", "graph.json")
+    if not os.path.isfile(g):
+        return "missing"
+    last = next((ct for _sha, ct, files in (history or []) if any(is_code_file(p) for _st, p in files)), None)
+    if last is None:
+        return "fresh"
+    return "fresh" if os.path.getmtime(g) >= last else "stale"
+
+
+def libs_doc(root):
+    """Parsed .ai/libs.md: {"locks": {file: hash prefix}, "rows": {lib: {version, grounded, context7}}} or None.
+    Format (ai-libs --sync): `lock: uv.lock sha256:<12 hex> [file sha256:<hex> ...]  synced: <date>`, then a table
+    with the columns lib | version | context7 | grounded-docs | note ("?" = not looked up, "-" = not found)."""
+    text = read_text(os.path.join(root, ".ai", "libs.md")) if root else None
+    if text is None:
+        return None
+    doc = {"locks": {}, "rows": {}}
+    m = re.search(r"^lock:(.*)$", text, re.M)
+    if m:
+        doc["locks"] = dict(re.findall(r"(\S+) sha256:([0-9a-f]{6,64})", m.group(1)))
+    header = None
+    for line in text.splitlines():
+        if not line.strip().startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if header is None:
+            header = [c.lower() for c in cells]
+            continue
+        if all(set(c) <= set("-: ") for c in cells):
+            continue
+        row = dict(zip(header, cells))
+        name = row.get("lib") or row.get("library") or ""
+        if name:
+            doc["rows"][name.lower()] = {"version": row.get("version", ""),
+                                         "grounded": row.get("grounded-docs", row.get("grounded", "")),
+                                         "context7": row.get("context7", "")}
+    return doc
+
+
+def file_sha256(path):
+    import hashlib
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as fh:
+            for block in iter(lambda: fh.read(1 << 20), b""):
+                h.update(block)
+    except OSError:
+        return None
+    return h.hexdigest()
+
+
+def docs_map_status(root):
+    """'matches <locks>' | 'stale' | 'missing' | '' (no lockfile: nothing to say)."""
+    locks = [f for f in LOCKFILES if os.path.isfile(os.path.join(root, f))]
+    doc = libs_doc(root)
+    if doc is None:
+        return "missing" if locks else ""
+    if not locks:
+        return ""
+    for name in locks:
+        want = doc["locks"].get(name)
+        got = file_sha256(os.path.join(root, name))
+        if not want or got is None or not got.startswith(want):
+            return "stale"
+    return "matches " + ", ".join(locks)
+
+
+def knowledge_index(root):
+    """One pointer line (<= 600 chars) for the session start. Empty outside a git repo."""
+    if not root:
+        return ""
+    history = git_history(root)
+    count, commits, moves, stale = memory_status(root, history)
+    bits = []
+    if count:
+        mem = "%d memories" % count
+        if history is not None:
+            mem += ", %d code commit(s) since the last memory update" % commits
+        if stale:
+            mem += " (STALE: check mem:core against the code before you rely on it)"
+        bits.append("Memory: " + mem + ".")
+    else:
+        bits.append("Memory: none yet (ai-adopt runs Serena onboarding).")
+    g = graph_status(root, history)
+    bits.append("Graph: " + {"fresh": "fresh.", "stale": "stale, run graphify update .",
+                             "missing": "missing, run GRAPHIFY_BACKEND=none graphify extract . --code-only"}[g] +
+                ("" if g == "fresh" else "."))
+    d = docs_map_status(root)
+    if d:
+        bits.append("Docs map: " + {"missing": ".ai/libs.md missing, run ai-libs --sync.",
+                                    "stale": ".ai/libs.md is older than the lockfile, run ai-libs --sync."}.get(
+                                        d, ".ai/libs.md " + d + "."))
+    return " ".join(bits)[:KNOWLEDGE_CAP]
+
+
+def head_commit_files(root, max_age=600):
+    """[(status, path)] of HEAD when HEAD was committed in the last max_age seconds, else None."""
+    out = git_quick(root, ["show", "-s", "--format=%ct", "HEAD"])
+    try:
+        ct = int((out or "").strip())
+    except ValueError:
+        return None
+    if time.time() - ct > max_age:
+        return None
+    names = git_quick(root, ["show", "--no-color", "--format=", "--name-status", "--no-renames", "HEAD"])
+    if names is None:
+        return None
+    files = []
+    for ln in names.splitlines():
+        parts = ln.split("\t")
+        if len(parts) >= 2:
+            files.append((parts[0][:1], parts[-1]))
+    return files
+
+
+def graphify_hook_installed(root):
+    hooks = git_quick(root, ["rev-parse", "--git-path", "hooks"])
+    if not hooks:
+        return False
+    d = hooks.strip()
+    if not os.path.isabs(d):
+        d = os.path.join(root, d)
+    return any("graphify" in (read_text(os.path.join(d, n)) or "") for n in ("post-commit", "post-checkout"))
+
+
+def knowledge_delta(root, new_docs_ids=False):
+    """One combined nudge after a fresh commit, or '' when nothing applies."""
+    if not root:
+        return ""
+    files = head_commit_files(root)
+    if files is None:
+        return ""
+    todo = []
+    if any(st in "AD" and is_code_file(p) for st, p in files):
+        todo.append("update the mem:core source map (code files were added, removed or renamed)")
+    if any(is_dep_file(p) for _st, p in files) or new_docs_ids:
+        todo.append("run ai-libs --sync and commit .ai/libs.md")
+    if any(is_code_file(p) for _st, p in files) and not graphify_hook_installed(root):
+        todo.append("run graphify update .")
+    if not todo:
+        return ""
+    return "After this commit: " + "; ".join(todo) + "."
+
+
+CONTEXT7_ID_RX = re.compile(r"/[\w.-]{1,60}/[\w.-]{1,60}(?:/[\w.+-]{1,40})?")
+GROUNDED_RX = re.compile(r"[\w.@/+-]{1,80}")
+LIB_NAME_RX = re.compile(r"[\w.@/+-]{1,80}")
+
+
+def libs_hits(root, names):
+    """Cached docs IDs for the named libraries from .ai/libs.md, as one phrase, or ''."""
+    doc = libs_doc(root)
+    if not doc or not doc["rows"]:
+        return ""
+    hits = []
+    for n in sorted(set(x.lower() for x in names or []))[:6]:
+        row = doc["rows"].get(n) or doc["rows"].get(norm_pypi(n))
+        if not row or not LIB_NAME_RX.fullmatch(n):
+            continue
+        ids = []
+        # .ai/libs.md is a committed file: only well-formed IDs reach the agent's context, never free text.
+        if CONTEXT7_ID_RX.fullmatch(row.get("context7") or ""):
+            ids.append("context7=" + row["context7"])
+        if GROUNDED_RX.fullmatch(row.get("grounded") or ""):
+            ids.append("grounded=" + row["grounded"])
+        hits.append("%s %s" % (n, " ".join(ids) if ids else "(no IDs yet)"))
+    if not hits:
+        return "Library IDs: .ai/libs.md."
+    return "Cached IDs (.ai/libs.md): " + "; ".join(hits) + "."
+
+
+def origin_slug(root):
+    """'Repo: owner/name (origin remote).' or ''."""
+    if not root:
+        return ""
+    url = (git_quick(root, ["remote", "get-url", "origin"]) or "").strip()
+    m = re.search(r"[:/]([\w.-]+)/([\w.-]+?)(?:\.git)?/?$", url)
+    return "Repo: %s/%s (origin remote)." % (m.group(1), m.group(2)) if m else ""
+
+
+def project_libs(root):
+    """Library names this project uses: .ai/libs.md rows plus direct deps of the root manifests."""
+    names = set()
+    doc = libs_doc(root)
+    if doc:
+        names.update(doc["rows"])
+    if not root:
+        return names
+    pkg = read_text(os.path.join(root, "package.json"))
+    if pkg:
+        try:
+            data = json.loads(pkg)
+            for key in ("dependencies", "devDependencies", "peerDependencies"):
+                names.update(k.lower() for k in (data.get(key) or {}))
+        except ValueError:
+            pass
+    for rel, rx in (("pyproject.toml", r"^\s*[\"']([A-Za-z0-9][A-Za-z0-9._-]*)"),
+                    ("requirements.txt", r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)"),
+                    ("go.mod", r"^\s*(?:require\s+)?[\w.-]+\.[a-z]+/(?:[\w.-]+/)*([\w.-]+)\s+v\d")):
+        text = read_text(os.path.join(root, rel)) or ""
+        names.update(norm_pypi(x) for x in re.findall(rx, text, re.M))
+    cargo = read_text(os.path.join(root, "Cargo.toml")) or ""
+    m = re.search(r"^\[dependencies\]\s*$(.*?)(?=^\[|\Z)", cargo, re.M | re.S)
+    if m:
+        names.update(x.lower() for x in re.findall(r"^\s*([A-Za-z0-9_-]+)\s*=", m.group(1), re.M))
+    return {n for n in names if len(n) >= 3}
+
+
+# Popular libraries that are not plain English words (a prompt naming one is a docs question).
+KNOWN_LIBS = {
+    "react", "nextjs", "next.js", "vue", "nuxt", "svelte", "sveltekit", "angular", "solidjs", "astro", "remix",
+    "tailwind", "tailwindcss", "shadcn", "vite", "webpack", "esbuild", "typescript", "nodejs", "deno", "bun",
+    "fastapi", "django", "flask", "starlette", "pydantic", "sqlalchemy", "alembic", "celery", "pytest", "numpy",
+    "pandas", "polars", "scipy", "matplotlib", "plotly", "streamlit", "langchain", "llamaindex", "openai",
+    "anthropic", "transformers", "pytorch", "tensorflow", "keras", "scikit-learn", "sklearn", "httpx", "aiohttp",
+    "prisma", "drizzle", "sequelize", "typeorm", "mongoose", "postgres", "postgresql", "psycopg", "asyncpg",
+    "redis", "kafka", "graphql", "apollo", "trpc", "zod", "axios", "jest", "vitest", "playwright", "puppeteer",
+    "cypress", "electron", "tauri", "expo", "react-native", "flutter", "supabase", "firebase", "stripe",
+    "tokio", "axum", "actix", "serde", "diesel", "gin", "fiber", "echo", "gorm", "spring", "hibernate", "rails",
+    "laravel", "symfony", "kubernetes", "terraform", "docker", "ansible", "htmx", "alpinejs", "echarts",
+    "chart.js", "d3", "three.js", "meilisearch", "elasticsearch", "opensearch", "dbos", "temporal", "typer",
+    "click", "rich", "textual", "uvicorn", "gunicorn", "nginx", "caddy",
+}
+COMMON_WORDS = {"click", "rich", "echo", "fiber", "spring", "temporal", "express", "next", "gin"}
+
+
+def prompt_libs(prompt, root):
+    """Library names the prompt mentions (word-bounded, case-insensitive)."""
+    text = (prompt or "").lower()
+    if not text.strip():
+        return set()
+    names = project_libs(root) | (KNOWN_LIBS - COMMON_WORDS)
+    hits = set()
+    for n in names:
+        if len(n) < 3 or n in COMMON_WORDS:
+            continue
+        if re.search(r"(?<![\w.@/-])" + re.escape(n) + r"(?![\w-])", text):
+            hits.add(n)
+    return hits
 
 
 # ---------------------------------------------------------------- generic helpers

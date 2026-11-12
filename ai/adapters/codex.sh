@@ -52,7 +52,9 @@ codex_plugins() {
     if [ -d "$(plugin_src_dir i-have-adhd)/.codex-plugin" ] || [ "$AI_DRY_RUN" = 1 ]; then
         codex_marketplace_plugin "$(plugin_src_dir i-have-adhd)" i-have-adhd i-have-adhd@i-have-adhd || true
     fi
-    manual "Codex: open /hooks once and trust the hooks of ai-core, ponytail and i-have-adhd"
+    if [ "$AI_OS" != linux ] || ! grep -qs 'agent-plugins/ponytail' /etc/codex/hooks.json; then
+        manual "Codex: open /hooks once and trust the hooks of ponytail and i-have-adhd (ai-core, rtk, graphify are trusted by install)"
+    fi
 
     # Remote curated plugins installed without our audit (SPEC 20): show, owner decides.
     local others
@@ -68,7 +70,8 @@ codex_plugins() {
 
 codex_skills() {
     link_skills "$HOME/.agents/skills"
-    ok "Codex/opencode: shared skills linked into ~/.agents/skills"
+    mattpocock_link "$HOME/.agents/skills"
+    ok "Codex/opencode: shared skills and the 5 mattpocock skills linked into ~/.agents/skills"
 }
 
 # ---------------------------------------------------------------- step 10: hooks
@@ -80,7 +83,16 @@ codex_hooks() {
         run graphify install --platform codex </dev/null || warn "graphify install --platform codex failed"
         report_changes "$before" "$CODEX_DIR/config.toml" "$CODEX_DIR/hooks.json" "$CODEX_DIR/AGENTS.md"
     fi
-    if has rtk; then
+    if has rtk && grep -qs 'rtk' /etc/codex/hooks.json; then
+        # The admin layer carries the RTK hook: a user copy would only be an untrusted duplicate.
+        if grep -qs rtk "$CODEX_DIR/hooks.json"; then
+            run rtk init -g --codex --uninstall </dev/null || warn "rtk init -g --codex --uninstall failed"
+            aiconf record-cmd rtk:codex-user-removed -- rtk init -g --codex
+            info "RTK for Codex comes from /etc/codex/hooks.json: user copy removed"
+        else
+            info "RTK for Codex comes from /etc/codex/hooks.json"
+        fi
+    elif has rtk; then
         if grep -qs rtk "$CODEX_DIR/hooks.json" "$CODEX_DIR/config.toml"; then
             info "RTK already wired for Codex"
         else
@@ -91,6 +103,90 @@ codex_hooks() {
             ok "RTK for Codex"
         fi
     fi
+    codex_trust
+}
+
+# Linux admin installs (system mode): the ai-core and RTK Codex hooks go to /etc/codex/hooks.json. Codex
+# loads it as the system config layer, which is managed: no per-user trust hash, always on, for every
+# user (codex-rs discovery.rs: System layer is_managed; loader puts /etc/codex in the layer stack even
+# without a config.toml). Commands point at the root-owned copy ($AI_HOME = /usr/local/lib/ai/repo), so
+# no user can change what runs for another. The plugin manifest of that copy then points at an empty
+# hooks file, so Codex does not also load an untrusted plugin copy ("Hooks need review" every start).
+# Not used in "all" mode (AI_HOME is a user-writable work tree) or on macOS: there, trust hashes.
+codex_system_hooks() {
+    [ "$AI_OS" = linux ] && [ "$AI_MODE" = system ] || return 0
+    want codex || return 0
+    local p tmp th extra=""
+    p=$(PLUGIN_DIR)
+    tmp=$(mktemp "${TMPDIR:-/tmp}/ai-codex-hooks.XXXXXX")
+    # Owner decision 2026-11-12: the audited Ponytail and i-have-adhd hooks go here too (root-owned sources).
+    local vendor="" v
+    for v in ponytail i-have-adhd; do
+        [ -d "$(plugin_src_dir "$v")/.codex-plugin" ] && vendor="$vendor --plugin $(plugin_src_dir "$v")"
+    done
+    if has rtk && [ "$AI_DRY_RUN" != 1 ]; then
+        # What this rtk version writes for Codex, captured in a throwaway HOME (only its rtk handlers are kept).
+        th=$(mktemp -d "${TMPDIR:-/tmp}/ai-rtk.XXXXXX")
+        mkdir -p "$th/.codex"
+        HOME="$th" CODEX_HOME="$th/.codex" rtk init -g --codex </dev/null >/dev/null 2>&1 || true
+        [ -f "$th/.codex/hooks.json" ] && extra="--extra $th/.codex/hooks.json"
+    fi
+    # shellcheck disable=SC2086
+    if ! python3 "$AI_HOME/ai/lib/aiconf.py" --state /dev/null codex-managed-hooks --plugin-root "$p" \
+        --hooks "$p/hooks/codex-hooks.json" $extra $vendor > "$tmp"; then
+        warn "Codex managed hooks not built: users fall back to trust hashes"; rm -rf "$tmp" ${th:+"$th"}; return 0
+    fi
+    rm -rf ${th:+"$th"}
+    aiconf_root file-put /etc/codex/hooks.json "$tmp" --mode 644
+    rm -f "$tmp"
+    # The root-owned copy only (rebuilt by every admin run): plugin hooks -> the empty managed file.
+    if [ "$AI_DRY_RUN" = 1 ]; then
+        info "[dry-run] $p/.codex-plugin/plugin.json hooks -> ./hooks/codex-hooks.managed.json (root-owned copy)"
+    else
+        python3 - "$p/.codex-plugin/plugin.json" <<'EOS'
+import json, sys
+path = sys.argv[1]
+data = json.load(open(path))
+data["hooks"] = "./hooks/codex-hooks.managed.json"
+open(path, "w").write(json.dumps(data, indent=2) + "\n")
+EOS
+    fi
+    ok "Codex: ai-core$( [ -n "$extra" ] && printf ', RTK')$( [ -n "$vendor" ] && printf ', Ponytail, i-have-adhd') hooks in /etc/codex/hooks.json (managed layer, no trust step)"
+}
+
+# Codex skips every non-managed hook it has no matching trust hash for (0 Codex sessions in fired.jsonl).
+# Write the hashes for exactly our hooks: the installed ai-core plugin, and the rtk/graphify entries of
+# ~/.codex/hooks.json. Recomputed on every install and ai-sync (a changed hook or plugin file = new hash).
+codex_trust() {
+    has codex || return 0
+    if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] aiconf codex-trust-hooks $CODEX_DIR/config.toml --auto"; return 0; fi
+    # Plugins whose hooks run from /etc/codex/hooks.json: their plugin copies are switched off (and marked
+    # reviewed, so Codex does not ask about them at every start).
+    local args="--verify-source ai-core@ai=$(PLUGIN_DIR)" pid rc=0
+    for pid in ponytail@ponytail i-have-adhd@i-have-adhd; do
+        if grep -qs "agent-plugins/${pid%@*}" /etc/codex/hooks.json; then
+            args="$args --disable $pid --verify-source $pid=$(plugin_src_dir "${pid%@*}")"
+        fi
+    done
+    # The plugin cache is user-writable: a content hash is approved only when the cache equals its source.
+    # Exit 4 = a cache differs: reinstall that plugin from its source once, then try again.
+    # shellcheck disable=SC2086
+    aiconf codex-trust-hooks "$CODEX_DIR/config.toml" --auto $args || rc=$?
+    if [ "$rc" = 4 ]; then
+        info "a Codex plugin copy differs from its source: reinstalling ai-core (and the switched-off plugins)"
+        run codex plugin add ai-core@ai </dev/null || true
+        for pid in ponytail@ponytail i-have-adhd@i-have-adhd; do
+            case "$args" in *"--disable $pid"*) run codex plugin add "$pid" </dev/null || true ;; esac
+        done
+        rc=0
+        # shellcheck disable=SC2086
+        aiconf codex-trust-hooks "$CODEX_DIR/config.toml" --auto $args || rc=$?
+    fi
+    case "$rc" in
+        0) ok "Codex: hook entries for ai-core, rtk, graphify (and switched-off plugin copies) in $CODEX_DIR/config.toml" ;;
+        4) warn "Codex plugin copy still differs from its source after a reinstall: its hooks are not trusted" ;;
+        *) warn "Codex hook trust not written: open /hooks in Codex once and trust the ai-core hooks" ;;
+    esac
 }
 
 # ---------------------------------------------------------------- step 12: env
@@ -101,5 +197,12 @@ codex_env() {
     aiconf toml-set "$f" "" project_doc_max_bytes 65536
     aiconf toml-set "$f" analytics enabled false
     aiconf toml-set "$f" feedback enabled false
-    ok "Codex: update check, analytics, feedback off; project_doc_max_bytes 65536"
+    # The env switches for every command Codex runs (Codex starts no login shell, /etc/profile.d is not read).
+    local k v
+    while IFS='=' read -r k v; do
+        [ -n "$k" ] && aiconf toml-set "$f" shell_environment_policy.set "$k" "\"$v\""
+    done <<EOT
+$(env_pairs)
+EOT
+    ok "Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches in shell_environment_policy.set"
 }

@@ -7,7 +7,7 @@ NOT FOUND. opencode ships no rules template. It reads AGENTS.md as is, so the ro
 
 ## When / when not
 - Use: as a second model front-end (Grok, Kimi, DeepSeek keys), as a fallback, for scripted runs.
-- Do not use: for SEO and blog work. Hand it to Claude Code (`omc ask claude` or `claude -p`, no `--bare`).
+- Do not use: for SEO and blog work. Hand it to Claude Code (`omc ask claude` or `claude -p`, no `--bare`) only when `claude` is logged in for this user. Else follow the claude-seo or claude-blog skill files directly (paths in `claude-seo.md`). The per-project opt-in is for Claude only; for opencode the skill files are always available.
 - Non-interactive: `opencode run "<prompt>" --format json`. Other: `-m provider/model`, `--agent`, `-f file`. `opencode session list --format json`.
 - Never run `opencode upgrade` (pipes an install script to bash).
 - `opencode serve` is an HTTP API: bind to localhost or Tailscale only, with `OPENCODE_SERVER_USERNAME` and `OPENCODE_SERVER_PASSWORD`.
@@ -21,7 +21,7 @@ NOT FOUND. opencode ships no rules template. It reads AGENTS.md as is, so the ro
 ## Proof
 - Should fire (EN): `opencode run "Reply OPENCODE-OK" --format json`. The event stream contains the string.
 - Should fire (RO): "Foloseste skill-ul writing-for-agents ca sa verifici AGENTS.md". A skill load from `~/.agents/skills`. Event shape: UNVERIFIED.
-- Should not fire: an SEO request. Expect the L0 line "hand to Claude Code".
+- Should not fire: an SEO request. Expect the hand-off to Claude Code, or the skill-file path when Claude is not logged in.
 
 ## Setup checklist
 1. `npm i -g --ignore-scripts opencode-ai@1.19.5`. Then `ln -f "$(npm root -g)/opencode-ai/node_modules/opencode-linux-x64/bin/opencode" "$(npm root -g)/opencode-ai/bin/opencode.exe"`. No AVX2 (`grep -c avx2 /proc/cpuinfo` is 0): use `opencode-linux-x64-baseline`. macOS package name and path: UNVERIFIED.

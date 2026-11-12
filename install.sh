@@ -8,7 +8,7 @@
 #   macOS, or a Linux user with sudo (one process): ~/.dotfiles-ai/install.sh [options]
 #
 #   options: [--dry-run] [--agents claude,codex,hermes,opencode,herdr] [--skip-packages]
-#            [--allow-dirty] [--yes]
+#            [--allow-dirty] [--yes] [--keep-claudeai-connectors]   env: AI_OMC_WIRING=plugin|cli|remove
 #
 # Distribution = each agent's own extension points (plugins, `mcp add`, `config set`). Our own merge
 # code only writes managed blocks, single keys and links, and records every change for uninstall.sh
@@ -32,6 +32,7 @@ while [ $# -gt 0 ]; do
         --skip-packages) AI_SKIP_PACKAGES=1 ;;
         --docs-server) AI_DOCS_SERVER=1 ;;
         --allow-dirty) AI_ALLOW_DIRTY=1 ;;
+        --keep-claudeai-connectors) AI_CLAUDEAI_CONNECTORS=keep ;;
         --user) AI_MODE=user ;;
         --for-user) [ $# -ge 2 ] || usage 1; AI_MODE=system; AI_FOR_USER=$2; shift ;;
         --for-user=*) AI_MODE=system; AI_FOR_USER=${1#--for-user=} ;;
@@ -42,7 +43,8 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-export AI_DRY_RUN AI_YES AI_SKIP_PACKAGES AI_ALLOW_DIRTY AI_MODE AI_FOR_USER
+AI_CLAUDEAI_CONNECTORS=${AI_CLAUDEAI_CONNECTORS:-}
+export AI_DRY_RUN AI_YES AI_SKIP_PACKAGES AI_ALLOW_DIRTY AI_MODE AI_FOR_USER AI_CLAUDEAI_CONNECTORS
 
 . "$AI_HOME/ai/lib/common.sh"
 
@@ -107,7 +109,7 @@ run_system() {
     step "render AGENTS.md and routing data in the root-owned copy"; base_render
     step "agents: pinned harness installs (system-wide)";        tools_harnesses
     step "system tools: RTK (built as $AI_FOR_USER), GitHub MCP, plugin sources"; tools_system
-    step "system layer: /etc env, managed settings, admin rules, caffeinate, webhook helper"; do_system_layer
+    step "system layer: /etc env, managed settings, admin rules, webhook helper"; do_system_layer
     step "Hermes (user $HERMES_USER)";                           do_hermes
     [ "$AI_DOCS_SERVER" = 1 ] && { step "Grounded Docs server role"; tools_docs_server; }
     step "user part as $AI_FOR_USER";                            run_user_part
@@ -152,7 +154,7 @@ run_all() {
     step "root rules (managed blocks; other blocks kept)";      base_rules_user
     step "environment: telemetry and auto-update off";          base_env_user
     if [ "$AI_OS" = linux ]; then
-        step "system layer: /etc env, managed settings, admin rules, caffeinate, webhook helper"; do_system_layer
+        step "system layer: /etc env, managed settings, admin rules, webhook helper"; do_system_layer
         step "Hermes (user $HERMES_USER)";                       do_hermes
     fi
     step "git hooks: ai-sync after each pull";                  base_sync_hook
@@ -165,10 +167,12 @@ run_user_part() {
     local args="--user --yes"
     [ "$AI_DRY_RUN" = 1 ] && args="$args --dry-run"
     [ "$AI_SKIP_PACKAGES" = 1 ] && args="$args --skip-packages"
+    [ "$AI_CLAUDEAI_CONNECTORS" = keep ] && args="$args --keep-claudeai-connectors"
     [ -n "$AGENTS" ] && args="$args --agents $(printf '%s' "$AGENTS" | sed 's/,*hermes//; s/^,//')"
     info "running as $AI_FOR_USER: $AI_HOME/install.sh $args"
     # shellcheck disable=SC2086
-    if sudo -u "$AI_FOR_USER" -H env AI_SRC_HOME="$AI_SRC_HOME" "$AI_HOME/install.sh" $args; then
+    if sudo -u "$AI_FOR_USER" -H env AI_SRC_HOME="$AI_SRC_HOME" AI_OMC_WIRING="${AI_OMC_WIRING:-plugin}" \
+        AI_CLAUDEAI_CONNECTORS="${AI_CLAUDEAI_CONNECTORS:-}" "$AI_HOME/install.sh" $args; then
         ok "user part for $AI_FOR_USER"
     else
         warn "user part for $AI_FOR_USER failed: see its output above"
@@ -222,11 +226,9 @@ do_system_layer() {
     base_env_system
     base_admin_layer
     base_webhook_helper
-    if [ "$AI_OS" = linux ] && ! has caffeinate; then
-        # SessionStart keeps `caffeinate -s -w $PPID`: on Linux a systemd-inhibit wrapper.
-        aiconf_root file-put /usr/local/bin/caffeinate "$AI_HOME/ai/adapters/linux/caffeinate" --mode 755
-        ok "caffeinate wrapper (systemd-inhibit) in /usr/local/bin"
-    fi
+    codex_system_hooks
+    # The ai-core SessionStart caffeinate hook runs on macOS only now: no Linux wrapper is installed.
+    # One that an earlier install put in /usr/local/bin is removed by uninstall.sh (recorded file).
     return 0
 }
 

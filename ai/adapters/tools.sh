@@ -65,8 +65,8 @@ plugin_src_dir() {
 }
 
 plugin_clone() {
-    # plugin_clone <name> <repo> <sha>
-    local name=$1 repo=$2 sha=$3 dest tmp
+    # plugin_clone <name> <repo> <sha> [ref]   (ref: the tag, for an ai/audit-accepted.txt "dir" line)
+    local name=$1 repo=$2 sha=$3 ref=${4:-} dest tmp
     dest=$(plugin_src_dir "$name")
     if [ -d "$dest/.git" ] && [ "$(git -C "$dest" rev-parse HEAD 2>/dev/null)" = "$sha" ]; then
         info "$name source at $dest is at the audited commit ${sha:0:7}"
@@ -85,7 +85,7 @@ plugin_clone() {
     git clone -q "$repo" "$tmp/$name" || { warn "clone of $repo failed"; return 1; }
     git -C "$tmp/$name" -c advice.detachedHead=false checkout -q "$sha" || { warn "$name: commit $sha not found"; return 1; }
     [ "$(git -C "$tmp/$name" rev-parse HEAD)" = "$sha" ] || { warn "$name not at $sha"; return 1; }
-    audit_ok dir "$tmp/$name" || { rm -rf "$tmp"; return 1; }
+    audit_ok dir "$tmp/$name" "$ref" "$name" || { rm -rf "$tmp"; return 1; }
     # S8: a recursive chown/chmod as root must never follow a link out of the tree.
     if [ -n "$(find "$tmp/$name" -type l -print -quit)" ]; then
         warn "$name tree contains symlinks: not installed as root (review: find $tmp/$name -type l)"
@@ -103,6 +103,64 @@ plugin_clone() {
     fi
     rm -rf "$tmp"
     ok "$name source cloned at ${sha:0:7} to $dest (audited)"
+}
+
+# mattpocock/skills (rules/mattpocock-skills.md step 2): the five picked folders only, at the pinned commit,
+# audited. The repo has a symlink (AGENTS.md), so the tree is not moved as a whole: only the five folders,
+# checked for links, are copied to <plugin src>/mattpocock-skills/<name>.
+MATTPOCOCK_REPO=https://github.com/mattpocock/skills
+MATTPOCOCK_PICKS="productivity/grilling productivity/grill-me productivity/wait-what productivity/writing-for-agents engineering/retro"
+
+mattpocock_src() {
+    local dest tmp p n
+    dest=$(plugin_src_dir mattpocock-skills)
+    if [ -f "$dest/.commit" ] && [ "$(cat "$dest/.commit")" = "$MATTPOCOCK_SKILLS_SHA" ]; then
+        info "mattpocock skills at $dest are at the audited commit ${MATTPOCOCK_SKILLS_SHA:0:7}"; return 0
+    fi
+    [ "$AI_SKIP_PACKAGES" = 1 ] && { skip "mattpocock skills (--skip-packages)"; return 1; }
+    if [ "$AI_DRY_RUN" = 1 ]; then
+        info "[dry-run] git clone $MATTPOCOCK_REPO; checkout $MATTPOCOCK_SKILLS_SHA; agent-audit dir; copy $MATTPOCOCK_PICKS to $dest"
+        return 0
+    fi
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/ai-mattpocock.XXXXXX")
+    git clone -q "$MATTPOCOCK_REPO" "$tmp/src" || { warn "clone of $MATTPOCOCK_REPO failed"; rm -rf "$tmp"; return 1; }
+    git -C "$tmp/src" -c advice.detachedHead=false checkout -q "$MATTPOCOCK_SKILLS_SHA" \
+        || { warn "mattpocock skills: commit not found"; rm -rf "$tmp"; return 1; }
+    mkdir -p "$tmp/out"
+    for p in $MATTPOCOCK_PICKS; do
+        [ -f "$tmp/src/skills/$p/SKILL.md" ] || { warn "mattpocock skills: skills/$p missing at the pin"; rm -rf "$tmp"; return 1; }
+        if [ -n "$(find "$tmp/src/skills/$p" -type l -print -quit)" ]; then
+            warn "mattpocock skills: skills/$p contains a symlink: not installed"; rm -rf "$tmp"; return 1
+        fi
+        cp -R "$tmp/src/skills/$p" "$tmp/out/$(basename "$p")"
+    done
+    printf '%s\n' "$MATTPOCOCK_SKILLS_SHA" > "$tmp/out/.commit"
+    audit_ok dir "$tmp/out" "${MATTPOCOCK_SKILLS_SHA:0:12}" mattpocock-skills || { rm -rf "$tmp"; return 1; }
+    if [ "$AI_OS" = linux ]; then
+        run_root rm -rf "$dest"
+        run_root mkdir -p "$(dirname "$dest")"
+        run_root mv "$tmp/out" "$dest"
+        run_root chown -R root:root "$dest"
+        run_root chmod -R a+rX,go-w "$dest"
+        aiconf record-cmd "plugin-src:mattpocock-skills" -- $SUDO_UNDO rm -rf "$dest"
+    else
+        rm -rf "$dest"; mkdir -p "$(dirname "$dest")" && mv "$tmp/out" "$dest"
+        aiconf record-cmd "plugin-src:mattpocock-skills" -- rm -rf "$dest"
+    fi
+    rm -rf "$tmp"
+    ok "mattpocock skills ($MATTPOCOCK_PICKS) at ${MATTPOCOCK_SKILLS_SHA:0:7} in $dest (audited)"
+}
+
+# One route per agent: ~/.agents/skills/<name> (Codex, opencode) and ~/.claude/skills/<name> (Claude), links.
+mattpocock_link() {
+    local dir=$1 src n
+    src=$(plugin_src_dir mattpocock-skills)
+    [ -d "$src" ] || { [ "$AI_DRY_RUN" = 1 ] || skip "mattpocock skills not installed ($src): not linked into $dir"; return 0; }
+    for n in grilling grill-me wait-what writing-for-agents retro; do
+        [ -f "$src/$n/SKILL.md" ] || continue
+        if [ -d "$dir/$n" ] && [ ! -L "$dir/$n" ]; then warn "$dir/$n is a real folder (not ours): not linked"; continue; fi
+        aiconf link "$dir/$n" "$src/$n"
+    done
 }
 
 # Run a vendor setup command in a throwaway HOME first, show what it would write, then ask.
@@ -153,6 +211,14 @@ tools_omc() {
         info "oh-my-claudecode: the Mac uses the plugin route; npm route is Ubuntu only (contracts-mcp-c 1.6)"
         return 0
     fi
+    case "${AI_OMC_WIRING:-plugin}" in
+        plugin) info "oh-my-claudecode: Claude plugin route (installed in the user part); no npm CLI install"; return 0 ;;
+        remove)
+            if has omc; then
+                run_root npm uninstall -g oh-my-claude-sisyphus && ok "oh-my-claudecode npm CLI uninstalled (AI_OMC_WIRING=remove)"
+            fi
+            return 0 ;;
+    esac
     if has omc && omc --version 2>/dev/null | grep -q "$OMC_VERSION"; then
         info "oh-my-claudecode $OMC_VERSION present"
     else
@@ -283,6 +349,11 @@ tools_system() {
     tools_github_mcp
     plugin_clone ponytail "$PONYTAIL_REPO" "$PONYTAIL_SHA" || true
     plugin_clone i-have-adhd "$IHAVEADHD_REPO" "$IHAVEADHD_SHA" || true
+    # Readable skill files of the Claude-only packs for agents that cannot hand off to Claude (Codex,
+    # Hermes, opencode without a Claude login): the router points them here (claude_handoff).
+    plugin_clone claude-seo https://github.com/AgriciDaniel/claude-seo "$CLAUDE_SEO_SHA" "$CLAUDE_SEO_REF" || true
+    plugin_clone claude-blog https://github.com/AgriciDaniel/claude-blog "$CLAUDE_BLOG_SHA" "$CLAUDE_BLOG_REF" || true
+    mattpocock_src || true
     return 0
 }
 
@@ -365,6 +436,44 @@ tools_github_mcp() {
 
 # ---------------------------------------------------------------- Grounded Docs server role (step 13)
 
+# npm installs run with scripts off, so the native better-sqlite3 binding of docs-mcp-server is never
+# built ("Could not locate the bindings file"). After the audit passed (the package is installed only
+# then), build exactly that one module from its own audited source, inside that package dir. No version
+# change, no prebuilt binary download (build from source; node-gyp fetches only the node headers).
+DOCS_REBUILT=0
+docs_native_modules() {
+    local root pkg mod
+    root=$(npm root -g 2>/dev/null || echo /usr/lib/node_modules)
+    pkg="$root/@arabold/docs-mcp-server"
+    if [ "$AI_DRY_RUN" = 1 ]; then
+        info "[dry-run] cd $pkg && npm rebuild better-sqlite3 --build-from-source (only if the binding does not load)"
+        return 0
+    fi
+    [ -d "$pkg" ] || { warn "Grounded Docs: $pkg not found"; return 1; }
+    mod=$(cd "$pkg" && node -p 'require.resolve("better-sqlite3/package.json")' 2>/dev/null || true)
+    [ -n "$mod" ] || { warn "Grounded Docs: better-sqlite3 not found under $pkg"; return 1; }
+    if (cd "$pkg" && node -e 'new (require("better-sqlite3"))(":memory:").close()' >/dev/null 2>&1); then
+        info "Grounded Docs: better-sqlite3 binding loads (node $(node -v))"
+        return 0
+    fi
+    if ! has make || ! has g++; then
+        if confirm "apt-get install build-essential (to build the better-sqlite3 binding)?" y; then
+            run_root apt-get install -y -q build-essential
+        else
+            manual "install build-essential, then re-run with --docs-server"; return 1
+        fi
+    fi
+    info "Grounded Docs: building better-sqlite3 $(node -p "require('$mod').version") for node $(node -v)"
+    run_root sh -c "cd '$pkg' && npm_config_build_from_source=true npm rebuild better-sqlite3 --ignore-scripts=false --foreground-scripts"
+    if (cd "$pkg" && node -e 'new (require("better-sqlite3"))(":memory:").close()' >/dev/null 2>&1); then
+        ok "Grounded Docs: better-sqlite3 binding built from source"
+        DOCS_REBUILT=1
+        return 0
+    fi
+    warn "Grounded Docs: better-sqlite3 still does not load after the rebuild: service NOT started"
+    return 1
+}
+
 tools_docs_server() {
     [ "$AI_OS" = linux ] || { skip "Grounded Docs server role is Linux only"; return 0; }
     if [ -z "$DOCS_MCP_INTEGRITY" ]; then
@@ -376,7 +485,9 @@ tools_docs_server() {
         npm_pinned @arabold/docs-mcp-server "$DOCS_MCP_VERSION" "$DOCS_MCP_INTEGRITY" || return 0
         aiconf_root record-cmd npm:docs-mcp -- npm rm -g @arabold/docs-mcp-server
     fi
-    local d="$AI_HOME/ai/mcp/docs-server"
+    docs_native_modules || return 0
+    local d="$AI_HOME/ai/mcp/docs-server" unit_before
+    unit_before=$(snap_files /etc/systemd/system/ai-docs-mcp.service)
     aiconf_root file-put /etc/systemd/system/ai-docs-mcp.service "$d/ai-docs-mcp.service" --mode 644
     [ -f /etc/default/ai-docs-mcp ] || aiconf_root file-put /etc/default/ai-docs-mcp "$d/ai-docs-mcp.default" --mode 644
 
@@ -401,7 +512,21 @@ tools_docs_server() {
         fi
     fi
     run_root systemctl daemon-reload
-    run_root systemctl enable --now ai-docs-mcp.service
+    run_root systemctl enable ai-docs-mcp.service
+    if [ "${DOCS_REBUILT:-0}" = 1 ] || [ "$unit_before" != "$(snap_files /etc/systemd/system/ai-docs-mcp.service)" ] \
+        || ! systemctl is-active --quiet ai-docs-mcp.service; then
+        # A unit that hit its start limit refuses to start until reset; restart picks up a rebuilt module
+        # or a changed unit. An unchanged, running service is left alone.
+        run_root systemctl reset-failed ai-docs-mcp.service 2>/dev/null || true
+        run_root systemctl restart ai-docs-mcp.service
+    else
+        info "ai-docs-mcp: unit and module unchanged, running: not restarted"
+    fi
+    if [ "$AI_DRY_RUN" != 1 ]; then
+        sleep 3
+        systemctl is-active --quiet ai-docs-mcp.service \
+            || warn "ai-docs-mcp is not active after start: journalctl -u ai-docs-mcp -n 50"
+    fi
     aiconf_root record-cmd systemd:ai-docs-mcp -- systemctl disable --now ai-docs-mcp.service
     ok "Grounded Docs server on port $DOCS_MCP_PORT (telemetry off)"
     manual "check flags in /etc/default/ai-docs-mcp against 'docs-mcp-server --help' (flag names UNVERIFIED), then index libraries"

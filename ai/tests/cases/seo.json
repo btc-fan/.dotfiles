@@ -7,6 +7,12 @@
    "event": "UserPromptSubmit",
    "payload": {
     "prompt": "run an seo audit of example.com"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "seo\nblog\n"
+    }
    }
   },
   {
@@ -15,6 +21,12 @@
    "event": "UserPromptSubmit",
    "payload": {
     "prompt": "audit the database indexes"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "seo\nblog\n"
+    }
    }
   },
   {
@@ -60,7 +72,13 @@
       }
      ]
     }
-   ]
+   ],
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "seo\nblog\n"
+    }
+   }
   },
   {
    "name": "no miss when the skill ran",
@@ -93,7 +111,13 @@
       }
      ]
     }
-   ]
+   ],
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "seo\nblog\n"
+    }
+   }
   },
   {
    "name": "no miss when the owner typed /seo",
@@ -115,7 +139,67 @@
      "event": "Stop",
      "payload": {}
     }
-   ]
+   ],
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "seo\nblog\n"
+    }
+   }
+  },
+  {
+   "name": "on through project enabledPlugins",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "run an seo audit of the site"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".claude/settings.json": "{\"enabledPlugins\": {\"claude-seo@agricidaniel-claude-seo\": true}}"
+    }
+   }
+  },
+  {
+   "name": "off in a project without opt-in (Claude)",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "run an seo audit of the site"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "README.md": "x\n"
+    }
+   }
+  },
+  {
+   "name": "local settings false wins over project true",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "run an seo audit of the site"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".claude/settings.json": "{\"enabledPlugins\": {\"claude-seo@agricidaniel-claude-seo\": true}}",
+     ".claude/settings.local.json": "{\"enabledPlugins\": {\"claude-seo@agricidaniel-claude-seo\": false}}"
+    }
+   }
+  },
+  {
+   "name": "Codex outside a project: skill files",
+   "expect": "fire",
+   "agent": "codex",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "run an seo audit of the site",
+    "turn_id": "t"
+   },
+   "contains": "Follow the skill files yourself"
   }
  ]
 }

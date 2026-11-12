@@ -54,7 +54,11 @@ def t_hook_files(work):
                     assert h.get("timeout", 1) < 30, "%s %s: timeout must stay under 30 s" % (name, event)
     claude = json.load(open(os.path.join(HOOKS, "hooks.json")))["hooks"]
     owner = [h["command"] for g in claude["SessionStart"] for h in g["hooks"]]
-    assert "nohup caffeinate -s -w $PPID >/dev/null 2>&1 &" in owner, "owner caffeinate hook (A.2) missing"
+    caf = [c for c in owner if "caffeinate -s -w $PPID" in c]
+    assert caf, "owner caffeinate hook (A.2) missing"
+    assert caf[0].startswith('[ "$(uname -s)" = Darwin ]'), "caffeinate must be guarded to macOS"
+    assert not any("serena-hook" in c and "activate" in c for c in owner), \
+        "Claude must not run vendor serena activate (activate_project is off in single-project mode)"
     assert claude["Notification"][0]["matcher"] == "permission_prompt|idle_prompt", "A.2 notification matcher"
 
 

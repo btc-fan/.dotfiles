@@ -1,0 +1,4 @@
+{
+  "description": "Empty on purpose. Linux admin installs put the ai-core Codex hooks in /etc/codex/hooks.json (a managed layer: no per-user trust needed) and point the plugin manifest of the root-owned copy here, so Codex does not also load an untrusted plugin copy.",
+  "hooks": {}
+}

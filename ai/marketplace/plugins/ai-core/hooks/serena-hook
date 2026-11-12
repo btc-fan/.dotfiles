@@ -2,5 +2,14 @@
 # Run the vendor serena-hooks (activate at session start, cleanup at session end) when installed.
 # Silent no-op without Serena. Vendor `remind` is NOT used (issues #2251, #2204): the router's
 # serena-first nudge replaces it.
+# Claude: vendor `activate` tells the agent to call activate_project, but Serena runs with
+# --project-from-cwd and the claude-code context (single-project mode), where activate_project is
+# switched off. The router's project-knowledge line (initial_instructions, then read_memory core)
+# replaces it. Codex keeps the vendor activate (the codex context has no single-project mode).
 command -v serena-hooks >/dev/null 2>&1 || exit 0
+if [ "${1:-}" = activate ]; then
+    for a in "$@"; do
+        case "$a" in --client=claude-code) exit 0 ;; esac
+    done
+fi
 exec serena-hooks "$@"

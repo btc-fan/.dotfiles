@@ -24,12 +24,13 @@ An agent is the program that talks to a model and runs tools. A harness is an ag
 
 ### Claude Code (with oh-my-claudecode)
 
-- **What.** Anthropic's coding agent in the terminal. oh-my-claudecode (OMC, npm package `oh-my-claude-sisyphus`) adds a workflow on top: plan, execute, review, verify, plus team runs and loops.
+- **What.** Anthropic's coding agent in the terminal. oh-my-claudecode (OMC) adds a workflow on top: plan, execute, review, verify, plus team runs and loops. It is installed as a pinned Claude plugin (`oh-my-claudecode@omc`, tag v5.8.4, commit checked), on servers too (owner decision 2026-11-12). The old npm route (`oh-my-claude-sisyphus`) stays available with `AI_OMC_WIRING=cli`.
 - **Why.** It is the main agent. It has the richest hook system, which the router and the gates need.
 - **How it works here.** The plugin `ai-core` is installed from our local marketplace `ai`. Claude reads the root rules through an `@import` line in a managed block of `~/.claude/CLAUDE.md`. Example: you type "autopilot: build a CSV to JSON tool". OMC's own keyword hook starts its autopilot skill and writes state to `.omc/state/`. Our rules still win on a clash: the 60-word reply limit and the confirm-first rules beat OMC defaults.
 - **Scope.** Global, main.
 - **Pin.** OMC 5.8.4 (`OMC_VERSION`, sha512 in `pins.env`). Claude Code comes from the signed apt repository on Ubuntu.
-- **Telemetry and updates off.** Managed settings (`/etc/claude-code/managed-settings.json` on Ubuntu): telemetry, error reports and auto-updater off. OMC: `{"security":{"disableAutoUpdate":true}}` in its config, and `OMC_UPDATE_REGISTRY_BASE` pointed at a dead local address (its daily npm ping ignores the setting). `OMC_REPLY_ENABLED` is never set.
+- **claude.ai connectors off on servers.** The account connectors (Gmail, Calendar, Drive and the like) do not load in Claude Code on Linux installs (`disableClaudeAiConnectors` and `ENABLE_CLAUDEAI_MCP_SERVERS=false`), so an unattended agent cannot reach your mail. macOS keeps Claude's default. To keep them on a server: `install.sh --keep-claudeai-connectors` (see [INSTALL.md](INSTALL.md)).
+- **Telemetry and updates off.** Managed settings (`/etc/claude-code/managed-settings.json` on Ubuntu): telemetry, error reports and auto-updater off. OMC: `{"security":{"disableAutoUpdate":true}}` and the exa web-search MCP off (`mcpServers.exa.enabled: false`) in its config, and `OMC_UPDATE_REGISTRY_BASE` pointed at a dead local address (its daily npm ping ignores the setting). `OMC_REPLY_ENABLED` is never set.
 - **Contract.** `ai/rules/omc.md`.
 
 ### Codex (with oh-my-codex)
@@ -91,7 +92,8 @@ MCP servers give agents extra tools. Ours come from one file, `ai/marketplace/pl
 
 - **What.** A code-intelligence server. It reads and edits code by symbol (function, class) through language servers.
 - **Why.** Reading a symbol costs far fewer tokens than reading a file, and edits by symbol are exact.
-- **How it works here.** In a code project the agent calls `get_symbols_overview`, then `find_symbol` with the body, and edits with `replace_symbol_body`. Example: "rename `calc_price`" means `find_referencing_symbols`, then `rename_symbol`. Line numbers start at 0. A router nudge (`serena-first`) reminds the agent when it reads code with `cat` or Read. It only reminds. It never blocks.
+- **How it works here.** Session start: `initial_instructions`, then `read_memory core`. Core is the project's entry memory: a source map, the main commands, links to the other memories. Then the agent calls `get_symbols_overview`, then `find_symbol` with the body, and edits with `replace_symbol_body`. Example: "rename `calc_price`" means `find_referencing_symbols`, then `rename_symbol`. Line numbers start at 0. A router nudge (`serena-first`) reminds the agent when it reads code with `cat` or Read. It only reminds. It never blocks.
+- **Memories.** `.serena/memories/` in the repo, committed. Serena onboarding writes them once (ai-adopt runs it in its own headless session). One global file, `global/memory_maintenance`, tells every agent how to write them: dense notes, size caps, no secrets or personal data. After a commit that moves modules, the router asks the agent to fix the source map in core.
 - **Scope.** Global.
 - **Pin.** `serena-agent==2.1.0`.
 - **Telemetry off.** `SERENA_USAGE_REPORTING=false` in the server entry's `env`. The web dashboard is off.
@@ -101,7 +103,7 @@ MCP servers give agents extra tools. Ours come from one file, `ai/marketplace/pl
 
 - **What.** A cloud service with current docs for libraries, exposed as two MCP tools.
 - **Why.** Training data is old. It is the fallback when Grounded Docs lacks a library.
-- **How it works here.** `resolve-library-id`, then `query-docs`, one concept per call. Queries leave the machine, so no secrets and no private code in a query. Free plan: 1,000 calls per month. The free key is committed in the plugin config (owner decision, one allowlisted exception to the secret scan).
+- **How it works here.** The agent looks in `.ai/libs.md` first. A cached ID means `query-docs` directly, no `resolve-library-id`. Otherwise `resolve-library-id`, then `query-docs`, one concept per call, at most 3 calls. Queries leave the machine, so no secrets and no private code in a query. Free plan: 1,000 calls per month; cached IDs save about half. The free key is committed in the plugin config (owner decision, one allowlisted exception to the secret scan).
 - **Scope.** Global.
 - **Pin.** `@upstash/context7-mcp@4.6.0`.
 - **Contract.** `ai/rules/context7.md`.
@@ -110,7 +112,7 @@ MCP servers give agents extra tools. Ours come from one file, `ai/marketplace/pl
 
 - **What.** A self-hosted docs server (`@arabold/docs-mcp-server`). You index library docs once. Agents search them.
 - **Why.** Local, private and fast. Nothing leaves the network.
-- **How it works here.** It runs once on the server, on port 6280, reachable from the LAN and the private network only. Clients use read-only tools: `list_libraries`, then `search_docs` with the project's version. Scraping new docs is a server task for the owner.
+- **How it works here.** It runs once on the server, on port 6280, reachable from the LAN and the private network only. Clients use read-only tools: `search_docs` with the name and version from `.ai/libs.md` (`list_libraries` only when the name is not cached). Scraping new docs is a server task for the owner; `ai-libs --sync` prints the libraries that are not indexed yet.
 - **Scope.** Global. It is the first choice for library docs.
 - **Pin.** 3.4.1.
 - **Telemetry off.** `DOCS_MCP_TELEMETRY=false` (the vendor default sends to PostHog). Clients set `DOCS_MCP_READ_ONLY=true`.
@@ -140,7 +142,7 @@ MCP servers give agents extra tools. Ours come from one file, `ai/marketplace/pl
 
 - **What.** Builds a knowledge graph of a code repo: which file calls which, how parts connect. Local, no LLM for code.
 - **Why.** "Where is X" and "what calls Y" are answered from the graph, not by reading many files.
-- **How it works here.** `graphify extract . --code-only` once per repo. Then `graphify query "where is the price calculated"`. After code changes, `graphify update .` (no cost). Its own hook only advises. The environment sets `GRAPHIFY_BACKEND=none` so it never sends code to an API by accident.
+- **How it works here.** `GRAPHIFY_BACKEND=none graphify extract . --code-only` once per repo (ai-adopt runs it). It needs no key and sends nothing out. Bare `graphify .` is the skill form: headless it asks for an LLM key and fails, so we never use it. Then `graphify query "where is the price calculated"`. After code changes and after `git pull`, `graphify update .` (no cost). No graphify git hook by default (the router's post-commit nudge covers it); optional owner step per repo: `graphify hook install`. Its own hook only advises. The environment also sets `GRAPHIFY_BACKEND=none`.
 - **Scope.** Global.
 - **Pin.** 0.9.105 (PyPI `graphifyy`).
 - **Telemetry.** None documented. Cloud and ingest features are not used.
@@ -160,7 +162,7 @@ MCP servers give agents extra tools. Ours come from one file, `ai/marketplace/pl
 
 - **What.** A plugin that pushes the agent toward the smallest correct diff.
 - **Why.** Less code means less to review and less to break. It never cuts validation, error handling, security or accessibility.
-- **How it works here.** Mode `full` from `~/.config/ponytail/config.json`. Vendor hooks run at session start and per prompt. Codex needs a one-time trust in `/hooks`.
+- **How it works here.** Mode `full` from `~/.config/ponytail/config.json`. Vendor hooks run at session start and per prompt. Codex: on Linux admin installs the hooks run from `/etc/codex/hooks.json`; on macOS trust them once in `/hooks`.
 - **Scope.** Global.
 - **Pin.** Commit `96608e0` (version 5.3.3), from a read-only audited clone.
 - **Telemetry and updates.** None documented. Never run `/ponytail band import` (it starts a hidden process).
@@ -179,8 +181,8 @@ MCP servers give agents extra tools. Ours come from one file, `ai/marketplace/pl
 
 - **What.** Many SEO skills: site audit, page check, schema, Core Web Vitals, sitemap, hreflang, backlinks, GEO.
 - **Why.** SEO work needs a method and data sources. This plugin has both.
-- **How it works here.** Input is a URL or a site: `/seo audit <url>` or `/seo page <url>`. Costly or outward actions ask first (indexing submit, image generation, DataForSEO, Google sign-in). Codex, opencode and Hermes hand SEO work to Claude Code with `claude -p`. Run `/seo setup` once per machine.
-- **Scope.** Global.
+- **How it works here.** Input is a URL or a site: `/seo audit <url>` or `/seo page <url>`. Costly or outward actions ask first (indexing submit, image generation, DataForSEO, Google sign-in). Hermes follows the skill files itself (no hand-off). Codex and opencode hand off to Claude Code with `claude -p` only when Claude is usable for that user (Codex also needs an owner-approved network run), else they follow the skill files in `/opt/agent-plugins/claude-seo`. Run `/seo setup` once per machine.
+- **Scope.** Opt-in per project (owner decision 2026-11-12). Installed on every machine but off at user scope: plugin skills cannot be hidden one by one, and the two packs cost about 12k tokens per session. Turn claude-seo on for one project: `ai-adopt --tools seo` (or put `"enabledPlugins": {"claude-seo@agricidaniel-claude-seo": true}` in that project's `.claude/settings.json`). In other projects, an SEO prompt in Claude gets one line: "claude-seo is off in this project. Suggest: ai-adopt --tools seo". The opt-in is for Claude only: Codex, opencode and Hermes read the skill files on demand (no listing cost), so for them it counts as on everywhere.
 - **Pin.** v2.5.0 (`219ff48`). Extension installers stay off.
 - **Contract.** `ai/rules/claude-seo.md`.
 
@@ -188,8 +190,8 @@ MCP servers give agents extra tools. Ours come from one file, `ai/marketplace/pl
 
 - **What.** 32 skills for blog posts: write, rewrite, score, fact-check, translate, plan.
 - **Why.** Posts need a pipeline with checks, not one prompt.
-- **How it works here.** Input is one post file, or a post to write. The router sends "write a post" to `claude-blog:blog`. Vendor gates (preflight, reviewer) prove a real run. Paid image or audio and any upload to a third party ask first. Tell it "reply short, report to a file", because it does not follow the short-reply style.
-- **Scope.** Global.
+- **How it works here.** Input is one post file, or a post to write. The router sends "write a post" to `claude-blog:blog`. Vendor gates (preflight, reviewer) prove a real run. Paid image or audio and any upload to a third party ask first. Tell it "reply short, report to a file", because it does not follow the short-reply style. Other agents: same hand-off rules as claude-seo.
+- **Scope.** Opt-in per project, like claude-seo: `ai-adopt --tools blog`. Elsewhere a blog prompt gets the one-line "turn it on" suggestion.
 - **Pin.** v2.3.2 (`4f9c2cb`). Never install or uninstall from v2.2.0.
 - **Contract.** `ai/rules/claude-blog.md`.
 
@@ -264,7 +266,7 @@ Some tools can do the same job. The table in `ai/routing.yaml` (`tiebreaks`) nam
 | Topic cluster to write posts | `blog-cluster` | `seo-cluster` | Goal decides. |
 | Topic cluster as site architecture | `seo-cluster` | `blog-cluster` | Goal decides. |
 | Search Console, PageSpeed, CrUX | `seo-google` | `blog-google` | One Google login, shared. |
-| New app or project (kickoff) | `grill-me` | OMC `deep-interview` | Kickoff uses grilling. |
+| New app or project (kickoff) | `grilling` (typed: `/grill-me`) | OMC `deep-interview` | Kickoff uses grilling; deep-interview only when grilling is not installed. |
 | "Grill me", stress-test a plan | matt `grilling` | OMC `deep-interview` | Numbered rounds, no score. |
 | "Deep interview", "ambiguity score" | OMC `deep-interview` | matt `grilling` | The score is OMC's feature. |
 | "Research X" | OMC `research` | matt `research` (opt-in) | One research path. |
@@ -275,7 +277,7 @@ Some tools can do the same job. The table in `ai/routing.yaml` (`tiebreaks`) nam
 | A `.pptx` file | `anthropic-skills:pptx` | ui-ux-pro-max slides (HTML decks) | File type decides. |
 | "Wiki" | llmwiki where the project enabled it, else OMC wiki | the other | The project marker decides. |
 | Code symbol lookup or edit | Serena | OMC `lsp_*` | lsp is the fallback. |
-| Library API docs | Grounded Docs | context7, then web | Local first, cloud second, web last. |
+| Library API docs | `.ai/libs.md` IDs, then Grounded Docs | context7, then web | Cached first, local second, cloud third, web last. |
 
 ### graphify vs Serena vs OMC lsp
 
@@ -283,14 +285,29 @@ Three tools can answer "where is this code". They do different parts.
 - graphify finds: structure, "where is X", "what calls Y". Think map.
 - Serena reads and edits: symbols and their callers. Think scalpel.
 - OMC `lsp_*` and ast-grep: fallback, when Serena has no language server for the file, or for diagnostics.
-Order: graphify, then Serena, then read only the lines they located. Built-in Read and Edit are for non-code files (md, json, yaml, toml, env, lock files). Example: "who calls `calc_price`?" starts with `graphify query`, then `find_referencing_symbols` for the exact list, then a read of three lines.
+Order: Serena memory core first (once per session), then graphify, then Serena symbols, then read only the lines they located. Built-in Read and Edit are for non-code files (md, json, yaml, toml, env, lock files). Example: "who calls `calc_price`?" starts with `graphify query`, then `find_referencing_symbols` for the exact list, then a read of three lines.
 
 ### Grounded Docs vs context7 vs web
 
+- Step 0: `.ai/libs.md` (version, context7 ID, Grounded Docs name; no call at all).
 - Step 1: Grounded Docs (local, private, indexed by the owner).
-- Step 2: context7 (cloud, current, 1,000 calls a month, queries leave the machine).
+- Step 2: context7 (cloud, current, 1,000 calls a month, queries leave the machine). Skip `resolve-library-id` when the ID is cached.
 - Step 3: library source or the official site, and say that docs were not found.
-Use the project's version. Never send secrets or private code in a docs query.
+Use the project's version. Never send secrets or private code in a docs query. Web search is not a docs tool: Codex too uses context7 first.
+
+### Where project knowledge lives (one home per fact)
+
+The goal: an agent never explores a repo from zero. Each kind of fact has one home, one way to read it, and one trigger to refresh it.
+
+| Fact | Home | Made by | Read with | Refreshed when |
+|---|---|---|---|---|
+| Behaviour rules | AGENTS.md (short) | ai-render, ai-adopt | loaded every session | rules change |
+| Code map, commands, conventions | `.serena/memories/` (committed) | Serena onboarding, run by ai-adopt | `read_memory core` | a commit adds, deletes or renames modules (row `knowledge-check`) |
+| Code structure | `graphify-out/` (generated, gitignored) | ai-adopt | `graphify query` | `graphify update .` after code changes or `git pull` |
+| Library versions and docs IDs | `.ai/libs.md` (committed) | `ai-libs --sync` | the agent, and the docs rows show the cached IDs | lockfile changes or a new ID was used |
+| Session notes | OMC notepad | the agent | the agent | never kept as project truth |
+
+Rules that keep it honest: the session start line shows memory count and three freshness flags (memories, graph, docs map). No memory text is injected: the agent reads core on purpose. Memories are hints, the code wins. Memories and libs.md are committed and pushed, so they never hold secrets or personal data: the secret-scan gate and ai-adopt scan them. Worked example with costs: [README.md](../README.md), section 3, example D.
 
 ### matt grilling vs OMC deep-interview
 

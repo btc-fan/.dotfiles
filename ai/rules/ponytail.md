@@ -34,7 +34,7 @@ Collision with owner rules: Ponytail ends each reply with a "what I skipped" lin
 1. Prerequisite: node.
 2. Clone `https://github.com/DietrichGebert/ponytail` to `/opt/agent-plugins/ponytail` (macOS: `~/.local/share/ai/plugins/ponytail`). `git checkout 96608e078b2d5ea607c5c3b8b5a54d1c1fba6846`. Check `git rev-parse HEAD`. Make it read-only. Run `agent-audit dir`.
 3. Claude: `claude plugin marketplace add <path>`, `claude plugin install ponytail@ponytail --scope user`.
-4. Codex: `codex plugin marketplace add <path>`, `codex plugin add ponytail@ponytail`. Then trust its hooks once in `/hooks` (owner, interactive).
+4. Codex: `codex plugin marketplace add <path>`, `codex plugin add ponytail@ponytail`. Then trust its hooks once in `/hooks` (owner, interactive; macOS only: Linux admin installs run the hooks from `/etc/codex/hooks.json` and switch the plugin copy off).
 5. Config `~/.config/ponytail/config.json` equals `{"defaultMode": "full"}`.
 6. Never install by `/plugin marketplace add DietrichGebert/ponytail` (unpinned).
 7. Telemetry: none documented. Auto-update: none.

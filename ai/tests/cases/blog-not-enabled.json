@@ -1,0 +1,49 @@
+{
+ "rule": "blog-not-enabled",
+ "cases": [
+  {
+   "name": "Claude in a project without opt-in",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "write a blog post about rust"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "README.md": "x\n"
+    }
+   }
+  },
+  {
+   "name": "project opted in",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "write a blog post about rust"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "blog\n"
+    }
+   }
+  },
+  {
+   "name": "Codex never gets it (reads the skill files)",
+   "expect": "nofire",
+   "agent": "codex",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "write a blog post about rust",
+    "turn_id": "t"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "README.md": "x\n"
+    }
+   }
+  }
+ ]
+}

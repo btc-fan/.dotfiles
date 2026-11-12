@@ -76,8 +76,13 @@ Options:
 ## Manual steps per machine
 
 - Claude Code login. Codex device-code login. Hermes provider keys (`hermes setup`).
-- Codex: `/hooks`, trust the plugin hooks once.
-- Claude: `/seo setup` then `/seo doctor`.
+- Codex: on Linux admin installs the ai-core, RTK, Ponytail and i-have-adhd hooks live in `/etc/codex/hooks.json` (managed: no trust step for any user; the plugin copies are switched off). On macOS, or a Linux install without admin, install writes trust hashes for ai-core and RTK, and you open `/hooks` once for Ponytail and i-have-adhd. Also open it when ai-doctor lists one of ours as untrusted.
+- SEO and blog skills from Hermes and Codex: Hermes never hands off to Claude; it follows the skill files in `/opt/agent-plugins/claude-seo` and `/opt/agent-plugins/claude-blog` itself (no Claude login for hermes). Codex hands off only when Claude is logged in for that user and you approved a network run for it; otherwise it follows the same skill files.
+- Hermes GitHub MCP: put `GITHUB_PERSONAL_ACCESS_TOKEN` in `~hermes/.config/ai/secrets.env` (mode 600), then admin re-runs `install.sh --for-user <user>`. Without the token the github server stays out and ai-doctor says so.
+- claude.ai connectors (Gmail, Calendar, Drive) are off on Linux installs (`"disableClaudeAiConnectors": true` in `/etc/claude-code/managed-settings.json`), so unattended agents cannot reach your mail. To keep them: `install.sh --for-user <user> --keep-claudeai-connectors`.
+- oh-my-claudecode is the pinned Claude plugin `oh-my-claudecode@omc` (as on the Mac), exa MCP off. Run `/oh-my-claudecode:omc-setup` once in Claude.
+- claude-seo and claude-blog are installed but off (about 12k tokens per session each). Turn one on for one project: `ai-adopt --tools seo` (or `blog`), or put `"enabledPlugins": {"claude-seo@agricidaniel-claude-seo": true}` in that project's `.claude/settings.json`.
+- Claude: `/seo setup` then `/seo doctor`, once, in a project with claude-seo on.
 - `~/.config/ai/secrets.env`: GitHub token, provider keys, `DISCORD_ALLOWED_USERS` for Hermes, webhook copy for notifications.
 - Serena: `serena init`, then `serena download-ls-dependencies <language>`.
 - Notifications on Linux: webhook file readable by the user. How the user reads it (a user copy or a root helper) is documented in `ai/bin/claude-notify`. Without the webhook it does nothing.

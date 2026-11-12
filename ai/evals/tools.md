@@ -6,10 +6,13 @@ Copied from the proof sections of `ai/rules/<tool>.md`. Change both places toget
 
 ## Code navigation
 - graphify | "where is the price drop alert computed?" (repo with graph) ; "unde se calculeaza istoricul de pret in proiectul asta?" | NOT "rewrite the intro paragraph of README.md" ; "edit config.yaml" | signal: first exploring call is Bash `graphify query`; new line in `~/.cache/graphify-queries.log`
-- graphify no graph | any code question in a repo without `graphify-out/graph.json` | expect the build nudge `graphify .`, not a query
+- graphify no graph | any code question in a repo without `graphify-out/graph.json` | expect the build nudge `GRAPHIFY_BACKEND=none graphify extract . --code-only`, not a query
 - serena | "list the symbols in src/app/db.py" ; "arata-mi functia care calculeaza pretul in tracker.py" | NOT "edit the yaml config" ; "update the README table" | signal: `get_symbols_overview` or `find_symbol` before any Read of that file
 - docs (Grounded Docs, then context7) | "how do I use the FastAPI dependency system?" ; "cum configurez Tailwind v4 in Vite?" ; "как в pydantic v2 сделать валидатор поля?" | NOT "refactor this function to be shorter" ; "why does my loop run twice" | signal: `search_docs` first, `resolve-library-id` only when the first is thin
 - docs-on-dependency | Bash `npm install zod`, `uv add httpx` | expect one nudge per library per session, not two
+- project knowledge (adopted repo) | "where is the price fetcher and who calls it?" ; "unde este definita functia de export si cine o apeleaza?" ; "где определён клиент API и кто его вызывает?" | NOT the same prompt in a repo without code ; "rewrite the README intro" | signal: `initial_instructions` and `read_memory` core before any Read of a code file, then `graphify query`
+- docs by library name (adopted repo, httpx in `.ai/libs.md`) | "write httpx code with retries" ; "scrie cod httpx cu reincercari" ; "напиши код на httpx с повторами" | NOT "rename this variable" ; "fix the typo in the README" | signal: `docs-lookup` fired; `query-docs` with the cached ID, no `resolve-library-id`, no web search
+- knowledge-check | commit that adds `src/app/retry.py` ; commit that changes `uv.lock` | NOT a commit that only edits README.md | signal: "Update the source map in mem:core" / "Run ai-libs --sync" after the commit, then `edit_memory` / `ai-libs --sync`
 
 ## Output and code style
 - i-have-adhd | "How do I rotate the JWT secret in this repo?" ; "Cum adaug o coloana noua in tabelul listings?" | NOT "walk me through how the diff engine works" (long body allowed) | signal: SessionStart context has `ADHD MODE ACTIVE (always-on)`; first line is an action; last line starts with `Next:`

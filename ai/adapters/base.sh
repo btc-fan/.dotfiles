@@ -86,8 +86,12 @@ base_links() {
         fi
     fi
 
+    # Rules, toolbox and contracts every agent reads by these paths (CLAUDE.md, Codex, Hermes, opencode).
     aiconf link "$HOME/.config/ai/AGENTS.md" "$AI_HOME/ai/AGENTS.md"
     aiconf link "$HOME/.config/ai/TOOLBOX.md" "$AI_HOME/ai/TOOLBOX.md"
+    aiconf link "$HOME/.config/ai/rules" "$AI_HOME/ai/rules"
+    [ -e "$HOME/.config/ai/rules/serena.md" ] || [ "$AI_DRY_RUN" = 1 ] \
+        || warn "$HOME/.config/ai/rules is not our link (a real folder?): agents miss the tool contracts"
 
     if [ -d "$AI_HOME/ai/bin" ]; then
         for f in "$AI_HOME"/ai/bin/*; do
@@ -152,7 +156,14 @@ base_serena_config() {
     aiconf yaml-top-set "$cfg" excluded_tools "[execute_shell_command, serena_repl]"
     aiconf yaml-top-set "$cfg" web_dashboard false
     aiconf yaml-top-set "$cfg" web_dashboard_open_on_launch false
-    ok "Serena: tools interface, shell + REPL excluded, dashboard off ($cfg)"
+    # Shared memory conventions for every project (Serena uses global/memory_maintenance instead of a
+    # project copy), read-only for agents. ai-adopt places the same file if it is missing.
+    aiconf yaml-top-set "$cfg" read_only_memory_patterns '["global/.*"]'
+    if [ -f "$AI_HOME/ai/serena/memory_maintenance.md" ]; then
+        aiconf file-put "${SERENA_HOME:-$HOME/.serena}/memories/global/memory_maintenance.md" \
+            "$AI_HOME/ai/serena/memory_maintenance.md" --mode 644
+    fi
+    ok "Serena: tools interface, shell + REPL excluded, dashboard off, global memory_maintenance read-only ($cfg)"
 }
 
 # ---------------------------------------------------------------- admin layer (Linux, root-owned)
@@ -281,11 +292,15 @@ base_env_user() {
         manual "add to your shell rc: [ -f ~/.config/ai/env.sh ] && . ~/.config/ai/env.sh"
     fi
 
+    base_path_block
+
     if want claude; then
         env_pairs | while IFS='=' read -r k v; do
             aiconf json-set "$CLAUDE_DIR/settings.json" "env/$k" "\"$v\""
         done
-        ok "Claude: telemetry/update env keys in $CLAUDE_DIR/settings.json (merge)"
+        claude_connectors_env "$CLAUDE_DIR/settings.json" aiconf
+        ok "Claude: env switches in $CLAUDE_DIR/settings.json (merge): hooks, MCP servers and -p runs see them"
+        claude_permissions
     fi
 
     want codex && codex_env
@@ -293,6 +308,54 @@ base_env_user() {
     want herdr && herdr_env
     want claude && claude_env
     return 0
+}
+
+# claude.ai account connectors (Gmail, Calendar, Drive...) in Claude Code: off on Linux servers, where
+# unattended agents run (an agent must not reach the owner's mail). Keep them: install with
+# AI_CLAUDEAI_CONNECTORS=keep. macOS: left as Claude's default unless AI_CLAUDEAI_CONNECTORS=off.
+claudeai_connectors_off() {
+    case "${AI_CLAUDEAI_CONNECTORS:-}" in
+        keep) return 1 ;;
+        off) return 0 ;;
+    esac
+    [ "$AI_OS" = linux ]
+}
+
+# claude_connectors_env <settings file> <aiconf|aiconf_root>
+claude_connectors_env() {
+    # The keep decision is remembered for ai-doctor (it fails on Linux when connectors load by accident).
+    if [ "$2" = aiconf ] && [ "$AI_DRY_RUN" != 1 ]; then
+        mkdir -p "$AI_STATE_DIR"
+        if [ "${AI_CLAUDEAI_CONNECTORS:-}" = keep ]; then : > "$AI_STATE_DIR/claudeai-connectors.keep"
+        else rm -f "$AI_STATE_DIR/claudeai-connectors.keep"; fi
+    fi
+    # Settings key disableClaudeAiConnectors: a true in any settings file wins (settings-reference). The env
+    # var ENABLE_CLAUDEAI_MCP_SERVERS is documented for the shell only, so it is not used here.
+    if claudeai_connectors_off; then
+        if [ "$2" = aiconf_root ]; then aiconf_root json-set "$1" disableClaudeAiConnectors true --mode 644
+        else aiconf json-set "$1" disableClaudeAiConnectors true; fi
+    elif [ "${AI_CLAUDEAI_CONNECTORS:-}" = keep ]; then
+        # Keep = also undo an earlier off (a true in any settings file would still win). Recorded.
+        if [ "$2" = aiconf_root ]; then aiconf_root json-del "$1" disableClaudeAiConnectors --mode 644
+        else aiconf json-del "$1" disableClaudeAiConnectors; fi
+    fi
+    return 0
+}
+
+# ~/.local/bin and the env switches for shells that read no profile (ssh host cmd, scripts, cron via bash).
+# Linux only (the Mac shell files are the owner's). bash: at the TOP of ~/.bashrc, before Ubuntu's
+# "not interactive: return" line; zsh: ~/.zshenv (read by every zsh).
+base_path_block() {
+    [ "$AI_OS" = linux ] || return 0
+    local tmp; tmp=$(mktemp "${TMPDIR:-/tmp}/ai-path.XXXXXX")
+    printf '%s\n' 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) PATH="$HOME/.local/bin:$PATH"; export PATH ;; esac' \
+        '[ -f "$HOME/.config/ai/env.sh" ] && . "$HOME/.config/ai/env.sh"' > "$tmp"
+    aiconf block-upsert "$HOME/.bashrc" path 1 "$tmp" --comment --top
+    if [ -f "$HOME/.zshenv" ] || [ "$(basename "${SHELL:-}")" = zsh ]; then
+        aiconf block-upsert "$HOME/.zshenv" path 1 "$tmp" --comment --top
+    fi
+    rm -f "$tmp"
+    ok "~/.local/bin and ~/.config/ai/env.sh for non-login shells (top of ~/.bashrc, ~/.zshenv for zsh)"
 }
 
 env_sh_file() {
@@ -310,10 +373,28 @@ base_env_system() {
     env_pairs > "$tmp"
     aiconf_root file-put /etc/environment.d/91-ai.conf "$tmp" --mode 644
     rm -f "$tmp"
+    # /etc/environment (pam_env): ssh commands, cron and sudo -i see the plain switches without a profile.
+    # A key that is already set there (by anyone) is left as it is.
+    local line v
+    while IFS= read -r line; do
+        grep -qs "^${line%%=*}=" /etc/environment || aiconf_root line-add /etc/environment "$line"
+    done <<EOT
+$(env_pairs)
+EOT
+    # Claude managed settings: every user (also hermes) and every Claude process, -p runs included.
     local ms=/etc/claude-code/managed-settings.json
-    for k in DISABLE_TELEMETRY DISABLE_ERROR_REPORTING DISABLE_AUTOUPDATER; do
-        aiconf_root json-set "$ms" "env/$k" '"1"' --mode 644
-    done
+    while IFS='=' read -r k v; do
+        [ -n "$k" ] && aiconf_root json-set "$ms" "env/$k" "\"$v\"" --mode 644
+    done <<EOT
+$(env_pairs)
+EOT
+    claude_connectors_env "$ms" aiconf_root
     aiconf_root json-set "$ms" skillListingBudgetFraction 0.02 --mode 644
-    ok "Ubuntu: /etc/profile.d/ai-env.sh, /etc/environment.d/91-ai.conf, $ms (merged)"
+    # Managed deny rules cannot be removed by user or project settings (agents cannot edit /etc).
+    while IFS= read -r line; do
+        [ -n "$line" ] && aiconf_root json-add "$ms" permissions/deny "$(json_str "$line")"
+    done <<EOT
+$(claude_deny_rules)
+EOT
+    ok "Ubuntu: /etc/profile.d/ai-env.sh, /etc/environment.d/91-ai.conf, /etc/environment, $ms (env, deny rules)"
 }

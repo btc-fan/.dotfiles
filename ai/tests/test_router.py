@@ -9,7 +9,7 @@ Each ai/tests/cases/<rule>.json holds {"rule": id, "cases": [...]}. A case:
            (fire/nofire/log: did the rule fire in the LAST step; deny/ask/allow: the gate decision)
   steps    [{event, payload, transcript_append: [json rows]}]  (or one "event" + "payload")
   agent    claude (default) | codex
-  project  {git: true, git_init: true, files: {rel: text}, stage: {rel: text}}
+  project  {git: true, git_init: true, files: {rel: text}, stage: {rel: text}, commit: "<message>"}
   audit_log  lines for ~/.local/state/ai/audit.log
   ai_mcp   text for $AI_HOME/ai/mcp/context7.json, committed (secret-scan allowlist reads HEAD);
            ai_mcp_commit: false keeps it uncommitted
@@ -236,6 +236,11 @@ def setup_project(proj, spec):
         write(os.path.join(proj, rel), text)
         if rel.startswith("bin/"):          # stub tools (fake gitleaks) are executable
             os.chmod(os.path.join(proj, rel), 0o755)
+    if spec.get("commit"):                  # commit everything (knowledge-check reads HEAD)
+        git_env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t.invalid", GIT_COMMITTER_NAME="t",
+                       GIT_COMMITTER_EMAIL="t@t.invalid", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        subprocess.check_call(["git", "-C", proj, "add", "-A"], env=git_env)
+        subprocess.check_call(["git", "-C", proj, "commit", "-q", "--no-verify", "-m", spec["commit"]], env=git_env)
 
 
 def sub(obj, subs):

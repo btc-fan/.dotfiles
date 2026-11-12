@@ -8,7 +8,13 @@
    "payload": {
     "prompt": "write a blog post about eSIMs"
    },
-   "contains": "tie-break"
+   "contains": "tie-break",
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "seo\nblog\n"
+    }
+   }
   },
   {
    "name": "unit test",
@@ -16,6 +22,12 @@
    "event": "UserPromptSubmit",
    "payload": {
     "prompt": "write a unit test for the parser"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "seo\nblog\n"
+    }
    }
   }
  ]

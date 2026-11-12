@@ -88,13 +88,15 @@ admin_cmd() { printf 'sudo %s/install.sh --for-user %s' "${AI_SRC_HOME:-$HOME/.d
 has() { command -v "$1" >/dev/null 2>&1; }
 
 # Run a command line as the hermes user (login shell for its PATH). Only on Linux.
+# Always from hermes' own home: the caller's cwd (admin's home) is closed to hermes, and tools that
+# look at the cwd (serena --project-from-cwd in `hermes mcp add` probes) fail there.
 hermes_exists() { [ "$AI_OS" = linux ] && getent passwd "$HERMES_USER" >/dev/null 2>&1; }
 hermes_home()   { getent passwd "$HERMES_USER" | cut -d: -f6; }
 as_hermes()     {
     if [ "$AI_MODE" = user ]; then manual "needs admin (Hermes): $1"; return 0; fi
-    run sudo -u "$HERMES_USER" -H bash -lc "$1"
+    ( cd / && run sudo -u "$HERMES_USER" -H bash -lc "cd ~ && $1" )
 }
-as_hermes_ro()  { sudo -n -u "$HERMES_USER" -H bash -lc "$1" 2>/dev/null; }
+as_hermes_ro()  { ( cd / && sudo -n -u "$HERMES_USER" -H bash -lc "cd ~ && $1" 2>/dev/null ); }
 
 confirm() {
     # confirm "question" [default y|n]
@@ -179,8 +181,8 @@ aiconf_hermes() {
         info "[dry-run] (as $HERMES_USER) aiconf $(quote "$@")"
         return 0
     fi
-    # login shell: hermes' own PATH (its `hermes` binary lives in its home)
-    sudo -u "$HERMES_USER" -H bash -lc "python3 $(quote "$helper") --state \"\$HOME/.local/state/ai/managed-keys.json\" $(quote "$@")"
+    # login shell: hermes' own PATH (its `hermes` binary lives in its home); cwd = hermes' home
+    ( cd / && sudo -u "$HERMES_USER" -H bash -lc "cd ~ && python3 $(quote "$helper") --state \"\$HOME/.local/state/ai/managed-keys.json\" $(quote "$@")" )
 }
 
 # ---------------------------------------------------------------- facts

@@ -1,0 +1,56 @@
+{
+ "rule": "project-knowledge",
+ "cases": [
+  {
+   "name": "code repo: status line, no memory yet",
+   "expect": "fire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "main.py": "print(1)\n"
+    }
+   },
+   "contains": [
+    "Memory: none yet",
+    "Graph: missing"
+   ],
+   "not_contains": "{knowledge_index}"
+  },
+  {
+   "name": "code repo with memories: count only, never content",
+   "expect": "fire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "main.py": "print(1)\n",
+     ".serena/memories/core.md": "SECRET-MEMORY-TEXT\n",
+     ".serena/memories/conventions.md": "x\n"
+    }
+   },
+   "contains": "Memory: 2 memories",
+   "not_contains": "SECRET-MEMORY-TEXT"
+  },
+  {
+   "name": "repo without code",
+   "expect": "nofire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "README.md": "# hi\n"
+    }
+   }
+  }
+ ]
+}

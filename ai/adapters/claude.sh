@@ -126,7 +126,16 @@ claude_plugins() {
     # claude-seo, claude-blog: tag pin in the add command, sha checked after the clone.
     claude_plugin agricidaniel-claude-seo "AgriciDaniel/claude-seo#$CLAUDE_SEO_REF" claude-seo@agricidaniel-claude-seo "$CLAUDE_SEO_SHA" || true
     claude_plugin agricidaniel-blog "AgriciDaniel/claude-blog#$CLAUDE_BLOG_REF" claude-blog@agricidaniel-blog "$CLAUDE_BLOG_SHA" || true
-    manual "Claude, once per machine: /seo setup, then /seo doctor (claude-seo venv + Chromium)"
+    # Owner decision 2026-11-12: opt-in per project (about 12k tokens per session each). Installed, but OFF
+    # at user scope; a project turns one on with ai-adopt --tools seo|blog, which writes enabledPlugins true in
+    # its .claude/settings.json (project and local settings win over user settings).
+    local pk
+    for pk in claude-seo@agricidaniel-claude-seo claude-blog@agricidaniel-blog; do
+        aiconf json-set "$CLAUDE_DIR/settings.json" "enabledPlugins/$pk" false
+    done
+    ok "Claude: claude-seo and claude-blog off by default (per project: ai-adopt --tools seo,blog)"
+    claude_omc_wiring
+    manual "Claude, once per machine, in a project with claude-seo on: /seo setup, then /seo doctor (venv + Chromium)"
 
     # Plugins the design dropped: report, never remove.
     local f="$CLAUDE_PLUGINS_DIR/installed_plugins.json" name
@@ -157,7 +166,8 @@ link_skills() {
 
 claude_skills() {
     link_skills "$CLAUDE_DIR/skills"
-    ok "Claude: shared skills linked into $CLAUDE_DIR/skills"
+    mattpocock_link "$CLAUDE_DIR/skills"
+    ok "Claude: shared skills and the 5 mattpocock skills linked into $CLAUDE_DIR/skills"
 }
 
 # ---------------------------------------------------------------- step 10: hooks
@@ -202,13 +212,125 @@ claude_rtk() {
     ok "RTK hook for Claude (proxy declined, no CLAUDE.md import)"
 }
 
+# ---------------------------------------------------------------- permissions (allow safe reads, deny config edits)
+
+# MCP tools of a plugin server are named mcp__plugin_<plugin>_<server>__<tool> (Claude Code docs, plugins).
+CLAUDE_MCP_PREFIX="mcp__plugin_ai-core_"
+
+# Read-only or knowledge tools only. Writes, git push and installs still prompt or meet the gates.
+claude_allow_rules() {
+    local t
+    # Serena: reads, symbol lookups, project memory (edits of code symbols are NOT here: they prompt).
+    for t in initial_instructions get_current_config onboarding check_onboarding_performed list_dir find_file \
+        read_file search_for_pattern get_symbols_overview find_symbol find_referencing_symbols find_declaration \
+        find_implementations get_diagnostics_for_file list_memories read_memory write_memory edit_memory \
+        rename_memory; do
+        printf '%sserena__%s\n' "$CLAUDE_MCP_PREFIX" "$t"
+    done
+    # context7 (resolve + query) and Grounded Docs (served read-only, DOCS_MCP_READ_ONLY=true): every tool.
+    printf '%s\n' "${CLAUDE_MCP_PREFIX}context7__*" "${CLAUDE_MCP_PREFIX}grounded-docs__*"
+    # GitHub MCP (v2.1.0): read tools only. Create, update, merge, push and delete tools prompt.
+    for t in get_me get_file_contents list_branches list_commits get_commit list_tags get_tag list_releases \
+        get_latest_release get_release_by_tag search_code search_repositories search_issues search_pull_requests \
+        search_users issue_read list_issues list_issue_types pull_request_read list_pull_requests get_label \
+        list_label list_discussions get_discussion get_discussion_comments list_discussion_categories \
+        list_workflows list_workflow_runs get_workflow_run get_job_logs actions_list actions_get \
+        list_code_scanning_alerts get_code_scanning_alert list_dependabot_alerts get_dependabot_alert \
+        list_secret_scanning_alerts get_secret_scanning_alert list_gists get_gist get_teams get_team_members \
+        list_starred_repositories list_repository_security_advisories list_global_security_advisories \
+        get_global_security_advisory projects_list projects_get; do
+        printf '%sgithub__%s\n' "$CLAUDE_MCP_PREFIX" "$t"
+    done
+    # Shell: our own read-only tools, only in forms that cannot write files or run other programs.
+    # graphify: the read and local-build subcommands (install/hook forms ask, see below).
+    # rtk runs whatever follows it, so only forms with no exec or output option: no find (-exec, -delete),
+    # grep (--pre), tree (-o) or git diff/log/show (--output, external diff programs).
+    printf '%s\n' 'Bash(graphify query *)' 'Bash(graphify path *)' 'Bash(graphify explain *)' \
+        'Bash(graphify extract *)' 'Bash(graphify update *)' 'Bash(graphify --version)' \
+        'Bash(agent-audit *)' 'Bash(ai-doctor*)' 'Bash(ai-libs)' 'Bash(ai-libs --check*)' \
+        'Bash(rtk gain*)' 'Bash(rtk discover*)' 'Bash(rtk --version)' 'Bash(rtk git status*)' 'Bash(rtk ls*)' \
+        'Bash(rtk wc*)' 'Bash(rtk read *)'
+    printf '%s\n' WebFetch WebSearch 'Read(~/.claude/plugins/**)' 'Read(~/.config/ai/**)'
+}
+
+# graphify subcommands that write agent config or git hooks: always ask, even under Bash(graphify *).
+claude_ask_rules() {
+    printf '%s\n' 'Bash(graphify install*)' 'Bash(graphify uninstall*)' 'Bash(graphify hook*)' \
+        'Bash(graphify * install*)' 'Bash(graphify * uninstall*)' 'Bash(graphify * hook*)'
+}
+
+# Agents never edit the files that carry the house rules and their own permissions.
+claude_deny_rules() {
+    local f
+    # Files that carry house rules, permissions, hooks, plugin code, shell start-up, Serena config and the
+    # global Serena memories. Edit covers every built-in editing tool (NotebookEdit too); Write is listed as
+    # well. Project .claude/settings*.json are written by ai-adopt (a script), never by an agent.
+    for f in '~/.claude/settings.json' '~/.claude/settings.local.json' '~/.claude.json' '~/.claude/CLAUDE.md' \
+        '~/.claude/plugins/**' '//etc/claude-code/**' '//etc/codex/**' '~/.codex/config.toml' '~/.codex/hooks.json' \
+        '~/.codex/AGENTS.md' '~/.hermes/config.yaml' '~/.hermes/SOUL.md' '~/.config/ai/**' \
+        '~/.serena/serena_config.yml' '~/.serena/memories/global/**' '~/.bashrc' '~/.zshenv' '~/.profile' \
+        '**/.claude/settings.json' '**/.claude/settings.local.json'; do
+        printf 'Edit(%s)\nWrite(%s)\n' "$f" "$f"
+    done
+    printf '%s\n' 'Read(~/.config/ai/secrets.env)'
+    # git and rtk git writing to a file chosen in the command (allowed nowhere, denied to be sure).
+    printf '%s\n' 'Bash(git * --output*)' 'Bash(rtk git * --output*)'
+    # sudo: not a deny list here (sudo python3 -c, sudo env bash... would pass). The router gate no-sudo
+    # blocks every sudo except `sudo proj-agent ...` on Linux; containment stays in sudoers.
+    return 0
+}
+
+# Merge (never replace) into permissions.allow / ask / deny. Each item is recorded for uninstall.
+claude_permissions() {
+    has claude || { skip "Claude permissions: claude not found"; return 0; }
+    local f="$CLAUDE_DIR/settings.json" kind r
+    for kind in allow ask deny; do
+        while IFS= read -r r; do
+            [ -n "$r" ] || continue
+            aiconf json-add "$f" "permissions/$kind" "$(json_str "$r")" >/dev/null
+        done <<EOF
+$("claude_${kind}_rules")
+EOF
+    done
+    ok "Claude permissions merged into $f: allow read-only tools, ask graphify install/hook, deny rule/config edits and secrets.env"
+}
+
+json_str() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }
+
+# ---------------------------------------------------------------- OMC wiring (owner decision pending)
+
+# Owner decision 2026-11-12: OMC is a pinned Claude plugin, as on the Mac (oh-my-claudecode@omc at the
+# audited tag, OMC_PLUGIN_* in pins.env), exa MCP off (claude_env). AI_OMC_WIRING=cli keeps the old npm-CLI
+# route (`omc setup --no-plugin`), remove uninstalls the npm CLI. Set it in the environment of install.sh.
+AI_OMC_WIRING=${AI_OMC_WIRING:-plugin}
+
+claude_omc_wiring() {
+    case "$AI_OMC_WIRING" in
+        cli) return 0 ;;
+        plugin)
+            claude_plugin omc "Yeachan-Heo/oh-my-claudecode#$OMC_PLUGIN_REF" oh-my-claudecode@omc "$OMC_PLUGIN_SHA" || true
+            manual "OMC plugin route: run /oh-my-claudecode:omc-setup once in Claude (CLAUDE.md block, HUD)"
+            ;;
+        remove)
+            if has omc; then manual "AI_OMC_WIRING=remove: admin runs: sudo npm uninstall -g oh-my-claude-sisyphus"; fi
+            ;;
+        *) warn "AI_OMC_WIRING=$AI_OMC_WIRING is not cli, plugin or remove: nothing changed" ;;
+    esac
+    return 0
+}
+
 # ---------------------------------------------------------------- step 12: env
 
 claude_env() {
-    # OMC: no self-update (SPEC 19). JSONC file: comments are dropped on write, reported.
-    if [ -d "$CLAUDE_DIR/claude-omc" ] || has omc; then
-        aiconf json-set "$CLAUDE_DIR/claude-omc/config.jsonc" security/disableAutoUpdate true --jsonc \
-            || manual "set \"security\": {\"disableAutoUpdate\": true} in $CLAUDE_DIR/claude-omc/config.jsonc by hand (file has comments)"
+    # OMC user config is ${XDG_CONFIG_HOME:-~/.config}/claude-omc/config.jsonc (OMC getConfigPaths).
+    # No self-update (SPEC 19), and the exa MCP off: it sends search queries to an outside service.
+    # JSONC file: a file with comments is refused and reported as a manual step.
+    local omc_cfg="${XDG_CONFIG_HOME:-$HOME/.config}/claude-omc/config.jsonc"
+    if [ "$AI_OMC_WIRING" = plugin ] || [ -d "$(dirname "$omc_cfg")" ] || has omc; then
+        aiconf json-set "$omc_cfg" security/disableAutoUpdate true --jsonc \
+            || manual "set \"security\": {\"disableAutoUpdate\": true} in $omc_cfg by hand (file has comments)"
+        aiconf json-set "$omc_cfg" mcpServers/exa/enabled false --jsonc \
+            || manual "set \"mcpServers\": {\"exa\": {\"enabled\": false}} in $omc_cfg by hand (file has comments)"
     fi
     # Ponytail mode (A.3); never PONYTAIL_DEFAULT_MODE (it overrides the file).
     aiconf json-set "$HOME/.config/ponytail/config.json" defaultMode '"full"'

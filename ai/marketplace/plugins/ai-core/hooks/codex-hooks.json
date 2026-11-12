@@ -42,7 +42,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|mcp__.*(context7|docs).*",
         "hooks": [
           {
             "type": "command",

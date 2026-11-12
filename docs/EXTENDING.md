@@ -66,6 +66,7 @@ File `ai/rules/<tool>.md`. Sections, in order:
 3. Enforcement: which layers (L0 to L7) apply, the exact trigger, what the tool enforces itself.
 4. Proof: should-fire and should-not-fire prompts (English, Romanian, Russian), and the signal that shows it fired.
 5. Setup checklist: install and pin per OS, every config file and setting, telemetry and auto-update off, keys (required or optional), per-machine steps, per-project steps, verify command, cleanup paths.
+For an MCP server or tool that can cache facts, add one more section, "Knowledge home, freshness, maintenance": where the cached facts live in the repo (one home per fact, see [TOOLS.md](TOOLS.md) "Where project knowledge lives"), when they count as stale, and which command or nudge refreshes them. If a cache would go stale too fast (issues, PRs), say "none on purpose". Examples: `serena.md`, `context7.md`, `github-mcp.md`.
 Mark every fact you did not verify as UNVERIFIED. Do not guess.
 Then put a short form (2 to 4 lines) in `ai/agents-md/90-toolbox-and-vendor-rules.md`. The root file stays under 30 KB.
 

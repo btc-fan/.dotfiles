@@ -21,8 +21,9 @@ ai/agents-md/            the parts (you edit these)
   00-owner.md              owner text, copied byte for byte, never reworded
   10-output-shape.md       reply shape (i-have-adhd)
   20-rtk.md                RTK block
-  30-code-navigation.md    graphify, Serena, library docs
+  30-code-navigation.md    stored knowledge first: Serena memories, graphify, .ai/libs.md, docs MCPs
   40-audit-before-use.md   agent-audit and the gates
+  45-no-root.md            never sudo; give the owner the command
   50-pull-requests.md      PR rules and the author-sessions block
   60-characters.md         no em dash
   70-prompting-others.md   how to brief another agent
@@ -49,8 +50,9 @@ Why 30 KB: the root file is loaded into every session. A big file costs tokens o
 | 00 owner | your own style rules, never changed by us | "Lead with the answer. Hard limit: 60 words unless I ask for detail." |
 | 10 output shape | makes i-have-adhd work in agents that have no hook | "Follow i-have-adhd in every reply. It is always on." |
 | 20 RTK | explains the command proxy | "rtk bypass `<cmd>`: execute raw command without filtering." |
-| 30 code navigation | the order of tools for code and docs | "Order: graphify first, then Serena, then read only the lines they located." |
+| 30 code navigation | read stored knowledge first, then the order of tools for code and docs | "Session start in a code repo: call Serena initial_instructions, then read_memory core." |
 | 40 audit | the audit rule and gate summary | "A finding means stop. Show it to me. Do not install." |
+| 45 no root | agents never escalate; the owner runs root commands | "When something needs root, stop and give me the exact command to run." |
 | 50 pull requests | PR shape and the author-sessions block | "Mermaid diagram of the change, one-way or two-way door?, blast radius." |
 | 60 characters | one character rule | "Never the em dash." |
 | 70 prompting others | the 8-step brief | "Name the files. Use absolute paths." |
@@ -107,7 +109,15 @@ my-project/
   .ai/
     base-version   which routing version the project was set up with
     enabled        opt-in rule ids, one per line
+    libs.md        library docs map: version, context7 ID, Grounded Docs name (ai-libs --sync, committed)
+  .serena/
+    project.yml    Serena project config; initial_prompt points at mem:core (committed)
+    memories/      code facts: core (entry point), tech_stack, suggested_commands, conventions,
+                   task_completion (written by Serena onboarding, committed)
+  graphify-out/  code graph (generated, gitignored)
 ```
+
+- **Project knowledge is not AGENTS.md.** AGENTS.md holds behaviour rules, loaded every session, so it stays short. Code facts (source map, commands, conventions) go to Serena memories, read on purpose with `read_memory core`. Library versions and docs IDs go to `.ai/libs.md`. One home per fact: never copy one into another. `ai-adopt` creates all three; the routing rows `project-knowledge`, `no-memories` and `knowledge-check` keep them used and fresh. Worked example: [README.md](../README.md), section 3, example D.
 
 - **Project AGENTS.md.** Write what is true only for this project: how to run tests, folder layout, naming. Short, plain sentences.
 - **One-line CLAUDE.md.** Claude Code skips `AGENTS.md` when a `CLAUDE.md` exists. So `CLAUDE.md` holds `@AGENTS.md` and nothing else. Both agents then read the same file.

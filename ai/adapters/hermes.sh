@@ -31,10 +31,23 @@ hermes_mcp() {
             && aiconf_hermes record-cmd npm-local:context7 -- rm -rf "$c7"
     fi
     root=$(hermes_stage_dir "$(PLUGIN_DIR)" plugin-ai-core)
-    aiconf_hermes mcp-register hermes --mcp-json "$root/.mcp.json" --plugin-root "$root"
     hermes_serena_config
-    manual "Hermes: put GITHUB_PERSONAL_ACCESS_TOKEN and CONTEXT7_API_KEY in ~$HERMES_USER/.config/ai/secrets.env (600)"
-    ok "Hermes MCP: serena (ide context), context7, github, grounded-docs"
+    # GitHub only with a token in hermes' OWN secrets file: without it the probe fails and Hermes saves the
+    # server disabled. A disabled entry from an earlier run is re-added (enabled) once the token is there.
+    local skip=""
+    if hermes_has_github_token; then
+        info "Hermes: GITHUB_PERSONAL_ACCESS_TOKEN found in its secrets.env: github MCP enabled"
+    else
+        skip="--skip github"
+        manual "Hermes github MCP left out: put GITHUB_PERSONAL_ACCESS_TOKEN in ~$HERMES_USER/.config/ai/secrets.env (mode 600), then re-run install"
+    fi
+    # shellcheck disable=SC2086
+    aiconf_hermes mcp-register hermes --mcp-json "$root/.mcp.json" --plugin-root "$root" $skip
+    ok "Hermes MCP: serena (ide context), context7, grounded-docs${skip:+ (github skipped: no token)}${skip:-, github}"
+}
+
+hermes_has_github_token() {
+    as_hermes_ro 'f=~/.config/ai/secrets.env; [ -f "$f" ] && [ "$(stat -c %a "$f")" = 600 ] && grep -Eq "^[[:space:]]*(export[[:space:]]+)?GITHUB_PERSONAL_ACCESS_TOKEN=[^[:space:]]{8,}" "$f"'
 }
 
 hermes_serena_config() {
@@ -46,6 +59,11 @@ hermes_serena_config() {
     aiconf_hermes yaml-top-set "$cfg" excluded_tools "[execute_shell_command, serena_repl]"
     aiconf_hermes yaml-top-set "$cfg" web_dashboard false
     aiconf_hermes yaml-top-set "$cfg" web_dashboard_open_on_launch false
+    aiconf_hermes yaml-top-set "$cfg" read_only_memory_patterns '["global/.*"]'
+    if [ -f "$AI_HOME/ai/serena/memory_maintenance.md" ]; then
+        local mm; mm=$(hermes_stage "$AI_HOME/ai/serena/memory_maintenance.md" memory_maintenance.md)
+        aiconf_hermes file-put "$(hermes_home)/.serena/memories/global/memory_maintenance.md" "$mm" --mode 644
+    fi
 }
 
 # ---------------------------------------------------------------- step 9: skills
@@ -71,7 +89,19 @@ hermes_skills() {
         tar -C "$AI_HOME/ai/skills" -cf - "$n" | sudo -u "$HERMES_USER" -H sh -c "mkdir -p '$hh/.hermes/skills' && rm -rf '$dest' && tar -C '$hh/.hermes/skills' -xf - && touch '$dest/.ai-managed'"
         aiconf_hermes record-cmd "skill:$n" -- rm -rf "$dest"
     done
-    ok "Hermes: plain skills copied to ~$HERMES_USER/.hermes/skills"
+    # The 5 mattpocock skills (root-owned audited copy, readable by hermes): copied, same marker.
+    local mp; mp=$(plugin_src_dir mattpocock-skills)
+    for n in grilling grill-me wait-what writing-for-agents retro; do
+        [ -f "$mp/$n/SKILL.md" ] || continue
+        dest="$hh/.hermes/skills/$n"
+        if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] copy mattpocock skill $n to $dest"; continue; fi
+        if sudo -n -u "$HERMES_USER" test -d "$dest" && ! sudo -n -u "$HERMES_USER" test -f "$dest/.ai-managed"; then
+            warn "Hermes skill $n exists and is not ours: left alone"; continue
+        fi
+        tar -C "$mp" -cf - "$n" | sudo -u "$HERMES_USER" -H sh -c "mkdir -p '$hh/.hermes/skills' && rm -rf '$dest' && tar -C '$hh/.hermes/skills' -xf - && touch '$dest/.ai-managed'"
+        aiconf_hermes record-cmd "skill:$n" -- rm -rf "$dest"
+    done
+    ok "Hermes: plain skills and the 5 mattpocock skills copied to ~$HERMES_USER/.hermes/skills"
 }
 
 # ---------------------------------------------------------------- step 10: hooks
@@ -92,6 +122,20 @@ hermes_hooks() {
 
 # ---------------------------------------------------------------- step 11: rules
 
+# The rule files the SOUL.md block points to (~/.config/ai/AGENTS.md, TOOLBOX.md, rules/<tool>.md), as
+# copies in hermes' home (the owner's tree is closed to hermes). Marker .ai-managed; ai-sync refreshes.
+hermes_rule_files() {
+    local staged hh
+    hh=$(hermes_home)
+    staged=$(hermes_stage_dir "$AI_HOME/ai/rules" rules)
+    if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] copy ai/rules, TOOLBOX.md, AGENTS.md to $hh/.config/ai/"; return 0; fi
+    hermes_stage "$AI_HOME/ai/TOOLBOX.md" TOOLBOX.md >/dev/null
+    hermes_stage "$AI_HOME/ai/AGENTS.md" AGENTS.md >/dev/null
+    as_hermes "mkdir -p ~/.config/ai && if [ -e ~/.config/ai/rules ] && [ ! -f ~/.config/ai/rules/.ai-managed ]; then mv ~/.config/ai/rules ~/.config/ai/rules.bak.\$(date +%Y%m%d-%H%M%S); fi && rm -rf ~/.config/ai/rules.new && cp -R '$staged' ~/.config/ai/rules.new && touch ~/.config/ai/rules.new/.ai-managed && rm -rf ~/.config/ai/rules && mv ~/.config/ai/rules.new ~/.config/ai/rules && cp '$hh/.local/share/ai/stage/TOOLBOX.md' ~/.config/ai/TOOLBOX.md && cp '$hh/.local/share/ai/stage/AGENTS.md' ~/.config/ai/AGENTS.md"
+    aiconf_hermes record-cmd hermes-rule-files -- rm -rf "$hh/.config/ai/rules" "$hh/.config/ai/TOOLBOX.md" "$hh/.config/ai/AGENTS.md"
+    ok "Hermes: ~$HERMES_USER/.config/ai/{rules/,TOOLBOX.md,AGENTS.md} copied"
+}
+
 hermes_rules() {
     local tmp adhd staged
     tmp=$(rules_text_file)
@@ -102,6 +146,7 @@ hermes_rules() {
     staged=$(hermes_stage "$tmp" soul-block.md)
     aiconf_hermes block-upsert "$(hermes_home)/.hermes/SOUL.md" core 1 "$staged"
     rm -f "$tmp"
+    hermes_rule_files
     ok "Hermes: managed block in ~$HERMES_USER/.hermes/SOUL.md (root rules + i-have-adhd)"
 }
 
@@ -111,7 +156,8 @@ hermes_env() {
     as_hermes_ro 'command -v hermes' >/dev/null || return 0
     local key want cur
     # Owner decision 2026-11-11: smart approvals; unknown DMs ignored (allowed users: owner only, in secrets).
-    for kv in "approvals.mode=smart" "unauthorized_dm_behavior=ignore"; do
+    # updates.check off: no update calls home; updates come from a pinned re-install (SPEC 19).
+    for kv in "approvals.mode=smart" "unauthorized_dm_behavior=ignore" "updates.check=false"; do
         key=${kv%%=*}; want=${kv#*=}
         cur=$(as_hermes_ro "hermes config get $key" | tail -n1 | tr -d '[:space:]' || true)
         if [ "$cur" = "$want" ]; then info "Hermes $key = $want"; continue; fi

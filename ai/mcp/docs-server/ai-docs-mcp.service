@@ -6,6 +6,10 @@
 Description=Grounded Docs MCP server (ai setup)
 After=network-online.target
 Wants=network-online.target
+# Crash loop guard: at most 5 starts in 5 minutes, then the unit stays failed (one OnFailure alert,
+# not one every few seconds). ai-doctor fails while the unit is not active.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -20,6 +24,8 @@ EnvironmentFile=-/etc/default/ai-docs-mcp
 ExecStart=/bin/sh -c 'exec docs-mcp-server $DOCS_MCP_ARGS'
 Restart=on-failure
 RestartSec=10
+# Restarts go straight to activating, not through "failed" (systemd 254+): no OnFailure per retry.
+RestartMode=direct
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

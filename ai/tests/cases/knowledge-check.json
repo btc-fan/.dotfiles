@@ -1,0 +1,74 @@
+{
+ "rule": "knowledge-check",
+ "cases": [
+  {
+   "name": "commit added a code file and a lockfile",
+   "expect": "fire",
+   "event": "PostToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git commit -m 'add app'"
+    },
+    "tool_response": {
+     "stdout": "",
+     "stderr": ""
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "app.py": "print(1)\n",
+     "uv.lock": "x\n"
+    },
+    "commit": "add app"
+   },
+   "contains": [
+    "mem:core source map",
+    "ai-libs --sync",
+    "graphify update ."
+   ]
+  },
+  {
+   "name": "commit changed docs only: no message",
+   "expect": "nofire",
+   "event": "PostToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git commit -m 'docs'"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "README.md": "# hi\n"
+    },
+    "commit": "docs"
+   }
+  },
+  {
+   "name": "failed commit (exit code 1): no message",
+   "expect": "nofire",
+   "event": "PostToolUse",
+   "agent": "codex",
+   "payload": {
+    "tool_name": "Bash",
+    "turn_id": "t",
+    "tool_input": {
+     "command": "git commit -m 'x'"
+    },
+    "tool_response": {
+     "exit_code": 1
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "app.py": "print(1)\n"
+    },
+    "commit": "add app"
+   }
+  }
+ ]
+}

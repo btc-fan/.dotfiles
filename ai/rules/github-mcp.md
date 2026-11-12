@@ -7,18 +7,24 @@ No recommended rule text found. Features: toolsets, `--read-only` / `GITHUB_READ
 
 ## When / when not
 - GitHub work: issues, pull requests, review comments. Use this MCP or `gh`.
+- owner/repo comes from the origin remote (`git remote get-url origin`). The `github` row shows it. Never ask the owner for it.
 - Access is FULL (owner decision, SPEC section 4). Pushes, merges and issue edits are outward actions: confirm with the owner first, as the root rules say.
 - Not for local git. Use git.
 
+## Knowledge home, freshness, maintenance
+- Home: none on purpose. Issues and PRs change all the time, so a cache would go stale. Read them live each time.
+- The repo slug is derived live from the origin remote. Nothing to maintain.
+
 ## Enforcement
-- L3: routing row `github`. L4: `pr-rules` gate on `gh pr create|edit`. `secret-scan` gate on git commit and push.
-- The token comes from `~/.config/ai/secrets.env` as `GITHUB_PERSONAL_ACCESS_TOKEN`. The `.mcp.json` uses `${GITHUB_PERSONAL_ACCESS_TOKEN}`. Whether Claude plugin `.mcp.json` expands the variable: UNVERIFIED. If not, a wrapper script reads secrets.env.
+- L3: routing row `github` (adds "Repo: owner/repo"). L4: `pr-rules` gate on `gh pr create|edit`. `secret-scan` gate on git commit and push.
+- The token comes from `~/.config/ai/secrets.env` as `GITHUB_PERSONAL_ACCESS_TOKEN`, loaded by `mcp/github.sh`.
 
 ## Proof
 - Should fire (EN): "list open pull requests and read the review comments on #12".
 - Should fire (RO): "arata-mi issue-urile deschise din repo".
+- Should fire (RU): "покажи открытые pull request в этом репо".
 - Should not fire: "git log last 5 commits".
-- Signal: tool_use `mcp__plugin_ai-core_github__*` or a `gh` Bash call.
+- Signal: tool_use `mcp__plugin_ai-core_github__*` or a `gh` Bash call, with the owner and repo of the origin remote and no question to the owner about it.
 
 ## Setup checklist
 1. Create a fine-grained token (owner). Put it in `~/.config/ai/secrets.env` (mode 600).

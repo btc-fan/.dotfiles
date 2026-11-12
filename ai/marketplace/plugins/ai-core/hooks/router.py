@@ -31,10 +31,15 @@ import time
 sys.dont_write_bytecode = True      # no __pycache__ inside the (possibly read-only) plugin dir
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from hooklib import (GATES, GATE_PROBES, ai_home, append_jsonl, command_text, gate_skips,  # noqa: E402
-                     install_targets, iso_now, log_error, log_line, norm_pypi, one_line, parse_command, redact,
-                     project_root, read_text, split_simple, state_path)
+                     install_targets, iso_now, knowledge_delta, knowledge_index, libs_hits, log_error, log_line,
+                     norm_pypi, one_line, origin_slug, parse_command, prompt_libs, redact, project_root,
+                     read_text, split_simple, state_path)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
+CONTEXT_CAP = 9500          # additionalContext is cut here (hook output caps: Claude 10,000 chars, Codex ~2,500 tokens)
+PLACEHOLDER_MAX = {"knowledge_index": 600}   # worst-case length of a placeholder value (ai-render budget)
+L0_RESEND_SOURCES = ("compact", "clear")    # SessionStart sources that get the L0 table again
+L1_HEADER = "[ai router L1] Routing table (also in your root rules; re-sent after compaction):\n"
 DAY = 86400
 CODEX_HINTS = ("turn_id", "tool_use_id")
 CODE_EXT = {
@@ -95,18 +100,25 @@ def on_session_start(ctx):
     prune_sessions()
     routing = ctx.routing
     parts = []
-    if routing.get("layers", {}).get("L1_session_start") is not None or routing.get("rules"):
-        l0 = read_text(first_existing(l0_candidates()))
-        if l0:
-            parts.append("[ai router L1] Routing table (also in your root rules; re-sent after compaction):\n" + l0.strip())
+    # Status lines first. The L0 table only after compact or clear (owner decision 2026-11-12): at startup and
+    # resume it is already in the root rules (CLAUDE.md, Codex AGENTS.md), so sending it again only costs
+    # tokens. A cut at CONTEXT_CAP loses only the table tail. ai-render checks the budget.
     for rule in rules_for(routing, "session_start"):
         if not rule_enabled(rule, ctx):
             continue
         state = rule.get("trigger", {}).get("state")
         if state and not check_state(state, ctx):
             continue
-        parts.append("[ai router: %s] %s" % (rule["id"], rule["action"]))
+        text = render_action(rule, ctx)
+        if not text:
+            continue
+        parts.append("[ai router: %s] %s" % (rule["id"], text))
         ctx.fired(rule, "SessionStart")
+    resend = str(ctx.payload.get("source") or "") in L0_RESEND_SOURCES
+    if resend and (routing.get("layers", {}).get("L1_session_start") is not None or routing.get("rules")):
+        l0 = read_text(first_existing(l0_candidates()))
+        if l0:
+            parts.append(L1_HEADER + l0.strip())
     if parts:
         ctx.add_context("\n\n".join(parts))
 
@@ -118,9 +130,13 @@ def on_user_prompt(ctx):
     routing = ctx.routing
     matched = []
     for rule in routing.get("rules", []):
-        rx = rule.get("trigger", {}).get("prompt")
-        if not rx or not search(rx, prompt):
+        trig = rule.get("trigger", {})
+        rx = trig.get("prompt")
+        if not rx:
             continue
+        if not search(rx, prompt):
+            if not trig.get("prompt_libs") or not ctx.prompt_libs(prompt):
+                continue
         if not rule_enabled(rule, ctx):
             continue
         state = rule["trigger"].get("state")
@@ -130,9 +146,16 @@ def on_user_prompt(ctx):
     ties = match_tiebreaks(routing.get("tiebreaks", []), prompt)
     if not matched and not ties:
         return
+    actions = []
     for rule in matched:
+        text = render_action(rule, ctx)
+        if text:
+            actions.append((rule, text))
+    if not actions and not ties:
+        return
+    for rule, _text in actions:
         ctx.fired(rule, "UserPromptSubmit")
-    ctx.add_context(render_prompt_context(routing, matched, ties))
+    ctx.add_context(render_prompt_context(routing, actions, ties))
 
 
 def on_pre_tool(ctx):
@@ -148,7 +171,7 @@ def on_pre_tool(ctx):
             continue
         if rule.get("strength") == "gate":
             probe = GATE_PROBES.get(rule["id"])
-            if cmd and (conditions_match(rule, tool, tin, cmd, ctx) or (probe and probe(ctx.stages))):
+            if cmd and (conditions_match(rule, tool, tin, cmd, ctx) or (probe and probe(ctx.stages, cmd))):
                 run_gate(rule, ctx, cmd)
             continue
         if not conditions_match(rule, tool, tin, cmd, ctx):
@@ -156,9 +179,10 @@ def on_pre_tool(ctx):
         if rule.get("log_only"):
             ctx.fired(rule, "PreToolUse", log_only=True)
             continue
-        if ctx.state.allow_nudge(rule, nudge_key(rule, tool, tin, cmd)):
+        text = render_action(rule, ctx)
+        if text and ctx.state.allow_nudge(rule, nudge_key(rule, tool, tin, cmd)):
             ctx.fired(rule, "PreToolUse")
-            ctx.add_context("[ai router: %s] %s" % (rule["id"], rule["action"]))
+            ctx.add_context("[ai router: %s] %s" % (rule["id"], text))
 
 
 def on_post_tool(ctx):
@@ -172,6 +196,7 @@ def on_post_tool(ctx):
             append_jsonl("fired.jsonl", ctx.row(kind="skill", via="tool", skill=name))
     if is_docs_tool(tool):
         ctx.state.add_docs_libs(docs_libraries(tin))
+        log_docs_ids(ctx, tool, tin)
     if cmd:
         ctx.state.apply_resets(ctx.routing, ctx.cmd_text)
     for rule in ctx.routing.get("rules", []):
@@ -188,14 +213,16 @@ def on_post_tool(ctx):
             continue
         if trig.get("content"):
             hits = content_hits(trig["content"], tin)
-            if hits:
+            text = render_action(rule, ctx) if hits else ""
+            if text:
                 ctx.fired(rule, "PostToolUse")
                 ctx.add_context("[ai router: %s] %s (%s, %d line(s))" % (
-                    rule["id"], rule["action"], file_of(tin) or "edited text", hits))
+                    rule["id"], text, file_of(tin) or "edited text", hits))
             continue
-        if ctx.state.allow_nudge(rule, nudge_key(rule, tool, tin, cmd)):
+        text = render_action(rule, ctx)
+        if text and ctx.state.allow_nudge(rule, nudge_key(rule, tool, tin, cmd)):
             ctx.fired(rule, "PostToolUse")
-            ctx.add_context("[ai router: %s] %s" % (rule["id"], rule["action"]))
+            ctx.add_context("[ai router: %s] %s" % (rule["id"], text))
 
 
 def on_prompt_expansion(ctx):
@@ -244,6 +271,19 @@ class Ctx(object):
         self.stages = []          # parsed shell stages of the Bash command (hooklib.parse_command)
         self.cmd_text = ""        # the command with quoted words removed, for rule regexes
         self.skips = ({}, [])
+        self.named_libs = None    # libraries named by the prompt or the dependency change ({libs_hits})
+        self._prompt_libs = None
+
+    def prompt_libs(self, prompt):
+        if self._prompt_libs is None:
+            try:
+                self._prompt_libs = prompt_libs(prompt, self.root)
+            except Exception as exc:
+                log_error("prompt_libs", exc)
+                self._prompt_libs = set()
+            if self.named_libs is None:
+                self.named_libs = set(self._prompt_libs)
+        return self._prompt_libs
 
     def set_command(self, cmd):
         if cmd:
@@ -316,7 +356,7 @@ class Ctx(object):
         out = {"hookEventName": self.event}
         out.update(extra)
         if self.contexts:
-            out["additionalContext"] = "\n\n".join(self.contexts)[:9500]
+            out["additionalContext"] = "\n\n".join(self.contexts)[:CONTEXT_CAP]
         doc = dict(top or {})
         doc["hookSpecificOutput"] = out
         sys.stdout.write(json.dumps(doc) + "\n")
@@ -335,8 +375,8 @@ def render_prompt_context(routing, matched, ties):
                      + (' If nothing fits, answer "none needed".' if none_ok else ""))
     else:
         lines.append("[ai router L3]")
-    for rule in matched:
-        lines.append("- %s: %s" % (rule["id"], rule["action"]))
+    for rule, text in matched:
+        lines.append("- %s: %s" % (rule["id"], text))
     for tb in ties:
         lines.append("- tie-break (%s): use %s, not %s." % (tb["trigger"], tb["winner"], tb["loser"]))
     return "\n".join(lines)
@@ -490,13 +530,47 @@ def enabled_tools(root):
     return {ln.split("#", 1)[0].strip().lower() for ln in (text or "").splitlines() if ln.split("#", 1)[0].strip()}
 
 
-def rule_enabled(rule, ctx):
-    if rule.get("scope", "global") != "opt-in":
+# Claude-only skill packs, opt-in per project (owner decision 2026-11-12: about 12k tokens per session each).
+# ON for a project: .ai/enabled lists the short id or the tool, or the project's .claude/settings.json /
+# settings.local.json has enabledPlugins[<plugin id>] = true. Other agents never load them as plugins:
+# they read the skill files on demand, so for them the packs count as ON everywhere.
+CLAUDE_PACKS = {"claude-seo": ("seo", "claude-seo@agricidaniel-claude-seo"),
+                "claude-blog": ("blog", "claude-blog@agricidaniel-blog")}
+
+
+def project_plugin_enabled(root, plugin_id):
+    on = None
+    for rel in (".claude/settings.json", ".claude/settings.local.json"):     # local wins
+        try:
+            data = json.loads(read_text(os.path.join(root, rel)) or "{}")
+        except ValueError:
+            continue
+        val = (data.get("enabledPlugins") or {}).get(plugin_id) if isinstance(data, dict) else None
+        if isinstance(val, bool):
+            on = val
+    return bool(on)
+
+
+def pack_enabled(tool, ctx):
+    short, plugin_id = CLAUDE_PACKS[tool]
+    if ctx.agent != "claude":
         return True
     if ctx.root is None:
         return False
     names = enabled_tools(ctx.root)
-    if rule["id"].lower() in names or str(rule.get("tool", "")).lower() in names:
+    return short in names or tool in names or project_plugin_enabled(ctx.root, plugin_id)
+
+
+def rule_enabled(rule, ctx):
+    if rule.get("scope", "global") != "opt-in":
+        return True
+    tool = str(rule.get("tool", "")).lower()
+    if tool in CLAUDE_PACKS:
+        return pack_enabled(tool, ctx)
+    if ctx.root is None:
+        return False
+    names = enabled_tools(ctx.root)
+    if rule["id"].lower() in names or tool in names:
         return True
     return rule["id"] == "browser" and playwright_enabled(ctx.root)
 
@@ -515,17 +589,188 @@ def _state_no_playwright(ctx):
     return not playwright_enabled(ctx.root or ctx.cwd)
 
 
+def _state_no_seo(ctx):
+    return not pack_enabled("claude-seo", ctx)
+
+
+def _state_no_blog(ctx):
+    return not pack_enabled("claude-blog", ctx)
+
+
+def _state_code_repo(ctx):
+    return ctx.root is not None and ctx.state.has_code(ctx.root)
+
+
+def _state_code_no_memories(ctx):
+    return (_state_code_repo(ctx)
+            and not os.path.isfile(os.path.join(ctx.root, ".serena", "memories", "core.md")))
+
+
 # routing.yaml `state:` strings -> predicates. ai-render fails on a state string not listed here.
 STATE_PREDICATES = {
     "git repo without .ai/base-version": _state_no_base,
     "git repo with code and no graphify-out/graph.json": _state_no_graph,
     "project without Playwright MCP": _state_no_playwright,
+    "git repo with code": _state_code_repo,
+    "project without claude-seo": _state_no_seo,
+    "project without claude-blog": _state_no_blog,
+    "git repo with code and no .serena/memories/core.md": _state_code_no_memories,
 }
 
 
 def check_state(name, ctx):
     pred = STATE_PREDICATES.get(name)
     return bool(pred and pred(ctx))
+
+
+# ---------------------------------------------------------------- action placeholders
+# routing.yaml actions may hold {name}; the router fills them at fire time. Each value is a full phrase with
+# its own label, or "" (then it disappears). An action that renders to empty text sends no message.
+
+def _ph_knowledge_index(ctx):
+    return knowledge_index(ctx.root)
+
+
+def _ph_knowledge_delta(ctx):
+    if ctx.event != "PostToolUse" or not commit_succeeded(ctx):
+        return ""
+    return knowledge_delta(ctx.root, bool(ctx.state.load().get("docs_ids_new")))
+
+
+def _ph_libs_hits(ctx):
+    if ctx.named_libs is None and ctx.event == "UserPromptSubmit":
+        ctx.prompt_libs(ctx.payload.get("prompt") or "")
+    return libs_hits(ctx.root, ctx.named_libs or ())
+
+
+def _ph_origin_slug(ctx):
+    return origin_slug(ctx.root)
+
+
+def _ph_claude_handoff(ctx):
+    return claude_handoff(ctx.agent)
+
+
+PLACEHOLDERS = {
+    "knowledge_index": _ph_knowledge_index,
+    "knowledge_delta": _ph_knowledge_delta,
+    "libs_hits": _ph_libs_hits,
+    "origin_slug": _ph_origin_slug,
+    "claude_handoff": _ph_claude_handoff,
+}
+PLACEHOLDER_RX = re.compile(r"\{([a-z_]+)\}")
+
+
+def render_action(rule, ctx):
+    """The rule action with placeholders filled; "" when nothing is left to say."""
+    action = rule.get("action") or ""
+    if "{" not in action:
+        return action
+
+    def fill(m):
+        fn = PLACEHOLDERS.get(m.group(1))
+        if fn is None:
+            return m.group(0)
+        try:
+            return fn(ctx) or ""
+        except Exception as exc:
+            log_error("placeholder " + m.group(1), exc)
+            return ""
+    return re.sub(r"\s{2,}", " ", PLACEHOLDER_RX.sub(fill, action)).strip()
+
+
+def commit_succeeded(ctx):
+    """The Bash call was a git commit and did not report a failure (Claude: tool_response; Codex: exit code)."""
+    resp = ctx.payload.get("tool_response")
+    if isinstance(resp, dict):
+        for key in ("exit_code", "exitCode", "returncode"):
+            if isinstance(resp.get(key), int) and resp[key] != 0:
+                return False
+        if resp.get("interrupted"):
+            return False
+    return True
+
+
+# Where the claude-seo and claude-blog skill files live for an agent that cannot run them as plugins.
+SKILL_SOURCES = ("/opt/agent-plugins", os.path.expanduser("~/.local/share/ai/plugins"))
+
+
+def claude_logged_in():
+    """Cheap check: a claude binary plus stored credentials or a token in the environment. No network."""
+    import shutil
+    if not shutil.which("claude"):
+        return False
+    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+        return True
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    if os.path.isfile(os.path.join(cfg, ".credentials.json")):
+        return True
+    for path in (os.path.join(cfg, ".claude.json"), os.path.expanduser("~/.claude.json")):
+        text = read_text(path) or ""
+        if '"oauthAccount"' in text:
+            return True
+    return False
+
+
+def skill_paths():
+    out = []
+    for pack, entry in (("claude-seo", "skills/seo/SKILL.md"), ("claude-blog", "skills/blog/SKILL.md")):
+        for base in SKILL_SOURCES:
+            p = os.path.join(base, pack, entry)
+            if os.path.isfile(p):
+                out.append(p)
+                break
+    return out
+
+
+def claude_handoff(agent):
+    """How a non-Claude agent runs a Claude-only skill pack (owner decision 2026-11-12).
+    Hermes: never hands off, follows the skill files itself.
+    Codex: hands off only when claude is logged in for this user AND the owner approved a network run (the
+    default sandbox has no network); otherwise the skill files.
+    opencode and others: hand off only when claude is logged in for this user."""
+    if agent == "claude":
+        return ""
+    paths = skill_paths()
+    files = ("Skill files: %s (then the sub-skill it names, e.g. skills/seo-page/SKILL.md)." % ", ".join(paths)
+             if paths else "The skill files are not installed for this user: tell the owner.")
+    if agent == "hermes":
+        return "Do not hand off to Claude. Follow the skill files yourself. " + files
+    if agent == "codex":
+        if not claude_logged_in():
+            return "Claude Code is not logged in for this user: do not hand off. Follow the skill files yourself. " + files
+        return ("Follow the skill files yourself. Hand off to Claude Code (claude -p \"<task>\" --output-format "
+                "stream-json --verbose) only when the owner approved an escalated run with network for it: the "
+                "default sandbox has no network. " + files)
+    if claude_logged_in():
+        return ("Not in Claude: hand it to Claude Code (claude -p \"<task>\" --output-format stream-json --verbose,"
+                " no --bare). " + files)
+    return "Claude Code is not logged in for this user: do not hand off. Follow the skill files yourself. " + files
+
+
+# ---------------------------------------------------------------- docs IDs log (for ai-libs)
+
+def log_docs_ids(ctx, tool, tin):
+    """One row per docs lookup in docs-ids.jsonl: which library ID or name was used, in which repo."""
+    lib = version = c7 = grounded = ""
+    if re.search(r"query-docs|get-library-docs", tool):
+        c7 = str(tin.get("libraryId") or tin.get("context7CompatibleLibraryID") or "")
+        parts = c7.strip("/").split("/")
+        lib = parts[1] if len(parts) >= 2 else (parts[0] if c7 else "")   # /org/project[/version]: the project
+    elif re.search(r"resolve-library-id", tool):
+        lib = str(tin.get("libraryName") or "")
+    elif re.search(r"search_docs|list_versions|scrape", tool):
+        lib = str(tin.get("library") or "")
+        version = str(tin.get("version") or "")
+        grounded = ("%s@%s" % (lib, version)) if lib and version else lib
+    if not lib:
+        return
+    append_jsonl("docs-ids.jsonl", ctx.row(kind="docs-id", repo=ctx.root or "", tool=tool, lib=lib.lower(),
+                                           version=version, context7=c7, grounded=grounded))
+    d = ctx.state.load()
+    if not d.get("docs_ids_new"):
+        d["docs_ids_new"] = True
+        ctx.state.dirty = True
 
 
 # ---------------------------------------------------------------- gates (L4); logic lives in hooklib.py
@@ -571,8 +816,10 @@ def dependency_nudge(rule, ctx, tool, tin, cmd):
     new = ctx.state.new_dependency_libs(libs, key)
     if new is None:
         return None
-    named = (": " + ", ".join(sorted(new)[:8])) if new else ""
-    return "[ai router: %s] %s%s" % (rule["id"], rule["action"], named)
+    ctx.named_libs = set(new or libs)
+    named = (" Libraries: " + ", ".join(sorted(new)[:8]) + ".") if new else ""
+    text = render_action(rule, ctx)
+    return ("[ai router: %s] %s%s" % (rule["id"], text, named)) if text else None
 
 
 def manifest_libs(path, tin):
@@ -891,7 +1138,7 @@ def search(rx, text):
 
 
 def rotate_logs(limit=5 * 1024 * 1024):
-    for rel in ("fired.jsonl", "misses.jsonl", "gates.log", "router-errors.log"):
+    for rel in ("fired.jsonl", "misses.jsonl", "gates.log", "router-errors.log", "docs-ids.jsonl"):
         p = state_path(rel)
         try:
             if os.path.getsize(p) > limit:

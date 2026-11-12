@@ -11,6 +11,10 @@ No rule text. README: "coding agents increasingly favor CLI-based workflows expo
 - Outside a project that enabled it, the `browser-not-enabled` row says: ask the owner to run ai-start. Do not install a browser tool yourself.
 - On servers: `--headless --isolated`.
 
+## Knowledge home, freshness, maintenance
+- Home: the app URL and the start command live in the Serena memory `suggested_commands`. Read it before you start the app. Do not guess a port.
+- Maintain: when the start command or the port changes, update that memory.
+
 ## Enforcement
 - L3: opt-in row `browser` (in enabled projects). Global row `browser-not-enabled` elsewhere.
 - Added per project by ai-adopt or ai-start: `claude mcp add --scope project playwright -- npx @playwright/mcp@<pin> --headless --isolated`. Codex: project `.codex/config.toml`.

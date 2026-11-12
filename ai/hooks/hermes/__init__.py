@@ -15,6 +15,7 @@ Every callback catches its own errors, logs them, and returns None (fail open, l
 """
 import logging
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -41,10 +42,16 @@ def routing_section(session_info=None):
         router = load_router()
         routing = router.load_routing()
         lines = ["ai-core routing (full table and tie-breaks: root rules in SOUL.md). Use the named tool first:"]
+        packs = getattr(router, "CLAUDE_PACKS", {})
         for rule in routing.get("rules", []):
-            if rule.get("scope") == "opt-in" or rule.get("when") == "session_start":
-                continue
-            lines.append("- %s: %s" % (rule["id"], rule["action"]))
+            if rule.get("when") == "session_start" or (rule.get("trigger") or {}).get("state"):
+                continue        # state rows depend on a project; Hermes has none here
+            if rule.get("scope") == "opt-in" and str(rule.get("tool", "")).lower() not in packs:
+                continue        # claude-seo / claude-blog stay: Hermes reads their skill files itself
+            action = rule["action"].replace("{claude_handoff}", router.claude_handoff("hermes"))
+            action = re.sub(r"\s*\{[a-z_]+\}", "", action).strip()
+            if action:
+                lines.append("- %s: %s" % (rule["id"], action))
         text = "\n".join(lines)
         return text if len(text) <= SECTION_MAX else text[:SECTION_MAX - 4].rsplit("\n", 1)[0] + "\n..."
     except Exception as exc:

@@ -45,6 +45,9 @@ ADOPT_SIGNATURES = [
 # The ai-core router's Stop hook runs claude-notify itself (miss log, then notify).
 ALSO_PROVIDES = [
     ("Stop", "hooks/router.py", "claude-notify"),
+    # Claude: vendor `serena-hooks activate` names activate_project, which is off in Serena's
+    # single-project claude-code context; the router's project-knowledge line replaces it.
+    ("SessionStart", "hooks/router.py", "serena-hook"),
 ]
 
 # Serena needs a different context per client (SPEC 4).
@@ -66,6 +69,9 @@ def main():
     s.add_argument("--jsonc", action="store_true", help="file may hold // and /* */ comments")
     s.add_argument("--mode", default="")
 
+    s = sub.add_parser("json-del", help="remove one key (path a/b/c); recorded, undo puts it back")
+    s.add_argument("file"); s.add_argument("path"); s.add_argument("--mode", default="")
+
     s = sub.add_parser("json-add", help="add a JSON value to a list key if missing")
     s.add_argument("file"); s.add_argument("path"); s.add_argument("value")
 
@@ -77,6 +83,8 @@ def main():
 
     s = sub.add_parser("block-upsert", help="upsert a managed block <!-- AI:<name> v<N> START -->")
     s.add_argument("file"); s.add_argument("name"); s.add_argument("version"); s.add_argument("content_file")
+    s.add_argument("--comment", action="store_true", help="shell file: markers start with '# '")
+    s.add_argument("--top", action="store_true", help="a new block goes first (after a #! line), not last")
 
     s = sub.add_parser("block-remove", help="remove our managed block (recorded; undo puts it back)")
     s.add_argument("file"); s.add_argument("name")
@@ -106,6 +114,29 @@ def main():
     s.add_argument("agent", choices=["codex", "hermes"])
     s.add_argument("--mcp-json", required=True); s.add_argument("--plugin-root", required=True)
     s.add_argument("--prefix", default="", help="shell prefix, e.g. 'sudo -u hermes -H'")
+    s.add_argument("--skip", action="append", default=[], help="server name to leave out (repeatable)")
+
+    s = sub.add_parser("codex-trust-hooks", help="write Codex [hooks.state] trust hashes for our hooks")
+    s.add_argument("config", help="~/.codex/config.toml")
+    s.add_argument("--auto", action="store_true",
+                   help="our hooks in this Codex home: ai-core plugin hooks + rtk/graphify entries of hooks.json")
+    s.add_argument("--source", action="append", default=[],
+                   help="KEY=HOOKS_JSON[::REGEX]: extra user-hooks file (tests)")
+    s.add_argument("--check", action="store_true", help="print PASS/FAIL per hook, change nothing (ai-doctor)")
+    s.add_argument("--verify-source", action="append", default=[],
+                   help="plugin@marketplace=DIR: trust that plugin's hooks only when its Codex cache equals DIR")
+    s.add_argument("--disable", action="append", default=[],
+                   help="plugin@marketplace whose plugin hooks get enabled = false (they run from /etc/codex)")
+
+    s = sub.add_parser("codex-managed-hooks", help="build /etc/codex/hooks.json content (prints it, writes nothing)")
+    s.add_argument("--plugin-root", required=True, help="root-owned ai-core copy: replaces ${PLUGIN_ROOT}")
+    s.add_argument("--hooks", required=True, help="ai-core codex-hooks.json")
+    s.add_argument("--extra", action="append", default=[], help="hooks.json whose rtk handlers are added")
+    s.add_argument("--plugin", action="append", default=[],
+                   help="root of another audited plugin (Ponytail, i-have-adhd): its Codex hooks are added")
+    s.add_argument("--safe-path", default="/usr/local/bin:/usr/bin:/bin",
+                   help="where bare program names are looked up (never a user's PATH)")
+    s.add_argument("--allow-user-owned", action="store_true", help="tests only: skip the root-owner check")
 
     s = sub.add_parser("opencode-mcp", help="set our MCP servers in opencode.json")
     s.add_argument("file"); s.add_argument("--mcp-json", required=True); s.add_argument("--plugin-root", required=True)
@@ -154,6 +185,19 @@ def cmd_json_set(a):
     record({"kind": "json", "file": a.file, "path": path, "had": had, "prev": old, "value": new},
            key="json:%s:%s" % (a.file, "/".join(path)))
     say("set", a.file, "%s = %s" % (a.path, short(new)))
+
+
+def cmd_json_del(a):
+    data, _ = load_json(a.file)
+    path = split_path(a.path)
+    had, old = get_path(data, path)
+    if not had:
+        return say("same", a.file, "%s absent" % a.path)
+    del_path(data, path)
+    write_json(a.file, data, a.mode)
+    record({"kind": "json-del", "file": a.file, "path": path, "prev": old},
+           key="json-del:%s:%s" % (a.file, "/".join(path)))
+    say("delete", a.file, a.path)
 
 
 def cmd_json_add(a):
@@ -261,8 +305,9 @@ def cmd_yaml_top_set(a):
 def cmd_block_upsert(a):
     body = read_text(a.content_file).rstrip("\n")
     text = read_text(a.file)
-    start = "<!-- AI:%s v%s START -->" % (a.name, a.version)
-    endm = "<!-- AI:%s v%s END -->" % (a.name, a.version)
+    pre = "# " if a.comment else ""
+    start = "%s<!-- AI:%s v%s START -->" % (pre, a.name, a.version)
+    endm = "%s<!-- AI:%s v%s END -->" % (pre, a.name, a.version)
     block = "%s\n%s\n%s" % (start, body, endm)
     rx = block_regex(a.name)
     existed = bool(text.strip())
@@ -272,6 +317,9 @@ def cmd_block_upsert(a):
         if m.group(0) == block:
             return say("same", a.file, "block AI:%s" % a.name)
         new = text[:m.start()] + block + text[m.end():]
+    elif a.top and text:
+        head = text.split("\n", 1)[0] + "\n" if text.startswith("#!") else ""
+        new = head + block + "\n" + text[len(head):]
     else:
         sep = "" if (not text or text.endswith("\n\n")) else ("\n" if text.endswith("\n") else "\n\n")
         new = text + sep + block + "\n"
@@ -434,6 +482,9 @@ def cmd_claude_take_mcp(a):
 def cmd_mcp_register(a):
     prefix = shlex.split(a.prefix)
     for name, spec in mcp_specs(a.mcp_json, a.plugin_root, a.agent):
+        if name in a.skip:
+            say("skip", a.agent + " mcp", "%s (left out by the installer)" % name)
+            continue
         if a.agent == "codex":
             codex_register(name, spec, prefix)
         else:
@@ -450,6 +501,433 @@ def cmd_opencode_mcp(a):
                 val["environment"] = spec["env"]
         ns = argparse.Namespace(file=a.file, path="mcp/" + name, value=json.dumps(val), jsonc=False, mode="")
         cmd_json_set(ns)
+
+
+# ---------------------------------------------------------------- Codex hook trust
+# Source: openai/codex rust-v0.167.0, codex-rs/hooks/src/engine/discovery.rs (hook_hash, append_hook_events),
+# plugin_trust.rs, plugin_fingerprint.rs, declarations.rs, core-plugins/src/loader.rs, config/src/fingerprint.rs.
+# Codex runs a non-managed hook only when config.toml holds, per handler,
+#   [hooks.state."<key source>:<event_snake>:<group index>:<handler index>"]
+#   trusted_hash = "sha256:<hex>"                 # declaration hash
+#   trusted_content_hash = "sha256:<hex>"         # plugin hooks only: hash of the installed plugin tree
+# key source: the hooks.json path for user hooks; "<plugin>@<marketplace>:<path in plugin>" for plugin hooks.
+# declaration hash = sha256 of compact JSON with sorted keys of
+#   {"event_name": <event_snake>, "matcher"?: <matcher-aware events only>,
+#    "hooks": [{"type": "command", "command": <raw string>, "timeout": <s, default 600, 0 -> 1>, "async": false,
+#               "statusMessage"?: ...}]}
+# Any change to a command, matcher, timeout, order or plugin file needs new hashes: install and ai-sync
+# recompute them every run (only for our hooks: ai-core, and the rtk and graphify entries we install).
+CODEX_TRUST_BEGIN = "# >>> ai-core hook trust (install.sh writes this block; edits are replaced) >>>"
+CODEX_TRUST_END = "# <<< ai-core hook trust <<<"
+# hooks/src/events/common.rs:129-149: events that keep their matcher (all others hash without one).
+CODEX_MATCHER_EVENTS = {"PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact", "PostCompact",
+                        "SessionStart", "SessionEnd", "SubagentStart", "SubagentStop"}
+# discovery.rs:951-968: SessionEnd and Interrupt default to 1 s, clamped to 1..3.
+CODEX_SHORT_EVENTS = {"SessionEnd", "Interrupt"}
+# output_spill.rs: additionalContextLimit is part of the identity only on these events.
+CODEX_CONTEXT_LIMIT_EVENTS = {"PreToolUse", "PostToolUse", "SessionStart", "UserPromptSubmit", "SubagentStart"}
+CODEX_OUR_PLUGINS = [("ai-core", "ai")]
+# The exact commands our vendors write into ~/.codex/hooks.json (full match only):
+#   rtk v1.2.0 src/hooks/constants.rs CODEX_HOOK_COMMAND "rtk hook codex" (bare or absolute path);
+#   graphify 0.9.105 install.py _install_codex_hook: "<graphify path> hook-check" (quoted when it has spaces).
+CODEX_RTK_HOOK = r'(?:/[^\s"]*/)?rtk hook codex'
+CODEX_OUR_USER_HOOKS = CODEX_RTK_HOOK + r'|(?:/[^\s"]*/)?graphify hook-check|"(?:/[^"]*/)?graphify" hook-check'
+
+
+def codex_event_label(event):
+    return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", event).lower()
+
+
+def canonical_json(v):
+    if isinstance(v, dict):
+        return "{" + ",".join("%s:%s" % (json.dumps(k, ensure_ascii=False), canonical_json(v[k]))
+                              for k in sorted(v)) + "}"
+    if isinstance(v, list):
+        return "[" + ",".join(canonical_json(x) for x in v) + "]"
+    return json.dumps(v, ensure_ascii=False)
+
+
+def codex_hook_hash(event, matcher, handler):
+    timeout = handler.get("timeout", handler.get("timeoutSec"))
+    if event in CODEX_SHORT_EVENTS:
+        timeout = min(max(timeout or 1, 1), 3)
+    else:
+        timeout = 600 if timeout is None else (1 if timeout == 0 else timeout)
+    hook = {"type": "command", "command": handler.get("command", ""), "timeout": timeout,
+            "async": bool(handler.get("async", False))}
+    if handler.get("statusMessage") is not None:
+        hook["statusMessage"] = handler["statusMessage"]
+    if handler.get("additionalContextLimit") is not None and event in CODEX_CONTEXT_LIMIT_EVENTS:
+        hook["additionalContextLimit"] = handler["additionalContextLimit"]
+    ident = {"event_name": codex_event_label(event), "hooks": [hook]}
+    if matcher and event in CODEX_MATCHER_EVENTS:
+        ident["matcher"] = matcher
+    return "sha256:" + hashlib.sha256(canonical_json(ident).encode("utf-8")).hexdigest()
+
+
+def codex_plugin_content_hash(root):
+    """plugin_fingerprint.rs: DFS over the installed plugin tree, names sorted, bytecode/venv skipped."""
+    h = hashlib.sha256(b"codex-plugin-bundle-v1")
+    pending = [""]
+    while pending:
+        rel = pending.pop()
+        name = rel.rsplit("/", 1)[-1] if rel else ""
+        if name in ("__pycache__", ".venv") or name.endswith((".pyc", ".egg-info")):
+            continue
+        raw = rel.encode("utf-8", "surrogateescape")
+        h.update(struct_u64(len(raw)))
+        h.update(raw)
+        full = os.path.join(root, rel) if rel else root
+        if os.path.islink(full):
+            raise ValueError("symlink in plugin tree (Codex refuses it): %s" % full)
+        if os.path.isdir(full):
+            h.update(b"directory")
+            names = sorted(os.listdir(full), key=lambda n: n.encode("utf-8", "surrogateescape"))
+            pending.extend((rel + "/" + n if rel else n) for n in reversed(names))
+        elif os.path.isfile(full):
+            with open(full, "rb") as fh:
+                data = fh.read()
+            h.update(b"file")
+            h.update(struct_u64(len(data)))
+            h.update(data)
+        else:
+            raise ValueError("unsupported entry in plugin tree: %s" % full)
+    return "sha256:" + h.hexdigest()
+
+
+def struct_u64(n):
+    import struct
+    return struct.pack("<Q", n)
+
+
+def codex_active_plugin_root(codex_home, plugin, market):
+    """installed.rs active_plugin_version: 'local' wins, else the highest version folder."""
+    base = os.path.join(codex_home, "plugins", "cache", market, plugin)
+    try:
+        vers = [v for v in os.listdir(base) if os.path.isdir(os.path.join(base, v))
+                and re.match(r"^[A-Za-z0-9._+-]+$", v) and v not in (".", "..")]
+    except OSError:
+        return None
+    if not vers:
+        return None
+    if "local" in vers:
+        return os.path.join(base, "local")
+
+    def key(v):
+        m = re.match(r"^(\d+)\.(\d+)\.(\d+)(.*)$", v)
+        return (1, int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4)) if m else (0, 0, 0, 0, v)
+    return os.path.join(base, sorted(vers, key=key)[-1])
+
+
+def codex_plugin_hook_files(root):
+    """[(path inside the plugin, file)] per loader.rs: manifest "hooks" path(s), else hooks/hooks.json."""
+    manifest, _ = load_json(os.path.join(root, ".codex-plugin", "plugin.json"))
+    hooks = manifest.get("hooks")
+    rels = []
+    if isinstance(hooks, str):
+        rels = [hooks]
+    elif isinstance(hooks, list) and all(isinstance(x, str) for x in hooks):
+        rels = hooks
+    elif hooks is None:
+        rels = ["./hooks/hooks.json"] if os.path.isfile(os.path.join(root, "hooks", "hooks.json")) else []
+    out = []
+    for r in rels:
+        if r.startswith("./") and ".." not in r.split("/"):
+            out.append((r[2:], os.path.join(root, r[2:])))
+    return out
+
+
+def codex_default_sources(codex_home):
+    """Our hooks in this Codex home: [{key, file, match, root}] (empty when ai-core is not installed)."""
+    codex_home = os.path.expanduser(codex_home)
+    out, found = [], False
+    for plugin, market in CODEX_OUR_PLUGINS:
+        root = codex_active_plugin_root(codex_home, plugin, market)
+        if not root:
+            continue
+        found = True
+        for rel, path in codex_plugin_hook_files(root):
+            out.append({"key": "%s@%s:%s" % (plugin, market, rel), "file": path, "match": "", "root": root})
+    if found:
+        user = os.path.join(codex_home, "hooks.json")
+        if os.path.isfile(user):
+            out.append({"key": user, "file": user, "match": CODEX_OUR_USER_HOOKS, "root": None})
+    return out
+
+
+def parse_trust_source(spec):
+    """KEY=FILE[::REGEX] (tests, manual runs; user hooks only, no plugin content hash)."""
+    key, _sep, rest = spec.partition("=")
+    path, _sep, rx = rest.partition("::")
+    return {"key": key, "file": os.path.expanduser(path), "match": rx, "root": None}
+
+
+def codex_wanted_trust(sources):
+    """{key: (declaration hash, content hash or None)} for every command handler of the sources."""
+    want = {}
+    content = {}
+    for src in sources:
+        data, _ = load_json(src["file"])
+        rx = re.compile(src["match"]) if src.get("match") else None
+        chash = None
+        if src.get("root"):
+            if src["root"] not in content:
+                content[src["root"]] = codex_plugin_content_hash(src["root"])
+            chash = content[src["root"]]
+        for event, groups in (data.get("hooks") or {}).items():
+            for gi, g in enumerate(groups or []):
+                for hi, h in enumerate(g.get("hooks") or []):
+                    if h.get("type", "command") != "command" or not h.get("command"):
+                        continue
+                    if rx and not rx.fullmatch(h["command"].strip()):
+                        continue
+                    key = "%s:%s:%d:%d" % (src["key"], codex_event_label(event), gi, hi)
+                    want[key] = (codex_hook_hash(event, g.get("matcher"), h), chash)
+    return want
+
+
+def toml_key_quote(key):
+    return '"%s"' % key.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def codex_trust_tables(text):
+    """{key: {"line": header index, "fields": {name: (value, line index)}}} for [hooks.state."..."] tables
+    (fields: trusted_hash, trusted_content_hash as strings, enabled as a bool)."""
+    out, lines = {}, text.splitlines()
+    hdr = re.compile(r'^\s*\[\s*hooks\s*\.\s*state\s*\.\s*"((?:[^"\\]|\\.)*)"\s*\]\s*(#.*)?$')
+    for i, l in enumerate(lines):
+        m = hdr.match(l)
+        if not m:
+            continue
+        key = m.group(1).replace('\\"', '"').replace("\\\\", "\\")
+        t = {"line": i, "fields": {}}
+        for j in range(i + 1, len(lines)):
+            if re.match(r"^\s*\[", lines[j]):
+                break
+            mm = re.match(r'^\s*(trusted_hash|trusted_content_hash)\s*=\s*"([^"]*)"', lines[j])
+            if mm:
+                t["fields"][mm.group(1)] = (mm.group(2), j)
+            mm = re.match(r'^\s*enabled\s*=\s*(true|false)\b', lines[j])
+            if mm:
+                t["fields"]["enabled"] = (mm.group(1) == "true", j)
+        out[key] = t
+    return out
+
+
+def toml_field(name, value):
+    return "%s = %s" % (name, ("true" if value else "false") if isinstance(value, bool) else '"%s"' % value)
+
+
+def codex_disable_keys(codex_home, plugin_ids):
+    """Hook keys of installed plugins whose hooks now run from /etc/codex/hooks.json: enabled = false (Codex
+    skips them) plus their trust hashes, because the startup "Hooks need review" screen also lists disabled
+    hooks that are untrusted (tui/src/hooks_rpc.rs hook_needs_review)."""
+    sources = []
+    for pid in plugin_ids:
+        name, _sep, market = pid.partition("@")
+        root = codex_active_plugin_root(codex_home, name, market)
+        if root:
+            sources += [{"key": "%s:%s" % (pid, rel), "file": path, "match": "", "root": root}
+                        for rel, path in codex_plugin_hook_files(root)]
+    return {k: {"trusted_hash": h, "trusted_content_hash": c, "enabled": False}
+            for k, (h, c) in codex_wanted_trust(sources).items()}
+
+
+def cmd_codex_trust_hooks(a):
+    home = os.path.dirname(os.path.abspath(os.path.expanduser(a.config)))
+    sources = [parse_trust_source(x) for x in a.source]
+    if a.auto:
+        sources += codex_default_sources(home)
+    want = {k: {"trusted_hash": h, "trusted_content_hash": c}
+            for k, (h, c) in codex_wanted_trust(sources).items()}
+    want.update(codex_disable_keys(home, a.disable))
+    # The cache under ~/.codex/plugins is user-writable: approve its content hash only when it equals the
+    # source copy (root-owned on servers). A different cache is not trusted: reinstall the plugin.
+    stale = []
+    for spec in a.verify_source:
+        pid, _sep, src = spec.partition("=")
+        name, _sep, market = pid.partition("@")
+        root = codex_active_plugin_root(home, name, market)
+        if not any(k.startswith(pid + ":") for k in want):
+            continue        # nothing of that plugin to approve (e.g. ai-core hooks live in /etc/codex)
+        if root and os.path.isdir(src) and codex_plugin_content_hash(root) != codex_plugin_content_hash(src):
+            stale.append(pid)
+            for k in [k for k in want if k.startswith(pid + ":")]:
+                del want[k]
+    for pid in stale:
+        print("%s Codex plugin %s: installed copy differs from its source: not trusted (reinstall it)"
+              % ("FAIL" if a.check else "WARN", pid))
+    if not want:
+        installed = any(codex_active_plugin_root(home, p_, m_) for p_, m_ in CODEX_OUR_PLUGINS)
+        if a.check and not installed and a.auto:
+            print("FAIL Codex hook trust: ai-core plugin not installed in this Codex home")
+            return 1
+        if a.check or not read_text(a.config).count(CODEX_TRUST_BEGIN):
+            return 0 if a.check else say("skip", a.config, "no hooks of ours need a trust entry")
+    text = read_text(a.config)
+    bstart, bend = text.find(CODEX_TRUST_BEGIN), text.find(CODEX_TRUST_END)
+    has_block = 0 <= bstart < bend
+    inside = text[bstart:bend] if has_block else ""
+    outside = (text[:bstart] + text[bend + len(CODEX_TRUST_END):]) if has_block else text
+    if a.check:
+        have_out, have_in = codex_trust_tables(outside), codex_trust_tables(inside)
+        bad = 0
+        for key, fields in sorted(want.items()):
+            got = (have_out.get(key) or have_in.get(key) or {"fields": {}})["fields"]
+            ok = all(v is None or (got.get(n) or (None,))[0] == v for n, v in fields.items())
+            bad += not ok
+            if "enabled" in fields:
+                print("%s Codex plugin hook off and reviewed (runs from /etc/codex/hooks.json): %s"
+                      % ("PASS" if ok else "FAIL", key))
+                continue
+            why = "" if ok else (" (not trusted)" if "trusted_hash" not in got else
+                                 " (hash differs: hook or plugin changed)")
+            print("%s Codex hook trusted: %s%s" % ("PASS" if ok else "FAIL", key, why))
+        return 1 if bad or stale else 0
+    lines = outside.splitlines()
+    changed = {}
+    for key, fields in want.items():
+        for name, value in fields.items():
+            t = codex_trust_tables("\n".join(lines)).get(key)
+            if not t or value is None:
+                continue
+            cur = t["fields"].get(name)
+            if cur and cur[0] == value:
+                continue
+            changed.setdefault(key, {})
+            changed[key].setdefault(name, cur[0] if cur else None)
+            if cur:
+                lines[cur[1]] = toml_field(name, value)
+            else:
+                lines.insert(t["line"] + 1, toml_field(name, value))
+    have_out = codex_trust_tables("\n".join(lines))
+    ours = sorted(k for k in want if k not in have_out)
+    body = []
+    for key in ours:
+        body.append("[hooks.state.%s]" % toml_key_quote(key))
+        body += [toml_field(n, v) for n, v in want[key].items() if v is not None]
+        body.append("")
+    new = "\n".join(lines).rstrip("\n") + "\n"
+    if body:
+        new += "\n" + CODEX_TRUST_BEGIN + "\n" + "\n".join(body).rstrip("\n") + "\n" + CODEX_TRUST_END + "\n"
+    if tomllib:
+        try:
+            tomllib.loads(new)
+        except Exception as ex:
+            say("refuse", a.config, "trust entries would not give valid TOML (%s): trust the hooks in /hooks" % ex)
+            return 3
+    if new == text:
+        say("same", a.config, "%d Codex hook entr(y/ies) current" % len(want))
+        return 4 if stale else 0
+    write_text(a.config, new)
+    prev = {}
+    for e in load_state()["entries"]:
+        if e.get("key") == "codex-trust:%s" % a.config:
+            prev = e.get("changed") or {}
+    for k, v in changed.items():
+        for n, old in v.items():
+            prev.setdefault(k, {}).setdefault(n, old)
+    record({"kind": "codex-trust", "file": a.config, "keys": sorted(want), "changed": prev},
+           key="codex-trust:%s" % a.config, keep_first=())
+    say("trust", a.config, "%d Codex hook entr(y/ies) (%d in our block, %d updated in place)" % (
+        len(want), len(ours), len(changed)))
+    return 4 if stale else 0
+
+
+def cmd_codex_managed_hooks(a):
+    """Managed-layer copy of our Codex hooks: config-layer hooks get no ${VAR} substitution, so the plugin
+    root is written in as an absolute path; plus the rtk handlers found in --extra files (rtk init output)."""
+    data, _ = load_json(a.hooks)
+    root = a.plugin_root.rstrip("/")
+    out = {"description": "ai-core, RTK, Ponytail and i-have-adhd hooks for every Codex user (managed by install.sh, "
+                          "edits are replaced)",
+           "hooks": {}}
+    for event, groups in (data.get("hooks") or {}).items():
+        new_groups = []
+        for g in groups or []:
+            g2 = json.loads(json.dumps(g))
+            for h in g2.get("hooks") or []:
+                if isinstance(h.get("command"), str):
+                    h["command"] = h["command"].replace("${PLUGIN_ROOT}", root).replace("${CLAUDE_PLUGIN_ROOT}", root)
+            new_groups.append(g2)
+        out["hooks"][event] = new_groups
+    # Other plugins read their root from the environment (process.env.CLAUDE_PLUGIN_ROOT), which Codex sets only
+    # for plugin hooks: the managed copy sets it in front of the command (hooks run through $SHELL -lc).
+    for proot in a.plugin:
+        proot = proot.rstrip("/")
+        env = "CLAUDE_PLUGIN_ROOT=%s PLUGIN_ROOT=%s " % (shlex.quote(proot), shlex.quote(proot))
+        for _rel, path in codex_plugin_hook_files(proot):
+            pdata, _ = load_json(path)
+            for event, groups in (pdata.get("hooks") or {}).items():
+                for g in groups or []:
+                    g2 = json.loads(json.dumps(g))
+                    for h in g2.get("hooks") or []:
+                        if isinstance(h.get("command"), str):
+                            h["command"] = env + h["command"].replace("${PLUGIN_ROOT}", proot).replace(
+                                "${CLAUDE_PLUGIN_ROOT}", proot)
+                    out["hooks"].setdefault(event, []).append(g2)
+    for path in a.extra:
+        extra, _ = load_json(path)
+        for event, groups in (extra.get("hooks") or {}).items():
+            for g in groups or []:
+                hs = [h for h in g.get("hooks") or [] if re.fullmatch(CODEX_RTK_HOOK, h.get("command", "").strip())]
+                if hs:
+                    g2 = dict(g)
+                    g2["hooks"] = hs
+                    out["hooks"].setdefault(event, []).append(g2)
+    leftover = re.findall(r"\$\{[A-Z_]+\}", json.dumps(out))
+    if leftover:
+        raise SystemExit("aiconf: unresolved variables in managed hooks: %s" % ", ".join(sorted(set(leftover))))
+    # Every command starts with an absolute, root-owned program: these hooks run for every user, and a bare
+    # name would resolve through that user's PATH (~/.local/bin comes first).
+    problems = []
+    for groups in out["hooks"].values():
+        for g in groups:
+            for h in g.get("hooks") or []:
+                h["command"], why = absolute_command(h.get("command", ""), a.safe_path, a.allow_user_owned)
+                if why:
+                    problems.append(why)
+    if problems:
+        raise SystemExit("aiconf: managed hooks refused: " + "; ".join(sorted(set(problems))))
+    print(json.dumps(out, indent=2))
+
+
+def absolute_command(cmd, safe_path, allow_user_owned=False):
+    """(command with its program as an absolute path, problem or ""). Leading NAME=value words are kept."""
+    try:
+        words = shlex.split(cmd)
+    except ValueError as exc:
+        return cmd, "cannot parse %r (%s)" % (cmd[:60], exc)
+    i = 0
+    while i < len(words) and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[i]):
+        i += 1
+    if i >= len(words):
+        return cmd, "no program in %r" % cmd[:60]
+    prog = words[i]
+    path = prog if os.path.isabs(prog) else shutil.which(prog, path=safe_path)
+    if not path:
+        return cmd, "%s not found in %s" % (prog, safe_path)
+    # Keep the found path (e.g. /usr/bin/python3, a link that survives a python upgrade); check the link and
+    # its target, and every directory up to /, are root-owned and not writable by others.
+    try:
+        checks = [path, os.path.realpath(path)]
+        d = os.path.dirname(os.path.realpath(path))
+        while d and d != os.path.dirname(d):
+            checks.append(d)
+            d = os.path.dirname(d)
+        for c in checks:
+            st = os.lstat(c) if c == path else os.stat(c)
+            if not allow_user_owned and (st.st_uid != 0 or (st.st_mode & 0o022 and not os.path.islink(c))):
+                return cmd, "%s is not root-owned or is group/world-writable" % c
+    except OSError:
+        return cmd, "%s does not exist" % path
+    if prog == path:
+        return cmd, ""
+    # Replace only the program word, keep the rest of the text exactly (quoting of node -e scripts).
+    m = re.match(r"^((?:\s*[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|\"[^\"]*\"|\S+)\s+)*)\s*(\S+)(.*)$", cmd, re.S)
+    if not m or m.group(2) != prog:
+        return cmd, "cannot rewrite the program word of %r" % cmd[:60]
+    return m.group(1) + shlex.quote(path) + m.group(3), ""
 
 
 def cmd_tree_hash(a):
@@ -600,6 +1078,31 @@ def undo_entry(e):
         else:
             write_text(f, new)
         return say("undo", f, "block AI:" + e["name"]) or True
+    if k == "json-del":
+        data, _ = load_json(f)
+        had, _cur = get_path(data, e["path"])
+        if not had:
+            set_path(data, e["path"], e["prev"])
+            write_json(f, data)
+        return say("undo", f, "%s restored" % "/".join(e["path"])) or True
+    if k == "codex-trust":
+        text = read_text(f)
+        s_, t = text.find(CODEX_TRUST_BEGIN), text.find(CODEX_TRUST_END)
+        if 0 <= s_ < t:
+            text = text[:s_].rstrip("\n") + "\n" + text[t + len(CODEX_TRUST_END):].lstrip("\n")
+        lines = text.splitlines()
+        for key, prev in (e.get("changed") or {}).items():
+            for name, old in prev.items():
+                tab = codex_trust_tables("\n".join(lines)).get(key)
+                cur = tab and tab["fields"].get(name)
+                if not cur:
+                    continue
+                if old is None:
+                    del lines[cur[1]]
+                else:
+                    lines[cur[1]] = toml_field(name, old)
+        write_text(f, "\n".join(lines) + "\n")
+        return say("undo", f, "ai-core hook trust removed") or True
     if k == "file":
         if not os.path.exists(f) or sha(read_text(f)) != e["sha"]:
             return say("left", f, "changed since install") or True
@@ -763,7 +1266,9 @@ def hermes_register(name, spec, prefix):
         same = False
     else:
         known = bool(sub)
-        same = known and spec_matches(sub, spec)
+        # A server Hermes saved disabled (its probe failed, e.g. serena started in a closed cwd) is re-added.
+        disabled = known and re.search(r"^\s*enabled:\s*(false|False|no|off)\s*$", sub, re.M) is not None
+        same = known and spec_matches(sub, spec) and not disabled
     if same:
         return say("same", "hermes mcp", name)  # B1: equal entry, no remove + re-add
     if known and not is_ours("hermes-mcp:%s" % name):
@@ -844,7 +1349,8 @@ def signature(cmd):
 
 
 def block_regex(name):
-    return re.compile(r"<!-- AI:%s v\d+ START -->.*?<!-- AI:%s v\d+ END -->" % (re.escape(name), re.escape(name)),
+    # "# " before the markers: the same block in a shell file (block-upsert --comment).
+    return re.compile(r"(?:# )?<!-- AI:%s v\d+ START -->.*?<!-- AI:%s v\d+ END -->" % (re.escape(name), re.escape(name)),
                       re.S)
 
 

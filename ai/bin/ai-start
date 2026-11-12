@@ -4,6 +4,7 @@
   ai-start [--dir PATH] [--tools id,id] [--yes] [--dry-run]   new project: pick opt-in tools, commit
   ai-adopt [--dir PATH] [--tools id,id] [--yes] [--dry-run]   existing repo: same layer, show diff,
                                                               one y/N, commit, push (owner repos only)
+  Extra flags: --no-knowledge (skip the knowledge layer below), --no-onboard (skip Serena onboarding).
 ai-adopt is a link to this file; the mode comes from the command name. Rerun = upgrade (blocks are
 replaced by marker, project text outside the blocks is never touched).
 
@@ -17,9 +18,23 @@ What it writes (project root):
                      <!-- AI:<id> v<N> START --> ... <!-- AI:<id> v<N> END -->
                      text = "Vendor rules" section of ai/rules/<tool>.md, else the routing action
   CLAUDE.md          a line "@AGENTS.md" (created when missing)
+  .claude/settings.json   enabledPlugins for claude-seo / claude-blog when "seo" / "blog" is enabled (both
+                     plugins are installed per machine but off at user scope; merge, other keys kept)
   .mcp.json, .codex/config.toml   Playwright MCP when "browser" is enabled: command ai-playwright-mcp,
                      which runs the pinned @playwright/mcp installed once per machine (integrity +
                      agent-audit PASS, --ignore-scripts) in ~/.local/share/ai/npm. No npx at runtime.
+
+Knowledge layer (so agents never explore the repo from zero; skipped with --no-knowledge):
+  .gitignore         .serena/cache/, .serena/project.local.yml, .serena/logs/, graphify-out/
+  .serena/project.yml  `serena project create --index` when missing (else `serena project index` once),
+                     then initial_prompt points at mem:core and .ai/libs.md
+  .serena/memories/  Serena onboarding, run headless in its own claude -p session (asks first; --yes
+                     runs it; never in the owner's session). Read the memories in the diff before the
+                     commit. If memories exist but core.md does not, core.md is written as an index.
+  graphify-out/      GRAPHIFY_BACKEND=none graphify extract . --code-only (local, no key, gitignored)
+  .ai/libs.md        ai-libs --sync (library versions, context7 IDs, Grounded Docs names)
+  ~/.serena/memories/global/memory_maintenance.md   copied from ai/serena/ when missing
+Code steps run only when the repo has code. A missing tool is skipped with a message.
 Owner repos: AI_GITHUB_OWNERS (env or ~/.config/ai/config.env, comma list), else the owner of the
 origin remote of $AI_HOME. Third-party repos are refused.
 """
@@ -65,22 +80,44 @@ def main(argv):
     plan.append(write_plan(os.path.join(root, "CLAUDE.md"), claude_md(read(os.path.join(root, "CLAUDE.md")))))
     if "browser" in chosen or "browser" in current:
         plan.extend(playwright_plan(root, opts["dry_run"]))
+    plan.append(claude_plugins_plan(root, enabled))
+    knowledge = opts["knowledge"]
+    if knowledge:
+        plan.append(write_plan(os.path.join(root, ".gitignore"), gitignore_text(read(os.path.join(root, ".gitignore")))))
     plan = [p for p in plan if p]
+    steps = knowledge_steps(root, opts) if knowledge else []
 
-    if not plan:
+    if not plan and not steps:
         print("ai-%s: nothing to change (base v%s)" % (mode, version))
         return 0
     for path, _text in plan:
         print("%s %s" % ("would write" if opts["dry_run"] else "write", os.path.relpath(path, root)))
+    for name, _fn in steps:
+        print("%s %s" % ("would run" if opts["dry_run"] else "run", name))
     if opts["dry_run"]:
         return 0
     for path, text in plan:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(text)
+    for name, fn in steps:
+        try:
+            fn()
+        except (OSError, subprocess.SubprocessError) as exc:
+            print("ai-%s: step failed, skipped (%s): %s" % (mode, name, exc))
     paths = [os.path.relpath(p, root) for p, _ in plan]
+    paths += [rel for rel in KNOWLEDGE_PATHS if knowledge and os.path.exists(os.path.join(root, rel))
+              and rel not in paths]
+    if not paths or not git(root, "status", "--porcelain", "--", *paths):
+        print("ai-%s: nothing to commit (generated files are gitignored)" % mode)
+        return 0
     subprocess.call(["git", "-C", root, "add", "-N"] + paths, stderr=subprocess.DEVNULL)
     subprocess.call(["git", "-C", root, "--no-pager", "diff", "--"] + paths)
+    hits = knowledge_secret_hits(root) if knowledge else []
+    if hits:
+        print("ai-%s: secret scan found %s in .serena/memories or .ai/libs.md. Remove it, then run again. "
+              "Files written, not committed." % (mode, ", ".join(sorted(set(hits)))))
+        return 1
     if not opts["yes"] and not ask("Commit this%s? [y/N] " % (" and push" if mode == "adopt" else "")):
         print("ai-%s: files written, not committed" % mode)
         return 0
@@ -93,7 +130,7 @@ def main(argv):
 
 
 def parse(argv):
-    opts = {"dir": ".", "tools": None, "yes": False, "dry_run": False}
+    opts = {"dir": ".", "tools": None, "yes": False, "dry_run": False, "knowledge": True, "onboard": True}
     args = list(argv)
     while args:
         a = args.pop(0)
@@ -105,6 +142,10 @@ def parse(argv):
             opts["yes"] = True
         elif a == "--dry-run":
             opts["dry_run"] = True
+        elif a == "--no-knowledge":
+            opts["knowledge"] = False
+        elif a == "--no-onboard":
+            opts["onboard"] = False
         elif a in ("-h", "--help"):
             print(__doc__)
             sys.exit(0)
@@ -178,6 +219,29 @@ def claude_md(text):
     return text.rstrip("\n") + "\n\n@AGENTS.md\n"
 
 
+# Opt-in Claude plugins (owner 2026-11-12): installed per machine, disabled at user scope, enabled per project.
+CLAUDE_PLUGINS = {"seo": "claude-seo@agricidaniel-claude-seo", "blog": "claude-blog@agricidaniel-blog"}
+
+
+def claude_plugins_plan(root, enabled):
+    """Project .claude/settings.json: enabledPlugins true for each enabled opt-in plugin (merge, keep other keys)."""
+    want = [CLAUDE_PLUGINS[r] for r in enabled if r in CLAUDE_PLUGINS]
+    if not want:
+        return None
+    path = os.path.join(root, ".claude", "settings.json")
+    try:
+        data = json.loads(read(path) or "{}")
+    except ValueError:
+        print("skip .claude/settings.json: not valid JSON (enable %s by hand)" % ", ".join(want))
+        return None
+    plugins = data.setdefault("enabledPlugins", {})
+    if all(plugins.get(w) is True for w in want):
+        return None
+    for w in want:
+        plugins[w] = True
+    return (path, json.dumps(data, indent=2) + "\n")
+
+
 def playwright_plan(root, dry_run=False):
     """Project config runs `ai-playwright-mcp` (ai/bin, on PATH): it execs the pinned @playwright/mcp that
     ensure_playwright installed once per machine. No npx and no download at runtime."""
@@ -203,6 +267,191 @@ def playwright_plan(root, dry_run=False):
             '"%s"' % a for a in args)
         out.append((toml_path, (toml.rstrip("\n") + "\n\n" if toml.strip() else "") + block))
     return out
+
+
+# ---------------------------------------------------------------- knowledge layer
+
+GITIGNORE_LINES = [".serena/cache/", ".serena/project.local.yml", ".serena/logs/", "graphify-out/"]
+KNOWLEDGE_PATHS = [".serena/project.yml", ".serena/.gitignore", ".serena/memories", ".ai/libs.md"]
+INITIAL_PROMPT = ("Read mem:core first (read_memory core). Memories are hints, the code wins. "
+                  "Library versions and docs IDs: .ai/libs.md.")
+VENDOR_MEMORIES = ["core", "tech_stack", "suggested_commands", "conventions", "task_completion"]
+ONBOARD_PROMPT = (
+    "Call serena initial_instructions, then onboarding. Follow mem:global/memory_maintenance. "
+    "Use graphify query and Serena symbol tools, not whole-file reads. Write core (<= 60 lines: what the "
+    "project is, a source map folder -> one line, main commands, mem: links), tech_stack, "
+    "suggested_commands, conventions, task_completion (each <= 40 lines). Do not copy AGENTS.md. "
+    "No secrets, tokens, hostnames, phone numbers, emails or other personal data. "
+    "Write every memory with write_memory, then stop.")
+# Serena 2.1.0 tool names (src/serena/tools/*.py at v2.1.0): read, symbol lookup and memory write only.
+# No file or symbol edit tool, no shell, no delete_memory: onboarding must not change code.
+ONBOARD_SERENA = ["initial_instructions", "onboarding", "list_memories", "read_memory", "write_memory", "list_dir",
+                  "find_file", "read_file", "search_for_pattern", "get_symbols_overview", "find_symbol",
+                  "find_referencing_symbols", "find_declaration", "find_implementations"]
+ONBOARD_TOOLS = ["mcp__plugin_ai-core_serena__" + t for t in ONBOARD_SERENA] + [
+    "Bash(graphify query:*)", "Bash(graphify path:*)", "Bash(graphify explain:*)"]
+
+
+def gitignore_text(text):
+    have = {ln.strip() for ln in (text or "").splitlines()}
+    missing = [ln for ln in GITIGNORE_LINES if ln not in have and ln.rstrip("/") not in have]
+    if not missing:
+        return None
+    head = (text or "").rstrip("\n")
+    return (head + "\n\n" if head else "") + "# AI tools (ai-adopt): caches and generated graph\n" + "\n".join(missing) + "\n"
+
+
+def knowledge_steps(root, opts):
+    """Steps that change nothing when their result is already there. Each is (label, callable)."""
+    steps = []
+    code = repo_has_code(root)
+    serena_dir = os.path.join(root, ".serena")
+    project_yml = os.path.join(serena_dir, "project.yml")
+    mem_dir = os.path.join(serena_dir, "memories")
+    global_mm = os.path.expanduser("~/.serena/memories/global/memory_maintenance.md")
+    src_mm = os.path.join(AI_DIR, "serena", "memory_maintenance.md")
+    if code and which("serena") and not os.path.isfile(global_mm) and os.path.isfile(src_mm):
+        steps.append(("copy ai/serena/memory_maintenance.md to " + global_mm.replace(os.path.expanduser("~"), "~"),
+                      lambda: copy_file(src_mm, global_mm)))
+    if code and which("serena"):
+        if not os.path.isfile(project_yml):
+            steps.append(("serena project create --index", lambda: run_step(["serena", "project", "create", "--index",
+                                                                            root], root, 1800)))
+        elif not os.path.isdir(os.path.join(serena_dir, "cache")):
+            steps.append(("serena project index", lambda: run_step(["serena", "project", "index", root], root, 1800)))
+    elif code:
+        print("skip Serena steps: serena is not on PATH")
+    if code and (os.path.isfile(project_yml) or which("serena")) and not prompt_is_set(project_yml):
+        steps.append(("set initial_prompt in .serena/project.yml", lambda: set_initial_prompt(project_yml)))
+    onboarding = False
+    if code and not memory_names(mem_dir):
+        if not opts["onboard"]:
+            print("skip Serena onboarding (--no-onboard). Later: ai-adopt, or in a new session ask for Serena onboarding")
+        elif not which("claude"):
+            print("skip Serena onboarding: claude is not on PATH. Run it in a new agent session: "
+                  "\"%s\"" % ONBOARD_PROMPT)
+        elif opts["dry_run"] or opts["yes"] or (sys.stdin.isatty() and ask(
+                "Run Serena onboarding now in its own headless claude session (uses tokens, a few minutes)? [y/N] ")):
+            steps.append(("Serena onboarding (claude -p, own session)", lambda: onboard(root)))
+            onboarding = True
+        else:
+            print("skip Serena onboarding: not confirmed")
+    if code and (memory_names(mem_dir) or onboarding) and not os.path.isfile(os.path.join(mem_dir, "core.md")):
+        steps.append(("write .serena/memories/core.md index if onboarding wrote none", lambda: core_index(mem_dir)))
+    if code and which("graphify") and not os.path.isfile(os.path.join(root, "graphify-out", "graph.json")):
+        steps.append(("GRAPHIFY_BACKEND=none graphify extract . --code-only",
+                      lambda: run_step(["graphify", "extract", ".", "--code-only"], root, 1800,
+                                       env={"GRAPHIFY_BACKEND": "none"})))
+    elif code and not which("graphify"):
+        print("skip graph: graphify is not on PATH")
+    if libs_stale(root):
+        steps.append(("ai-libs --sync", lambda: run_step([sys.executable, os.path.join(BIN, "ai-libs"), "--sync",
+                                                          "--dir", root], root, 600)))
+    return steps
+
+
+def knowledge_secret_hits(root):
+    """The secret-scan gate patterns over the memories and libs.md (they are committed and pushed)."""
+    files = [os.path.join(root, ".ai", "libs.md")]
+    for dirpath, _dirs, names in os.walk(os.path.join(root, ".serena", "memories")):
+        files += [os.path.join(dirpath, n) for n in names if n.endswith(".md")]
+    text = "\n".join("+" + ln for f in files for ln in (read(f) or "").splitlines())
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks"))
+    try:
+        from hooklib import allowed_secrets, builtin_scan
+    except ImportError:
+        return []
+    return builtin_scan(text, allowed_secrets())
+
+
+def onboard(root):
+    cmd = ["claude", "-p", ONBOARD_PROMPT, "--allowedTools"] + ONBOARD_TOOLS
+    rc = run_step(cmd, root, 1800)
+    names = memory_names(os.path.join(root, ".serena", "memories"))
+    missing = [m for m in VENDOR_MEMORIES if m not in names]
+    print("Serena onboarding: exit %s, memories: %s%s" % (rc, ", ".join(sorted(names)) or "none",
+                                                         ("; missing: " + ", ".join(missing)) if missing else ""))
+    if names and which("serena"):
+        run_step(["serena", "memories", "check"], root, 120)
+
+
+def core_index(mem_dir):
+    """Onboarding wrote memories but no core.md: write core.md as an index of the others (real links)."""
+    names = sorted(n for n in memory_names(mem_dir) if n != "core" and not n.startswith("global/"))
+    if not names or os.path.isfile(os.path.join(mem_dir, "core.md")):
+        return
+    lines = ["# core", "Entry point. Read the memory that fits the task:"]
+    lines += ["- `mem:%s`" % n for n in names]
+    lines += ["Add a source map here (folder or module -> one line). Keep this file <= 60 lines."]
+    with open(os.path.join(mem_dir, "core.md"), "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    print("wrote .serena/memories/core.md (index of %d memories): add the source map" % len(names))
+
+
+def memory_names(mem_dir):
+    out = set()
+    for dirpath, _dirs, files in os.walk(mem_dir):
+        for f in files:
+            if f.endswith(".md"):
+                rel = os.path.relpath(os.path.join(dirpath, f), mem_dir)[:-3]
+                if rel != "memory_maintenance":
+                    out.add(rel)
+    return out
+
+
+def prompt_is_set(project_yml):
+    m = re.search(r"^initial_prompt:\s*(.*)$", read(project_yml) or "", re.M)
+    return bool(m and m.group(1).strip() not in ("", '""', "''"))
+
+
+def set_initial_prompt(project_yml):
+    text = read(project_yml)
+    if text is None or prompt_is_set(project_yml):
+        return
+    line = "initial_prompt: %s" % json.dumps(INITIAL_PROMPT)
+    if re.search(r"^initial_prompt:.*$", text, re.M):
+        text = re.sub(r"^initial_prompt:.*$", lambda _m: line, text, count=1, flags=re.M)
+    else:
+        text = text.rstrip("\n") + "\n" + line + "\n"
+    with open(project_yml, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def libs_stale(root):
+    res = subprocess.run([sys.executable, os.path.join(BIN, "ai-libs"), "--check", "--dir", root],
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    return res.returncode != 0
+
+
+def repo_has_code(root):
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks"))
+    try:
+        from router import has_code_files
+    except ImportError:
+        return True
+    return has_code_files(root)
+
+
+def run_step(argv, cwd, timeout, env=None):
+    full = dict(os.environ)
+    full.update(env or {})
+    print("$ " + " ".join(a if len(a) < 80 else a[:77] + "..." for a in argv))
+    return subprocess.call(argv, cwd=cwd, env=full, timeout=timeout)
+
+
+def copy_file(src, dst):
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with open(src, encoding="utf-8") as fh:
+        text = fh.read()
+    with open(dst, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def which(name):
+    from shutil import which as _which
+    return _which(name)
 
 
 # ---------------------------------------------------------------- helpers

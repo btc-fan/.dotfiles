@@ -16,16 +16,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "nohup caffeinate -s -w $PPID >/dev/null 2>&1 &"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/serena-hook\" activate --client=claude-code",
-            "timeout": 10
+            "command": "[ \"$(uname -s)\" = Darwin ] && command -v caffeinate >/dev/null 2>&1 && { nohup caffeinate -s -w $PPID >/dev/null 2>&1 & }; exit 0",
+            "timeout": 5
           }
         ]
       }

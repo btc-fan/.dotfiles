@@ -9,7 +9,8 @@
 #   ai-sync --dry-run             print what would change
 #
 # Copies (agents that cannot @import ~/.config/ai/AGENTS.md):
-#   Codex   ~/.codex/AGENTS.md block AI:core          (same block-upsert as install.sh, base_rules)
+#   Codex   ~/.codex/AGENTS.md block AI:core          (same block-upsert as install.sh, base_rules), and
+#           the hook trust hashes in ~/.codex/config.toml (codex_trust)
 #   Hermes  ~hermes/.hermes/SOUL.md block AI:core     (hermes_rules) and the Hermes plugin copy
 #           ~hermes/.hermes/plugins/ai-core (hermes_hooks: routing.json, router code). Needs sudo -n.
 #   Linux   /etc/claude-code/CLAUDE.md (+ /etc/opencode) admin layer: base_admin_layer after sudo_ready
@@ -40,6 +41,7 @@ main() {
         local tmp; tmp=$(rules_text_file)
         aiconf block-upsert "$CODEX_DIR/AGENTS.md" core 1 "$tmp"
         rm -f "$tmp"
+        codex_trust     # hook trust hashes follow the current hooks and plugin files
     fi
     if hermes_exists; then
         if [ "${AI_DRY_RUN:-0}" = 1 ] || sudo -n -u "$HERMES_USER" true 2>/dev/null; then
@@ -64,7 +66,7 @@ main() {
 load_libs() {
     # shellcheck disable=SC1090
     . "$AI_HOME/ai/lib/common.sh"
-    for f in base tools hermes; do . "$AI_HOME/ai/adapters/$f.sh"; done
+    for f in base tools claude codex hermes; do . "$AI_HOME/ai/adapters/$f.sh"; done
     detect_os
     load_pins       # base_admin_layer reads CODEX_VERSION / OPENCODE_VERSION (set -u)
 }

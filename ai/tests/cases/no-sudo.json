@@ -1,0 +1,96 @@
+{
+ "rule": "no-sudo",
+ "cases": [
+  {
+   "name": "sudo apt install",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "sudo apt install -y jq"
+    }
+   },
+   "contains": "No sudo for agents"
+  },
+  {
+   "name": "sudo behind env and a shell -c",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "FOO=1 env bash -c 'sudo python3 -c 1'"
+    }
+   }
+  },
+  {
+   "name": "root shell after &&",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ls && sudo -i"
+    }
+   }
+  },
+  {
+   "name": "su and doas behind timeout",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "timeout 5 doas ls; su -"
+    }
+   }
+  },
+  {
+   "name": "Codex gets a block too",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "sudo systemctl restart x"
+    },
+    "turn_id": "t"
+   },
+   "agent": "codex"
+  },
+  {
+   "name": "sudo only as quoted text",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git commit -m 'never use sudo here' --dry-run"
+    }
+   }
+  },
+  {
+   "name": "echo of the word",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "echo sudo"
+    }
+   }
+  },
+  {
+   "name": "plain command",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ls -la"
+    }
+   }
+  }
+ ]
+}

@@ -52,6 +52,10 @@ def main(argv):
     if EM_DASH in l0_text:
         print("ai-render: ERROR em dash in L0 table", file=sys.stderr)
         return 1
+    over = session_start_budget(routing, l0_text)
+    if over:
+        print("ai-render: ERROR " + over, file=sys.stderr)
+        return 1
 
     targets = []
     if out_dir:
@@ -129,9 +133,9 @@ def validate(data):
     sys.path.insert(0, HOOKS)
     try:
         import router
-        states, gates = router.STATE_PREDICATES, router.GATES
+        states, gates, holders = router.STATE_PREDICATES, router.GATES, router.PLACEHOLDERS
     except ImportError:
-        states, gates = None, None
+        states, gates, holders = None, None, None
     errors, seen = [], set()
     for r in data.get("rules", []):
         rid = r.get("id")
@@ -163,6 +167,12 @@ def validate(data):
             errors.append("%s: unknown state %r (add a predicate in router.STATE_PREDICATES)" % (rid, trig["state"]))
         if gates is not None and r.get("strength") == "gate" and rid not in gates:
             errors.append("%s: gate without an implementation in router.GATES" % rid)
+        if holders is not None:
+            for name in re.findall(r"\{([a-z_]+)\}", str(r.get("action") or "")):
+                if name not in holders:
+                    errors.append("%s: unknown placeholder {%s} (add it to router.PLACEHOLDERS)" % (rid, name))
+        if "prompt_libs" in trig and (not isinstance(trig["prompt_libs"], bool) or not trig.get("prompt")):
+            errors.append("%s: prompt_libs must be true/false next to a prompt regex" % rid)
     for tb in data.get("tiebreaks", []):
         rx = tb.get("match")
         if not rx:
@@ -184,6 +194,39 @@ def build_routing(data, sha):
         ties.append(dict(tb))
     return {"version": data.get("version"), "source_sha256": sha, "layers": data.get("layers", {}),
             "rules": rules, "tiebreaks": ties}
+
+
+# ---------------------------------------------------------------- session start budget
+
+SESSION_START_MARGIN = 1500     # the status lines alone must leave this much room under the cut
+
+
+def session_start_budget(routing, l0_text):
+    """SessionStart context = the status lines (every session_start row, placeholders at their max length),
+    plus the L0 table only after compact or clear. Error text when the status lines alone would not leave
+    SESSION_START_MARGIN under router.CONTEXT_CAP; a warning when lines + table pass the cut (then only the
+    table tail is cut after a compaction, and the table is in the root rules anyway)."""
+    try:
+        import router
+        cap, ph_max, header = router.CONTEXT_CAP, router.PLACEHOLDER_MAX, router.L1_HEADER
+    except (ImportError, AttributeError):
+        return ""
+    parts = []
+    for r in routing.get("rules", []):
+        if r.get("when") != "session_start":
+            continue
+        action = re.sub(r"\{([a-z_]+)\}", lambda m: "x" * ph_max.get(m.group(1), 200), str(r.get("action", "")))
+        parts.append("[ai router: %s] %s" % (r["id"], action))
+    lines = len("\n\n".join(parts))
+    if lines > cap - SESSION_START_MARGIN:
+        return ("SessionStart status lines worst case is %d chars: over %d (cut %d minus margin %d). "
+                "Shorten the session_start actions in ai/routing.yaml." % (lines, cap - SESSION_START_MARGIN,
+                                                                           cap, SESSION_START_MARGIN))
+    total = len("\n\n".join(parts + [header + l0_text.strip()]))
+    if total > cap:
+        print("ai-render: WARN after compact/clear the SessionStart context would be %d chars (cut %d): the L0 "
+              "table tail is cut there (it stays complete in the root rules)." % (total, cap), file=sys.stderr)
+    return ""
 
 
 # ---------------------------------------------------------------- L0 table
@@ -257,8 +300,19 @@ def top_level_split(s):
     return text
 
 
+# How the L0 table shows an action placeholder (the router fills the real text at fire time).
+PLACEHOLDER_WORDS = {
+    "knowledge_index": "(status line: memories, graph, docs map)",
+    "knowledge_delta": "Update mem:core, run ai-libs --sync or graphify update, as the commit needs.",
+    "libs_hits": "(cached IDs)",
+    "origin_slug": "(repo from origin)",
+    "claude_handoff": "Other agents: hand off to Claude only when it is logged in, else follow the skill files.",
+}
+
+
 def cell(text):
-    return str(text).replace("|", "\\|").replace("\n", " ")
+    text = re.sub(r"\{([a-z_]+)\}", lambda m: PLACEHOLDER_WORDS.get(m.group(1), ""), str(text))
+    return re.sub(r"\s{2,}", " ", text).strip().replace("|", "\\|").replace("\n", " ")
 
 
 # ---------------------------------------------------------------- AGENTS.md
