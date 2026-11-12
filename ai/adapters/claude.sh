@@ -94,10 +94,14 @@ claude_plugins() {
         run claude plugin marketplace update ai || warn "claude plugin marketplace update ai failed"
         run claude plugin update ai-core@ai || warn "claude plugin update ai-core@ai failed"
         cache=$(claude_ai_core_cache)
+        # `claude plugin update` keeps a cache whose version number did not change: copy the repo over it.
+        if [ "$AI_DRY_RUN" != 1 ] && [ -n "$cache" ] && [ "$(aiconf tree-hash "$cache")" != "$hash" ]; then
+            aiconf tree-sync "$p" "$cache" >/dev/null
+        fi
         if [ "$AI_DRY_RUN" = 1 ] || { [ -n "$cache" ] && [ "$(aiconf tree-hash "$cache")" = "$hash" ]; }; then
             ok "Claude plugin ai-core@ai updated (cache matches the repo)"
         else
-            warn "ai-core cache does not match the repo after update (same version number?)"
+            warn "ai-core cache does not match the repo after update and copy: ${cache:-no cache folder}"
             manual "refresh ai-core by hand when no session runs: claude plugin uninstall ai-core@ai && claude plugin install ai-core@ai --scope user"
             hash=$old
         fi
@@ -135,6 +139,14 @@ claude_plugins() {
     done
     ok "Claude: claude-seo and claude-blog off by default (per project: ai-adopt --tools seo,blog)"
     claude_omc_wiring
+    # Serena: opt-in per project (owner decision 2026-11-12). Installed, OFF at user scope; a project turns it
+    # on with ai-adopt --tools serena (project enabledPlugins ai-serena@ai = true).
+    # Playwright the same way (project .mcp.json no longer loads under the managed mcp lock).
+    local op
+    for op in ai-serena@ai ai-playwright@ai; do
+        claude_plugin ai "$AI_HOME/ai/marketplace" "$op" || true
+        aiconf json-set "$CLAUDE_DIR/settings.json" "enabledPlugins/$op" false
+    done
     manual "Claude, once per machine, in a project with claude-seo on: /seo setup, then /seo doctor (venv + Chromium)"
 
     # Plugins the design dropped: report, never remove.
@@ -176,12 +188,8 @@ claude_hooks() {
     has claude || { skip "Claude hooks: claude not found"; return 0; }
     local hooks; hooks="$(PLUGIN_DIR)/hooks/hooks.json"
 
-    # graphify global skill per agent (its writes are reported; duplicates are adopted below).
-    if has graphify; then
-        local before; before=$(snap_files "$CLAUDE_DIR/settings.json" "$CLAUDE_DIR/CLAUDE.md")
-        run graphify install --platform claude </dev/null || warn "graphify install --platform claude failed"
-        report_changes "$before" "$CLAUDE_DIR/settings.json" "$CLAUDE_DIR/CLAUDE.md"
-    fi
+    # graphify is opt-in per project now (`graph` in .ai/enabled): no global graphify hooks; earlier ones go.
+    aiconf hooks-remove "$CLAUDE_DIR/settings.json" 'graphify (hook-guard|hook-check)'
 
     claude_rtk
     # graphify or RTK may have added copies of plugin hooks just now: adopt again (gated by B2).
@@ -220,41 +228,37 @@ CLAUDE_MCP_PREFIX="mcp__plugin_ai-core_"
 # Read-only or knowledge tools only. Writes, git push and installs still prompt or meet the gates.
 claude_allow_rules() {
     local t
-    # Serena: reads, symbol lookups, project memory (edits of code symbols are NOT here: they prompt).
+    # context7 (resolve + query): every tool.
+    printf '%s\n' "${CLAUDE_MCP_PREFIX}context7__*"
+    # Serena (opt-in plugin ai-serena): reads, symbol lookups, project memory. Symbol edits are NOT here.
     for t in initial_instructions get_current_config onboarding check_onboarding_performed list_dir find_file \
         read_file search_for_pattern get_symbols_overview find_symbol find_referencing_symbols find_declaration \
         find_implementations get_diagnostics_for_file list_memories read_memory write_memory edit_memory \
         rename_memory; do
-        printf '%sserena__%s\n' "$CLAUDE_MCP_PREFIX" "$t"
+        printf 'mcp__plugin_ai-serena_serena__%s\n' "$t"
     done
-    # context7 (resolve + query) and Grounded Docs (served read-only, DOCS_MCP_READ_ONLY=true): every tool.
-    printf '%s\n' "${CLAUDE_MCP_PREFIX}context7__*" "${CLAUDE_MCP_PREFIX}grounded-docs__*"
-    # GitHub MCP (v2.1.0): read tools only. Create, update, merge, push and delete tools prompt.
-    for t in get_me get_file_contents list_branches list_commits get_commit list_tags get_tag list_releases \
-        get_latest_release get_release_by_tag search_code search_repositories search_issues search_pull_requests \
-        search_users issue_read list_issues list_issue_types pull_request_read list_pull_requests get_label \
-        list_label list_discussions get_discussion get_discussion_comments list_discussion_categories \
-        list_workflows list_workflow_runs get_workflow_run get_job_logs actions_list actions_get \
-        list_code_scanning_alerts get_code_scanning_alert list_dependabot_alerts get_dependabot_alert \
-        list_secret_scanning_alerts get_secret_scanning_alert list_gists get_gist get_teams get_team_members \
-        list_starred_repositories list_repository_security_advisories list_global_security_advisories \
-        get_global_security_advisory projects_list projects_get; do
-        printf '%sgithub__%s\n' "$CLAUDE_MCP_PREFIX" "$t"
-    done
-    # Shell: our own read-only tools, only in forms that cannot write files or run other programs.
-    # graphify: the read and local-build subcommands (install/hook forms ask, see below).
-    # rtk runs whatever follows it, so only forms with no exec or output option: no find (-exec, -delete),
-    # grep (--pre), tree (-o) or git diff/log/show (--output, external diff programs).
+    # GitHub through the gh CLI (the GitHub MCP was dropped): read-only forms only; everything else asks.
+    printf '%s\n' 'Bash(gh pr view *)' 'Bash(gh pr list*)' 'Bash(gh pr diff *)' 'Bash(gh pr checks *)' \
+        'Bash(gh issue view *)' 'Bash(gh issue list*)' 'Bash(gh repo view*)' 'Bash(gh run view *)' 'Bash(gh run list*)'
+    # Shell: our own read-only tools. graphify: the read and local-build subcommands (install/hook ask).
+    # rtk: the RTK hook rewrites the read-only commands Claude allows by itself (cat/head/tail, grep, rg, ls,
+    # find, tree, diff, wc, git status/log/diff/show) into `rtk <cmd>` (rtk v1.2.0 src/discover/rules.rs),
+    # so those forms are allowed here. rtk passes the arguments to the real tool, so the forms that run a
+    # program or write a file are DENIED below (find -exec/-delete, rg --pre/--hostname-bin, tree -o,
+    # git --output/--ext-diff); a deny always wins over these allows.
     printf '%s\n' 'Bash(graphify query *)' 'Bash(graphify path *)' 'Bash(graphify explain *)' \
         'Bash(graphify extract *)' 'Bash(graphify update *)' 'Bash(graphify --version)' \
         'Bash(agent-audit *)' 'Bash(ai-doctor*)' 'Bash(ai-libs)' 'Bash(ai-libs --check*)' \
-        'Bash(rtk gain*)' 'Bash(rtk discover*)' 'Bash(rtk --version)' 'Bash(rtk git status*)' 'Bash(rtk ls*)' \
-        'Bash(rtk wc*)' 'Bash(rtk read *)'
+        'Bash(rtk gain*)' 'Bash(rtk discover*)' 'Bash(rtk --version)' 'Bash(rtk read *)' 'Bash(rtk ls*)' \
+        'Bash(rtk wc*)' 'Bash(rtk grep *)' 'Bash(rtk rg *)' 'Bash(rtk find *)' 'Bash(rtk tree*)' 'Bash(rtk diff *)' \
+        'Bash(rtk git status*)' 'Bash(rtk git diff*)' 'Bash(rtk git log*)' 'Bash(rtk git show*)'
     printf '%s\n' WebFetch WebSearch 'Read(~/.claude/plugins/**)' 'Read(~/.config/ai/**)'
 }
 
 # graphify subcommands that write agent config or git hooks: always ask, even under Bash(graphify *).
 claude_ask_rules() {
+    # git push always asks, also when the sandbox would auto-allow a command (it runs outside the sandbox).
+    printf '%s\n' 'Bash(git push*)' 'Bash(rtk git push*)'
     printf '%s\n' 'Bash(graphify install*)' 'Bash(graphify uninstall*)' 'Bash(graphify hook*)' \
         'Bash(graphify * install*)' 'Bash(graphify * uninstall*)' 'Bash(graphify * hook*)'
 }
@@ -273,8 +277,15 @@ claude_deny_rules() {
         printf 'Edit(%s)\nWrite(%s)\n' "$f" "$f"
     done
     printf '%s\n' 'Read(~/.config/ai/secrets.env)'
-    # git and rtk git writing to a file chosen in the command (allowed nowhere, denied to be sure).
-    printf '%s\n' 'Bash(git * --output*)' 'Bash(rtk git * --output*)'
+    # The exec and write forms of the commands RTK rewrites (checked against rtk v1.2.0: find, tree, grep/rg
+    # and git pass their arguments to the real program): a deny wins over the rtk allows above.
+    local x
+    for x in -exec -execdir -ok -okdir -delete -fprint -fprint0 -fprintf -fls; do
+        printf 'Bash(rtk find *%s*)\nBash(find *%s*)\n' "$x" "$x"
+    done
+    printf '%s\n' 'Bash(rtk grep *--pre*)' 'Bash(rtk rg *--pre*)' 'Bash(rtk grep *--hostname-bin*)' \
+        'Bash(rtk rg *--hostname-bin*)' 'Bash(*RIPGREP_CONFIG_PATH*)' 'Bash(rtk tree* -o*)' \
+        'Bash(git * --output*)' 'Bash(rtk git * --output*)' 'Bash(git * --ext-diff*)' 'Bash(rtk git * --ext-diff*)'
     # sudo: not a deny list here (sudo python3 -c, sudo env bash... would pass). The router gate no-sudo
     # blocks every sudo except `sudo proj-agent ...` on Linux; containment stays in sudoers.
     return 0
@@ -296,6 +307,68 @@ EOF
 }
 
 json_str() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }
+
+# ---------------------------------------------------------------- managed policy (Linux, root): sandbox and
+# planted-config defence. Facts: code.claude.com/docs/en/sandboxing, settings-reference, managed-mcp.
+
+# Files no sandboxed command may read, and secrets removed from its environment.
+SANDBOX_DENY_READ="~/.ssh ~/.config/gh ~/.claude/.credentials.json ~/.codex/auth.json ~/.config/ai/secrets.env ~/.hermes/.env"
+SANDBOX_DENY_ENV="GITHUB_PERSONAL_ACCESS_TOKEN GITHUB_TOKEN GH_TOKEN CONTEXT7_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY OPENROUTER_API_KEY"
+# Writes besides the working directory and the sandbox temp dir: /tmp and the caches the tools really use.
+SANDBOX_ALLOW_WRITE="/tmp ~/.cache/uv ~/.cache/pip ~/.npm ~/.cache/node-gyp ~/.cargo/registry ~/go/pkg/mod ~/.cache/go-build ~/.cache/graphify ~/.local/state/ai"
+# Hosts sandboxed commands reach without a prompt (git over HTTPS, npm, PyPI/uv, crates, Go, context7).
+# Other hosts prompt in an interactive session and are refused in a headless one (no strict allowlist:
+# a fixed list would break new package hosts; see docs).
+SANDBOX_DOMAINS="github.com *.github.com *.githubusercontent.com codeload.github.com registry.npmjs.org *.npmjs.org nodejs.org pypi.org files.pythonhosted.org *.pythonhosted.org astral.sh crates.io *.crates.io proxy.golang.org sum.golang.org context7.com *.context7.com"
+# Run outside the sandbox (they need the gh token or the git credential helper): still need permission.
+SANDBOX_EXCLUDED="git push *|gh pr view *|gh pr list *|gh pr diff *|gh pr checks *|gh pr create *|gh pr edit *|gh issue view *|gh issue list *|gh repo view *|gh run view *|gh run list *"
+
+claude_sandbox_json() {
+    python3 - "$SANDBOX_DENY_READ" "$SANDBOX_DENY_ENV" "$SANDBOX_ALLOW_WRITE" "$SANDBOX_DOMAINS" "$SANDBOX_EXCLUDED" <<'EOS'
+import json, sys
+deny_read, deny_env, allow_write, domains, excluded = sys.argv[1:6]
+print(json.dumps({
+    "enabled": True,
+    "failIfUnavailable": True,
+    "allowUnsandboxedCommands": False,
+    "excludedCommands": excluded.split("|"),
+    "filesystem": {"denyRead": deny_read.split(), "allowWrite": allow_write.split()},
+    "credentials": {"files": [{"path": p, "mode": "deny"} for p in deny_read.split()],
+                    "envVars": [{"name": n, "mode": "deny"} for n in deny_env.split()]},
+    "network": {"allowedDomains": domains.split(), "allowAllUnixSockets": False, "allowLocalBinding": False},
+    "enableWeakerNestedSandbox": False,
+    "enableWeakerNetworkIsolation": False,
+}, sort_keys=True))
+EOS
+}
+
+# managed-settings.json keys (merge; only these keys): the Bash sandbox, the planted-config lock, the RTK
+# hook as a managed hook, and a git setting that a planted .git/config cannot turn into code execution.
+claude_managed_policy() {
+    [ "$AI_OS" = linux ] || return 0
+    local ms=/etc/claude-code/managed-settings.json rtk_bin
+    aiconf_root json-set "$ms" sandbox "$(claude_sandbox_json)" --mode 644
+    # Planted project config: project/user/local settings hooks and project .mcp.json / ~/.claude.json MCP
+    # servers stop loading; plugin hooks, plugin MCP servers (ai-core, OMC, Ponytail, i-have-adhd, opt-in
+    # ai-serena / claude-seo / claude-blog) and managed hooks keep working.
+    aiconf_root json-set "$ms" strictPluginOnlyCustomization '["hooks","mcp"]' --mode 644
+    # ai-core (router, gates) force-enabled from managed settings: no user or agent can switch it off.
+    # OMC, Ponytail and i-have-adhd stay as the owner set them (owner decision 2026-11-12).
+    aiconf_root json-set "$ms" "enabledPlugins/ai-core@ai" true --mode 644
+    # RTK's hook lived in ~/.claude/settings.json, which the lock above stops: it moves here, absolute path.
+    rtk_bin=$(command -v rtk 2>/dev/null || true)
+    case "$rtk_bin" in
+        /usr/local/bin/rtk|/usr/bin/rtk)
+            aiconf_root json-set "$ms" hooks/PreToolUse \
+                "[{\"matcher\": \"Bash\", \"hooks\": [{\"type\": \"command\", \"command\": \"$rtk_bin hook claude\"}]}]" --mode 644 ;;
+        *) warn "rtk not in /usr/local/bin: its Claude hook is not managed (it stops under the hooks lock)" ;;
+    esac
+    # core.fsmonitor from a planted .git/config would run a program on every git status.
+    aiconf_root json-set "$ms" env/GIT_CONFIG_COUNT '"1"' --mode 644
+    aiconf_root json-set "$ms" env/GIT_CONFIG_KEY_0 '"core.fsmonitor"' --mode 644
+    aiconf_root json-set "$ms" env/GIT_CONFIG_VALUE_0 '"false"' --mode 644
+    ok "Claude managed policy: Bash sandbox (deny secrets, limited writes, proxy domains), hooks+mcp only from plugins/managed, RTK managed hook, git fsmonitor off"
+}
 
 # ---------------------------------------------------------------- OMC wiring (owner decision pending)
 

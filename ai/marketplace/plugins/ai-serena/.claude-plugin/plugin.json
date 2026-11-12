@@ -1,0 +1,6 @@
+{
+  "name": "ai-serena",
+  "version": "1.0.0",
+  "description": "Serena MCP (code symbols, project memory), opt-in per project: enable with ai-adopt --tools serena (project enabledPlugins).",
+  "author": { "name": "dotfiles ai branch" }
+}

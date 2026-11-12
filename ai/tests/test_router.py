@@ -15,6 +15,7 @@ Each ai/tests/cases/<rule>.json holds {"rule": id, "cases": [...]}. A case:
            ai_mcp_commit: false keeps it uncommitted
   secrets_env  text for ~/.config/ai/secrets.env
   env      extra environment for the router (e.g. AI_STATE_DIR pointing at a file: unwritable state)
+  gate_skip  a line for the owner skip file (/etc/ai/gate-skip); {{SOON}} / {{PAST}} = expiry times
   contains / not_contains   text that must (not) be in the hook output
 Placeholders: {{PROJ}} {{NOW}} {{OLD}} {{TRANSCRIPT}} and fake secrets {{GH_TOKEN}} {{CTX7_KEY}}
 {{CTX7_OTHER}} {{PW}} {{ENVTOK}} {{NPM_TOKEN}} {{HF_TOKEN}} {{DBURL}}
@@ -130,6 +131,10 @@ def run_case(rule_id, case, work, build):
                            GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t.invalid")
             for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "mcp"]):
                 subprocess.check_call(["git", "-C", ai_home] + args, env=git_env)
+    if case.get("gate_skip"):           # owner skip file (root-owned in real use; test-only override below)
+        skip_file = os.path.join(tmp, "gate-skip")
+        write(skip_file, sub(case["gate_skip"], dict(subs, **{"{{SOON}}": str(int(time.time()) + 600),
+                                                                "{{PAST}}": str(int(time.time()) - 60)})) + "\n")
     if case.get("secrets_env"):
         write(os.path.join(home, ".config", "ai", "secrets.env"), sub(case["secrets_env"], subs))
 
@@ -137,6 +142,8 @@ def run_case(rule_id, case, work, build):
            "AI_ROUTING_JSON": os.path.join(build, "routing.json"), "AI_HOME": ai_home, "AI_NOTIFY_DRY": "1",
            "LANG": "C.UTF-8"}
     env.update(sub(case.get("env", {}), subs))
+    if case.get("gate_skip"):
+        env.update({"AI_GATE_SKIP_FILE": os.path.join(tmp, "gate-skip"), "AI_GATE_SKIP_INSECURE_TEST": "1"})
     agent = case.get("agent", "claude")
     steps = case.get("steps") or [{"event": case["event"], "payload": case.get("payload", {})}]
     session = "test-" + os.path.basename(tmp)

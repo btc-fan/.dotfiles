@@ -5,7 +5,7 @@
 # A new version is never covered: review its findings again, then add a new line (docs/EXTENDING.md).
 npm oh-my-claude-sisyphus 5.8.4 2026-11-11 intake-triage (SPEC 19): telegram reply listener stays off; base64 hit is zod JWT parsing
 npm opencode-ai 1.19.5 2026-11-11 intake-triage (SPEC 19): closed binary; never run "opencode upgrade"
-npm @arabold/docs-mcp-server 3.4.1 2026-11-11 SPEC 21: env reads are provider-key presence checks; scraper file-type list; telemetry off
 npm @upstash/context7-mcp 4.6.0 2026-11-11 env reads are URL settings; subscription telemetry wraps its own handler, no outside endpoint
 pypi graphifyy 0.9.105 2026-11-11 sensitive-file hits are patterns that keep secrets OUT of the index; steganography hit is an image-extension list
-dir github-mcp-server v2.1.0 2026-11-11 official GitHub release binary; osv hits: Go x/net (medium) and dev-only UI dependencies
+dir claude-seo v2.5.0 2026-11-12 every guarddog threat hit is in tests/ (URL-safety and manifest fixtures, never run in use); skill-scanner clean; opt-in plugin, off by default
+dir claude-blog v2.3.2 2026-11-12 socket hits are its SSRF guard (resolve, refuse private IPs, pin the checked IP); curl|bash hit is a doc line saying that installer was removed; Google auth sends the user's own key to Google; opt-in plugin

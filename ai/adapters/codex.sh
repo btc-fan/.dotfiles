@@ -25,7 +25,7 @@ codex_marketplace_plugin() {
 codex_mcp() {
     has codex || { skip "Codex MCP: codex not found"; return 0; }
     aiconf mcp-register codex --mcp-json "$(PLUGIN_DIR)/.mcp.json" --plugin-root "$(PLUGIN_DIR)"
-    ok "Codex MCP: serena (codex context), context7, github, grounded-docs"
+    ok "Codex MCP: context7 (github, grounded-docs and the global serena were dropped)"
 }
 
 # ---------------------------------------------------------------- step 8: plugins
@@ -78,11 +78,8 @@ codex_skills() {
 
 codex_hooks() {
     has codex || return 0
-    if has graphify; then
-        local before; before=$(snap_files "$CODEX_DIR/config.toml" "$CODEX_DIR/hooks.json" "$CODEX_DIR/AGENTS.md")
-        run graphify install --platform codex </dev/null || warn "graphify install --platform codex failed"
-        report_changes "$before" "$CODEX_DIR/config.toml" "$CODEX_DIR/hooks.json" "$CODEX_DIR/AGENTS.md"
-    fi
+    # graphify is opt-in per project now: no global graphify hook (its Codex hook was a no-op anyway).
+    aiconf hooks-remove "$CODEX_DIR/hooks.json" 'graphify"? hook-check'
     if has rtk && grep -qs 'rtk' /etc/codex/hooks.json; then
         # The admin layer carries the RTK hook: a user copy would only be an untrusted duplicate.
         if grep -qs rtk "$CODEX_DIR/hooks.json"; then
@@ -104,6 +101,28 @@ codex_hooks() {
         fi
     fi
     codex_trust
+}
+
+# Linux admin installs: Codex sandbox and approvals pinned through the documented managed layer
+# (codex-rs config_requirements.rs at 0.167.0: allowed_sandbox_modes, allowed_approval_policies in
+# /etc/codex/requirements.toml) and system defaults in /etc/codex/config.toml (users may tighten, not loosen).
+# workspace-write keeps the network off by default. Codex cannot deny reads of home files (no read deny list
+# in its sandbox): a documented gap, covered by no network in workspace-write.
+codex_system_policy() {
+    [ "$AI_OS" = linux ] && [ "$AI_MODE" != user ] || return 0
+    want codex || return 0
+    local tmp; tmp=$(mktemp "${TMPDIR:-/tmp}/ai-codex-req.XXXXXX")
+    cat > "$tmp" <<'EOR'
+# Managed by install.sh (ai branch). Codex reads this as the system requirements layer.
+allowed_sandbox_modes = ["read-only", "workspace-write"]
+allowed_approval_policies = ["untrusted", "on-request"]
+EOR
+    aiconf_root file-put /etc/codex/requirements.toml "$tmp" --mode 644
+    rm -f "$tmp"
+    aiconf_root toml-set /etc/codex/config.toml "" sandbox_mode '"workspace-write"'
+    aiconf_root toml-set /etc/codex/config.toml "" approval_policy '"on-request"'
+    aiconf_root toml-set /etc/codex/config.toml sandbox_workspace_write network_access false
+    ok "Codex: sandbox read-only/workspace-write only, approvals untrusted/on-request (default workspace-write, on-request, no network)"
 }
 
 # Linux admin installs (system mode): the ai-core and RTK Codex hooks go to /etc/codex/hooks.json. Codex
@@ -169,19 +188,10 @@ codex_trust() {
         fi
     done
     # The plugin cache is user-writable: a content hash is approved only when the cache equals its source.
-    # Exit 4 = a cache differs: reinstall that plugin from its source once, then try again.
+    # `codex plugin add` keeps a cache whose version did not change, so a cache that differs is replaced by
+    # a copy of its source (--refresh-stale) before the hashes are computed. Exit 4 = still differs.
     # shellcheck disable=SC2086
-    aiconf codex-trust-hooks "$CODEX_DIR/config.toml" --auto $args || rc=$?
-    if [ "$rc" = 4 ]; then
-        info "a Codex plugin copy differs from its source: reinstalling ai-core (and the switched-off plugins)"
-        run codex plugin add ai-core@ai </dev/null || true
-        for pid in ponytail@ponytail i-have-adhd@i-have-adhd; do
-            case "$args" in *"--disable $pid"*) run codex plugin add "$pid" </dev/null || true ;; esac
-        done
-        rc=0
-        # shellcheck disable=SC2086
-        aiconf codex-trust-hooks "$CODEX_DIR/config.toml" --auto $args || rc=$?
-    fi
+    aiconf codex-trust-hooks "$CODEX_DIR/config.toml" --auto --refresh-stale $args || rc=$?
     case "$rc" in
         0) ok "Codex: hook entries for ai-core, rtk, graphify (and switched-off plugin copies) in $CODEX_DIR/config.toml" ;;
         4) warn "Codex plugin copy still differs from its source after a reinstall: its hooks are not trusted" ;;

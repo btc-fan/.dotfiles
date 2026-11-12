@@ -20,20 +20,20 @@ Without a standard, you keep four copies, and they drift apart. Standardized mea
 ai/agents-md/            the parts (you edit these)
   00-owner.md              owner text, copied byte for byte, never reworded
   10-output-shape.md       reply shape (i-have-adhd)
-  20-rtk.md                RTK block
-  30-code-navigation.md    stored knowledge first: Serena memories, graphify, .ai/libs.md, docs MCPs
+  20-rtk.md                RTK in four lines
+  30-code-navigation.md    repo AGENTS.md Map first, narrow search, context7 docs, gh
   40-audit-before-use.md   agent-audit and the gates
   45-no-root.md            never sudo; give the owner the command
   50-pull-requests.md      PR rules and the author-sessions block
   60-characters.md         no em dash
-  70-prompting-others.md   how to brief another agent
-  80-tool-catalog.md       harnesses table
+  70-prompting-others.md   how to brief another agent (one line)
+  80-tool-catalog.md       non-interactive commands of the other agents (one line)
   85-l0.md                 one line: where the L0 table goes
-  90-toolbox-and-vendor-rules.md   short forms of vendor rules
+  90-toolbox-and-vendor-rules.md   opt-in tools, OMC, Ponytail, toolbox pointer
 ai/routing.yaml          the routing table (the L0 table is built from it)
         |
         v   ai-render
-ai/AGENTS.md             the built root file (built on each machine, not committed, under 30 KB)
+ai/AGENTS.md             the built root file (built on each machine, not committed; target under 12 KB, hard cap 30 KB)
 ```
 
 `ai-render` does three things:
@@ -41,7 +41,7 @@ ai/AGENTS.md             the built root file (built on each machine, not committ
 2. Builds the L0 table (one row per routing rule) from `ai/routing.yaml` and puts it where `<!-- AI:L0 -->` is.
 3. Fails if the result is over **30 KB** or contains an em dash (U+2014).
 
-Why 30 KB: the root file is loaded into every session. A big file costs tokens on every prompt and hides the important lines. Long text belongs in `ai/rules/<tool>.md`. The root file holds only short forms and a pointer: "read the file when you use the tool".
+Why small: the root file is loaded into every session. A big file costs tokens on every prompt and hides the important lines (research on context files: keep them short, only non-standard facts). Owner target since 2026-11-12: well under 12 KB (about 10 KB today); the 30 KB cap in `ai-render` is only the hard stop. The root file holds only non-standard house rules: where projects live, boxes, no sudo, gates, the PR flow, docs lookup. No tool marketing, no repo overviews. Long text belongs in `ai/rules/<tool>.md`.
 
 ### What each part is for
 
@@ -49,15 +49,15 @@ Why 30 KB: the root file is loaded into every session. A big file costs tokens o
 |---|---|---|
 | 00 owner | your own style rules, never changed by us | "Lead with the answer. Hard limit: 60 words unless I ask for detail." |
 | 10 output shape | makes i-have-adhd work in agents that have no hook | "Follow i-have-adhd in every reply. It is always on." |
-| 20 RTK | explains the command proxy | "rtk bypass `<cmd>`: execute raw command without filtering." |
-| 30 code navigation | read stored knowledge first, then the order of tools for code and docs | "Session start in a code repo: call Serena initial_instructions, then read_memory core." |
+| 20 RTK | the command proxy, in four lines | "Full output (security tools, debugging): rtk bypass <cmd>." |
+| 30 code navigation | read the repo Map first, search narrowly, docs before code | "In a repo, read the Map and Libraries sections of its AGENTS.md first." |
 | 40 audit | the audit rule and gate summary | "A finding means stop. Show it to me. Do not install." |
 | 45 no root | agents never escalate; the owner runs root commands | "When something needs root, stop and give me the exact command to run." |
 | 50 pull requests | PR shape and the author-sessions block | "Mermaid diagram of the change, one-way or two-way door?, blast radius." |
 | 60 characters | one character rule | "Never the em dash." |
-| 70 prompting others | the 8-step brief | "Name the files. Use absolute paths." |
-| 80 tool catalog | what each harness is for, the non-interactive command | `opencode run "<prompt>" --format json` |
-| 90 vendor short forms | 2 to 4 lines per tool, pointer to the contract | "Ponytail: mode full. Smallest correct diff." |
+| 70 prompting others | the brief in one line | "Goal and what is ruled out, absolute file paths, one narrow task." |
+| 80 other agents | the non-interactive commands | `opencode run "<task>" --format json` |
+| 90 tools | opt-in tools, OMC, Ponytail, toolbox pointer | "Off in a project: suggest the command, never install it yourself." |
 
 ## 3. How each agent receives it
 
@@ -109,28 +109,25 @@ my-project/
   .ai/
     base-version   which routing version the project was set up with
     enabled        opt-in rule ids, one per line
-    libs.md        library docs map: version, context7 ID, Grounded Docs name (ai-libs --sync, committed)
-  .serena/
-    project.yml    Serena project config; initial_prompt points at mem:core (committed)
-    memories/      code facts: core (entry point), tech_stack, suggested_commands, conventions,
-                   task_completion (written by Serena onboarding, committed)
-  graphify-out/  code graph (generated, gitignored)
+  .serena/project.yml, graphify-out/   only when the project turned Serena or graphify on
 ```
 
-- **Project knowledge is not AGENTS.md.** AGENTS.md holds behaviour rules, loaded every session, so it stays short. Code facts (source map, commands, conventions) go to Serena memories, read on purpose with `read_memory core`. Library versions and docs IDs go to `.ai/libs.md`. One home per fact: never copy one into another. `ai-adopt` creates all three; the routing rows `project-knowledge`, `no-memories` and `knowledge-check` keep them used and fresh. Worked example: [README.md](../README.md), section 3, example D.
+- **Project knowledge lives in the project AGENTS.md** (owner decision 2026-11-12). Every agent reads it with no tool call, which beats on-demand tools. `ai-adopt` writes two managed sections between markers and never touches text outside them:
+  - `## Map` between `<!-- AI:map START -->` and `<!-- AI:map END -->`: entry points, where things live, how to run and test, non-obvious conventions. At most 60 lines. Written from repo facts plus one read-only claude pass for the conventions; edit it freely inside the markers; `ai-adopt --refresh-map` writes it again.
+  - `## Libraries` between `<!-- AI:libraries START lock: ... -->` and `<!-- AI:libraries END -->`: library, locked version, context7 ID. `ai-libs --sync` updates it; the START line holds the lockfile hashes for the stale check.
+  - The routing rows `project-knowledge` (session start) and `knowledge-check` (after a commit) keep them used and fresh. Never secrets or personal data in them: they are pushed. Worked example: [README.md](../README.md), section 3, example D.
 
 - **Project AGENTS.md.** Write what is true only for this project: how to run tests, folder layout, naming. Short, plain sentences.
 - **One-line CLAUDE.md.** Claude Code skips `AGENTS.md` when a `CLAUDE.md` exists. So `CLAUDE.md` holds `@AGENTS.md` and nothing else. Both agents then read the same file.
-- **Opt-in tool blocks.** `ai-start` (new project) and `ai-adopt` (existing repo) add one managed block per enabled opt-in tool. Example for a project that enabled ui-ux-pro-max:
+- **Opt-in tool blocks.** `ai-start` (new project) and `ai-adopt` (existing repo) add one short managed block per enabled opt-in tool: the routing action plus a pointer to the contract. Example for a project that enabled ui-ux-pro-max:
 
 ```
-<!-- AI:ui-ux-pro-max v1 START -->
-UI work (pages, components, layout, color, type, a11y) -> use ui-ux-pro-max first.
-Ask before paid image generation or any npx ...@latest.
-<!-- AI:ui-ux-pro-max v1 END -->
+<!-- AI:ui v4 START -->
+UI work: use ui-ux-pro-max. Ask before paid image generation or any npx ...@latest. Details: ~/.config/ai/rules/ui-ux-pro-max.md
+<!-- AI:ui v4 END -->
 ```
 
-- **Never the same rule twice.** If the project already has text for a tool, or a vendor tool wrote its own block (graphify, OMX), `ai-adopt` skips and reports. A rule lives either globally or in the project, never both.
+- **Never the same rule twice.** If the project already has text for a tool, or a vendor tool wrote its own block (OMX), `ai-adopt` skips and reports. A rule lives either globally or in the project, never both.
 - **Employer rules stay out of this repo.** Put them in the project or in a private file.
 
 ## 5. Precedence

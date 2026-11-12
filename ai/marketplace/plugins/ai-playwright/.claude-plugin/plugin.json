@@ -1,0 +1,6 @@
+{
+  "name": "ai-playwright",
+  "version": "1.0.0",
+  "description": "Playwright MCP (pinned, installed once by ai-start), opt-in per project: enable with ai-adopt --tools browser (project enabledPlugins).",
+  "author": { "name": "dotfiles ai branch" }
+}

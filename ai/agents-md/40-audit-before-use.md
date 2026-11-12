@@ -1,10 +1,6 @@
 
-Audit before use
-Before you install a package, MCP server, skill or plugin, run agent-audit on it.
-- Commands: agent-audit npm|pypi|dir|skill <target>.
-- A finding means stop. Show it to me. Do not install.
-- Install exact versions only. No @latest. No curl piped to a shell.
-- The gate blocks npm, pip, uv, npx and curl-to-shell without a PASS in the last 24 hours. It asks me for brew, cargo, go, gem and pipx.
-- Use no tool that uploads code, prompts or telemetry.
-- Secrets: never put a key, token or password in a file that is committed. The secret-scan gate blocks git commit and git push on a hit.
-- Escape hatch for a gate: AI_GATE_SKIP=<rule-id> with a reason. It is logged. Use it only when I say so.
+Audit and gates
+- Before you install a package, MCP server, skill or plugin: agent-audit npm|pypi|dir|skill <target>. A finding means stop and show it to me. Exact versions only, no @latest, no curl piped to a shell.
+- Never commit a key, token or password. The secret-scan gate blocks commit and push on a hit.
+- Commands run in a sandbox. A network or permission error is final too: do not try to get around it (no other path, no SSH instead of HTTPS); tell me the command and the error.
+- A blocked gate is final for you. Only I can let it through (sudo ai-gate-skip). Never try to get around it; tell me the command and why.

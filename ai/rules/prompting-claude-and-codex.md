@@ -10,7 +10,7 @@ Not a vendor tool. The skill holds our condensed rules and links to the official
 - Not for writing AGENTS.md or SKILL.md (that is writing-for-agents).
 
 ## Enforcement
-- L0: AGENTS.md "Prompting other agents". L3: routing row `prompting-others` on the commands above (nudge). L6: description starts with the trigger words.
+- L0: AGENTS.md "Prompting other agents". No routing row (removed in v4: nudges were ignored). L6: description starts with the trigger words.
 
 ## Proof
 - Should fire (EN): "ask codex to review this diff" gives a brief with goal, files, scope, output format, read-only.

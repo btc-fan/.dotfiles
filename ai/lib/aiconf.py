@@ -107,6 +107,9 @@ def main():
     s = sub.add_parser("claude-adopt-hooks", help="drop settings.json hooks that the plugin now owns")
     s.add_argument("settings"); s.add_argument("plugin_hooks")
 
+    s = sub.add_parser("hooks-remove", help="drop hook handlers whose command matches REGEX (recorded, undo restores)")
+    s.add_argument("file"); s.add_argument("regex")
+
     s = sub.add_parser("claude-take-mcp", help="move user-scope MCP entries that our plugin now serves")
     s.add_argument("claude_json"); s.add_argument("mcp_json")
 
@@ -125,6 +128,8 @@ def main():
     s.add_argument("--check", action="store_true", help="print PASS/FAIL per hook, change nothing (ai-doctor)")
     s.add_argument("--verify-source", action="append", default=[],
                    help="plugin@marketplace=DIR: trust that plugin's hooks only when its Codex cache equals DIR")
+    s.add_argument("--refresh-stale", action="store_true",
+                   help="a cache that differs from its source is replaced by a copy of the source first")
     s.add_argument("--disable", action="append", default=[],
                    help="plugin@marketplace whose plugin hooks get enabled = false (they run from /etc/codex)")
 
@@ -141,6 +146,9 @@ def main():
     s = sub.add_parser("opencode-mcp", help="set our MCP servers in opencode.json")
     s.add_argument("file"); s.add_argument("--mcp-json", required=True); s.add_argument("--plugin-root", required=True)
 
+    s = sub.add_parser("tree-sync", help="make DEST an exact copy of SRC (plugin caches; swap, old copy dropped)")
+    s.add_argument("src"); s.add_argument("dest")
+
     s = sub.add_parser("tree-hash", help="sha256 over a directory tree (change detection)")
     s.add_argument("dir")
 
@@ -155,6 +163,7 @@ def main():
     g = s.add_mutually_exclusive_group()
     g.add_argument("--skip-tools", action="store_true", help="keep installed tools (default uninstall)")
     g.add_argument("--only-tools", action="store_true", help="remove only installed tools (--purge-all)")
+    s.add_argument("--only", default="", help="reverse only entries whose key matches this regex (dropped tools)")
 
     s = sub.add_parser("tools", help="list recorded tool installs (what --purge-all removes)")
 
@@ -313,7 +322,13 @@ def cmd_block_upsert(a):
     existed = bool(text.strip())
     m = rx.search(text)
     sep = None
-    if m:
+    head_len = len(text.split("\n", 1)[0]) + 1 if text.startswith("#!") else 0
+    if m and a.top and text[head_len:m.start()].strip():
+        # --top: a block that sits below other lines (an older install appended it, under Ubuntu's
+        # "not interactive: return" guard) moves to the top, where a non-interactive shell still reads it.
+        rest = text[:m.start()] + text[m.end():].lstrip("\n")
+        new = rest[:head_len] + block + "\n" + rest[head_len:]
+    elif m:
         if m.group(0) == block:
             return say("same", a.file, "block AI:%s" % a.name)
         new = text[:m.start()] + block + text[m.end():]
@@ -460,6 +475,45 @@ def cmd_claude_adopt_hooks(a):
         record({"kind": "hook-removed", "file": a.settings, "event": event, "group": group, "gi": gi, "hi": hi},
                key="hook:%s:%s:%s" % (a.settings, event, cmd))
         say("adopt", a.settings, "%s hook %r now comes from the plugin" % (event, cmd))
+
+
+def cmd_hooks_remove(a):
+    """Remove handlers from a hooks JSON file (Claude settings.json or Codex hooks.json) by command regex."""
+    if not os.path.exists(a.file):
+        return say("same", a.file, "missing")
+    rx = re.compile(a.regex)
+    data, _ = load_json(a.file)
+    hooks = data.get("hooks") or {}
+    removed = []
+    for event in list(hooks.keys()):
+        new_groups = []
+        for gi, g in enumerate(hooks[event] or []):
+            keep = []
+            for hi, h in enumerate(g.get("hooks") or []):
+                if rx.search(h.get("command", "")):
+                    one = dict(g); one["hooks"] = [h]
+                    removed.append((event, one, gi, hi))
+                else:
+                    keep.append(h)
+            if keep:
+                g2 = dict(g); g2["hooks"] = keep
+                new_groups.append(g2)
+        if new_groups:
+            hooks[event] = new_groups
+        else:
+            del hooks[event]
+    if not removed:
+        return say("same", a.file, "no hook matches %s" % a.regex)
+    if hooks:
+        data["hooks"] = hooks
+    else:
+        data.pop("hooks", None)
+    write_json(a.file, data)
+    for event, group, gi, hi in removed:
+        cmd = group["hooks"][0].get("command", "")
+        record({"kind": "hook-removed", "file": a.file, "event": event, "group": group, "gi": gi, "hi": hi},
+               key="hook:%s:%s:%s" % (a.file, event, cmd))
+        say("remove", a.file, "%s hook %r" % (event, cmd))
 
 
 def cmd_claude_take_mcp(a):
@@ -751,6 +805,20 @@ def cmd_codex_trust_hooks(a):
         if not any(k.startswith(pid + ":") for k in want):
             continue        # nothing of that plugin to approve (e.g. ai-core hooks live in /etc/codex)
         if root and os.path.isdir(src) and codex_plugin_content_hash(root) != codex_plugin_content_hash(src):
+            if a.refresh_stale and not a.check:
+                # `codex plugin add` keeps a cache whose version number did not change: copy the source.
+                replace_tree(src, root)
+                say("refresh", root, "plugin cache replaced by its source %s" % src)
+                if codex_plugin_content_hash(root) == codex_plugin_content_hash(src):
+                    for k in [k for k in want if k.startswith(pid + ":")]:
+                        del want[k]
+                    if pid in a.disable:
+                        want.update(codex_disable_keys(home, [pid]))
+                    else:
+                        fresh = [x for x in codex_default_sources(home) if x["key"].startswith(pid + ":")]
+                        want.update({k: {"trusted_hash": h, "trusted_content_hash": c}
+                                     for k, (h, c) in codex_wanted_trust(fresh).items()})
+                    continue
             stale.append(pid)
             for k in [k for k in want if k.startswith(pid + ":")]:
                 del want[k]
@@ -930,6 +998,31 @@ def absolute_command(cmd, safe_path, allow_user_owned=False):
     return m.group(1) + shlex.quote(path) + m.group(3), ""
 
 
+def replace_tree(src, dest):
+    """dest becomes an exact copy of src (links kept as links): copy next to it, swap, drop the old copy."""
+    if DRY:
+        print("  [dry-run] replace %s with a copy of %s" % (dest, src))
+        return
+    parent = os.path.dirname(dest.rstrip("/"))
+    tmp = tempfile.mkdtemp(prefix=".ai-new-", dir=parent)
+    new = os.path.join(tmp, "x")
+    shutil.copytree(src, new, symlinks=True)
+    old = None
+    if os.path.lexists(dest):
+        old = os.path.join(tmp, "old")
+        os.replace(dest, old)
+    os.replace(new, dest)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+def cmd_tree_sync(a):
+    if not os.path.isdir(a.src):
+        say("skip", a.dest, "source %s missing" % a.src)
+        return 3
+    replace_tree(a.src, a.dest)
+    say("sync", a.dest, "now a copy of %s" % a.src)
+
+
 def cmd_tree_hash(a):
     h = hashlib.sha256()
     for root, dirs, files in os.walk(a.dir):
@@ -984,8 +1077,10 @@ def cmd_tools(a):
 def cmd_undo(a):
     st = load_state()
     left = []
+    only = re.compile(a.only) if a.only else None
     for e in reversed(st["entries"]):
-        if (a.skip_tools and is_tool(e)) or (a.only_tools and not is_tool(e)):
+        if (a.skip_tools and is_tool(e)) or (a.only_tools and not is_tool(e)) or \
+                (only and not only.search(e.get("key", ""))):
             left.append(e)  # not this pass: stays recorded
             continue
         try:
@@ -1000,6 +1095,9 @@ def cmd_undo(a):
     if not DRY and not a.keep_state:
         st["entries"] = left
         save_state(st)
+    if only:
+        print("undo --only %s: %d entr(y/ies) reversed" % (a.only, total - len(left)))
+        return 0
     print("undo: %d of %d entries reversed, %d kept in the state file%s" % (
         total - len(left), total, len(left), " (installed tools, or failed)" if a.skip_tools else " (failed)"))
 

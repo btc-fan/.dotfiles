@@ -3,7 +3,7 @@
 
 opencode_mcp() {
     aiconf opencode-mcp "$OPENCODE_JSON" --mcp-json "$(PLUGIN_DIR)/.mcp.json" --plugin-root "$(PLUGIN_DIR)"
-    ok "opencode MCP: serena (ide context), context7, github, grounded-docs"
+    ok "opencode MCP: context7"
 }
 
 opencode_hooks() {

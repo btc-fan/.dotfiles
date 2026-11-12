@@ -1,8 +1,8 @@
 {
- "rule": "no-graph",
+ "rule": "graph",
  "cases": [
   {
-   "name": "code repo without graph",
+   "name": "code repo with graph enabled",
    "expect": "fire",
    "event": "SessionStart",
    "payload": {
@@ -11,12 +11,17 @@
    "project": {
     "git": true,
     "files": {
-     "main.py": "print(1)\n"
+     "main.py": "print(1)\n",
+     ".ai/base-version": "4\n",
+     ".ai/enabled": "graph\n"
     }
-   }
+   },
+   "contains": [
+    "graphify is on here"
+   ]
   },
   {
-   "name": "code repo with graph",
+   "name": "code repo without graph enabled",
    "expect": "nofire",
    "event": "SessionStart",
    "payload": {
@@ -25,13 +30,13 @@
    "project": {
     "git": true,
     "files": {
-     "main.py": "x",
-     "graphify-out/graph.json": "{}"
+     "main.py": "print(1)\n",
+     ".ai/base-version": "4\n"
     }
    }
   },
   {
-   "name": "repo without code",
+   "name": "graph enabled but no code",
    "expect": "nofire",
    "event": "SessionStart",
    "payload": {
@@ -40,7 +45,8 @@
    "project": {
     "git": true,
     "files": {
-     "README.md": "# hi\n"
+     "README.md": "# x\n",
+     ".ai/enabled": "graph\n"
     }
    }
   }

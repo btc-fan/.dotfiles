@@ -83,7 +83,7 @@ run_root() {
 
 # The one command admin runs for this user (printed when a root piece is missing in --user mode).
 AI_ROOT_REPO=/usr/local/lib/ai/repo
-admin_cmd() { printf 'sudo %s/install.sh --for-user %s' "${AI_SRC_HOME:-$HOME/.dotfiles-ai}" "${AI_FOR_USER:-$(id -un)}"; }
+admin_cmd() { printf 'sudo /opt/ai-setup/install.sh --update --for-user %s   (admin)' "${AI_FOR_USER:-$(id -un)}"; }
 
 has() { command -v "$1" >/dev/null 2>&1; }
 
@@ -214,17 +214,20 @@ as_target() {
 # --allow-dirty), then copy it to a root-owned tree that is the only code root runs.
 # root_prepare <source work tree>   -> sets AI_HOME to the root-owned copy
 root_prepare() {
-    local src=$1 dirty head remote new
-    dirty=$(sudo -u "$AI_FOR_USER" git -C "$src" status --porcelain 2>/dev/null || echo "not a git work tree")
-    head=$(sudo -u "$AI_FOR_USER" git -C "$src" rev-parse HEAD 2>/dev/null || echo none)
-    remote=$(sudo -u "$AI_FOR_USER" git -C "$src" rev-parse origin/ai 2>/dev/null || echo none)
+    # src is the admin-owned clone (root-guard.sh refused anything else); git runs as its owner.
+    local src=$1 dirty head remote new owner g
+    owner=$(stat -c %U "$src" 2>/dev/null || stat -f %Su "$src")
+    if [ "$owner" = root ]; then g="git -C $src"; else g="sudo -u $owner git -C $src"; fi
+    dirty=$($g status --porcelain 2>/dev/null || echo "not a git work tree")
+    head=$($g rev-parse HEAD 2>/dev/null || echo none)
+    remote=$($g rev-parse origin/ai 2>/dev/null || echo none)
     if [ -n "$dirty" ] || [ "$head" != "$remote" ]; then
         if [ "${AI_ALLOW_DIRTY:-0}" = 1 ]; then
             warn "$src is not exactly origin/ai: copying the work tree as it is (--allow-dirty)"
         else
             printf 'ERROR: %s is not exactly origin/ai (uncommitted changes, or HEAD %s != origin/ai %s).\n' \
                 "$src" "${head:0:12}" "${remote:0:12}" >&2
-            printf '       Root runs only pushed code. Pull/commit as %s, or add --allow-dirty (development only).\n' "$AI_FOR_USER" >&2
+            printf '       Root runs only pushed code. Fetch and check out origin/ai as %s, or add --allow-dirty (development only).\n' "$owner" >&2
             return 1
         fi
     fi
@@ -234,7 +237,7 @@ root_prepare() {
     if [ "${AI_ALLOW_DIRTY:-0}" = 1 ]; then
         ( cd "$src" && tar --exclude ./.git -cf - . ) | ( cd "$new" && tar -xf - )
     else
-        sudo -u "$AI_FOR_USER" git -C "$src" archive --format=tar HEAD | ( cd "$new" && tar -xf - )
+        $g archive --format=tar HEAD | ( cd "$new" && tar -xf - )
     fi
     # root:root, not writable by others; never follow a link out of the tree (uutils-safe: no -R on links)
     find "$new" ! -type l -exec chown root:root {} + 

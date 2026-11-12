@@ -1,6 +1,8 @@
 {
   "name": "ai-core",
   "version": "1.0.0",
-  "description": "Always-on base of the dotfiles ai branch: routing hooks, gates, usage-contract skills and the global MCP servers.",
-  "author": { "name": "dotfiles ai branch" }
+  "description": "Always-on base of the dotfiles ai branch: routing hooks, gates, usage-contract skills and the context7 MCP server.",
+  "author": {
+    "name": "dotfiles ai branch"
+  }
 }

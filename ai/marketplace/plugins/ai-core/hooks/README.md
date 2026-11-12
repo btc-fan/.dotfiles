@@ -18,9 +18,10 @@ Tests: `bash ai/tests/run.sh` (should-fire and should-not-fire stdin samples for
 ## Gates
 
 Gates catch honest mistakes. They are not a sandbox against an adversary: an agent that wants to bypass a
-gate can (for example, write a script file and run it). Escape hatch for a real exception, owner OK only:
-`AI_GATE_SKIP='<rule>:<reason>' <command>` as a leading env assignment. It is logged to
-`~/.local/state/ai/gates.log`. A skip without a reason is refused.
+gate can (for example, write a script file and run it). Escape hatch for a real exception, owner only:
+`sudo ai-gate-skip <gate> <minutes, max 60> <why>` writes the root-owned `/etc/ai/gate-skip`; the router lets
+that gate through until the time runs out and logs each skip to `~/.local/state/ai/gates.log`. Agents have no
+sudo, so they cannot skip a gate themselves. `AI_GATE_SKIP=...` in a command does nothing any more.
 
 How the command is read: a small shell parser splits the command into stages on `&& || ; | &`, `( )`,
 `$( )`, backticks and `<( )`, removes heredoc bodies, skips env assignments and wrappers (`sudo -u x`,

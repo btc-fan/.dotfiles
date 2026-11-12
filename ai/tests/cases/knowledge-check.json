@@ -24,10 +24,10 @@
     "commit": "add app"
    },
    "contains": [
-    "mem:core source map",
-    "ai-libs --sync",
-    "graphify update ."
-   ]
+    "Map section in AGENTS.md",
+    "ai-libs --sync"
+   ],
+   "not_contains": "graphify update"
   },
   {
    "name": "commit changed docs only: no message",
@@ -69,6 +69,29 @@
     },
     "commit": "add app"
    }
+  },
+  {
+   "name": "graph enabled: commit asks for graphify update",
+   "expect": "fire",
+   "event": "PostToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git commit -m 'add app'"
+    },
+    "tool_response": {
+     "stdout": ""
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "app.py": "print(1)\n",
+     ".ai/enabled": "graph\n"
+    },
+    "commit": "add app"
+   },
+   "contains": "graphify update ."
   }
  ]
 }

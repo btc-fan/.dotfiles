@@ -1,23 +1,20 @@
-# Routing table: the only new source of truth for "which tool, when".
+# Routing table: the only source of truth for "which tool, when".
 # The router hook reads it on every prompt, before/after tool calls, and at session start.
 # Matching is deterministic (regex, globs, project state). No LLM, no network.
 # strength: nudge = inject the action as context; gate = block the step until the condition is met.
-# scope: global = every project; opt-in = only when the project enabled the tool (ai-adopt / ai-start).
-# Tools that enforce themselves (i-have-adhd flag, Ponytail hooks, RTK hook, graphify hook-guard)
-# have no row here except where the router adds something.
-version: 3
-# v2 (2026-11-11): Playwright per project (browser rule opt-in), serena-first and docs-on-dependency nudges,
-# layers block (L1/L2/L3 settings), tie-break table. When two rules fire on one event the router merges their
-# actions into one context message; a tie-break row decides which tool is named first.
-# v2 fields (2026-11-11, build-b): proof = regex over the session's tool/skill calls for the Stop miss log;
-# log_only = record, no context; reset_on = command regex that re-arms the nudge; once_per = session |
-# library_per_session; tie-break match = case-insensitive prompt regex (mirror rows: the first listed wins).
-# v3 (2026-11-12, memory and navigation design): rows project-knowledge, no-memories, knowledge-check;
-# docs-lookup also fires on library names (prompt_libs); action placeholders the router fills at fire time:
-# {knowledge_index} {knowledge_delta} {libs_hits} {origin_slug} {claude_handoff}. Each value is a full phrase
-# with its own label; an empty value disappears; an action that renders to empty text sends no message.
-# v3 (2026-11-12, owner): seo and blog are opt-in per project; seo-not-enabled / blog-not-enabled suggest ai-adopt.
-# Knowledge homes: .serena/memories/ (code facts), graphify-out/ (structure), .ai/libs.md (library docs IDs).
+# scope: global = every project; opt-in = only when the project enabled the tool (ai-adopt --tools <id>).
+# The opt-in rows are also the catalog of opt-in tools that ai-adopt offers.
+version: 4
+# v4 (2026-11-12, owner, after an independent audit): passive context beats nudges. Project knowledge lives in
+# the repo AGENTS.md (managed "## Map" and "## Libraries" blocks). Kept: the four gates, the session-start
+# status, the post-commit freshness note, the em dash lint, docs-lookup, the "not enabled" suggestions, and the
+# opt-in catalog. Removed (logs showed them ignored or unmeasured): kickoff, no-memories, no-graph, graph-first,
+# serena-first, graph-update, docs-on-dependency, github, prompting-others, agent-docs, wait-what, toolbox.
+# Serena and graphify are opt-in per project. Grounded Docs and the GitHub MCP are dropped (context7, gh).
+# Fields: proof = regex over the session's tool/skill calls for the Stop miss log; once_per = session |
+# library_per_session; prompt_libs = also fire when the prompt names a library from the Libraries block.
+# Action placeholders the router fills at fire time: {knowledge_index} {knowledge_delta} {libs_hits}
+# {claude_handoff}. Each value is a full phrase; an empty value disappears; an empty action sends nothing.
 
 layers:
   L1_session_start: {inject: 'rules with when: session_start; L0 table only after compact or clear', reinject_after_compaction: true}
@@ -27,44 +24,25 @@ layers:
     none_option: true  # the model may answer "none needed"
     timeout_s: 10      # well under the 30 s hook limit; on timeout fall back to L3 only and log it
   L3_regex: {enabled: true}
-  L4_gates: {escape_hatch: 'AI_GATE_SKIP=<rule-id> with a reason, logged to ~/.local/state/ai/gates.log'}
+  L4_gates: {escape_hatch: 'owner only: sudo ai-gate-skip <gate> <minutes max 60> <why>; root-owned /etc/ai/gate-skip; logged to ~/.local/state/ai/gates.log'}
   L7_miss_log: ~/.local/state/ai/misses.jsonl   # Stop hook: rule fired but no matching tool or skill call
 
 rules:
-  # ---------- start of work ----------
-  - id: kickoff
+  # ---------- session start: read the stored knowledge first ----------
+  - id: project-knowledge
     scope: global
-    summary: 'build a new app, tool or bot'
-    trigger: {prompt: '\b(build|create|make|start|new)\b.{0,40}\b(app|project|website|site|service|tool|api|bot|feature)\b'}
-    action: "New work: one question round first (skill grilling, else OMC deep-interview). Then ai-start picks the tools."
-    proof: 'skill:\S*(grill|deep-interview)|ai-start'
-    strength: nudge
+    trigger: {state: 'git repo with code'}
+    when: session_start
+    summary: 'session start in a code repo'
+    action: "Read the Map and Libraries sections of this repo's AGENTS.md first, then search narrowly. {knowledge_index}"
+    strength: nudge   # {knowledge_index}: one status line (Map, Libraries, opt-in tools), never file content
 
   - id: no-ai-base
     scope: global
     summary: 'session start: repo without .ai/base-version'
     trigger: {state: 'git repo without .ai/base-version'}
     when: session_start
-    action: "This repo has no AI base. Suggest the owner runs ai-adopt."
-    proof: 'ai-adopt'
-    strength: nudge
-
-  # ---------- project knowledge (read stored knowledge first, never explore from zero) ----------
-  - id: project-knowledge
-    scope: global
-    trigger: {state: 'git repo with code'}
-    when: session_start
-    summary: 'session start in a code repo'
-    action: "Serena initial_instructions, then read_memory core, then graphify query. Memories are hints, the code wins. {knowledge_index}"
-    proof: 'tool:mcp__\S*serena__(initial_instructions|read_memory)'
-    strength: nudge   # router renders {knowledge_index}: one pointer line (<= 600 chars), never memory content
-
-  - id: no-memories
-    scope: global
-    summary: 'session start: code repo, no core memory'
-    trigger: {state: 'git repo with code and no .serena/memories/core.md'}
-    when: session_start
-    action: "No project memory. Ask the owner to run ai-adopt (onboarding runs in its own session)."
+    action: "No AI base or Map here. Suggest the owner runs ai-adopt."
     proof: 'ai-adopt'
     strength: nudge
 
@@ -72,49 +50,12 @@ rules:
     scope: global
     trigger: {tool_after: 'Bash', command: '\bgit commit\b'}
     summary: 'after a git commit'
-    action: "{knowledge_delta}"   # the value is a full phrase; empty = no message
+    action: "{knowledge_delta}"   # full phrase from HEAD: update the Map, ai-libs --sync, graphify update; empty = silent
     once_per: 'session'
-    proof: 'tool:mcp__\S*serena__(write_memory|edit_memory)|ai-libs|graphify update'
-    strength: nudge   # router builds the text from HEAD: update mem:core source map, ai-libs --sync, graphify update
-
-  # ---------- code navigation ----------
-  - id: no-graph
-    scope: global
-    summary: 'session start: code repo, no graph'
-    trigger: {state: 'git repo with code and no graphify-out/graph.json'}
-    when: session_start
-    action: "Build the graph: GRAPHIFY_BACKEND=none graphify extract . --code-only (free, no key)."
-    proof: 'graphify'
+    proof: 'AGENTS.md|ai-libs|graphify update'
     strength: nudge
 
-  - id: graph-first
-    scope: global
-    summary: 'before Grep, Glob or Read of code'
-    trigger: {tool_before: 'Grep|Glob|Read', paths: 'code'}
-    action: "graphify query before grep or reads, then Serena, then only located lines."
-    log_only: true
-    strength: nudge   # graphify's own hook-guard (advisory) does this; router only logs it
-
-  - id: serena-first
-    scope: global
-    summary: 'before reads of code files'
-    trigger: {tool_before: 'Read|Edit|Bash', paths: 'code', command: '\b(cat|head|tail|sed -n|grep|rg)\b'}
-    quiet_window_s: 120   # at most one nudge per 120 s per session
-    action: "Code file: Serena first (get_symbols_overview, find_symbol, replace_symbol_body). OMC lsp_* only as fallback."
-    proof: 'tool:mcp__\S*serena'
-    strength: nudge   # context only, never deny; vendor serena-hooks remind NOT used (issues #2251, #2204)
-
-  - id: graph-update
-    scope: global
-    summary: 'after an edit of code'
-    trigger: {tool_after: 'Edit|Write', paths: 'code'}
-    action: "Code changed: graphify update . before you finish."
-    proof: 'graphify update'
-    reset_on: '\bgraphify update\b'
-    once_per: 'session'
-    strength: nudge
-
-  # ---------- safety ----------
+  # ---------- gates ----------
   - id: audit-before-install
     scope: global
     summary: 'before a package install command'
@@ -136,14 +77,6 @@ rules:
     action: "No sudo for agents: give the owner the exact command. On a server only sudo proj-agent <subcommand> is allowed."
     strength: gate    # blocks at a command position (also inside bash -c, behind env/nice/timeout); quoted text never counts
 
-  - id: no-em-dash
-    scope: global
-    summary: 'after a write with U+2014'
-    trigger: {tool_after: 'Edit|Write', content: "\u2014"}   # escaped so this file itself passes the lint
-    action: "Remove the em dash (U+2014). Use '-', ':' or a new sentence."
-    strength: nudge
-
-  # ---------- pull requests ----------
   - id: pr-rules
     scope: global
     summary: 'before gh pr create or edit'
@@ -151,7 +84,23 @@ rules:
     action: "PR body: summary, Mermaid diagram, one-way or two-way door, blast radius, author-sessions block at the end."
     strength: gate    # blocks when the body has no ```mermaid block or no <!-- author-sessions block
 
-  # ---------- topic tools ----------
+  # ---------- lint and docs ----------
+  - id: no-em-dash
+    scope: global
+    summary: 'after a write with U+2014'
+    trigger: {tool_after: 'Edit|Write', content: "\u2014"}   # escaped so this file itself passes the lint
+    action: "Remove the em dash (U+2014). Use '-', ':' or a new sentence."
+    strength: nudge
+
+  - id: docs-lookup
+    scope: global
+    summary: 'docs, SDK or library prompt'
+    trigger: {prompt: '\b(docs|documentation|api reference|sdk|library|framework|how (do|to) (i )?use|migrat(e|ion) to|upgrade to)\b', prompt_libs: true}
+    action: "Library code: context7 query-docs with the ID from the Libraries section (resolve only if missing), then the official docs site. {libs_hits}"
+    proof: 'tool:mcp__\S*context7'
+    strength: nudge
+
+  # ---------- opt-in tool is off here: suggest it, never install it ----------
   - id: seo-not-enabled
     scope: global
     summary: 'SEO prompt, project without claude-seo'
@@ -168,74 +117,33 @@ rules:
     proof: 'ai-adopt'
     strength: nudge
 
-  - id: docs-lookup
-    scope: global
-    summary: 'docs, SDK or library prompt'
-    trigger: {prompt: '\b(docs|documentation|api reference|sdk|library|framework|how (do|to) (i )?use|migrat(e|ion) to|upgrade to)\b', prompt_libs: true}
-    action: "Library code: docs first. .ai/libs.md, then Grounded Docs, then context7 (cached ID: skip resolve). Not web search. {libs_hits}"
-    proof: 'tool:mcp__\S*(context7|docs)'
-    strength: nudge
-
   - id: browser-not-enabled
     scope: global
     summary: 'browser prompt, project without Playwright MCP'
     trigger: {prompt: '\b(screenshot|open the page|click|e2e|end to end|browser test|playwright)\b', state: 'project without Playwright MCP'}
-    action: "No Playwright MCP in this project. Ask the owner to run ai-start. Do not install a browser tool yourself."
+    action: "No Playwright MCP in this project. Suggest: ai-adopt --tools browser. Do not install a browser tool yourself."
     proof: 'ai-start'
     strength: nudge
 
-  - id: docs-on-dependency
-    scope: global
-    summary: 'install or manifest edit'
-    trigger:
-      tool_after: 'Bash|Edit|Write'
-      command: '\b(npm|pnpm|yarn|bun) (add|install|i)\b|\bpip3? install\b|\buv add\b|\bcargo add\b|\bgo get\b'
-      paths: '**/package.json|**/pyproject.toml|**/requirements*.txt|**/Cargo.toml|**/go.mod'
-    once_per: library_per_session   # PostToolUse on docs tools records looked-up libraries
-    action: "New dependency: read its docs before coding against it (Grounded Docs, then context7). ai-libs --sync before the commit. {libs_hits}"
-    proof: 'tool:mcp__\S*(context7|docs)'
+  # ---------- opt-in per project (catalog for ai-adopt --tools) ----------
+  - id: serena
+    scope: opt-in
+    tool: Serena
+    when: session_start
+    trigger: {state: 'git repo with code'}
+    summary: 'session start, Serena on here'
+    action: "Serena is on here: initial_instructions, then get_symbols_overview / find_symbol for reads, replace_symbol_body for edits."
     strength: nudge
 
-  - id: github
-    scope: global
-    summary: 'issue, PR, review comments, GitHub prompt'
-    trigger: {prompt: '\b(issue #?\d*|pull request|pr #?\d+|review comments?|github)\b'}
-    action: "GitHub work: use the GitHub MCP or gh. {origin_slug}"
-    proof: 'tool:mcp__\S*github|\bgh '
+  - id: graph
+    scope: opt-in
+    tool: graphify
+    when: session_start
+    trigger: {state: 'git repo with code'}
+    summary: 'session start, graphify on here'
+    action: "graphify is on here: graphify query before broad searches; graphify update . after code changes."
     strength: nudge
 
-  - id: prompting-others
-    scope: global
-    summary: 'briefing another agent'
-    trigger: {tool_before: 'Agent|Bash', command: '\b(codex exec|claude -p|opencode run|gemini -p|omc ask|herdr agent prompt)\b'}
-    action: "Brief: goal, what is ruled out, files, narrow scope, output format, read-only unless the owner said so. Skill: prompting-claude-and-codex."
-    strength: nudge
-
-  - id: agent-docs
-    scope: global
-    summary: 'after an edit of AGENTS.md, CLAUDE.md or SKILL.md'
-    trigger: {tool_after: 'Edit|Write', paths: '**/AGENTS.md|**/CLAUDE.md|**/SKILL.md'}
-    action: "Agent instructions edited: check with the writing-for-agents skill."
-    proof: 'skill:\S*writing-for-agents'
-    strength: nudge
-
-  - id: wait-what
-    scope: global
-    summary: 'owner did not understand'
-    trigger: {prompt: '\b(wait,? what|explain (it )?simpler|i don.?t get it)\b'}
-    action: "wait-what skill: re-say the last answer in simple words."
-    proof: 'skill:\S*wait-what'
-    strength: nudge
-
-  - id: toolbox
-    scope: global
-    summary: 'asks for a ready tool'
-    trigger: {prompt: '\b(is there a tool|any tool for|tool that can|reverse engineer|video)\b'}
-    action: "Check ~/.config/ai/TOOLBOX.md before building a tool. Audit before first install."
-    proof: 'TOOLBOX'
-    strength: nudge
-
-  # ---------- opt-in per project ----------
   - id: seo
     scope: opt-in
     summary: 'SEO prompt'
@@ -252,6 +160,15 @@ rules:
     trigger: {prompt: '\b(blog|blog post|article|write a post|rewrite (the|this) post|newsletter)\b'}
     action: "Blog task: claude-blog first (claude-blog:blog routes). Post file: blog-*. Site: seo-*. {claude_handoff}"
     proof: 'skill:\S*blog|claude -p|claude-blog/skills'
+    strength: nudge
+
+  - id: browser
+    scope: opt-in
+    summary: 'browser prompt (screenshot, click, e2e)'
+    tool: Playwright MCP
+    trigger: {prompt: '\b(screenshot|open the page|click|e2e|end to end|browser test|playwright)\b'}
+    action: "Browser work: Playwright MCP (headless, isolated on servers)."
+    proof: 'tool:mcp__\S*playwright'
     strength: nudge
 
   - id: ui
@@ -281,15 +198,6 @@ rules:
     proof: 'skill:\S*(grill-with-docs|domain-model)'
     strength: nudge
 
-  - id: browser
-    scope: opt-in
-    summary: 'browser prompt (screenshot, click, e2e)'
-    tool: Playwright MCP
-    trigger: {prompt: '\b(screenshot|open the page|click|e2e|end to end|browser test|playwright)\b'}
-    action: "Browser work: Playwright MCP (headless, isolated on servers)."
-    proof: 'tool:mcp__\S*playwright'
-    strength: nudge
-
   - id: knowledge-wiki
     scope: opt-in
     summary: 'wiki or knowledge base prompt'
@@ -299,31 +207,11 @@ rules:
     proof: 'wiki'
     strength: nudge
 
-# ---------- tie-breaks (single source for L0, L2, L3; from contracts-skills section 7) ----------
+# ---------- tie-breaks (single source for L0, L2, L3) ----------
 # trigger -> winner; losers named so the router never suggests both.
 tiebreaks:
   - {trigger: 'one post file, or a post to be written', winner: 'claude-blog:blog-*', loser: 'claude-seo:seo-*', match: '\b(this|the|a|one|new|my|next) (blog )?post\b|\bpost file\b|\b(write|draft|rewrite) (a |the |this )?(blog )?post\b'}
   - {trigger: 'URL, domain, whole site', winner: 'claude-seo:seo-*', loser: 'claude-blog:blog-*', match: 'https?://|\bwww\.|\b(whole|entire|full) (site|website)\b|\bdomain\b'}
-  - {trigger: 'content brief for a page at a URL', winner: seo-content-brief, loser: blog-brief, match: '(?=.*\bcontent brief\b)(?=.*(https?://|\bwww\.|\bpage\b))'}
-  - {trigger: 'brief or outline for a post not yet written', winner: 'blog-brief / blog-outline', loser: seo-content-brief, match: '(?=.*\b(content brief|outline)\b)(?=.*\bpost\b)'}
-  - {trigger: 'topic cluster, goal = write posts', winner: blog-cluster, loser: seo-cluster, match: '(?=.*\btopic clusters?\b)(?=.*\b(posts?|articles?|blog)\b)'}
-  - {trigger: 'topic cluster, goal = site architecture', winner: seo-cluster, loser: blog-cluster, match: '(?=.*\btopic clusters?\b)(?=.*\b(site|architecture|pillar|hub)\b)'}
-  - {trigger: 'content strategy', winner: 'blog-strategy for a blog, seo-plan for a site', loser: 'the other', match: '\bcontent strategy\b'}
-  - {trigger: 'FLOW framework', winner: 'seo-flow if URL, blog-flow if blog', loser: 'the other', match: '\bflow (framework|loop)\b|\bfind\W+leverage\W+optimi[sz]e\b'}
-  - {trigger: 'schema or GEO of one post file', winner: 'blog-schema / blog-geo', loser: 'seo-schema / seo-geo', match: '(?=.*\b(schema|geo|json-ld)\b)(?=.*\bpost\b)'}
-  - {trigger: 'Search Console, PSI, CrUX', winner: seo-google, loser: blog-google, match: '\b(search console|gsc|psi|pagespeed|crux)\b'}
-  - {trigger: 'OG or hero image', winner: 'ask first; blog-image (post), seo-image-gen (site)', loser: 'ui-ux-pro-max banner-design', match: '\b(og|open ?graph|hero|social preview) image\b'}
-  - {trigger: 'last 30 days, inside a post workflow', winner: blog-discourse, loser: last30days, match: '(?=.*\b(last 30 days|what people (say|are saying|think))\b)(?=.*\bpost\b)'}
-  - {trigger: 'last 30 days, general research', winner: last30days, loser: blog-discourse, match: '\b(last 30 days|what people (say|are saying|think))\b'}
   - {trigger: 'new app or project (kickoff)', winner: 'grilling (typed: /grill-me)', loser: 'OMC deep-interview (fallback)', match: '\bnew (app|project)\b|\bkick ?off\b'}
-  - {trigger: 'grill me, stress-test a plan', winner: 'matt grilling', loser: 'OMC deep-interview', match: '\bgrill(ing)? me\b|\bstress[- ]test\b'}
   - {trigger: 'deep interview, ambiguity score', winner: 'OMC deep-interview', loser: 'matt grilling', match: '\bdeep interview\b|\bambiguity score\b'}
-  - {trigger: 'research X', winner: 'OMC research', loser: 'matt research, deep-research', match: '\bresearch\b'}
-  - {trigger: 'code review of a diff', winner: 'built-in code-review or OMC review', loser: 'matt code-review (opt-in)', match: '\bcode review\b|\breview (the|this|my) (diff|pr|changes|code)\b'}
-  - {trigger: 'bug, debug this', winner: 'OMC debug / trace', loser: 'matt diagnosing-bugs (opt-in)', match: '\b(bug|debug|stack ?trace|traceback)\b'}
-  - {trigger: 'edit AGENTS.md, CLAUDE.md, SKILL.md', winner: 'matt writing-for-agents', loser: 'OMC skillify, skill-creator', match: '\b(agents|claude|skill)\.md\b'}
-  - {trigger: 'chart or dashboard styling', winner: dataviz, loser: 'blog-chart, ui-ux-pro-max', match: '\b(chart|plot|dashboard)\b'}
-  - {trigger: '.pptx file asked', winner: 'anthropic-skills:pptx', loser: 'ui-ux-pro-max slides (HTML decks)', match: '\.?pptx\b|\bpowerpoint\b'}
-  - {trigger: 'wiki', winner: 'llmwiki where the project enabled it, else OMC wiki', loser: 'the other', match: '\bwiki\b'}
-  - {trigger: 'code symbol lookup or edit', winner: Serena, loser: 'OMC lsp_* (fallback)', match: '\b(find|where is|rename|go to) (the )?(symbol|function|class|method|definition)\b|\bfind references\b'}
-  - {trigger: 'library API docs', winner: '.ai/libs.md IDs, then Grounded Docs', loser: 'context7 (fallback), web search (last)', match: '\b(api docs|library docs|docs for)\b'}
+  - {trigger: 'library API docs', winner: 'context7 with the Libraries ID', loser: 'web search', match: '\b(api docs|library docs|docs for)\b'}

@@ -1,22 +1,8 @@
 {
   "mcpServers": {
-    "serena": {
-      "command": "serena",
-      "args": ["start-mcp-server", "--project-from-cwd", "--context=claude-code"],
-      "env": { "SERENA_USAGE_REPORTING": "false" },
-      "alwaysLoad": true
-    },
     "context7": {
       "command": "${CLAUDE_PLUGIN_ROOT}/mcp/context7.sh",
       "args": []
-    },
-    "github": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/mcp/github.sh",
-      "args": []
-    },
-    "grounded-docs": {
-      "type": "http",
-      "url": "${AI_DOCS_MCP_URL:-http://127.0.0.1:6280/mcp}"
     }
   }
 }

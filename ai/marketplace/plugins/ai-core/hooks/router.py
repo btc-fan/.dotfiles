@@ -31,9 +31,8 @@ import time
 sys.dont_write_bytecode = True      # no __pycache__ inside the (possibly read-only) plugin dir
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from hooklib import (GATES, GATE_PROBES, ai_home, append_jsonl, command_text, gate_skips,  # noqa: E402
-                     install_targets, iso_now, knowledge_delta, knowledge_index, libs_hits, log_error, log_line,
-                     norm_pypi, one_line, origin_slug, parse_command, prompt_libs, redact, project_root,
-                     read_text, split_simple, state_path)
+                     iso_now, knowledge_delta, knowledge_index, libs_hits, log_error, log_line, one_line,
+                     origin_slug, parse_command, prompt_libs, redact, project_root, read_text, state_path)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
 CONTEXT_CAP = 9500          # additionalContext is cut here (hook output caps: Claude 10,000 chars, Codex ~2,500 tokens)
@@ -176,9 +175,6 @@ def on_pre_tool(ctx):
             continue
         if not conditions_match(rule, tool, tin, cmd, ctx):
             continue
-        if rule.get("log_only"):
-            ctx.fired(rule, "PreToolUse", log_only=True)
-            continue
         text = render_action(rule, ctx)
         if text and ctx.state.allow_nudge(rule, nudge_key(rule, tool, tin, cmd)):
             ctx.fired(rule, "PreToolUse")
@@ -195,21 +191,12 @@ def on_post_tool(ctx):
         if name:
             append_jsonl("fired.jsonl", ctx.row(kind="skill", via="tool", skill=name))
     if is_docs_tool(tool):
-        ctx.state.add_docs_libs(docs_libraries(tin))
         log_docs_ids(ctx, tool, tin)
-    if cmd:
-        ctx.state.apply_resets(ctx.routing, ctx.cmd_text)
     for rule in ctx.routing.get("rules", []):
         trig = rule.get("trigger", {})
         if not trig.get("tool_after") or not tool_matches(trig["tool_after"], tool):
             continue
         if not rule_enabled(rule, ctx) or not conditions_match(rule, tool, tin, cmd, ctx):
-            continue
-        if rule.get("once_per") == "library_per_session":
-            msg = dependency_nudge(rule, ctx, tool, tin, cmd)
-            if msg:
-                ctx.fired(rule, "PostToolUse")
-                ctx.add_context(msg)
             continue
         if trig.get("content"):
             hits = content_hits(trig["content"], tin)
@@ -337,8 +324,8 @@ class Ctx(object):
         if self.decision == "ask" and self.agent == "codex":
             # Codex has no ask prompt (an "ask" output fails and the tool runs): deny with a clear message.
             self.decision = "deny"
-            self.reasons.append("Codex cannot ask the owner. Stop and ask the owner; after an OK, rerun with "
-                                "AI_GATE_SKIP='<rule>:<owner OK reason>'.")
+            self.reasons.append("Codex cannot ask the owner. Stop and ask the owner; only the owner can let it "
+                                "through: sudo ai-gate-skip <gate> <minutes> <why>.")
         if self.decision == "deny":
             reason = "\n".join(self.reasons)
             # Codex (shape used by the audited oh-my-codex 0.22.6 hooks) also reads decision/reason.
@@ -407,7 +394,6 @@ def tool_matches(pattern, tool):
 def conditions_match(rule, tool, tin, cmd, ctx):
     """Rules combine tool + command + paths. Semantics:
     - command applies to tools that carry a shell command (Bash); other tools skip it.
-    - paths 'code' applies to file tools (file path) and to Bash (a code path in the arguments).
     - paths globs apply to file tools only (Bash relies on command).
     - a tool without a command and without a file path passes (e.g. Agent for prompting-others).
     """
@@ -416,17 +402,11 @@ def conditions_match(rule, tool, tin, cmd, ctx):
     if cmd:
         if trig.get("command") and not search(trig["command"], ctx.cmd_text or cmd):
             return False
-        if paths == "code" and not bash_touches_code(cmd, ctx):
-            return False
         return True
     if trig.get("command") and tool in ("Bash", "shell", "exec_command", "local_shell"):
         return False
     fpath = file_of(tin)
     if paths:
-        if paths == "code":
-            if tool in ("Grep", "Glob"):
-                return search_targets_code(tin, ctx)
-            return bool(fpath) and is_code_path(fpath)
         return bool(fpath) and glob_match(paths, fpath, ctx.cwd)
     return True
 
@@ -459,29 +439,6 @@ def expand_braces(globs):
         else:
             out.append(g)
     return out
-
-
-def bash_touches_code(cmd, ctx):
-    toks = split_simple(cmd)
-    if any(is_code_path(t) for t in toks if not t.startswith("-")):
-        return True
-    head = [t for t in toks if not re.match(r"^\w+=", t)]
-    if head and os.path.basename(head[0]) in ("grep", "rg", "ag", "ack"):
-        dirs = [t for t in head[1:] if not t.startswith("-") and os.path.isdir(os.path.join(ctx.cwd, t))]
-        if dirs or len(head) <= 3:
-            return ctx.root is not None and ctx.state.has_code(ctx.root)
-    return False
-
-
-def search_targets_code(tin, ctx):
-    pat = tin.get("pattern", "") if "glob" not in tin else tin.get("glob", "")
-    if any(pat.endswith(e) for e in CODE_EXT) or re.search(r"\*\.\{?(py|ts|tsx|js|go|rs)", pat or ""):
-        return True
-    target = tin.get("path") or ctx.cwd
-    if os.path.isfile(target):
-        return is_code_path(target)
-    root = project_root(target)
-    return root is not None and ctx.state.has_code(root)
 
 
 def content_hits(needle, tin):
@@ -518,6 +475,8 @@ def has_code_files(root, limit=4000):
 
 
 def playwright_enabled(root):
+    if root and project_plugin_enabled(root, "ai-playwright@ai"):
+        return True
     for rel in (".mcp.json", ".codex/config.toml", ".claude/settings.json"):
         text = read_text(os.path.join(root, rel))
         if text and "playwright" in text.lower():
@@ -561,6 +520,10 @@ def pack_enabled(tool, ctx):
     return short in names or tool in names or project_plugin_enabled(ctx.root, plugin_id)
 
 
+# Opt-in plugins of our own marketplace: ON when the project enables them (ai-adopt --tools serena writes it).
+PROJECT_PLUGINS = {"serena": "ai-serena@ai", "browser": "ai-playwright@ai"}
+
+
 def rule_enabled(rule, ctx):
     if rule.get("scope", "global") != "opt-in":
         return True
@@ -572,17 +535,14 @@ def rule_enabled(rule, ctx):
     names = enabled_tools(ctx.root)
     if rule["id"].lower() in names or tool in names:
         return True
+    pid = PROJECT_PLUGINS.get(rule["id"].lower())
+    if pid and ctx.agent == "claude" and project_plugin_enabled(ctx.root, pid):
+        return True
     return rule["id"] == "browser" and playwright_enabled(ctx.root)
 
 
 def _state_no_base(ctx):
     return ctx.root is not None and not os.path.exists(os.path.join(ctx.root, ".ai", "base-version"))
-
-
-def _state_no_graph(ctx):
-    return (ctx.root is not None
-            and not os.path.exists(os.path.join(ctx.root, "graphify-out", "graph.json"))
-            and ctx.state.has_code(ctx.root))
 
 
 def _state_no_playwright(ctx):
@@ -601,20 +561,13 @@ def _state_code_repo(ctx):
     return ctx.root is not None and ctx.state.has_code(ctx.root)
 
 
-def _state_code_no_memories(ctx):
-    return (_state_code_repo(ctx)
-            and not os.path.isfile(os.path.join(ctx.root, ".serena", "memories", "core.md")))
-
-
 # routing.yaml `state:` strings -> predicates. ai-render fails on a state string not listed here.
 STATE_PREDICATES = {
     "git repo without .ai/base-version": _state_no_base,
-    "git repo with code and no graphify-out/graph.json": _state_no_graph,
     "project without Playwright MCP": _state_no_playwright,
     "git repo with code": _state_code_repo,
     "project without claude-seo": _state_no_seo,
     "project without claude-blog": _state_no_blog,
-    "git repo with code and no .serena/memories/core.md": _state_code_no_memories,
 }
 
 
@@ -789,12 +742,13 @@ def run_gate(rule, ctx, cmd):
     if rule["id"] in skips:
         log_line("gates.log", "%s SKIP %s session=%s reason=%s cmd=%s" % (
             iso_now(), rule["id"], ctx.session, redact(skips[rule["id"]]), redact(one_line(cmd))[:200]))
-        ctx.add_context("[ai gate %s] skipped by AI_GATE_SKIP (logged)." % rule["id"])
+        ctx.add_context("[ai gate %s] skipped by the owner (/etc/ai/gate-skip, logged)." % rule["id"])
         return
     decision, msg = verdict
     # Decide first: logging below never raises, and a failure there must not lose the decision.
-    ctx.decide(decision, "[ai gate %s] %s\nEscape hatch (owner OK only): prefix the command with "
-               "AI_GATE_SKIP='%s:<why>'. It is logged." % (rule["id"], msg, rule["id"]))
+    ctx.decide(decision, "[ai gate %s] %s\nOnly the owner can let it through: he runs "
+               "sudo ai-gate-skip %s <minutes, max 60> <why> himself. It is logged. Do not try to get around "
+               "the gate." % (rule["id"], msg, rule["id"]))
     log_line("gates.log", "%s %s %s session=%s cmd=%s" % (
         iso_now(), decision.upper(), rule["id"], ctx.session, redact(one_line(cmd))[:200]))
     ctx.fired(rule, "PreToolUse")
@@ -802,56 +756,8 @@ def run_gate(rule, ctx, cmd):
 
 # ---------------------------------------------------------------- docs-on-dependency
 
-def dependency_nudge(rule, ctx, tool, tin, cmd):
-    libs = set()
-    if cmd:
-        for eco, name, _v in install_targets(ctx.stages, ctx.cwd):
-            if eco in ("npm", "pypi", "cargo"):
-                libs.add(name)
-        for mm in re.finditer(r"\bgo get\s+(\S+)", cmd):
-            libs.add(mm.group(1).split("@")[0])
-    else:
-        libs = manifest_libs(file_of(tin), tin)
-    key = file_of(tin) or "cmd"
-    new = ctx.state.new_dependency_libs(libs, key)
-    if new is None:
-        return None
-    ctx.named_libs = set(new or libs)
-    named = (" Libraries: " + ", ".join(sorted(new)[:8]) + ".") if new else ""
-    text = render_action(rule, ctx)
-    return ("[ai router: %s] %s%s" % (rule["id"], text, named)) if text else None
-
-
-def manifest_libs(path, tin):
-    new = "\n".join(t for t in (tin.get("content"), tin.get("new_string")) if isinstance(t, str))
-    old = tin.get("old_string") if isinstance(tin.get("old_string"), str) else ""
-    base = os.path.basename(path or "")
-    if base == "package.json":
-        rx = r'"(@?[a-z0-9][\w./-]*)"\s*:\s*"[~^<>=]*\d'
-    elif base == "go.mod":
-        rx = r"^\s*(?:require\s+)?([a-z0-9.-]+\.[a-z]+/[\w./-]+)\s+v\d"
-    elif base == "Cargo.toml":
-        rx = r"^\s*([a-z0-9_-]+)\s*=\s*[\"{]"
-    else:   # pyproject.toml, requirements*.txt
-        rx = r"^\s*[\"']?([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]*\])?\s*(?:[=<>~!]=?|[\"',]|$)"
-    found = set(re.findall(rx, new, re.M)) - set(re.findall(rx, old, re.M))
-    ignore = {"name", "version", "description", "edition", "license", "requires-python", "python", "module",
-              "go", "authors", "readme", "type", "main", "private", "scripts", "build-backend", "requires"}
-    return {norm_pypi(x) if base != "package.json" else x.lower() for x in found if x.lower() not in ignore}
-
-
 def is_docs_tool(tool):
     return tool.startswith("mcp__") and re.search(r"context7|docs", tool) is not None
-
-
-def docs_libraries(tin):
-    libs = set()
-    for key in ("libraryName", "library", "libraryId", "context7CompatibleLibraryID", "name", "package"):
-        v = tin.get(key)
-        if isinstance(v, str) and v:
-            libs.add(v.strip("/").split("/")[-1].lower())
-            libs.add(norm_pypi(v.strip("/").split("/")[-1]))
-    return libs
 
 
 # ---------------------------------------------------------------- miss log (L7) and notify
@@ -1010,38 +916,6 @@ class SessionState(object):
             keys.append(key)
         self.dirty = True
         return True
-
-    def apply_resets(self, routing, cmd):
-        d = self.load()
-        for rule in routing.get("rules", []):
-            rx = rule.get("reset_on")
-            if rx and search(rx, cmd) and d.get("keys", {}).get(rule["id"]):
-                d["keys"][rule["id"]] = []
-                self.dirty = True
-
-    def add_docs_libs(self, libs):
-        if libs:
-            d = self.load()
-            d["docs_libs"] = sorted(set(d.get("docs_libs", [])) | set(libs))
-            self.dirty = True
-
-    def new_dependency_libs(self, libs, key):
-        """Libraries not looked up and not nudged yet this session; None = stay quiet."""
-        d = self.load()
-        done = set(d.get("docs_libs", [])) | set(d.get("dep_nudged", []))
-        if libs:
-            new = sorted(set(libs) - done)
-            if not new:
-                return None
-            d["dep_nudged"] = sorted(set(d.get("dep_nudged", [])) | set(new))
-            self.dirty = True
-            return new
-        files = d.setdefault("dep_files", [])
-        if key in files:
-            return None
-        files.append(key)
-        self.dirty = True
-        return []
 
     def add_pending(self, rule_id, proof, transcript):
         d = self.load()

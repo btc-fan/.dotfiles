@@ -33,7 +33,7 @@ Note: plugin skills cannot be hidden one by one. Think about the context cost.
 
 1. Intake and audit. Check telemetry and set it off in the server `env`. Check what leaves the machine.
 2. Pin the exact version in `ai/pins.env`. No `@latest`.
-3. Add the server to `ai/marketplace/plugins/ai-core/.mcp.json`. Keys: `${VAR}` from `~/.config/ai/secrets.env`, and add the name to `secrets.env.example`. Do not commit a key. (One owner exception exists: the free context7 key.)
+3. Default: per project, not global (every global server costs context in every session; owner decision 2026-11-12). Add it to `project_mcp_plan` in `ai/bin/ai-start` with an opt-in routing row, like Serena and Playwright. Only a server every project needs (today: context7) goes into `ai/marketplace/plugins/ai-core/.mcp.json`. Keys: `${VAR}` from `~/.config/ai/secrets.env`, and add the name to `secrets.env.example`. Do not commit a key. (One owner exception exists: the free context7 key.)
 4. Codex: the installer runs `codex mcp add`. Hermes: `hermes mcp add`.
 5. Plugin tool names are `mcp__plugin_ai-core_<server>__<tool>`. Use these names in hook matchers and in routing rows.
 6. If the server must be per project (like Playwright), do not put it in `.mcp.json` of the plugin. Add it through `ai-start` and `ai-adopt`.
@@ -50,8 +50,8 @@ Note: plugin skills cannot be hidden one by one. Think about the context cost.
 
 ## 4. Add a routing rule
 
-1. Edit `ai/routing.yaml`. Fields: `id`, `scope` (global or opt-in), `trigger` (prompt regex, tool, command, paths, state), `action` (one short sentence), `strength` (nudge or gate).
-2. Use a gate only for a rule with no exception. Give it an escape hatch.
+1. First ask: would one line in the root AGENTS.md or the project Map do? Passive context beats nudges, and v4 removed the nudges the logs showed ignored. A new nudge must show in `fired.jsonl` and `misses.jsonl` that it is followed. Then edit `ai/routing.yaml`. Fields: `id`, `scope` (global or opt-in), `trigger` (prompt regex, tool, command, paths, state), `action` (one short sentence), `strength` (nudge or gate).
+2. Use a gate only for a rule with no exception. Its escape hatch is the owner-only `sudo ai-gate-skip <gate> <minutes> <why>`; never an in-command variable an agent could type.
 3. A rule that overlaps another: add a row to `tiebreaks`.
 4. Keep regexes strict. A loose prompt regex fires on unrelated prompts.
 5. Run `ai-render`. It rebuilds `routing.json` and the L0 table. Check the root file size (under 30 KB). On other machines, `git pull` plus `ai-sync` delivers it (see [AGENTS-MD.md](AGENTS-MD.md)).
@@ -66,9 +66,9 @@ File `ai/rules/<tool>.md`. Sections, in order:
 3. Enforcement: which layers (L0 to L7) apply, the exact trigger, what the tool enforces itself.
 4. Proof: should-fire and should-not-fire prompts (English, Romanian, Russian), and the signal that shows it fired.
 5. Setup checklist: install and pin per OS, every config file and setting, telemetry and auto-update off, keys (required or optional), per-machine steps, per-project steps, verify command, cleanup paths.
-For an MCP server or tool that can cache facts, add one more section, "Knowledge home, freshness, maintenance": where the cached facts live in the repo (one home per fact, see [TOOLS.md](TOOLS.md) "Where project knowledge lives"), when they count as stale, and which command or nudge refreshes them. If a cache would go stale too fast (issues, PRs), say "none on purpose". Examples: `serena.md`, `context7.md`, `github-mcp.md`.
+For an MCP server or tool that can cache facts, add one more section, "Knowledge home, freshness, maintenance": where the cached facts live in the repo (one home per fact, see [TOOLS.md](TOOLS.md) "Where project knowledge lives"; for a repo that is its AGENTS.md), when they count as stale, and which command or nudge refreshes them. If a cache would go stale too fast (issues, PRs), say "none on purpose". Examples: `context7.md` (the Libraries section), `graphify.md` (graphify-out/), `playwright.md` (the Map).
 Mark every fact you did not verify as UNVERIFIED. Do not guess.
-Then put a short form (2 to 4 lines) in `ai/agents-md/90-toolbox-and-vendor-rules.md`. The root file stays under 30 KB.
+Only if every agent needs it in every session: one short line in `ai/agents-md/90-toolbox-and-vendor-rules.md`. The root file stays well under 12 KB.
 
 ## 6. Add evals
 

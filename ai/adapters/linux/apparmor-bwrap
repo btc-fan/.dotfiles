@@ -1,0 +1,10 @@
+# AppArmor profile for /usr/bin/bwrap: lets bubblewrap create user namespaces on Ubuntu, which the Claude
+# Code Bash sandbox needs. Text from code.claude.com/docs/en/sandboxing ("Add an AppArmor profile for
+# bubblewrap"). Installed by install.sh only when kernel.apparmor_restrict_unprivileged_userns=1.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+  include if exists <local/bwrap>
+}

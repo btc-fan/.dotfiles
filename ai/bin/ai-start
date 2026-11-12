@@ -4,37 +4,34 @@
   ai-start [--dir PATH] [--tools id,id] [--yes] [--dry-run]   new project: pick opt-in tools, commit
   ai-adopt [--dir PATH] [--tools id,id] [--yes] [--dry-run]   existing repo: same layer, show diff,
                                                               one y/N, commit, push (owner repos only)
-  Extra flags: --no-knowledge (skip the knowledge layer below), --no-onboard (skip Serena onboarding).
+  Extra flags: --no-knowledge (skip Map and Libraries), --refresh-map (write the Map section again),
+               --no-onboard (no headless claude pass for the Map conventions).
 ai-adopt is a link to this file; the mode comes from the command name. Rerun = upgrade (blocks are
 replaced by marker, project text outside the blocks is never touched).
-
-Before ai-start, run grill-me in the agent session (one question round): this command only picks
-tools and writes files.
 
 What it writes (project root):
   .ai/base-version   routing.yaml version (the base version vN)
   .ai/enabled        opt-in rule ids, one per line (the router reads it)
-  AGENTS.md          one managed block per enabled opt-in tool:
-                     <!-- AI:<id> v<N> START --> ... <!-- AI:<id> v<N> END -->
-                     text = "Vendor rules" section of ai/rules/<tool>.md, else the routing action
+  AGENTS.md          project knowledge every agent reads with no tool call (owner decision 2026-11-12):
+                     "## Map" between <!-- AI:map START/END --> (entry points, where things live, how to
+                     run and test, non-obvious conventions; <= 60 lines; written when missing or with
+                     --refresh-map; edit freely inside the markers) and "## Libraries" between
+                     <!-- AI:libraries START/END --> (ai-libs --sync: library, version, context7 ID).
+                     Plus one short managed block per enabled opt-in tool:
+                     <!-- AI:<id> v<N> START --> <routing action> <!-- AI:<id> v<N> END -->
   CLAUDE.md          a line "@AGENTS.md" (created when missing)
-  .claude/settings.json   enabledPlugins for claude-seo / claude-blog when "seo" / "blog" is enabled (both
-                     plugins are installed per machine but off at user scope; merge, other keys kept)
-  .mcp.json, .codex/config.toml   Playwright MCP when "browser" is enabled: command ai-playwright-mcp,
-                     which runs the pinned @playwright/mcp installed once per machine (integrity +
-                     agent-audit PASS, --ignore-scripts) in ~/.local/share/ai/npm. No npx at runtime.
-
-Knowledge layer (so agents never explore the repo from zero; skipped with --no-knowledge):
-  .gitignore         .serena/cache/, .serena/project.local.yml, .serena/logs/, graphify-out/
-  .serena/project.yml  `serena project create --index` when missing (else `serena project index` once),
-                     then initial_prompt points at mem:core and .ai/libs.md
-  .serena/memories/  Serena onboarding, run headless in its own claude -p session (asks first; --yes
-                     runs it; never in the owner's session). Read the memories in the diff before the
-                     commit. If memories exist but core.md does not, core.md is written as an index.
-  graphify-out/      GRAPHIFY_BACKEND=none graphify extract . --code-only (local, no key, gitignored)
-  .ai/libs.md        ai-libs --sync (library versions, context7 IDs, Grounded Docs names)
-  ~/.serena/memories/global/memory_maintenance.md   copied from ai/serena/ when missing
-Code steps run only when the repo has code. A missing tool is skipped with a message.
+  .claude/settings.json   enabledPlugins for claude-seo / claude-blog when "seo" / "blog" is enabled
+  .claude/settings.json   also enabledPlugins "ai-serena@ai" ("serena") and "ai-playwright@ai" ("browser"): each
+                     plugin holds only its MCP entry; managed settings block project .mcp.json servers
+  .codex/config.toml Codex entries for Playwright ("browser": ai-playwright-mcp, the pinned @playwright/mcp
+                     installed once per machine, no npx at runtime) and Serena (trusted projects only)
+  .gitignore         .serena/cache/, .serena/project.local.yml when "serena" is on; graphify-out/ when
+                     "graph" is on
+  Opt-in "serena":   serena project create --index (.serena/project.yml committed)
+  Opt-in "graph":    GRAPHIFY_BACKEND=none graphify extract . --code-only (local, no key, gitignored)
+Map conventions: with --yes (or after a y/N), one headless `claude -p` pass with read-only tools (Read,
+Grep, Glob, rg, git ls-files) proposes the conventions lines; nothing else is written by it.
+An old .ai/libs.md is removed (its IDs move into the Libraries section).
 Owner repos: AI_GITHUB_OWNERS (env or ~/.config/ai/config.env, comma list), else the owner of the
 origin remote of $AI_HOME. Third-party repos are refused.
 """
@@ -76,16 +73,17 @@ def main(argv):
             agents, note = upsert_block(agents, rule, version)
             if note:
                 print(note)
+    knowledge = opts["knowledge"]
+    if knowledge and (opts["refresh_map"] or not MAP_RX.search(agents)):
+        agents = upsert_map(agents, build_map(root))
     plan.append(write_plan(agents_path, agents))
     plan.append(write_plan(os.path.join(root, "CLAUDE.md"), claude_md(read(os.path.join(root, "CLAUDE.md")))))
-    if "browser" in chosen or "browser" in current:
-        plan.extend(playwright_plan(root, opts["dry_run"]))
+    plan.extend(project_mcp_plan(root, enabled, opts["dry_run"]))
     plan.append(claude_plugins_plan(root, enabled))
-    knowledge = opts["knowledge"]
-    if knowledge:
-        plan.append(write_plan(os.path.join(root, ".gitignore"), gitignore_text(read(os.path.join(root, ".gitignore")))))
+    plan.append(write_plan(os.path.join(root, ".gitignore"), gitignore_text(read(os.path.join(root, ".gitignore")),
+                                                                            enabled)))
     plan = [p for p in plan if p]
-    steps = knowledge_steps(root, opts) if knowledge else []
+    steps = knowledge_steps(root, opts, enabled)
 
     if not plan and not steps:
         print("ai-%s: nothing to change (base v%s)" % (mode, version))
@@ -106,23 +104,23 @@ def main(argv):
         except (OSError, subprocess.SubprocessError) as exc:
             print("ai-%s: step failed, skipped (%s): %s" % (mode, name, exc))
     paths = [os.path.relpath(p, root) for p, _ in plan]
-    paths += [rel for rel in KNOWLEDGE_PATHS if knowledge and os.path.exists(os.path.join(root, rel))
-              and rel not in paths]
+    paths += [rel for rel in KNOWLEDGE_PATHS if (os.path.exists(os.path.join(root, rel)) or
+                                                 git(root, "ls-files", "--", rel)) and rel not in paths]
     if not paths or not git(root, "status", "--porcelain", "--", *paths):
         print("ai-%s: nothing to commit (generated files are gitignored)" % mode)
         return 0
     subprocess.call(["git", "-C", root, "add", "-N"] + paths, stderr=subprocess.DEVNULL)
     subprocess.call(["git", "-C", root, "--no-pager", "diff", "--"] + paths)
-    hits = knowledge_secret_hits(root) if knowledge else []
+    hits = knowledge_secret_hits(root)
     if hits:
-        print("ai-%s: secret scan found %s in .serena/memories or .ai/libs.md. Remove it, then run again. "
+        print("ai-%s: secret scan found %s in AGENTS.md. Remove it, then run again. "
               "Files written, not committed." % (mode, ", ".join(sorted(set(hits)))))
         return 1
     if not opts["yes"] and not ask("Commit this%s? [y/N] " % (" and push" if mode == "adopt" else "")):
         print("ai-%s: files written, not committed" % mode)
         return 0
     msg = ("chore(ai): adopt base AI setup v%s" if mode == "adopt" else "chore(ai): start project AI setup v%s") % version
-    subprocess.check_call(["git", "-C", root, "add", "--"] + paths)
+    subprocess.check_call(["git", "-C", root, "add", "-A", "--"] + paths)
     subprocess.check_call(["git", "-C", root, "commit", "-m", msg, "--"] + paths)
     if mode == "adopt" and has_remote(root):
         return subprocess.call(["git", "-C", root, "push"])
@@ -130,7 +128,8 @@ def main(argv):
 
 
 def parse(argv):
-    opts = {"dir": ".", "tools": None, "yes": False, "dry_run": False, "knowledge": True, "onboard": True}
+    opts = {"dir": ".", "tools": None, "yes": False, "dry_run": False, "knowledge": True, "onboard": True,
+            "refresh_map": False}
     args = list(argv)
     while args:
         a = args.pop(0)
@@ -146,6 +145,8 @@ def parse(argv):
             opts["knowledge"] = False
         elif a == "--no-onboard":
             opts["onboard"] = False
+        elif a == "--refresh-map":
+            opts["refresh_map"] = True
         elif a in ("-h", "--help"):
             print(__doc__)
             sys.exit(0)
@@ -195,13 +196,12 @@ def upsert_block(agents, rule, version):
 
 
 def vendor_text(rule):
+    """Short on purpose (context files cost tokens every session): the routing action plus a pointer."""
+    action = re.sub(r"\s*\{[a-z_]+\}", "", rule["action"]).strip()
     for name in candidates(rule):
-        text = read(os.path.join(AI_DIR, "rules", name + ".md"))
-        if text:
-            m = re.search(r"^##+\s*Vendor rules[^\n]*\n(.*?)(?=^##+\s|\Z)", text, re.S | re.M)
-            if m and m.group(1).strip():
-                return m.group(1).strip()
-    return "%s: %s" % (rule.get("tool", rule["id"]), rule["action"])
+        if os.path.isfile(os.path.join(AI_DIR, "rules", name + ".md")):
+            return "%s Details: ~/.config/ai/rules/%s.md" % (action, name)
+    return action
 
 
 def candidates(rule):
@@ -220,7 +220,10 @@ def claude_md(text):
 
 
 # Opt-in Claude plugins (owner 2026-11-12): installed per machine, disabled at user scope, enabled per project.
-CLAUDE_PLUGINS = {"seo": "claude-seo@agricidaniel-claude-seo", "blog": "claude-blog@agricidaniel-blog"}
+# Serena too: plugin ai-serena@ai holds only its MCP entry, because managed strictPluginOnlyCustomization
+# blocks project .mcp.json files (planted-config defence) while plugin servers still load.
+CLAUDE_PLUGINS = {"seo": "claude-seo@agricidaniel-claude-seo", "blog": "claude-blog@agricidaniel-blog",
+                  "serena": "ai-serena@ai", "browser": "ai-playwright@ai"}
 
 
 def claude_plugins_plan(root, enabled):
@@ -242,12 +245,20 @@ def claude_plugins_plan(root, enabled):
     return (path, json.dumps(data, indent=2) + "\n")
 
 
-def playwright_plan(root, dry_run=False):
-    """Project config runs `ai-playwright-mcp` (ai/bin, on PATH): it execs the pinned @playwright/mcp that
-    ensure_playwright installed once per machine. No npx and no download at runtime."""
-    if not ensure_playwright(dry_run):
+def project_mcp_plan(root, enabled, dry_run=False):
+    """Per-project MCP servers in .mcp.json (Claude) and .codex/config.toml (Codex, loaded in trusted projects
+    only), merged in one write each.
+    Claude gets both servers from plugins (ai-playwright@ai, ai-serena@ai via claude_plugins_plan), because
+    managed settings block project .mcp.json servers. So only Codex gets entries here.
+    browser: `ai-playwright-mcp` runs the pinned @playwright/mcp installed once per machine (no npx)."""
+    want = {}
+    if "browser" in enabled and ensure_playwright(dry_run):
+        want["playwright"] = (None, ("ai-playwright-mcp", ["--headless", "--isolated"], {}))
+    if "serena" in enabled:
+        want["serena"] = (None, ("serena", ["start-mcp-server", "--project-from-cwd", "--context=codex"],
+                                 {"SERENA_USAGE_REPORTING": "false"}))
+    if not want:
         return []
-    args = ["--headless", "--isolated"]
     out = []
     mcp_path = os.path.join(root, ".mcp.json")
     try:
@@ -257,165 +268,230 @@ def playwright_plan(root, dry_run=False):
         mcp = None
     if mcp is not None:
         servers = mcp.setdefault("mcpServers", {})
-        if "playwright" not in servers:
-            servers["playwright"] = {"command": "ai-playwright-mcp", "args": args}
+        added = [n for n in want if n not in servers and want[n][0] is not None]
+        for n in added:
+            servers[n] = want[n][0]
+        if added:
             out.append((mcp_path, json.dumps(mcp, indent=2) + "\n"))
     toml_path = os.path.join(root, ".codex", "config.toml")
     toml = read(toml_path) or ""
-    if "[mcp_servers.playwright]" not in toml:
-        block = '[mcp_servers.playwright]\ncommand = "ai-playwright-mcp"\nargs = [%s]\n' % ", ".join(
-            '"%s"' % a for a in args)
-        out.append((toml_path, (toml.rstrip("\n") + "\n\n" if toml.strip() else "") + block))
+    blocks = []
+    for n, (_c, (cmd, args, env)) in want.items():
+        if "[mcp_servers.%s]" % n in toml:
+            continue
+        block = '[mcp_servers.%s]\ncommand = "%s"\nargs = [%s]\n' % (n, cmd, ", ".join('"%s"' % a for a in args))
+        if env:
+            block += "env = { %s }\n" % ", ".join('%s = "%s"' % kv for kv in env.items())
+        blocks.append(block)
+    if blocks:
+        out.append((toml_path, (toml.rstrip("\n") + "\n\n" if toml.strip() else "") + "\n".join(blocks)))
     return out
 
 
 # ---------------------------------------------------------------- knowledge layer
 
-GITIGNORE_LINES = [".serena/cache/", ".serena/project.local.yml", ".serena/logs/", "graphify-out/"]
-KNOWLEDGE_PATHS = [".serena/project.yml", ".serena/.gitignore", ".serena/memories", ".ai/libs.md"]
-INITIAL_PROMPT = ("Read mem:core first (read_memory core). Memories are hints, the code wins. "
-                  "Library versions and docs IDs: .ai/libs.md.")
-VENDOR_MEMORIES = ["core", "tech_stack", "suggested_commands", "conventions", "task_completion"]
-ONBOARD_PROMPT = (
-    "Call serena initial_instructions, then onboarding. Follow mem:global/memory_maintenance. "
-    "Use graphify query and Serena symbol tools, not whole-file reads. Write core (<= 60 lines: what the "
-    "project is, a source map folder -> one line, main commands, mem: links), tech_stack, "
-    "suggested_commands, conventions, task_completion (each <= 40 lines). Do not copy AGENTS.md. "
-    "No secrets, tokens, hostnames, phone numbers, emails or other personal data. "
-    "Write every memory with write_memory, then stop.")
-# Serena 2.1.0 tool names (src/serena/tools/*.py at v2.1.0): read, symbol lookup and memory write only.
-# No file or symbol edit tool, no shell, no delete_memory: onboarding must not change code.
-ONBOARD_SERENA = ["initial_instructions", "onboarding", "list_memories", "read_memory", "write_memory", "list_dir",
-                  "find_file", "read_file", "search_for_pattern", "get_symbols_overview", "find_symbol",
-                  "find_referencing_symbols", "find_declaration", "find_implementations"]
-ONBOARD_TOOLS = ["mcp__plugin_ai-core_serena__" + t for t in ONBOARD_SERENA] + [
-    "Bash(graphify query:*)", "Bash(graphify path:*)", "Bash(graphify explain:*)"]
+KNOWLEDGE_PATHS = [".serena/project.yml", ".serena/.gitignore", ".ai/libs.md"]
+GITIGNORE = {"serena": [".serena/cache/", ".serena/project.local.yml"], "graph": ["graphify-out/"]}
+MAP_RX = re.compile(r"^<!-- AI:map START[^>]*-->\s*\n.*?^<!-- AI:map END -->\s*\n?", re.M | re.S)
+MAP_START = "<!-- AI:map START (ai-adopt; edit freely inside, keep it under 60 lines) -->"
+MAP_END = "<!-- AI:map END -->"
+MAP_MAX_LINES = 60
+SKIP_DIRS = {".git", "node_modules", "vendor", "dist", "build", "target", "graphify-out", ".venv", "venv",
+             "__pycache__", ".serena", ".omc", ".ai", ".claude", ".codex", "coverage", ".next", ".cache"}
+LANG = {".py": "Python", ".ts": "TypeScript", ".tsx": "TypeScript", ".js": "JavaScript", ".jsx": "JavaScript",
+        ".go": "Go", ".rs": "Rust", ".rb": "Ruby", ".java": "Java", ".kt": "Kotlin", ".php": "PHP", ".cs": "C#",
+        ".swift": "Swift", ".sh": "Shell", ".sql": "SQL", ".vue": "Vue", ".svelte": "Svelte", ".c": "C",
+        ".cpp": "C++", ".ex": "Elixir", ".dart": "Dart", ".lua": "Lua"}
+MAP_PROMPT = (
+    "You see a repository. Reply with 3 to 10 Markdown bullet lines, nothing else: the non-obvious conventions "
+    "an agent must know before it edits code here (naming, layering, where new code goes, test layout, generated "
+    "files not to edit, commands that must run before a commit). Only facts you saw in the files. No secrets, "
+    "hostnames, emails or personal data. No intro, no outro. Current map:\n\n")
+MAP_TOOLS = ["Read", "Grep", "Glob", "Bash(git ls-files:*)", "Bash(rg:*)"]
 
 
-def gitignore_text(text):
+def gitignore_text(text, enabled):
+    want = [ln for tool in sorted(GITIGNORE) if tool in enabled for ln in GITIGNORE[tool]]
     have = {ln.strip() for ln in (text or "").splitlines()}
-    missing = [ln for ln in GITIGNORE_LINES if ln not in have and ln.rstrip("/") not in have]
+    missing = [ln for ln in want if ln not in have and ln.rstrip("/") not in have]
     if not missing:
         return None
     head = (text or "").rstrip("\n")
     return (head + "\n\n" if head else "") + "# AI tools (ai-adopt): caches and generated graph\n" + "\n".join(missing) + "\n"
 
 
-def knowledge_steps(root, opts):
+def upsert_map(agents, body):
+    block = "%s\n## Map\n%s\n%s\n" % (MAP_START, body.rstrip("\n"), MAP_END)
+    if MAP_RX.search(agents):
+        return MAP_RX.sub(lambda _m: block, agents, count=1)
+    lines = agents.rstrip("\n").split("\n")
+    # right after the title line, so the map is the first thing an agent reads
+    if lines and lines[0].startswith("# "):
+        return "\n".join([lines[0], "", block.rstrip("\n")] + ([""] + lines[1:] if lines[1:] else [])).rstrip("\n") + "\n"
+    return block + "\n" + agents
+
+
+def build_map(root):
+    """A Map from repo facts only (no LLM): languages, entry points, where things live, run and test."""
+    counts, dirs = {}, {}
+    seen = 0
+    for dirpath, dirnames, files in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS and not d.startswith("."))
+        rel = os.path.relpath(dirpath, root)
+        top = rel.split(os.sep)[0] if rel != "." else "."
+        for f in files:
+            seen += 1
+            ext = os.path.splitext(f)[1].lower()
+            if ext in LANG:
+                counts[LANG[ext]] = counts.get(LANG[ext], 0) + 1
+                dirs[top] = dirs.get(top, 0) + 1
+        if seen > 20000:
+            break
+    langs = ", ".join(l for l, _n in sorted(counts.items(), key=lambda kv: -kv[1])[:3]) or "no code yet"
+    lines = ["- What: %s (%s)." % (os.path.basename(root), langs)]
+    entries = entry_points(root)
+    if entries:
+        lines.append("- Entry points: " + "; ".join(entries[:6]) + ".")
+    where = ["`%s/` (%d code files)" % (d, n) for d, n in sorted(dirs.items(), key=lambda kv: -kv[1]) if d != "."][:10]
+    if dirs.get("."):
+        where.append("repo root (%d code files)" % dirs["."])
+    if where:
+        lines.append("- Where things live: " + ", ".join(where) + ".")
+    run, test = commands(root)
+    if run:
+        lines.append("- Run: " + "; ".join(run[:5]) + ".")
+    if test:
+        lines.append("- Test: " + "; ".join(test[:3]) + ".")
+    lines.append("- Library versions and docs IDs: the Libraries section below.")
+    return "\n".join(lines[:MAP_MAX_LINES]) + "\n"
+
+
+def entry_points(root):
+    out = []
+    data = load_toml(os.path.join(root, "pyproject.toml")) or {}
+    for name, target in ((data.get("project") or {}).get("scripts") or {}).items():
+        out.append("`%s` -> `%s`" % (name, target))
+    pkg = load_json(os.path.join(root, "package.json")) or {}
+    if isinstance(pkg.get("bin"), dict):
+        out += ["`%s` -> `%s`" % kv for kv in pkg["bin"].items()]
+    if pkg.get("main"):
+        out.append("`%s` (package main)" % pkg["main"])
+    for rel in ("main.go", "src/main.rs", "manage.py", "app.py", "main.py", "src/main.py", "src/index.ts",
+                "src/index.js", "index.js", "server.js"):
+        if os.path.isfile(os.path.join(root, rel)):
+            out.append("`%s`" % rel)
+    cmd_dir = os.path.join(root, "cmd")
+    if os.path.isdir(cmd_dir):
+        out += ["`cmd/%s/`" % d for d in sorted(os.listdir(cmd_dir)) if os.path.isfile(os.path.join(cmd_dir, d, "main.go"))]
+    for rel in ("Dockerfile", "docker-compose.yml", "compose.yaml", "compose.yml"):
+        if os.path.isfile(os.path.join(root, rel)):
+            out.append("`%s`" % rel)
+    return out
+
+
+def commands(root):
+    run, test = [], []
+    pkg = load_json(os.path.join(root, "package.json")) or {}
+    pm = "pnpm" if os.path.isfile(os.path.join(root, "pnpm-lock.yaml")) else \
+        "yarn" if os.path.isfile(os.path.join(root, "yarn.lock")) else "npm run"
+    for name in (pkg.get("scripts") or {}):
+        cmd = "`%s %s`" % (pm, name)
+        if name.startswith("test"):
+            test.append(cmd)
+        elif name in ("dev", "start", "build", "lint", "serve", "typecheck"):
+            run.append(cmd)
+    py = os.path.isfile(os.path.join(root, "pyproject.toml"))
+    uv = os.path.isfile(os.path.join(root, "uv.lock"))
+    if py and (os.path.isdir(os.path.join(root, "tests")) or "pytest" in (read(os.path.join(root, "pyproject.toml")) or "")):
+        test.append("`uv run pytest`" if uv else "`pytest`")
+    if py and uv:
+        run.append("`uv sync`")
+    if os.path.isfile(os.path.join(root, "go.mod")):
+        test.append("`go test ./...`")
+    if os.path.isfile(os.path.join(root, "Cargo.toml")):
+        run.append("`cargo build`")
+        test.append("`cargo test`")
+    for mk in ("Makefile", "justfile", "Justfile"):
+        text = read(os.path.join(root, mk)) or ""
+        rx = r"^([A-Za-z][\w-]*):(?!=)" if mk == "Makefile" else r"^([A-Za-z][\w-]*)[^\n:=]*:(?!=)"
+        targets = [t for t in re.findall(rx, text, re.M) if t not in (".PHONY",)][:8]
+        tool = "make" if mk == "Makefile" else "just"
+        for t in targets:
+            (test if t.startswith("test") else run).append("`%s %s`" % (tool, t))
+    return run, test
+
+
+def knowledge_steps(root, opts, enabled):
     """Steps that change nothing when their result is already there. Each is (label, callable)."""
     steps = []
     code = repo_has_code(root)
-    serena_dir = os.path.join(root, ".serena")
-    project_yml = os.path.join(serena_dir, "project.yml")
-    mem_dir = os.path.join(serena_dir, "memories")
-    global_mm = os.path.expanduser("~/.serena/memories/global/memory_maintenance.md")
-    src_mm = os.path.join(AI_DIR, "serena", "memory_maintenance.md")
-    if code and which("serena") and not os.path.isfile(global_mm) and os.path.isfile(src_mm):
-        steps.append(("copy ai/serena/memory_maintenance.md to " + global_mm.replace(os.path.expanduser("~"), "~"),
-                      lambda: copy_file(src_mm, global_mm)))
-    if code and which("serena"):
-        if not os.path.isfile(project_yml):
-            steps.append(("serena project create --index", lambda: run_step(["serena", "project", "create", "--index",
-                                                                            root], root, 1800)))
-        elif not os.path.isdir(os.path.join(serena_dir, "cache")):
-            steps.append(("serena project index", lambda: run_step(["serena", "project", "index", root], root, 1800)))
-    elif code:
-        print("skip Serena steps: serena is not on PATH")
-    if code and (os.path.isfile(project_yml) or which("serena")) and not prompt_is_set(project_yml):
-        steps.append(("set initial_prompt in .serena/project.yml", lambda: set_initial_prompt(project_yml)))
-    onboarding = False
-    if code and not memory_names(mem_dir):
-        if not opts["onboard"]:
-            print("skip Serena onboarding (--no-onboard). Later: ai-adopt, or in a new session ask for Serena onboarding")
-        elif not which("claude"):
-            print("skip Serena onboarding: claude is not on PATH. Run it in a new agent session: "
-                  "\"%s\"" % ONBOARD_PROMPT)
+    map_new = opts["refresh_map"] or not MAP_RX.search(read(os.path.join(root, "AGENTS.md")) or "")
+    if opts["knowledge"] and opts["onboard"] and code and map_new:
+        if not which("claude"):
+            print("skip Map conventions: claude is not on PATH (add them by hand inside the Map markers)")
         elif opts["dry_run"] or opts["yes"] or (sys.stdin.isatty() and ask(
-                "Run Serena onboarding now in its own headless claude session (uses tokens, a few minutes)? [y/N] ")):
-            steps.append(("Serena onboarding (claude -p, own session)", lambda: onboard(root)))
-            onboarding = True
-        else:
-            print("skip Serena onboarding: not confirmed")
-    if code and (memory_names(mem_dir) or onboarding) and not os.path.isfile(os.path.join(mem_dir, "core.md")):
-        steps.append(("write .serena/memories/core.md index if onboarding wrote none", lambda: core_index(mem_dir)))
-    if code and which("graphify") and not os.path.isfile(os.path.join(root, "graphify-out", "graph.json")):
-        steps.append(("GRAPHIFY_BACKEND=none graphify extract . --code-only",
-                      lambda: run_step(["graphify", "extract", ".", "--code-only"], root, 1800,
-                                       env={"GRAPHIFY_BACKEND": "none"})))
-    elif code and not which("graphify"):
-        print("skip graph: graphify is not on PATH")
-    if libs_stale(root):
+                "Ask a headless claude (read-only tools) for the Map conventions lines? [y/N] ")):
+            steps.append(("Map conventions (claude -p, read-only tools)", lambda: map_conventions(root)))
+    serena_dir = os.path.join(root, ".serena")
+    if "serena" in enabled and code:
+        if not which("serena"):
+            print("skip Serena: serena is not on PATH (install.sh installs it)")
+        elif not os.path.isfile(os.path.join(serena_dir, "project.yml")):
+            steps.append(("serena project create --index",
+                          lambda: run_step(["serena", "project", "create", "--index", root], root, 1800)))
+    if "graph" in enabled and code:
+        if not which("graphify"):
+            print("skip graph: graphify is not on PATH")
+        elif not os.path.isfile(os.path.join(root, "graphify-out", "graph.json")):
+            steps.append(("GRAPHIFY_BACKEND=none graphify extract . --code-only",
+                          lambda: run_step(["graphify", "extract", ".", "--code-only"], root, 1800,
+                                           env={"GRAPHIFY_BACKEND": "none"})))
+    if opts["knowledge"] and libs_stale(root):
         steps.append(("ai-libs --sync", lambda: run_step([sys.executable, os.path.join(BIN, "ai-libs"), "--sync",
                                                           "--dir", root], root, 600)))
+    if os.path.isfile(os.path.join(root, ".ai", "libs.md")):
+        steps.append(("remove the old .ai/libs.md (IDs move into the Libraries section)",
+                      lambda: os.remove(os.path.join(root, ".ai", "libs.md"))))
     return steps
 
 
+def map_conventions(root):
+    """One headless claude pass with read-only tools. Its stdout becomes the Conventions lines of the Map."""
+    path = os.path.join(root, "AGENTS.md")
+    text = read(path) or ""
+    m = MAP_RX.search(text)
+    if not m:
+        return
+    current = m.group(0)
+    cmd = ["claude", "-p", MAP_PROMPT + current, "--output-format", "text", "--allowedTools"] + MAP_TOOLS
+    print("$ claude -p <map conventions prompt> --allowedTools " + " ".join(MAP_TOOLS))
+    res = subprocess.run(cmd, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=900)
+    bullets = [ln.rstrip() for ln in res.stdout.decode("utf-8", "replace").splitlines() if ln.strip().startswith("- ")]
+    if res.returncode != 0 or not bullets:
+        print("Map conventions: no usable answer (exit %s): add them by hand inside the Map markers" % res.returncode)
+        return
+    body = current.split("\n## Map\n", 1)[1].rsplit(MAP_END, 1)[0].rstrip("\n").split("\n")
+    body = [ln for ln in body if not ln.startswith("- Conventions:") and not ln.startswith("  - ")]
+    room = MAP_MAX_LINES - len(body) - 1
+    body += ["- Conventions:"] + ["  " + b for b in bullets[:max(room, 0)]]
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(upsert_map(text, "\n".join(body)))
+    print("Map conventions: %d lines added. Read them in the diff before the commit." % min(len(bullets), room))
+
+
 def knowledge_secret_hits(root):
-    """The secret-scan gate patterns over the memories and libs.md (they are committed and pushed)."""
-    files = [os.path.join(root, ".ai", "libs.md")]
-    for dirpath, _dirs, names in os.walk(os.path.join(root, ".serena", "memories")):
-        files += [os.path.join(dirpath, n) for n in names if n.endswith(".md")]
-    text = "\n".join("+" + ln for f in files for ln in (read(f) or "").splitlines())
+    """The secret-scan gate patterns over the managed AGENTS.md blocks (they are committed and pushed)."""
+    text = read(os.path.join(root, "AGENTS.md")) or ""
+    blocks = [m.group(0) for m in MAP_RX.finditer(text)]
+    blocks += re.findall(r"<!-- AI:libraries START.*?<!-- AI:libraries END -->", text, re.S)
+    added = "\n".join("+" + ln for b in blocks for ln in b.splitlines())
     sys.dont_write_bytecode = True
     sys.path.insert(0, os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks"))
     try:
         from hooklib import allowed_secrets, builtin_scan
     except ImportError:
         return []
-    return builtin_scan(text, allowed_secrets())
-
-
-def onboard(root):
-    cmd = ["claude", "-p", ONBOARD_PROMPT, "--allowedTools"] + ONBOARD_TOOLS
-    rc = run_step(cmd, root, 1800)
-    names = memory_names(os.path.join(root, ".serena", "memories"))
-    missing = [m for m in VENDOR_MEMORIES if m not in names]
-    print("Serena onboarding: exit %s, memories: %s%s" % (rc, ", ".join(sorted(names)) or "none",
-                                                         ("; missing: " + ", ".join(missing)) if missing else ""))
-    if names and which("serena"):
-        run_step(["serena", "memories", "check"], root, 120)
-
-
-def core_index(mem_dir):
-    """Onboarding wrote memories but no core.md: write core.md as an index of the others (real links)."""
-    names = sorted(n for n in memory_names(mem_dir) if n != "core" and not n.startswith("global/"))
-    if not names or os.path.isfile(os.path.join(mem_dir, "core.md")):
-        return
-    lines = ["# core", "Entry point. Read the memory that fits the task:"]
-    lines += ["- `mem:%s`" % n for n in names]
-    lines += ["Add a source map here (folder or module -> one line). Keep this file <= 60 lines."]
-    with open(os.path.join(mem_dir, "core.md"), "w", encoding="utf-8") as fh:
-        fh.write("\n".join(lines) + "\n")
-    print("wrote .serena/memories/core.md (index of %d memories): add the source map" % len(names))
-
-
-def memory_names(mem_dir):
-    out = set()
-    for dirpath, _dirs, files in os.walk(mem_dir):
-        for f in files:
-            if f.endswith(".md"):
-                rel = os.path.relpath(os.path.join(dirpath, f), mem_dir)[:-3]
-                if rel != "memory_maintenance":
-                    out.add(rel)
-    return out
-
-
-def prompt_is_set(project_yml):
-    m = re.search(r"^initial_prompt:\s*(.*)$", read(project_yml) or "", re.M)
-    return bool(m and m.group(1).strip() not in ("", '""', "''"))
-
-
-def set_initial_prompt(project_yml):
-    text = read(project_yml)
-    if text is None or prompt_is_set(project_yml):
-        return
-    line = "initial_prompt: %s" % json.dumps(INITIAL_PROMPT)
-    if re.search(r"^initial_prompt:.*$", text, re.M):
-        text = re.sub(r"^initial_prompt:.*$", lambda _m: line, text, count=1, flags=re.M)
-    else:
-        text = text.rstrip("\n") + "\n" + line + "\n"
-    with open(project_yml, "w", encoding="utf-8") as fh:
-        fh.write(text)
+    return builtin_scan(added, allowed_secrets())
 
 
 def libs_stale(root):
@@ -441,17 +517,27 @@ def run_step(argv, cwd, timeout, env=None):
     return subprocess.call(argv, cwd=cwd, env=full, timeout=timeout)
 
 
-def copy_file(src, dst):
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    with open(src, encoding="utf-8") as fh:
-        text = fh.read()
-    with open(dst, "w", encoding="utf-8") as fh:
-        fh.write(text)
-
-
 def which(name):
     from shutil import which as _which
     return _which(name)
+
+
+def load_toml(path):
+    text = read(path)
+    if not text:
+        return None
+    try:
+        import tomllib
+        return tomllib.loads(text)
+    except (ImportError, ValueError):
+        return None
+
+
+def load_json(path):
+    try:
+        return json.loads(read(path) or "null")
+    except ValueError:
+        return None
 
 
 # ---------------------------------------------------------------- helpers

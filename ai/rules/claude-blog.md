@@ -22,7 +22,7 @@ Claude-only is an inference from its CLAUDE.md wording, not a vendor statement.
 - L1: the routing table comes back after compaction or /clear.
 - L2 (tight): fire only on (post|article|blog|articol|postare|статья|пост) AND (write|rewrite|draft|translate|brief|outline|scrie|rescrie|tradu|напиши|перепиши|переведи|проверь), or a path ending .md or .mdx under blog, posts, content, articles. Include "none". The word "blog" alone is a bad trigger.
 - L3: Edit or Write of `**/{blog,posts,articles,content}/**/*.{md,mdx}` gives context "post file: use claude-blog, run blog_preflight before delivery".
-- L4 (fits here): PostToolUse matcher `Skill` and UserPromptExpansion each write a per-session marker. PreToolUse on Write or Edit of post paths denies unless the marker has a `claude-blog:` entry. Do not read the transcript for this (it lags). Escape: `AI_GATE_SKIP=<rule-id>`.
+- L4 (fits here): PostToolUse matcher `Skill` and UserPromptExpansion each write a per-session marker. PreToolUse on Write or Edit of post paths denies unless the marker has a `claude-blog:` entry. Do not read the transcript for this (it lags). Escape: owner only, `sudo ai-gate-skip <gate> <minutes> <why>`.
 - L5: own subagents that write posts get the table through SubagentStart.
 - Vendor gates (preflight, blog-reviewer, review nonces) prove a real run. Skill fired but no gates means a fake run.
 

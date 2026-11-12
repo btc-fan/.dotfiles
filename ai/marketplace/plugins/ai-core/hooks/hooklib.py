@@ -1,5 +1,5 @@
-"""hooklib: shared helpers for router.py: shell command parsing, the three L4 gates, and the project
-knowledge status (Serena memories, graphify graph, .ai/libs.md docs map) for the router placeholders.
+"""hooklib: shared helpers for router.py: shell command parsing, the gates, and the project knowledge status
+(the Map and Libraries blocks of the repo AGENTS.md; Serena and graphify only where a project enabled them).
 
 Gates catch honest mistakes. They are not a sandbox against an adversary (known limits: README.md).
 
@@ -262,32 +262,48 @@ def shell_inner_text(st):
     return None
 
 
-def split_simple(cmd):
-    import shlex
+# ---------------------------------------------------------------- escape hatch (owner only)
+# A gate is skipped only through the root-owned file /etc/ai/gate-skip, written by the owner with
+# `sudo ai-gate-skip <gate> <minutes, max 60> <why>`. Agents have no sudo, so they cannot produce it.
+# Line format: <gate> <expiry, unix seconds> <reason...>. The old in-command AI_GATE_SKIP=... is ignored.
+GATE_SKIP_FILE = "/etc/ai/gate-skip"
+GATE_SKIP_MAX_S = 3600
+
+
+def gate_skip_path():
+    """Tests only: AI_GATE_SKIP_FILE together with AI_GATE_SKIP_INSECURE_TEST=1 (the hook's own environment,
+    which an agent's command cannot set)."""
+    if os.environ.get("AI_GATE_SKIP_INSECURE_TEST") == "1" and os.environ.get("AI_GATE_SKIP_FILE"):
+        return os.environ["AI_GATE_SKIP_FILE"], True
+    return GATE_SKIP_FILE, False
+
+
+def gate_skips(stages=None):
+    """({gate: reason} valid now, [notes]). Only a root-owned file not writable by others counts."""
+    skips, notes = {}, []
+    if stages and any("AI_GATE_SKIP" in st.env for st in stages):
+        notes.append("AI_GATE_SKIP in a command does nothing. Only the owner can skip a gate: "
+                     "sudo ai-gate-skip <gate> <minutes> <why>.")
+    path, test = gate_skip_path()
     try:
-        return shlex.split(cmd)
-    except ValueError:
-        return cmd.split()
-
-
-# ---------------------------------------------------------------- escape hatch
-
-def gate_skips(stages):
-    """AI_GATE_SKIP=<rule>[,<rule>]:<reason>, only as a leading env assignment (or in the hook's env).
-    Returns ({rule: reason}, [problems])."""
-    skips, problems = {}, []
-    values = [st.env["AI_GATE_SKIP"] for st in stages if "AI_GATE_SKIP" in st.env]
-    if os.environ.get("AI_GATE_SKIP"):
-        values.append(os.environ["AI_GATE_SKIP"])
-    for v in values:
-        ids, _sep, reason = v.partition(":")
-        if not reason.strip():
-            problems.append("AI_GATE_SKIP needs a reason: AI_GATE_SKIP='<rule>:<why>'. Not skipped.")
+        st = os.stat(path)
+    except OSError:
+        return skips, notes
+    if not test and (st.st_uid != 0 or st.st_mode & 0o022):
+        notes.append("%s is not root-owned or is writable by others: ignored." % path)
+        return skips, notes
+    now = time.time()
+    for line in (read_text(path) or "").splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3 or not re.match(r"^[a-z0-9-]+$", parts[0]):
             continue
-        for rid in ids.split(","):
-            if rid.strip():
-                skips[rid.strip()] = reason.strip()
-    return skips, problems
+        try:
+            expiry = float(parts[1])
+        except ValueError:
+            continue
+        if now < expiry <= now + GATE_SKIP_MAX_S:
+            skips[parts[0]] = parts[2].strip()
+    return skips, notes
 
 
 # ---------------------------------------------------------------- audit-before-install
@@ -310,11 +326,28 @@ UV_VALUE_OPTS = {"--group", "--optional", "--index", "--index-url", "--default-i
 UV_TARGET_OPTS = {"--from", "--with", "-w", "--with-requirements"}
 
 
+def runs_stdin_as_code(st):
+    """True when an interpreter reads its PROGRAM from stdin: `sh`, `bash -s`, `python3`, `python3 -`, `node`.
+    With an inline program (-c/-e), a module (-m) or a script file, stdin is only data (curl ... | python3 -c
+    'import json...' reads metadata, it runs nothing downloaded)."""
+    args = st.args
+    if SHELLS.match(st.exe):
+        if any(re.match(r"^-[a-zA-Z]*c[a-zA-Z]*$", a) for a in args):
+            return False
+        return not [a for a in args if not a.startswith("-")] or any(re.match(r"^-[a-zA-Z]*s", a) for a in args)
+    if any(a in ("-c", "-e", "-m", "-E", "--eval", "-p", "--print", "-r") or re.match(r"^-[a-zA-Z]*[cem]$", a)
+           for a in args):
+        return False
+    positional = [a for a in args if not a.startswith("-") or a == "-"]
+    return not positional or positional[0] == "-"
+
+
 def curl_to_shell(stages):
     """True when a download is executed: curl|sh, curl|sudo bash, bash <(curl), sh -c "$(curl)"."""
     for st in stages:
         nxt = st.nxt
-        if st.exe in ("curl", "wget") and st.op in ("|", "|&") and nxt and INTERPRETERS.match(nxt.exe):
+        if (st.exe in ("curl", "wget") and st.op in ("|", "|&") and nxt and INTERPRETERS.match(nxt.exe)
+                and runs_stdin_as_code(nxt)):
             return True
         if SHELLS.match(st.exe) and st.op == "(" and nxt and nxt.exe in ("curl", "wget"):
             return True
@@ -631,7 +664,7 @@ def gate_secrets(ctx, cmd, stages):
         hits, what = scan_actions(actions, Budget())
     except ScanTimeout:
         return ("deny", "Secret scan timed out, nothing was checked. Run gitleaks yourself (gitleaks git --staged "
-                "or gitleaks git), then rerun with AI_GATE_SKIP='secret-scan:<reason>'.")
+                "or gitleaks git). If it is clean, the owner can run: sudo ai-gate-skip secret-scan 10 <why>.")
     if not hits:
         return None
     return ("deny", "Secret scan found: %s. Remove it from the %s before you commit or push." % (
@@ -993,8 +1026,9 @@ GATE_PROBES = {"audit-before-install": probe_audit, "secret-scan": probe_secrets
 
 
 # ---------------------------------------------------------------- project knowledge (router placeholders)
-# One-line pointers only: counts, freshness and file names. Never memory content (Serena: memories are read
-# on purpose, the harness does not inject them). Every git call: 2 s timeout, fails open (no text).
+# Project knowledge lives in the repo AGENTS.md (read every session, no tool call): a Map block (<= 60 lines)
+# and a Libraries block (context7 IDs + lockfile hashes), both written by ai-adopt / ai-libs. The router only
+# says whether they exist and are current. Every git call: 2 s timeout, fails open (no text).
 
 CODE_EXT = {
     ".py", ".pyi", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".kt", ".kts",
@@ -1002,13 +1036,13 @@ CODE_EXT = {
     ".zsh", ".lua", ".vue", ".svelte", ".ex", ".exs", ".dart", ".m", ".mm", ".sql", ".r", ".jl", ".zig",
     ".erl", ".clj", ".fs", ".ml", ".hs", ".pl", ".ps1", ".tf",
 }
-MEMORY_DIR = os.path.join(".serena", "memories")
+MAP_RX = re.compile(r"<!-- AI:map START -->\n?(.*?)<!-- AI:map END -->", re.S)
+LIBS_RX = re.compile(r"<!-- AI:libraries START([^>]*)-->\n?(.*?)<!-- AI:libraries END -->", re.S)
+MAP_CAP_LINES = 60
 # Same list as ai/bin/ai-libs (its lock line records these, sha256 first 12 hex).
 LOCKFILES = ("uv.lock", "poetry.lock", "requirements.txt", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
              "go.sum", "Cargo.lock")
 MANIFESTS = ("pyproject.toml", "package.json", "Cargo.toml", "go.mod", "Gemfile", "composer.json")
-STALE_COMMITS = 20
-STALE_MOVES = 5
 KNOWLEDGE_CAP = 600
 
 
@@ -1058,27 +1092,28 @@ def git_history(repo, limit=500):
     return commits
 
 
-def memory_files(root):
-    d = os.path.join(root, MEMORY_DIR)
-    out = []
-    for dirpath, _dirs, files in os.walk(d):
-        out.extend(os.path.join(dirpath, f) for f in files if f.endswith(".md"))
-    return out
+def repo_agents_md(root):
+    return read_text(os.path.join(root, "AGENTS.md")) if root else None
 
 
-def memory_status(root, history):
-    """(count, code_commits_since, moved_since, stale) for .serena/memories; count 0 = none."""
-    count = len(memory_files(root))
-    if not count or history is None:
-        return count, 0, 0, False
-    commits = code_moves = 0
-    for _sha, _ct, files in history:
-        if any(p.startswith(".serena/memories/") for _st, p in files):
-            break
-        if any(is_code_file(p) for _st, p in files):
-            commits += 1
-        code_moves += sum(1 for st, p in files if st in "AD" and is_code_file(p))
-    return count, commits, code_moves, commits >= STALE_COMMITS or code_moves >= STALE_MOVES
+def map_block(root):
+    """The Map section text of the repo AGENTS.md, or None."""
+    m = MAP_RX.search(repo_agents_md(root) or "")
+    return m.group(1) if m else None
+
+
+def enabled_ids(root):
+    """Opt-in ids of the project (.ai/enabled) plus `serena` when the project enables the ai-serena plugin."""
+    text = read_text(os.path.join(root, ".ai", "enabled")) if root else ""
+    ids = {ln.split("#", 1)[0].strip().lower() for ln in (text or "").splitlines() if ln.split("#", 1)[0].strip()}
+    for rel in (".claude/settings.json", ".claude/settings.local.json"):
+        try:
+            data = json.loads(read_text(os.path.join(root, rel)) or "{}") if root else {}
+        except ValueError:
+            continue
+        if isinstance(data, dict) and (data.get("enabledPlugins") or {}).get("ai-serena@ai") is True:
+            ids.add("serena")
+    return ids
 
 
 def graph_status(root, history):
@@ -1093,18 +1128,15 @@ def graph_status(root, history):
 
 
 def libs_doc(root):
-    """Parsed .ai/libs.md: {"locks": {file: hash prefix}, "rows": {lib: {version, grounded, context7}}} or None.
-    Format (ai-libs --sync): `lock: uv.lock sha256:<12 hex> [file sha256:<hex> ...]  synced: <date>`, then a table
-    with the columns lib | version | context7 | grounded-docs | note ("?" = not looked up, "-" = not found)."""
-    text = read_text(os.path.join(root, ".ai", "libs.md")) if root else None
-    if text is None:
+    """The Libraries block of the repo AGENTS.md: {"locks": {file: hash prefix}, "rows": {lib: {version, context7}}}
+    or None. Format (ai-libs --sync): `<!-- AI:libraries START lock: uv.lock sha256:<12 hex> ... -->`, then a table
+    lib | version | context7 | note ("?" = not looked up, "-" = no match or not sent)."""
+    m = LIBS_RX.search(repo_agents_md(root) or "")
+    if not m:
         return None
-    doc = {"locks": {}, "rows": {}}
-    m = re.search(r"^lock:(.*)$", text, re.M)
-    if m:
-        doc["locks"] = dict(re.findall(r"(\S+) sha256:([0-9a-f]{6,64})", m.group(1)))
+    doc = {"locks": dict(re.findall(r"(\S+) sha256:([0-9a-f]{6,64})", m.group(1))), "rows": {}}
     header = None
-    for line in text.splitlines():
+    for line in m.group(2).splitlines():
         if not line.strip().startswith("|"):
             continue
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
@@ -1116,9 +1148,7 @@ def libs_doc(root):
         row = dict(zip(header, cells))
         name = row.get("lib") or row.get("library") or ""
         if name:
-            doc["rows"][name.lower()] = {"version": row.get("version", ""),
-                                         "grounded": row.get("grounded-docs", row.get("grounded", "")),
-                                         "context7": row.get("context7", "")}
+            doc["rows"][name.lower()] = {"version": row.get("version", ""), "context7": row.get("context7", "")}
     return doc
 
 
@@ -1151,30 +1181,28 @@ def docs_map_status(root):
 
 
 def knowledge_index(root):
-    """One pointer line (<= 600 chars) for the session start. Empty outside a git repo."""
+    """One pointer line (<= 600 chars) for the session start: the Map and Libraries blocks of AGENTS.md, and
+    Serena / graph only where the project enabled them. Empty outside a git repo."""
     if not root:
         return ""
-    history = git_history(root)
-    count, commits, moves, stale = memory_status(root, history)
     bits = []
-    if count:
-        mem = "%d memories" % count
-        if history is not None:
-            mem += ", %d code commit(s) since the last memory update" % commits
-        if stale:
-            mem += " (STALE: check mem:core against the code before you rely on it)"
-        bits.append("Memory: " + mem + ".")
+    mp = map_block(root)
+    if mp is None:
+        bits.append("Map: missing (ai-adopt writes it).")
     else:
-        bits.append("Memory: none yet (ai-adopt runs Serena onboarding).")
-    g = graph_status(root, history)
-    bits.append("Graph: " + {"fresh": "fresh.", "stale": "stale, run graphify update .",
-                             "missing": "missing, run GRAPHIFY_BACKEND=none graphify extract . --code-only"}[g] +
-                ("" if g == "fresh" else "."))
+        n = len([ln for ln in mp.splitlines() if ln.strip()])
+        bits.append("Map: present (%d lines%s)." % (n, ", over the 60-line cap" if n > MAP_CAP_LINES else ""))
     d = docs_map_status(root)
-    if d:
-        bits.append("Docs map: " + {"missing": ".ai/libs.md missing, run ai-libs --sync.",
-                                    "stale": ".ai/libs.md is older than the lockfile, run ai-libs --sync."}.get(
-                                        d, ".ai/libs.md " + d + "."))
+    bits.append("Libraries: " + {"missing": "missing (run ai-libs --sync).", "": "no lockfile.",
+                                 "stale": "stale, run ai-libs --sync."}.get(d, "match the lockfiles."))
+    ids = enabled_ids(root)
+    if "serena" in ids:
+        bits.append("Serena on.")
+    if "graph" in ids or "graphify" in ids:
+        g = graph_status(root, git_history(root))
+        bits.append("Graph: " + {"fresh": "fresh.", "stale": "stale, run graphify update .",
+                                 "missing": "missing, run GRAPHIFY_BACKEND=none graphify extract . --code-only"}[g]
+                    + ("" if g == "fresh" else "."))
     return " ".join(bits)[:KNOWLEDGE_CAP]
 
 
@@ -1217,10 +1245,12 @@ def knowledge_delta(root, new_docs_ids=False):
         return ""
     todo = []
     if any(st in "AD" and is_code_file(p) for st, p in files):
-        todo.append("update the mem:core source map (code files were added, removed or renamed)")
+        todo.append("update the Map section in AGENTS.md (code files were added, removed or renamed)")
     if any(is_dep_file(p) for _st, p in files) or new_docs_ids:
-        todo.append("run ai-libs --sync and commit .ai/libs.md")
-    if any(is_code_file(p) for _st, p in files) and not graphify_hook_installed(root):
+        todo.append("run ai-libs --sync and commit AGENTS.md")
+    ids = enabled_ids(root)
+    if ("graph" in ids or "graphify" in ids) and any(is_code_file(p) for _st, p in files) \
+            and not graphify_hook_installed(root):
         todo.append("run graphify update .")
     if not todo:
         return ""
@@ -1228,12 +1258,11 @@ def knowledge_delta(root, new_docs_ids=False):
 
 
 CONTEXT7_ID_RX = re.compile(r"/[\w.-]{1,60}/[\w.-]{1,60}(?:/[\w.+-]{1,40})?")
-GROUNDED_RX = re.compile(r"[\w.@/+-]{1,80}")
 LIB_NAME_RX = re.compile(r"[\w.@/+-]{1,80}")
 
 
 def libs_hits(root, names):
-    """Cached docs IDs for the named libraries from .ai/libs.md, as one phrase, or ''."""
+    """Cached docs IDs for the named libraries from the Libraries block of AGENTS.md, as one phrase, or ''."""
     doc = libs_doc(root)
     if not doc or not doc["rows"]:
         return ""
@@ -1243,15 +1272,13 @@ def libs_hits(root, names):
         if not row or not LIB_NAME_RX.fullmatch(n):
             continue
         ids = []
-        # .ai/libs.md is a committed file: only well-formed IDs reach the agent's context, never free text.
+        # AGENTS.md is a committed file: only well-formed IDs reach the agent's context, never free text.
         if CONTEXT7_ID_RX.fullmatch(row.get("context7") or ""):
             ids.append("context7=" + row["context7"])
-        if GROUNDED_RX.fullmatch(row.get("grounded") or ""):
-            ids.append("grounded=" + row["grounded"])
         hits.append("%s %s" % (n, " ".join(ids) if ids else "(no IDs yet)"))
     if not hits:
-        return "Library IDs: .ai/libs.md."
-    return "Cached IDs (.ai/libs.md): " + "; ".join(hits) + "."
+        return "Library IDs: the Libraries section of AGENTS.md."
+    return "Cached IDs (Libraries in AGENTS.md): " + "; ".join(hits) + "."
 
 
 def origin_slug(root):
@@ -1264,7 +1291,7 @@ def origin_slug(root):
 
 
 def project_libs(root):
-    """Library names this project uses: .ai/libs.md rows plus direct deps of the root manifests."""
+    """Library names this project uses: Libraries rows of AGENTS.md plus direct deps of the root manifests."""
     names = set()
     doc = libs_doc(root)
     if doc:

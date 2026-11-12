@@ -6,7 +6,7 @@
 # Default: a key that changed after install is left alone; installed tools (binaries, npm/uv
 # packages, plugin sources, the docs service) are KEPT; logins, secrets and data stay.
 #
-#   Ubuntu (admin):  sudo ~<user>/.dotfiles-ai/uninstall.sh --for-user <user> [level] [--dry-run] [--yes]
+#   Ubuntu (admin):  sudo /opt/ai-setup/uninstall.sh --for-user <user> [level] [--dry-run] [--yes]
 #   user part alone: ~/.dotfiles-ai/uninstall.sh --user [level] [--dry-run] [--yes]   (never calls sudo)
 #   macOS, or a Linux user with sudo: ~/.dotfiles-ai/uninstall.sh [level] [--dry-run] [--yes]
 #
@@ -35,6 +35,20 @@ while [ $# -gt 0 ]; do
     shift
 done
 export AI_DRY_RUN AI_YES AI_MODE AI_FOR_USER
+# Root never runs code from a tree another user can change. This first check uses no file of the tree;
+# ai/lib/root-guard.sh (sourced only after it passed) adds the file, clean-tree and pushed-commit checks.
+if [ "$(id -u)" -eq 0 ]; then
+    _owner=$(stat -c %U "$AI_HOME" 2>/dev/null || stat -f %Su "$AI_HOME" 2>/dev/null || echo unknown)
+    if { [ "$_owner" != root ] && [ "$_owner" != "${SUDO_USER:-}" ]; } || [ "$_owner" = "${AI_FOR_USER:-}" ]; then
+        printf 'ERROR: refusing to run as root from %s (owned by %s). Root runs only the root-owned clone:\n' "$AI_HOME" "$_owner" >&2
+        printf '  sudo git clone --branch ai <repo URL> /opt/ai-setup    (once)\n' >&2
+        printf '  sudo /opt/ai-setup/install.sh --update --for-user <user>\n' >&2
+        exit 1
+    fi
+    . "$AI_HOME/ai/lib/root-guard.sh"
+    ai_root_guard "$AI_HOME" "${AI_FOR_USER:-}" "0" "$(basename "$0")"
+fi
+
 . "$AI_HOME/ai/lib/common.sh"
 
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)

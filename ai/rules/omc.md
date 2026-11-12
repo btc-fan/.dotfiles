@@ -9,12 +9,12 @@ The OMC block is never copied into AGENTS.md. Only the short form is.
 
 ## When / when not
 - Use: multi-step coding, planning, review, verification in Claude Code. `/team`, ralph, autopilot loops. OMC state tools. Flow: plan, execute, review, verify.
-- Do not use: single commands, small clarifications (OMC's own rule). Where a root rule decides the route: Serena for code symbols, Grounded Docs for library docs.
+- Do not use: single commands, small clarifications (OMC's own rule). Where a root rule decides the route: the repo AGENTS.md Map then rg for code, context7 for library docs.
 - `omc ask <provider> --prompt "..."` returns a markdown file in `.omc/artifacts/ask/`. No `--json`. It needs the `omc` command line. The plugin route no longer installs it (a CLI installed earlier is left alone): if `omc` is not on PATH, use `claude -p` or `codex exec` directly.
 - exa (OMC's web search MCP) is off: it sends search queries to an outside service. Do not turn it on, and never set `EXA_API_KEY` (OMC reads it from the environment and turns exa back on).
 - What the plugin adds: MCP server `t` (tools `mcp__plugin_oh-my-claudecode_t__*`: state, notepad, project memory, LSP, ast-grep), hooks on SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, PreCompact, SubagentStart, SubagentStop, Stop and SessionEnd, plus its skills and agents. Library docs: Grounded Docs and context7.
 - Never run `omc intake schedule`. It writes the user crontab.
-- Code facts go to Serena memories. Session notes go to OMC notepad.
+- Code facts go to the Map section of the repo AGENTS.md. Session notes go to the OMC notepad. OMC `project_memory` does not hold code facts.
 
 ## Enforcement
 - L0: short form in AGENTS.md. Do not copy the vendor text.

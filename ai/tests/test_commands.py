@@ -292,7 +292,8 @@ print(json.dumps(out))
 
 
 def t_playwright(work):
-    """ai-start writes `ai-playwright-mcp` (never npx); the wrapper runs only an installed pinned binary."""
+    """ai-start turns on ai-playwright@ai for Claude and writes `ai-playwright-mcp` for Codex (never npx);
+    the wrapper runs only an installed pinned binary."""
     ver = [ln.split("=", 1)[1].split()[0] for ln in open(os.path.join(AI_DIR, "pins.env"))
            if ln.startswith("PLAYWRIGHT_MCP_VERSION=")][0]
     home = os.path.join(work, "pw-home")
@@ -312,8 +313,9 @@ def t_playwright(work):
               env={"HOME": home, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t.invalid",
                    "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t.invalid"})
     assert res.returncode == 0, res.stdout
-    mcp = json.load(open(os.path.join(proj, ".mcp.json")))
-    assert mcp["mcpServers"]["playwright"] == {"command": "ai-playwright-mcp", "args": ["--headless", "--isolated"]}
+    assert not os.path.exists(os.path.join(proj, ".mcp.json")), "project .mcp.json is blocked: use ai-playwright@ai"
+    plugins = json.load(open(os.path.join(proj, ".claude", "settings.json")))["enabledPlugins"]
+    assert plugins == {"ai-playwright@ai": True}, plugins
     toml = open(os.path.join(proj, ".codex", "config.toml")).read()
     assert 'command = "ai-playwright-mcp"' in toml and "npx" not in toml
     proj2 = os.path.join(work, "pw-proj2")

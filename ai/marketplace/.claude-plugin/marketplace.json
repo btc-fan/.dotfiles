@@ -1,12 +1,26 @@
 {
   "name": "ai",
-  "owner": { "name": "dotfiles ai branch" },
-  "metadata": { "description": "Private marketplace of the dotfiles ai branch: one bundle plugin, ai-core." },
+  "owner": {
+    "name": "dotfiles ai branch"
+  },
+  "metadata": {
+    "description": "Private marketplace of the dotfiles ai branch: ai-core (always on), ai-serena and ai-playwright (opt-in per project)."
+  },
   "plugins": [
     {
       "name": "ai-core",
       "source": "./plugins/ai-core",
-      "description": "Always-on base: routing hooks, gates, usage-contract skills and the global MCP servers (Serena, context7, GitHub, Grounded Docs)."
+      "description": "Always-on base: routing hooks, gates, usage-contract skills and the context7 MCP server."
+    },
+    {
+      "name": "ai-serena",
+      "source": "./plugins/ai-serena",
+      "description": "Serena MCP, opt-in per project (project enabledPlugins)."
+    },
+    {
+      "name": "ai-playwright",
+      "source": "./plugins/ai-playwright",
+      "description": "Playwright MCP, opt-in per project (project enabledPlugins)."
     }
   ]
 }

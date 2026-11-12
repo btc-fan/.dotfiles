@@ -46,10 +46,10 @@ flowchart TD
     ROOT -->|"managed block copy<br/>refreshed by ai-sync"| HERMES["Hermes (SOUL.md)"]
     PLUGIN -->|"plugin install"| CLAUDE
     PLUGIN -->|"plugin add"| CODEX
-    JSON --> ROUTER["router hook<br/>L1 inject, L2 forced eval,<br/>L3 regex nudges"]
+    JSON --> ROUTER["router hook<br/>session-start status,<br/>a few prompt rows"]
     ROUTER --> CLAUDE
     ROUTER --> CODEX
-    CLAUDE --> GATES{{"gates L4<br/>audit, secret scan, PR rules"}}
+    CLAUDE --> GATES{{"gates L4<br/>audit, secret scan, no sudo, PR rules"}}
     CODEX --> GATES
     GATES --> LOGS["~/.local/state/ai/<br/>audit, gates, fired, misses"]
     ROUTER --> LOGS
@@ -58,11 +58,9 @@ flowchart TD
     subgraph server["on a server (ubuntu-server branch)"]
         HOST["host: admin only, no project code"]
         BOX["one box per project<br/>/etc/proj-rules/AGENTS.md"]
-        DOCS["Grounded Docs server<br/>port 6280, private network"]
     end
     CLAUDE -.->|"sudo proj-agent new"| BOX
     CODEX -.-> BOX
-    CLAUDE -.->|"library docs"| DOCS
     HERMES --- HOST
 ```
 
@@ -72,7 +70,7 @@ Read it from the top.
 2. `ai-render` joins the parts and the L0 table into one root rules file. It also builds `routing.json` for the hooks.
 3. Each agent receives that one file in the way it supports (see [docs/AGENTS-MD.md](docs/AGENTS-MD.md)).
 4. The plugin `ai-core` gives Claude and Codex our hooks, skills and MCP server list.
-5. The router hook reminds the agent which tool to use. The gates block four unsafe steps.
+5. The router hook adds a short status line at session start and a few cheap reminders. The gates block four unsafe steps.
 6. Every decision is logged. `ai-doctor` reads the logs and the contracts and tells you what is wrong.
 7. On a server, project work happens inside a box, never on the host.
 
@@ -82,17 +80,17 @@ Read it from the top.
 |---|---|---|
 | Agents | Claude Code + OMC (main), Codex + OMX (main), Hermes, opencode, herdr, omo (optional) | [docs/TOOLS.md](docs/TOOLS.md) |
 | Plugin `ai-core` | our skills, hooks and MCP list, one folder, installed by Claude and Codex | `ai/marketplace/plugins/ai-core/` |
-| MCP servers | Serena, context7, Grounded Docs, GitHub (global). Playwright (per project) | [docs/TOOLS.md](docs/TOOLS.md) |
-| Other tools | graphify, RTK, Ponytail, i-have-adhd, pinned mattpocock skills. claude-seo and claude-blog are installed but on per project only (`ai-adopt --tools seo,blog`) | [docs/TOOLS.md](docs/TOOLS.md) |
+| MCP servers | context7 (global, the one docs tool). Per project only: Serena, Playwright | [docs/TOOLS.md](docs/TOOLS.md) |
+| Other tools | RTK, Ponytail, i-have-adhd, pinned mattpocock skills, `gh`. Per project only: graphify, claude-seo, claude-blog (`ai-adopt --tools graph,seo,blog`) | [docs/TOOLS.md](docs/TOOLS.md) |
 | Root rules | the one AGENTS.md all agents read | [docs/AGENTS-MD.md](docs/AGENTS-MD.md) |
 | Usage contracts | `ai/rules/<tool>.md`, five sections each | [docs/EXTENDING.md](docs/EXTENDING.md) |
-| Router + gates | seven routing layers, four gates | section 3 below |
-| Project knowledge | per repo: Serena memories (code facts), code graph, `.ai/libs.md` (library docs IDs). Made once by `ai-adopt`, kept fresh by router nudges | section 3, example D |
+| Router + gates | session-start status, a few prompt rows, four gates | section 3 below |
+| Project knowledge | per repo, inside its AGENTS.md: a "## Map" (where things live, how to run and test, conventions) and a "## Libraries" table (version, context7 ID). Made by `ai-adopt`, kept fresh by `ai-libs --sync` and a post-commit note | section 3, example D |
 | Evals | prompts that must and must not fire a tool (English, Romanian, Russian) | `ai/evals/` |
 
-### The seven routing layers
+### The routing layers
 
-Agents forget tools. So one table (`ai/routing.yaml`) feeds seven layers. They never disagree because they share the source.
+One table (`ai/routing.yaml`) feeds every layer, so they never disagree. Since v4 (owner decision 2026-11-12, after an audit) the table is small: passive context in AGENTS.md beats tool nudges, and the logs showed per-tool nudges ignored. What is left: the four gates, the session-start status, a post-commit freshness note, the em dash lint, the library-docs row, the "not enabled" suggestions and the opt-in catalog.
 
 | Layer | What | Catches |
 |---|---|---|
@@ -105,7 +103,7 @@ Agents forget tools. So one table (`ai/routing.yaml`) feeds seven layers. They n
 | L6 | skill descriptions: triggers first, Romanian and Russian phrases | non-English prompts |
 | L7 | evals, miss log, `ai-doctor` | silent regressions |
 
-Expected misses: about 0% on keyword prompts, 10 to 25% on hard prompts, more for non-English prompts, subagents and Hermes. A miss is logged. It is never silent.
+A miss (a rule fired and the matching tool was not used) is logged. It is never silent.
 
 ### The four gates
 
@@ -118,7 +116,7 @@ A gate blocks a step until its condition holds.
 | `pr-rules` | `gh pr create`, `gh pr edit` | the body has a Mermaid block and the author-sessions block |
 | `no-sudo` | `sudo`, `su`, `doas`, `pkexec`, `sudoedit`, `run0` at a command position (also inside `bash -c`, behind `env`, `nice`, `timeout`) | never: the agent gives the owner the exact command. On a Linux server `sudo proj-agent <subcommand>` passes |
 
-Gates catch honest mistakes. They are not a sandbox against a hostile agent. Escape hatch, owner OK only: `AI_GATE_SKIP='<rule-id>:<reason>' <command>`. It is logged to `~/.local/state/ai/gates.log`. Details and known limits: `ai/marketplace/plugins/ai-core/hooks/README.md`.
+Gates catch honest mistakes. They are not a sandbox against a hostile agent: the OS sandbox and the box are (see [docs/SECURITY.md](docs/SECURITY.md)). Escape hatch, owner only: `sudo ai-gate-skip <gate> <minutes max 60> <why>` (root-owned `/usr/local/sbin/ai-gate-skip` on Linux installs). It writes the root-owned `/etc/ai/gate-skip`; the gate lets the step through until it expires, and each pass is logged to `~/.local/state/ai/gates.log`. `AI_GATE_SKIP=...` inside a command does nothing any more (an agent could type it). Details and known limits: `ai/marketplace/plugins/ai-core/hooks/README.md`.
 
 ## 2. Install
 
@@ -134,15 +132,14 @@ On a server, an admin user runs the install for the main user. The main user has
 git -C ~/.dotfiles fetch origin ai
 git -C ~/.dotfiles worktree add ~/.dotfiles-ai ai
 ```
-3. As the admin user, dry run first. Read the output.
+3. As the ADMIN user, in the admin's own clone (never the agent's `~/.dotfiles-ai`: root refuses to run code from there, from a dirty tree, or from a commit that is not origin/ai). Dry run first, read the output:
 ```
-sudo ~<user>/.dotfiles-ai/install.sh --for-user <user> --dry-run
+git clone --branch ai https://github.com/btc-fan/.dotfiles.git ~/dotfiles-ai     # once
+git -C ~/dotfiles-ai fetch origin && git -C ~/dotfiles-ai checkout --detach origin/ai
+git -C ~/dotfiles-ai status --short                                         # must print nothing
+sudo ~/dotfiles-ai/install.sh --for-user <user> --dry-run
 ```
-4. Install.
-```
-sudo ~<user>/.dotfiles-ai/install.sh --for-user <user>
-```
-**Coming:** the `--for-user` option is not in `install.sh` yet. Today the main user runs `~/.dotfiles-ai/install.sh` and sudo is used where needed (needs passwordless sudo for the install only).
+4. Install: `sudo ~/dotfiles-ai/install.sh --for-user <user>`. To update later: repeat the fetch, checkout and status lines, then install.
 5. As the main user: copy `secrets.env.example` to `~/.config/ai/secrets.env`, set mode 600, fill the keys you need.
 6. Do the manual steps in section 5.
 7. Check: `ai-doctor`.
@@ -172,15 +169,15 @@ Four real cases. Each shows which layer does what.
 
 You type this in Claude Code on the server.
 
-1. **The prompt arrives.** The router hook reads it. The regex of rule `kickoff` matches ("make", "bot"). That is L3.
-2. **L2 forced evaluation.** The hook adds a short forced-evaluation text: for each matched tool, answer YES or NO, or say none needed. The matched tools here are grilling and ai-start. The agent cannot skip the question silently.
-3. **Questions first.** The tie-break table says: for a new app, the grilling skill beats OMC deep-interview (deep-interview only when grilling is not installed). The agent asks one round of questions: who uses the bot, must it run 24/7, what data must stay. You answer. (`/grill-me` is the typed form; the agent cannot fire it.)
+1. **The prompt arrives.** The tie-break table says: for a new app, the grilling skill beats OMC deep-interview. The router adds a short forced-evaluation text (L2): answer YES or NO for grilling, or say none needed.
+2. **Questions first.** The agent asks one round of questions: who uses the bot, must it run 24/7, what data must stay. You answer. (`/grill-me` is the typed form; the agent cannot fire it.)
+3. **Project setup.** The agent proposes `ai-start` for the new repo: AGENTS.md with a Map and a Libraries section, opt-in tools only if needed.
 4. **Box rules apply (server).** The hosting rules (imported into the root rules) say: never create a project on the host. The agent picks a tier (a bot that must stay up is `mvp`) and runs `sudo proj-agent new <name> --tier mvp`. This is the one root command agents may run. It makes an isolated box.
 5. **Inside the box.** Code goes to `/srv/app`, secrets to `/srv/app/.env`. The box has its own copy of the rules at `/etc/proj-rules/AGENTS.md`.
-6. **Library docs.** The agent adds the Telegram library. Rule `docs-on-dependency` fires: "look up its docs first". The agent asks Grounded Docs (`list_libraries`, `search_docs`). If the library is missing, it asks context7. It does not answer API details from memory. Before the commit it runs `ai-libs --sync`, so the next session finds the IDs in `.ai/libs.md` and skips the lookup step.
+6. **Library docs.** The agent adds the Telegram library. The root rules say: docs before code. It asks context7 (`resolve-library-id` once, then `query-docs`). It does not answer API details from memory. Before the commit it runs `ai-libs --sync`, so the Libraries section of AGENTS.md holds the ID and the next session skips the lookup step.
 7. **The install gate.** `pip install` or `npm install` of the library is blocked until `agent-audit` passed (see example B).
 8. **Output.** Ponytail keeps the diff small. i-have-adhd keeps the reply short. RTK shortens the command output the agent reads.
-9. **The proof.** `~/.local/state/ai/fired.jsonl` shows the skills that ran. `misses.jsonl` shows nothing for this session if every rule that fired was followed by the right tool.
+9. **The proof.** `~/.local/state/ai/fired.jsonl` shows the skills that ran; `gates.log` shows every block.
 10. **The end.** The agent says: box name, tier, how to see logs, how to restart. It never prints the bot token. It tells you where to put it.
 
 ### Example B: the agent runs `npm install left-pad`
@@ -212,20 +209,36 @@ Secret scan found: assigned-secret. Remove it from the ... before you commit or 
 
 ### Example D: a new session in an adopted repo
 
-The repo was set up once with `ai-adopt`. So it has `.serena/memories/` (core, tech_stack, suggested_commands, conventions, task_completion), `graphify-out/graph.json` and `.ai/libs.md`. You open a new Claude or Codex session and type: "add retries to the price fetcher".
+The repo was set up once with `ai-adopt`. Its AGENTS.md has two managed sections near the top:
 
-1. **Session start (L1).** The router adds one status line (row `project-knowledge`), for example: "Before code work: Serena initial_instructions, then read_memory core, then graphify query. 6 memories, 3 code commits since last memory update. Graph: fresh. Docs map: .ai/libs.md matches uv.lock." It is a pointer only. No memory text is injected.
-2. **Serena `initial_instructions`.** Serena returns its manual and the memory names. With `--project-from-cwd` the project is already active.
-3. **`read_memory core`.** About 60 lines: what the project is, a source map (folder -> one line), the main commands, links like `mem:conventions`. The agent now knows that the fetcher lives in `src/app/fetch.py` without one file read.
-4. **`graphify query "price fetcher http client"`.** A small subgraph: the function, its callers, the HTTP client it uses.
-5. **Serena `get_symbols_overview` on `src/app/fetch.py`, then `find_symbol` with `include_body`** for the one function. No whole-file Read.
-6. **Library docs.** The prompt names retries and the code uses httpx. Row `docs-lookup` fires (it knows the library names from `.ai/libs.md`) and shows: "Cached: httpx 0.28.1 context7=/encode/httpx/0.28.1 docs=httpx@0.28.x". The agent calls Grounded Docs `search_docs` with that name and version, or context7 `query-docs` with that ID. No `resolve-library-id`, no web search.
-7. **Edit.** `replace_symbol_body`. Then `graphify update .`.
-8. **Commit.** Row `knowledge-check` reads the commit. Here no module was added or moved and no lockfile changed, so it says nothing. Had the agent added `src/app/retry.py`, it would say "Update the source map in mem:core (Serena edit_memory)."
+```
+<!-- AI:map START (ai-adopt; edit freely inside, keep it under 60 lines) -->
+## Map
+- What: price-bot (Python).
+- Entry points: `bot` -> `app.main:run`; `Dockerfile`.
+- Where things live: `src/` (42 code files), `tests/` (18 code files).
+- Run: `uv sync`. Test: `uv run pytest`.
+- Conventions:
+  - New HTTP calls go through src/app/http.py (one client, retries there).
+<!-- AI:map END -->
+<!-- AI:libraries START lock: uv.lock sha256:3f9a1c2e4b5d -->
+## Libraries
+| lib | version | context7 | note |
+| httpx | 0.28.1 | /encode/httpx/0.28.1 | |
+<!-- AI:libraries END -->
+```
 
-What it costs (estimates; ACCEPTANCE K1 measures it on the server): status line about 150 tokens, `initial_instructions` about 2,000, core about 800, the graph query about 1,000, overview plus one symbol body about 800, one docs call about 2,000. Total about 7,000 tokens before the edit. The same task from zero (list folders, grep, read 5 to 10 files, resolve the library, query docs) is often 25,000 tokens or more, and it repeats in every session.
+You open a new Claude or Codex session and type: "add retries to the price fetcher".
 
-How the knowledge stays fresh: memories are flagged stale after 20 code commits or 5 added, deleted or renamed code files since the last memory commit; the graph is stale when it is older than the last code commit; the docs map is stale when its lockfile hash changed. `ai-doctor` reports the same three flags. Memories are hints: the agent checks a claim with a Serena lookup before an edit that depends on it.
+1. **Session start.** The agent already has the repo AGENTS.md in context (no tool call). The router adds one status line, for example: "Read the Map and Libraries sections of this repo's AGENTS.md first, then search narrowly. Map: present. Libraries: match uv.lock."
+2. **Locate.** The Map says HTTP calls go through `src/app/http.py`. The agent runs one narrow search (`rg -n "def fetch_price" src/`) and reads only the located lines. No folder scan.
+3. **Library docs.** The Libraries row gives `/encode/httpx/0.28.1`. The agent calls context7 `query-docs` with that ID: no `resolve-library-id`, no web search.
+4. **Edit, test.** The Map names the test command.
+5. **Commit.** Row `knowledge-check` reads the commit. No module was added or moved and no lockfile changed, so it says nothing. Had the agent added `src/app/retry.py`, it would say "Update the Map section in AGENTS.md."
+
+What it costs: the two sections are about 1,000 to 2,000 tokens, loaded every session with the rest of AGENTS.md. One narrow search plus a few located lines is about 1,000; one docs call about 2,000. The same task from zero (list folders, grep, read 5 to 10 files, resolve the library) is often 25,000 tokens or more, in every session. ACCEPTANCE T1 measures the always-on budget with `/context`.
+
+Big repos can add Serena or graphify for that project only (`ai-adopt --tools serena,graph`).
 
 ## 4. What runs where
 
@@ -237,9 +250,9 @@ How the knowledge stays fresh: memories are flagged stale after 20 code commits 
 | Hermes | yes, as its own user `hermes` | no | not part of the plan |
 | opencode | yes | yes | yes |
 | herdr | yes | no | yes |
-| Serena, graphify, RTK | yes | yes | yes |
-| Grounded Docs server | yes, once, private network only | reached over the network | reached over the network |
-| context7, GitHub MCP | yes | yes | yes |
+| RTK, `gh` | yes | yes | yes |
+| Serena, graphify | installed; on per project only | per project only | per project only |
+| context7 | yes | yes | yes |
 | Playwright MCP | no | per project only | per project only |
 | Project code and project services | never | always | on your own disk |
 
@@ -253,8 +266,7 @@ The installer cannot do these. It prints them at the end.
 - Codex on macOS: open `/hooks` once and trust the plugin hooks. Linux admin installs run Ponytail and i-have-adhd from `/etc/codex/hooks.json` (their plugin copies are off), so no trust step there.
 - Claude: run `/seo setup` once, then `/seo doctor`.
 - Fill `~/.config/ai/secrets.env` (mode 600). Names only are in `secrets.env.example`.
-- Serena: `serena download-ls-dependencies <language>` for the languages you use.
-- Grounded Docs: index the libraries you want (owner decides the list).
+- Serena (only if a project turns it on): `serena download-ls-dependencies <language>` for the languages you use.
 - Ask the owner before anything a contract marks "owner decides".
 
 ## 6. Verify
@@ -262,11 +274,11 @@ The installer cannot do these. It prints them at the end.
 ```
 ai-doctor
 ```
-It checks: plugin list and validation, MCP servers connected, pinned versions, telemetry and update switches, root file under 30 KB, every enabled tool has a contract, copied rule blocks equal the source (`ai-sync --check`), evals, the miss log, stale Serena entries. Inside an adopted repo (cwd or `--project PATH`) also: memories present and under the size caps, memory staleness, a secret scan of the memories, graph freshness, `.ai/libs.md` against the lockfile (`ai-libs --check`), and the global Serena memory conventions. A fast check runs at the end of `install.sh`: `ai-doctor --quick`.
+It checks: plugin list and validation, MCP servers connected, pinned versions, telemetry and update switches, root file size, every enabled tool has a contract, copied rule blocks equal the source (`ai-sync --check`), evals, the miss log, stale Serena entries. Inside an adopted repo (cwd or `--project PATH`) also: the Map section present and at most 60 lines, the Libraries section against the lockfiles (`ai-libs --check`), a secret scan of both sections, and only where turned on: the Serena entry and graph freshness. A fast check runs at the end of `install.sh`: `ai-doctor --quick`.
 
 Spot checks:
 - A new Claude session says "ADHD MODE ACTIVE (always-on)".
-- `claude mcp list` shows serena, context7, github, grounded-docs connected.
+- `claude mcp list` shows context7 connected (Serena and Playwright only inside projects that turned them on).
 - `rtk gain --history` grows after you run `git status` in a session.
 - The full acceptance run for a server: [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md).
 
@@ -307,15 +319,14 @@ Per-tool cleanup details are in the "Setup checklist" of each `ai/rules/<tool>.m
 |---|---|
 | `~/.dotfiles` | OS base branch |
 | `~/.dotfiles-ai` | this branch (git worktree) |
-| `~/.dotfiles-ai/ai/` | the AI layer: `routing.yaml`, `agents-md/`, `rules/`, `serena/` (global memory conventions), `adapters/`, `lib/`, `bin/`, `marketplace/`, `skills/`, `evals/`, `pins.env`, `TOOLBOX.md`, `SPEC.md` |
+| `~/.dotfiles-ai/ai/` | the AI layer: `routing.yaml`, `agents-md/`, `rules/`, `adapters/`, `lib/`, `bin/`, `marketplace/`, `skills/`, `evals/`, `pins.env`, `TOOLBOX.md`, `SPEC.md` |
 | `ai/AGENTS.md` | the rendered root rules (built on each machine by `ai-render`, not committed) |
 | `ai/build/` | generated, not committed: `routing.json`, `L0.md` |
 | `~/.config/ai/AGENTS.md` | root rules as the agents read them |
 | `~/.config/ai/TOOLBOX.md` | ready tools that are not installed by default |
 | `~/.config/ai/secrets.env` | your keys, mode 600, never committed |
 | `~/.local/state/ai/` | `audit.log`, `gates.log`, `misses.jsonl`, `fired.jsonl`, `docs-ids.jsonl`, `nudges.json`, `router-errors.log`, `managed-keys.json` |
-| `~/.serena/memories/global/memory_maintenance.md` | how every agent writes Serena memories (from `ai/serena/`, read-only) |
-| `<project>/.serena/memories/`, `<project>/.ai/libs.md` | project knowledge, committed. `graphify-out/` is generated and gitignored |
+| `<project>/AGENTS.md` | project knowledge, committed: the managed Map and Libraries sections. `graphify-out/` (opt-in) is generated and gitignored |
 | `~/.local/bin/` | links to every command in `ai/bin/` |
 | `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, Hermes `SOUL.md` | each has one managed block `AI:core` that carries or points to the root rules |
 
@@ -326,7 +337,7 @@ Commands in `ai/bin/`: `ai-doctor`, `ai-render`, `ai-sync`, `agent-audit`, `ai-s
 | Symptom | Check |
 |---|---|
 | A tool never fires | `~/.local/state/ai/misses.jsonl`. Then the contract `ai/rules/<tool>.md`. Then its eval. |
-| A command is blocked | Read the gate message. Run `agent-audit`, remove the secret, add the PR blocks. Escape hatch only when the owner says so. |
+| A command is blocked | Read the gate message. Run `agent-audit`, remove the secret, add the PR blocks. Only the owner can open a gate: `sudo ai-gate-skip <gate> <minutes> <why>`. |
 | Rules look old after a pull | Run `ai-sync`. Then `ai-sync --check`. |
 | A skill has no description in the list | The skill list is over budget. Check `skillListingBudgetFraction`, run `/skill-doctor`. The L0 table still routes. |
 | MCP server not connected | `claude mcp list`, `codex mcp list`. Check `~/.config/ai/secrets.env` and the contract setup checklist. |
@@ -334,11 +345,9 @@ Commands in `ai/bin/`: `ai-doctor`, `ai-render`, `ai-sync`, `agent-audit`, `ai-s
 | Codex hooks do not run | macOS: open `/hooks` and trust them; a change to a hook script needs new trust. Linux admin install: check `/etc/codex/hooks.json`. |
 | A vendor tool wrote its own block | Our install skips it and reports. Never edit inside vendor markers. |
 | `rtk gain` fails | A wrong `rtk` package is installed. See `ai/rules/rtk.md`. |
-| Grounded Docs not reachable | Is the server unit running? Is port 6280 open to your private network only? `list_libraries` from a client. |
 | Router error | `~/.local/state/ai/router-errors.log`. A router error never blocks a session (it fails open, except a gate decision already made). |
-| Agent reads whole files in an adopted repo | Does the session start line appear? Is `.serena/memories/core.md` there? Claude headless: are the Serena tools allowed? Then `misses.jsonl` for `project-knowledge`. |
-| Session start says "memories stale" | Update the source map in `.serena/memories/core.md` (an agent can do it with `edit_memory`), commit. |
-| Session start says "docs map stale" | `ai-libs --sync`, commit `.ai/libs.md`. Offline, it keeps the old rows and says so. |
+| Agent scans whole folders in an adopted repo | Does AGENTS.md have the Map section (`ai-adopt`)? Does the session start line appear? Is the Map still true (`ai-adopt --refresh-map`)? |
+| Session start says "Libraries stale" | `ai-libs --sync`, commit AGENTS.md. Offline, it keeps the old rows and says so. |
 
 ## 11. Read next
 
@@ -347,5 +356,6 @@ Commands in `ai/bin/`: `ai-doctor`, `ai-render`, `ai-sync`, `agent-audit`, `ai-s
 - [docs/INSTALL.md](docs/INSTALL.md): every install step and option.
 - [docs/CONTEXT.md](docs/CONTEXT.md): lists of rules, hooks, routing, logs.
 - [docs/EXTENDING.md](docs/EXTENDING.md): add a skill, MCP server, plugin, rule. Bump a pin. Retire a tool.
+- [docs/SECURITY.md](docs/SECURITY.md): the security model: boxes, the agent sandbox, no sudo, no planted config, gates.
 - [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md): tests to run after an install on a server.
 - `ai/SPEC.md`: the design. `ai/SPEC-LOG.md`: why.

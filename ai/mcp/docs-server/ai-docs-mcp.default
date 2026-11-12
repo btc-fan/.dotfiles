@@ -1,4 +1,0 @@
-# /etc/default/ai-docs-mcp (installed once by install.sh --docs-server; your edits are kept).
-# Telemetry off and read-only are set in the unit (DOCS_MCP_TELEMETRY=false, DOCS_MCP_READ_ONLY=true).
-# The flag names below are UNVERIFIED: check `docs-mcp-server --help` at 3.4.1 on the first install.
-DOCS_MCP_ARGS=--protocol http --host 0.0.0.0 --port 6280

@@ -161,8 +161,10 @@ def validate(data):
                     re.compile(r[key])
                 except re.error as exc:
                     errors.append("%s: bad %s regex: %s" % (rid, key, exc))
-        if r.get("once_per") not in (None, "session", "library_per_session"):
-            errors.append("%s: once_per must be session or library_per_session" % rid)
+        if r.get("once_per") not in (None, "session"):
+            errors.append("%s: once_per must be session (or absent)" % rid)
+        if trig.get("paths") == "code" or r.get("log_only") or r.get("reset_on"):
+            errors.append("%s: paths: code, log_only and reset_on were removed from the router" % rid)
         if states is not None and trig.get("state") and trig["state"] not in states:
             errors.append("%s: unknown state %r (add a predicate in router.STATE_PREDICATES)" % (rid, trig["state"]))
         if gates is not None and r.get("strength") == "gate" and rid not in gates:

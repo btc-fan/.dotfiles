@@ -19,35 +19,18 @@ hermes_mcp() {
     as_hermes_ro 'command -v hermes' >/dev/null || { skip "Hermes MCP: hermes binary not found for user $HERMES_USER"; return 0; }
     local root c7 hh
     hh=$(hermes_home)
-    # Serena and context7 for this user too (its own PATH and HOME; no runtime npx).
-    if ! as_hermes_ro 'command -v serena' >/dev/null && [ "$AI_SKIP_PACKAGES" != 1 ]; then
-        audit_ok pypi serena-agent "$SERENA_VERSION" \
-            && as_hermes "uv tool install --no-build -p $SERENA_PYTHON serena-agent==$SERENA_VERSION" \
-            && aiconf_hermes record-cmd uv:serena -- uv tool uninstall serena-agent
-    fi
+    # Dropped 2026-11-12: github and grounded-docs (agents use gh and context7), and Serena (opt-in per
+    # project now; Hermes has no project). Our earlier registrations are undone (recorded, symmetric).
+    aiconf_hermes undo --only "$DROPPED_USER_KEYS"
+    # context7 for this user too (its own HOME; no runtime npx).
     c7="$hh/.local/share/ai/npm/context7-mcp-$CONTEXT7_MCP_VERSION"
     if ! sudo -n -u "$HERMES_USER" test -x "$c7/node_modules/.bin/context7-mcp" 2>/dev/null && [ "$AI_SKIP_PACKAGES" != 1 ]; then
         npm_local @upstash/context7-mcp "$CONTEXT7_MCP_VERSION" "$CONTEXT7_MCP_INTEGRITY" "$c7" hermes \
             && aiconf_hermes record-cmd npm-local:context7 -- rm -rf "$c7"
     fi
     root=$(hermes_stage_dir "$(PLUGIN_DIR)" plugin-ai-core)
-    hermes_serena_config
-    # GitHub only with a token in hermes' OWN secrets file: without it the probe fails and Hermes saves the
-    # server disabled. A disabled entry from an earlier run is re-added (enabled) once the token is there.
-    local skip=""
-    if hermes_has_github_token; then
-        info "Hermes: GITHUB_PERSONAL_ACCESS_TOKEN found in its secrets.env: github MCP enabled"
-    else
-        skip="--skip github"
-        manual "Hermes github MCP left out: put GITHUB_PERSONAL_ACCESS_TOKEN in ~$HERMES_USER/.config/ai/secrets.env (mode 600), then re-run install"
-    fi
-    # shellcheck disable=SC2086
-    aiconf_hermes mcp-register hermes --mcp-json "$root/.mcp.json" --plugin-root "$root" $skip
-    ok "Hermes MCP: serena (ide context), context7, grounded-docs${skip:+ (github skipped: no token)}${skip:-, github}"
-}
-
-hermes_has_github_token() {
-    as_hermes_ro 'f=~/.config/ai/secrets.env; [ -f "$f" ] && [ "$(stat -c %a "$f")" = 600 ] && grep -Eq "^[[:space:]]*(export[[:space:]]+)?GITHUB_PERSONAL_ACCESS_TOKEN=[^[:space:]]{8,}" "$f"'
+    aiconf_hermes mcp-register hermes --mcp-json "$root/.mcp.json" --plugin-root "$root"
+    ok "Hermes MCP: context7 (github, grounded-docs and serena removed)"
 }
 
 hermes_serena_config() {
@@ -60,10 +43,6 @@ hermes_serena_config() {
     aiconf_hermes yaml-top-set "$cfg" web_dashboard false
     aiconf_hermes yaml-top-set "$cfg" web_dashboard_open_on_launch false
     aiconf_hermes yaml-top-set "$cfg" read_only_memory_patterns '["global/.*"]'
-    if [ -f "$AI_HOME/ai/serena/memory_maintenance.md" ]; then
-        local mm; mm=$(hermes_stage "$AI_HOME/ai/serena/memory_maintenance.md" memory_maintenance.md)
-        aiconf_hermes file-put "$(hermes_home)/.serena/memories/global/memory_maintenance.md" "$mm" --mode 644
-    fi
 }
 
 # ---------------------------------------------------------------- step 9: skills
@@ -107,16 +86,36 @@ hermes_skills() {
 # ---------------------------------------------------------------- step 10: hooks
 
 hermes_hooks() {
-    # Hermes plugin (pre_llm_call router, system-prompt section) is built by agent B.
-    local src="$AI_HOME/ai/hooks/hermes"
-    if [ -d "$src" ]; then
-        local staged; staged=$(hermes_stage_dir "$src" hermes-plugin)
-        as_hermes "mkdir -p ~/.hermes/plugins && rm -rf ~/.hermes/plugins/ai-core && cp -R '$staged' ~/.hermes/plugins/ai-core"
-        aiconf_hermes record-cmd hermes-plugin:ai-core -- rm -rf "$(hermes_home)/.hermes/plugins/ai-core"
-        manual "Hermes: enable the ai-core plugin (plugins.enabled) and restart the gateway"
-        ok "Hermes plugin files in ~$HERMES_USER/.hermes/plugins/ai-core"
+    # Hermes plugin (pre_llm_call router, system-prompt section): copy, enable, restart the gateway only
+    # when the plugin files or the enabled state changed.
+    local src="$AI_HOME/ai/hooks/hermes" staged before after changed=0
+    if [ ! -d "$src" ]; then skip "Hermes plugin: ai/hooks/hermes not built"; return 0; fi
+    staged=$(hermes_stage_dir "$src" hermes-plugin)
+    before=$(as_hermes_ro 'cd ~/.hermes/plugins/ai-core 2>/dev/null && find . -type f ! -path "*/__pycache__/*" -exec cksum {} + | sort | cksum' || true)
+    as_hermes "mkdir -p ~/.hermes/plugins && rm -rf ~/.hermes/plugins/ai-core && cp -R '$staged' ~/.hermes/plugins/ai-core"
+    aiconf_hermes record-cmd hermes-plugin:ai-core -- rm -rf "$(hermes_home)/.hermes/plugins/ai-core"
+    after=$(as_hermes_ro 'cd ~/.hermes/plugins/ai-core 2>/dev/null && find . -type f ! -path "*/__pycache__/*" -exec cksum {} + | sort | cksum' || true)
+    [ "$before" = "$after" ] || changed=1
+    if [ "$AI_DRY_RUN" = 1 ]; then
+        info "[dry-run] (as $HERMES_USER) hermes plugins enable ai-core; hermes gateway restart if anything changed"
+        return 0
+    fi
+    if as_hermes_ro 'hermes config get plugins.enabled' | grep -q 'ai-core'; then
+        info "Hermes plugin ai-core already enabled"
+    elif as_hermes 'hermes plugins enable ai-core </dev/null' && as_hermes_ro 'hermes config get plugins.enabled' | grep -q 'ai-core'; then
+        aiconf_hermes record-cmd hermes-plugin-enabled:ai-core -- hermes plugins disable ai-core
+        changed=1
+        ok "Hermes plugin ai-core enabled"
     else
-        skip "Hermes plugin: ai/hooks/hermes not built (agent B)"
+        warn "Hermes: could not enable the ai-core plugin with 'hermes plugins enable ai-core'"
+        manual "Hermes: enable the ai-core plugin (plugins.enabled), then: hermes gateway restart"
+        return 0
+    fi
+    if [ "$changed" = 1 ]; then
+        if as_hermes 'hermes gateway restart </dev/null'; then ok "Hermes gateway restarted (plugin changed)"
+        else warn "Hermes gateway restart failed"; manual "as $HERMES_USER: hermes gateway restart"; fi
+    else
+        info "Hermes plugin unchanged: gateway not restarted"
     fi
 }
 

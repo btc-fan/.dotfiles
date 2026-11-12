@@ -1,0 +1,33 @@
+#!/bin/sh
+# ai-gate-skip: let ONE ai-core gate through for a short time. Owner only (needs root; agents have no sudo).
+#   sudo ai-gate-skip <gate> <minutes 1-60> <why...>      e.g. sudo ai-gate-skip audit-before-install 10 reviewed foo by hand
+#   sudo ai-gate-skip --list                               show the skips that are still valid
+#   sudo ai-gate-skip --clear                              remove all skips
+# Writes /etc/ai/gate-skip (root:root 644): "<gate> <expiry unix seconds> <reason>". The router reads it and
+# logs every skipped gate to the user's ~/.local/state/ai/gates.log. Installed by install.sh as a root-owned
+# copy in /usr/local/sbin (never run a user-writable copy with sudo).
+set -eu
+FILE=/etc/ai/gate-skip
+LOG=/var/log/ai-gate-skip.log
+[ "$(id -u)" -eq 0 ] || { echo "ai-gate-skip: run it with sudo (owner only)" >&2; exit 1; }
+now=$(date +%s)
+umask 022
+mkdir -p /etc/ai
+keep() { [ -f "$FILE" ] && awk -v now="$now" 'NF >= 3 && $2 > now' "$FILE" || true; }
+case "${1:-}" in
+    --list) keep; exit 0 ;;
+    --clear) : > "$FILE"; chmod 644 "$FILE"; echo "$(date -u +%FT%TZ) clear by ${SUDO_USER:-root}" >> "$LOG"; exit 0 ;;
+    -h|--help|"") sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+esac
+[ $# -ge 3 ] || { echo "usage: sudo ai-gate-skip <gate> <minutes 1-60> <why...>" >&2; exit 2; }
+gate=$1; min=$2; shift 2; why=$*
+case "$gate" in *[!a-z0-9-]*) echo "ai-gate-skip: bad gate name: $gate" >&2; exit 2 ;; esac
+case "$min" in ''|*[!0-9]*) echo "ai-gate-skip: minutes must be a number" >&2; exit 2 ;; esac
+[ "$min" -ge 1 ] && [ "$min" -le 60 ] || { echo "ai-gate-skip: minutes must be 1 to 60" >&2; exit 2; }
+why=$(printf '%s' "$why" | tr -d '\n\r' | cut -c1-200)
+tmp=$(mktemp /etc/ai/.gate-skip.XXXXXX)
+{ keep | awk -v g="$gate" '$1 != g'; printf '%s %s %s\n' "$gate" "$((now + min * 60))" "$why"; } > "$tmp"
+chmod 644 "$tmp"
+mv "$tmp" "$FILE"
+echo "$(date -u +%FT%TZ) skip $gate ${min}m by ${SUDO_USER:-root}: $why" >> "$LOG"
+echo "gate $gate skipped for $min minutes (logged)"

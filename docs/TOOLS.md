@@ -86,66 +86,47 @@ Later: Gemini CLI and Kimi CLI (wired when enabled). Grok, Kimi and DeepSeek are
 
 ## 2. MCP servers
 
-MCP servers give agents extra tools. Ours come from one file, `ai/marketplace/plugins/ai-core/.mcp.json`, so Claude and Codex see the same list. Tool names look like `mcp__plugin_ai-core_<server>__<tool>`.
-
-### Serena
-
-- **What.** A code-intelligence server. It reads and edits code by symbol (function, class) through language servers.
-- **Why.** Reading a symbol costs far fewer tokens than reading a file, and edits by symbol are exact.
-- **How it works here.** Session start: `initial_instructions`, then `read_memory core`. Core is the project's entry memory: a source map, the main commands, links to the other memories. Then the agent calls `get_symbols_overview`, then `find_symbol` with the body, and edits with `replace_symbol_body`. Example: "rename `calc_price`" means `find_referencing_symbols`, then `rename_symbol`. Line numbers start at 0. A router nudge (`serena-first`) reminds the agent when it reads code with `cat` or Read. It only reminds. It never blocks.
-- **Memories.** `.serena/memories/` in the repo, committed. Serena onboarding writes them once (ai-adopt runs it in its own headless session). One global file, `global/memory_maintenance`, tells every agent how to write them: dense notes, size caps, no secrets or personal data. After a commit that moves modules, the router asks the agent to fix the source map in core.
-- **Scope.** Global.
-- **Pin.** `serena-agent==2.1.0`.
-- **Telemetry off.** `SERENA_USAGE_REPORTING=false` in the server entry's `env`. The web dashboard is off.
-- **Contract.** `ai/rules/serena.md`.
+MCP servers give agents extra tools, and each one costs context in every session, so the global list is short: only context7, from `ai/marketplace/plugins/ai-core/.mcp.json` (tool names `mcp__plugin_ai-core_context7__*`). Per project: Serena through the plugin `ai-serena@ai` (off at user scope, on with `enabledPlugins` in the project settings), Playwright through the plugin `ai-playwright@ai` (same mechanism, `ai-adopt --tools browser`). Managed settings block servers from a project `.mcp.json` (a planted file in a workspace must not start a process).
 
 ### context7
 
-- **What.** A cloud service with current docs for libraries, exposed as two MCP tools.
-- **Why.** Training data is old. It is the fallback when Grounded Docs lacks a library.
-- **How it works here.** The agent looks in `.ai/libs.md` first. A cached ID means `query-docs` directly, no `resolve-library-id`. Otherwise `resolve-library-id`, then `query-docs`, one concept per call, at most 3 calls. Queries leave the machine, so no secrets and no private code in a query. Free plan: 1,000 calls per month; cached IDs save about half. The free key is committed in the plugin config (owner decision, one allowlisted exception to the secret scan).
+- **What.** A cloud service with current docs for libraries, exposed as two MCP tools. The one docs tool (owner decision 2026-11-12: Grounded Docs dropped).
+- **Why.** Training data is old. Docs in a tool call beat answers from memory.
+- **How it works here.** The repo AGENTS.md has a "## Libraries" section with a context7 ID per library (written by `ai-libs --sync`). A cached ID means `query-docs` directly, no `resolve-library-id`. Otherwise `resolve-library-id`, then `query-docs`, one concept per call, at most 3 calls. Queries leave the machine, so no secrets and no private code in a query. Free plan: 1,000 calls per month; cached IDs save about half. `ai-libs` sends only public package names, once per library, and nothing at all for an ecosystem with a private index. The free key is committed in the plugin config (owner decision, one allowlisted exception to the secret scan).
 - **Scope.** Global.
 - **Pin.** `@upstash/context7-mcp@4.6.0`.
 - **Contract.** `ai/rules/context7.md`.
 
-### Grounded Docs
+### Serena (opt-in per project)
 
-- **What.** A self-hosted docs server (`@arabold/docs-mcp-server`). You index library docs once. Agents search them.
-- **Why.** Local, private and fast. Nothing leaves the network.
-- **How it works here.** It runs once on the server, on port 6280, reachable from the LAN and the private network only. Clients use read-only tools: `search_docs` with the name and version from `.ai/libs.md` (`list_libraries` only when the name is not cached). Scraping new docs is a server task for the owner; `ai-libs --sync` prints the libraries that are not indexed yet.
-- **Scope.** Global. It is the first choice for library docs.
-- **Pin.** 3.4.1.
-- **Telemetry off.** `DOCS_MCP_TELEMETRY=false` (the vendor default sends to PostHog). Clients set `DOCS_MCP_READ_ONLY=true`.
-- **Contract.** `ai/rules/grounded-docs.md`.
+- **What.** A code-intelligence server. It reads and edits code by symbol through language servers.
+- **Why.** On a big repo, a symbol lookup costs far fewer tokens than reading files, and edits by symbol are exact. On small projects the Map plus rg is enough, so it is off by default (owner decision 2026-11-12; the old global "Serena first" nudge was ignored in the logs).
+- **How it works here.** `ai-adopt --tools serena` turns on the plugin `ai-serena@ai` for that project (`enabledPlugins` in the project `.claude/settings.json`; the plugin holds only the Serena MCP entry and is off at user scope), writes a Codex entry in `.codex/config.toml` (trusted projects only), and indexes the project. Hermes and opencode get no Serena. There: `get_symbols_overview`, `find_symbol`, `replace_symbol_body`. No memories by default: project knowledge lives in AGENTS.md.
+- **Pin.** `serena-agent==2.1.0`. **Telemetry off.** `SERENA_USAGE_REPORTING=false` in the server entry's `env`.
+- **Contract.** `ai/rules/serena.md`.
 
-### GitHub MCP
+### GitHub: the `gh` CLI
 
-- **What.** GitHub's official MCP server: issues, pull requests, reviews.
-- **Why.** Structured access instead of parsing `gh` output.
-- **How it works here.** Full access, by owner decision. Pushes, merges and issue edits are outward actions, so the root rules say: confirm first. The token is read from `~/.config/ai/secrets.env` by a small wrapper. Not for local git: use git.
-- **Scope.** Global.
-- **Pin.** v2.1.0, release checksums in `pins.env`.
-- **Contract.** `ai/rules/github-mcp.md`.
+- **What.** GitHub work (issues, pull requests, reviews) goes through `gh`. The GitHub MCP is dropped (owner decision 2026-11-12: a large tool list and a full-access token).
+- **How it works here.** Read-only by default. Writes (a PR, a comment, a merge) are outward actions: confirm first; a PR goes through the `pr-rules` gate. owner/repo comes from the origin remote.
 
 ### Playwright MCP
 
 - **What.** A browser the agent can drive: open a page, click, take a screenshot.
 - **Why.** End-to-end checks and screenshots. The vendor itself says CLI skills are cheaper than an always-on MCP, so we do not keep it always on.
-- **How it works here.** Opt-in per project. `ai-start` or `ai-adopt` writes it into that project's `.mcp.json` (and the Codex project config), headless and isolated. Outside such a project, the rule `browser-not-enabled` tells the agent to ask you to run `ai-start`. The agent must not install a browser tool itself.
+- **How it works here.** Opt-in per project. `ai-adopt --tools browser` turns on the plugin `ai-playwright@ai` for that project (and writes the Codex project config), headless and isolated. Outside such a project, the rule `browser-not-enabled` tells the agent to suggest `ai-adopt --tools browser`. The agent must not install a browser tool itself.
 - **Scope.** Opt-in per project.
 - **Pin.** `@playwright/mcp` 0.0.85.
 - **Contract.** `ai/rules/playwright.md`.
 
 ## 3. Plugins, skills and CLI tools
 
-### graphify
+### graphify (opt-in per project)
 
-- **What.** Builds a knowledge graph of a code repo: which file calls which, how parts connect. Local, no LLM for code.
-- **Why.** "Where is X" and "what calls Y" are answered from the graph, not by reading many files.
-- **How it works here.** `GRAPHIFY_BACKEND=none graphify extract . --code-only` once per repo (ai-adopt runs it). It needs no key and sends nothing out. Bare `graphify .` is the skill form: headless it asks for an LLM key and fails, so we never use it. Then `graphify query "where is the price calculated"`. After code changes and after `git pull`, `graphify update .` (no cost). No graphify git hook by default (the router's post-commit nudge covers it); optional owner step per repo: `graphify hook install`. Its own hook only advises. The environment also sets `GRAPHIFY_BACKEND=none`.
-- **Scope.** Global.
-- **Pin.** 0.9.105 (PyPI `graphifyy`).
-- **Telemetry.** None documented. Cloud and ingest features are not used.
+- **What.** Builds a code graph of a repo: which file calls which. Local, no LLM for code.
+- **Why.** "What calls Y" on a big, unfamiliar codebase. Off by default: unproven benefit on small projects.
+- **How it works here.** `ai-adopt --tools graph` runs `GRAPHIFY_BACKEND=none graphify extract . --code-only` (no key, nothing sent out; bare `graphify .` asks for an LLM key and fails, so never use it) and gitignores `graphify-out/`. There: `graphify query "..."`, and `graphify update .` after code changes. No git hook by default; optional owner step: `graphify hook install`.
+- **Pin.** 0.9.105 (PyPI `graphifyy`). **Telemetry.** None documented.
 - **Contract.** `ai/rules/graphify.md`.
 
 ### RTK (Rust Token Killer)
@@ -276,38 +257,36 @@ Some tools can do the same job. The table in `ai/routing.yaml` (`tiebreaks`) nam
 | Chart or dashboard styling | `dataviz` | `blog-chart`, ui-ux-pro-max | Charts have one skill. |
 | A `.pptx` file | `anthropic-skills:pptx` | ui-ux-pro-max slides (HTML decks) | File type decides. |
 | "Wiki" | llmwiki where the project enabled it, else OMC wiki | the other | The project marker decides. |
-| Code symbol lookup or edit | Serena | OMC `lsp_*` | lsp is the fallback. |
-| Library API docs | `.ai/libs.md` IDs, then Grounded Docs | context7, then web | Cached first, local second, cloud third, web last. |
+| Code lookup | the Map in AGENTS.md, then rg / Grep | Serena or graphify (only where turned on), OMC `lsp_*` | One default path; extra tools per project. |
+| Library API docs | context7 with the ID from the Libraries section | web search | Cached ID first, web last. |
 
-### graphify vs Serena vs OMC lsp
+### Finding code: Map, rg, then opt-in tools
 
-Three tools can answer "where is this code". They do different parts.
-- graphify finds: structure, "where is X", "what calls Y". Think map.
-- Serena reads and edits: symbols and their callers. Think scalpel.
-- OMC `lsp_*` and ast-grep: fallback, when Serena has no language server for the file, or for diagnostics.
-Order: Serena memory core first (once per session), then graphify, then Serena symbols, then read only the lines they located. Built-in Read and Edit are for non-code files (md, json, yaml, toml, env, lock files). Example: "who calls `calc_price`?" starts with `graphify query`, then `find_referencing_symbols` for the exact list, then a read of three lines.
+- Default in every repo: read the Map section of AGENTS.md (no tool call), then one narrow `rg` / Grep, then read only the located lines.
+- Serena (symbols) and graphify (call graph) only in projects that turned them on, for big repos or heavy refactors.
+- OMC `lsp_*` and ast-grep: fallback, for diagnostics or a language Serena does not cover.
+Example: "who calls `calc_price`?" starts with the Map (which module), then `rg -n "calc_price(" src/`, then a read of three lines.
 
-### Grounded Docs vs context7 vs web
+### Library docs: context7, then the source
 
-- Step 0: `.ai/libs.md` (version, context7 ID, Grounded Docs name; no call at all).
-- Step 1: Grounded Docs (local, private, indexed by the owner).
-- Step 2: context7 (cloud, current, 1,000 calls a month, queries leave the machine). Skip `resolve-library-id` when the ID is cached.
-- Step 3: library source or the official site, and say that docs were not found.
-Use the project's version. Never send secrets or private code in a docs query. Web search is not a docs tool: Codex too uses context7 first.
+- Step 0: the Libraries section of AGENTS.md (version and context7 ID; no call at all).
+- Step 1: context7 `query-docs` with that ID (`resolve-library-id` only when there is none).
+- Step 2: the library source or the official site, and say that docs were not found.
+Use the locked version. Never send secrets or private code in a docs query. Web search is not a docs tool: Codex too uses context7 first.
 
-### Where project knowledge lives (one home per fact)
+### Where project knowledge lives
 
-The goal: an agent never explores a repo from zero. Each kind of fact has one home, one way to read it, and one trigger to refresh it.
+The goal: an agent never explores a repo from zero. Evidence behind the design (owner decision 2026-11-12, after an independent audit): passive context in AGENTS.md is used every time, while on-demand tools and per-tool nudges are often skipped (Vercel's agent eval: an 8 KB docs index in AGENTS.md passed 100%, skills alone were never invoked in 56% of cases). Context files must stay short and hold only non-standard facts.
 
-| Fact | Home | Made by | Read with | Refreshed when |
-|---|---|---|---|---|
-| Behaviour rules | AGENTS.md (short) | ai-render, ai-adopt | loaded every session | rules change |
-| Code map, commands, conventions | `.serena/memories/` (committed) | Serena onboarding, run by ai-adopt | `read_memory core` | a commit adds, deletes or renames modules (row `knowledge-check`) |
-| Code structure | `graphify-out/` (generated, gitignored) | ai-adopt | `graphify query` | `graphify update .` after code changes or `git pull` |
-| Library versions and docs IDs | `.ai/libs.md` (committed) | `ai-libs --sync` | the agent, and the docs rows show the cached IDs | lockfile changes or a new ID was used |
-| Session notes | OMC notepad | the agent | the agent | never kept as project truth |
+| Fact | Home | Made by | Refreshed when |
+|---|---|---|---|
+| House rules | root AGENTS.md (`~/.config/ai/AGENTS.md`, short) | ai-render | rules change |
+| Where things live, how to run and test, conventions | "## Map" in the repo AGENTS.md (managed block, <= 60 lines, committed) | ai-adopt (facts from the repo, plus one read-only claude pass for conventions) | a commit adds, deletes or renames modules (`knowledge-check` says so); `ai-adopt --refresh-map` |
+| Library versions and context7 IDs | "## Libraries" in the repo AGENTS.md (managed block, committed) | `ai-libs --sync` | lockfile changes or a new ID was used |
+| Code structure (opt-in) | `graphify-out/` (gitignored) | `ai-adopt --tools graph` | `graphify update .` |
+| Session notes | OMC notepad | the agent | never project truth |
 
-Rules that keep it honest: the session start line shows memory count and three freshness flags (memories, graph, docs map). No memory text is injected: the agent reads core on purpose. Memories are hints, the code wins. Memories and libs.md are committed and pushed, so they never hold secrets or personal data: the secret-scan gate and ai-adopt scan them. Worked example with costs: [README.md](../README.md), section 3, example D.
+Both blocks are committed and pushed, so they never hold secrets or personal data: ai-adopt scans them before its commit and the secret-scan gate scans every agent commit. Worked example with costs: [README.md](../README.md), section 3, example D.
 
 ### matt grilling vs OMC deep-interview
 
@@ -340,7 +319,7 @@ One chain, from prompt to proof.
 1. **The prompt.** You type "write a post about X for my site".
 2. **Router (L3 and L2).** The regex rules match. The tie-break says: a post file, so `claude-blog:blog`, not `seo-*`. The hook adds a forced-evaluation text. The agent answers YES for claude-blog.
 3. **The skill fires.** The agent calls the `Skill` tool with `claude-blog:blog`. A PostToolUse hook records it in `~/.local/state/ai/fired.jsonl`. A typed `/skill` is recorded the same way (UserPromptExpansion).
-4. **Other tools join.** While writing, Ponytail keeps diffs small, i-have-adhd keeps replies short, RTK shortens command output. If the post needs a library fact, `docs-lookup` points to Grounded Docs first.
+4. **Other tools join.** While writing, Ponytail keeps diffs small, i-have-adhd keeps replies short, RTK shortens command output. If the post needs a library fact, `docs-lookup` points to context7 with the cached ID.
 5. **Gates.** If the agent runs `npm install`, the audit gate checks `audit.log`. If it commits, the secret gate scans.
 6. **Stop.** When the turn ends, the Stop hook compares: which rules fired, and did a matching tool or skill call follow (the `proof` regex of each rule)? If not, it writes a line to `~/.local/state/ai/misses.jsonl`.
 7. **ai-doctor.** It reads the miss log and the gate log of the last 7 days. It also checks that each tool still has its contract and that the versions equal the pins. A rule that misses often needs a better regex, a clearer skill description, or an eval.

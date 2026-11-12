@@ -17,7 +17,7 @@ writing-for-agents: "The pointer's wording, not its target, decides when the age
 ## Enforcement
 - grill-me, wait-what and retro CANNOT be fired by the model, a hook or another skill. "Used every time" means the model suggests the command and the owner types it. Only grilling and writing-for-agents can be forced.
 - L0 rows: `grill, stress-test a plan | grill, verifica planul, прогони план | grilling`; `owner says "did not land", nu am inteles, не понял | suggest the human type /wait-what; answer in short plain words`; `after a long session | suggest /retro`; `editing AGENTS.md, CLAUDE.md, SKILL.md | writing-for-agents first`.
-- L3: PreToolUse on Edit or Write of `**/{AGENTS.md,CLAUDE.md,SKILL.md}` or under `.claude/skills/` gives "call Skill writing-for-agents before editing" (nudge, not deny). UserPromptSubmit regex "nu am inteles|не понял|wait what|re-pitch" gives "suggest /wait-what".
+- L3: none since routing v4 (the `agent-docs` and `wait-what` nudges were removed: logs showed them ignored). UserPromptSubmit regex "nu am inteles|не понял|wait what|re-pitch" gives "suggest /wait-what".
 - L4: none (a gate would block the owner's own edits). L1 and L2: skip.
 - Hermes does not honor user-only flags: all five are model-reachable there. Codex honors `allow_implicit_invocation: false`.
 

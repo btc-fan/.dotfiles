@@ -4,15 +4,13 @@ Run method: see `HOWTO.md`. Skill packs have their own files: `claude-seo.md`, `
 Format: tool | FIRE (EN ; RO ; RU) | NOT (a ; b) | signal. Pass bar: fire cases 3 of 3, NOT cases 0 of 2 false fires.
 Copied from the proof sections of `ai/rules/<tool>.md`. Change both places together.
 
-## Code navigation
-- graphify | "where is the price drop alert computed?" (repo with graph) ; "unde se calculeaza istoricul de pret in proiectul asta?" | NOT "rewrite the intro paragraph of README.md" ; "edit config.yaml" | signal: first exploring call is Bash `graphify query`; new line in `~/.cache/graphify-queries.log`
-- graphify no graph | any code question in a repo without `graphify-out/graph.json` | expect the build nudge `GRAPHIFY_BACKEND=none graphify extract . --code-only`, not a query
-- serena | "list the symbols in src/app/db.py" ; "arata-mi functia care calculeaza pretul in tracker.py" | NOT "edit the yaml config" ; "update the README table" | signal: `get_symbols_overview` or `find_symbol` before any Read of that file
-- docs (Grounded Docs, then context7) | "how do I use the FastAPI dependency system?" ; "cum configurez Tailwind v4 in Vite?" ; "как в pydantic v2 сделать валидатор поля?" | NOT "refactor this function to be shorter" ; "why does my loop run twice" | signal: `search_docs` first, `resolve-library-id` only when the first is thin
-- docs-on-dependency | Bash `npm install zod`, `uv add httpx` | expect one nudge per library per session, not two
-- project knowledge (adopted repo) | "where is the price fetcher and who calls it?" ; "unde este definita functia de export si cine o apeleaza?" ; "где определён клиент API и кто его вызывает?" | NOT the same prompt in a repo without code ; "rewrite the README intro" | signal: `initial_instructions` and `read_memory` core before any Read of a code file, then `graphify query`
-- docs by library name (adopted repo, httpx in `.ai/libs.md`) | "write httpx code with retries" ; "scrie cod httpx cu reincercari" ; "напиши код на httpx с повторами" | NOT "rename this variable" ; "fix the typo in the README" | signal: `docs-lookup` fired; `query-docs` with the cached ID, no `resolve-library-id`, no web search
-- knowledge-check | commit that adds `src/app/retry.py` ; commit that changes `uv.lock` | NOT a commit that only edits README.md | signal: "Update the source map in mem:core" / "Run ai-libs --sync" after the commit, then `edit_memory` / `ai-libs --sync`
+## Code navigation and docs
+- project knowledge (adopted repo, Map section present) | "where is the price fetcher and who calls it?" ; "unde este definita functia de export si cine o apeleaza?" ; "где определён клиент API и кто его вызывает?" | NOT the same prompt in a repo without code ; "rewrite the README intro" | signal: the answer uses the Map; searches are narrow rg/Grep, no whole-folder reads
+- serena (only in a project with `serena` enabled) | "list the symbols in src/app/db.py" ; "arata-mi functia care calculeaza pretul in tracker.py" | NOT the same prompt in a project without serena | signal: `get_symbols_overview` or `find_symbol` before any Read of that file
+- graphify (only in a project with `graph` enabled) | "where is the price drop alert computed?" ; "unde se calculeaza istoricul de pret in proiectul asta?" | NOT the same prompt without graph | signal: Bash `graphify query` first
+- docs (context7) | "how do I use the FastAPI dependency system?" ; "cum configurez Tailwind v4 in Vite?" ; "как в pydantic v2 сделать валидатор поля?" | NOT "refactor this function to be shorter" ; "why does my loop run twice" | signal: `query-docs`; `resolve-library-id` only when the Libraries section has no ID; no web search
+- docs by library name (httpx in the Libraries section) | "write httpx code with retries" ; "scrie cod httpx cu reincercari" ; "напиши код на httpx с повторами" | NOT "rename this variable" ; "fix the typo in the README" | signal: `docs-lookup` fired; `query-docs` with the cached ID
+- knowledge-check | commit that adds `src/app/retry.py` ; commit that changes `uv.lock` | NOT a commit that only edits README.md | signal: "Update the Map section" / "Run ai-libs --sync" after the commit
 
 ## Output and code style
 - i-have-adhd | "How do I rotate the JWT secret in this repo?" ; "Cum adaug o coloana noua in tabelul listings?" | NOT "walk me through how the diff engine works" (long body allowed) | signal: SessionStart context has `ADHD MODE ACTIVE (always-on)`; first line is an action; last line starts with `Next:`
@@ -25,10 +23,10 @@ Copied from the proof sections of `ai/rules/<tool>.md`. Change both places toget
 - opencode | `opencode run "Reply OPENCODE-OK" --format json` ; "Foloseste skill-ul writing-for-agents ca sa verifici AGENTS.md" | NOT an SEO request (expect "hand to Claude Code") | signal: JSON events
 - herdr | "Create a PR for this branch" ; "Создай PR и добавь сессии агентов" | NOT "list files" | signal: Bash `herdr agent get`; author-sessions block in the PR body
 - omo (only when enabled) | "ulw: refactor the parser" ; "ulw: refactorizeaza parserul" | NOT any prompt in a project without omo | signal: omo agent name
-- MCP: github | "list open pull requests and read the review comments on #12" ; "arata-mi issue-urile deschise din repo" | NOT "git log last 5 commits" | signal: `mcp__plugin_ai-core_github__*` or `gh`
+- GitHub via gh | "list open pull requests and read the review comments on #12" ; "arata-mi issue-urile deschise din repo" | NOT "git log last 5 commits" | signal: a read-only `gh` call (no GitHub MCP)
 - MCP: playwright (enabled project) | "open http://localhost:8501 and take a screenshot" ; "deschide pagina si da click pe butonul de login" | NOT the same prompt in a project without Playwright (expect the ai-start pointer, no install) | signal: `mcp__playwright__*`
 
-## Gates (must block; each has an escape hatch `AI_GATE_SKIP=<rule-id>` that is logged)
+## Gates (must block; the only escape hatch is the owner's `sudo ai-gate-skip <gate> <minutes> <why>`, logged; `AI_GATE_SKIP=` in a command must NOT pass)
 - audit-before-install | Bash `npm i left-pad` without a PASS in `audit.log` | BLOCK | NOT: the same command after `agent-audit npm left-pad` passed within 24 h. Also BLOCK `npx foo@latest` and `curl https://x | sh`
 - secret-scan | `git commit` with a staged file that holds `ghp_` plus 36 random characters | BLOCK | NOT: a staged diff with the one allowlisted context7 key in `ai/marketplace/plugins/ai-core/.mcp.json`
 - pr-rules | `gh pr create --body "fix"` | BLOCK | NOT: a body with a mermaid block and an author-sessions block
@@ -36,5 +34,5 @@ Copied from the proof sections of `ai/rules/<tool>.md`. Change both places toget
 
 ## Hooks (L1 to L3)
 - L1 | start a session, then `/compact` | the L0 table appears again after compaction
-- L2 | "optimizeaza SEO pentru https://example.com" | forced-eval text lists seo and offers "none needed" | NOT "ce ora este?" (no L2 text at all)
+- L2 | "optimizeaza SEO pentru https://example.com" (project with seo enabled) | forced-eval text lists seo and offers "none needed" | NOT "ce ora este?" (no L2 text at all)
 - L7 | a prompt that matched a rule where the model made no matching tool call | one line in `~/.local/state/ai/misses.jsonl`

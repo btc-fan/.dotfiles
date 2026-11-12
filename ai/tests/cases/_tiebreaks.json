@@ -21,15 +21,6 @@
    "contains": "use claude-seo:seo-*"
   },
   {
-   "name": "grill me",
-   "expect": "allow",
-   "event": "UserPromptSubmit",
-   "payload": {
-    "prompt": "grill me on this plan"
-   },
-   "contains": "use matt grilling"
-  },
-  {
    "name": "no rule and no tie-break: no output",
    "expect": "allow",
    "event": "UserPromptSubmit",

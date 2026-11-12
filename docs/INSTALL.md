@@ -16,15 +16,15 @@ Full steps. The short version is in `README.md`, section 2. What each tool is: [
 git -C ~/.dotfiles fetch origin ai
 git -C ~/.dotfiles worktree add ~/.dotfiles-ai ai
 ```
-2. Dry run. On a server the admin user runs it for the main user:
+2. Dry run. On a server the ADMIN user runs it for the main user, from the admin's OWN clone (root never runs code from the agent user's home: install.sh refuses that, and also a dirty tree or a commit that is not origin/ai):
 ```
-sudo ~<user>/.dotfiles-ai/install.sh --for-user <user> --dry-run
+git clone --branch ai https://github.com/btc-fan/.dotfiles.git ~/dotfiles-ai     # once
+git -C ~/dotfiles-ai fetch origin && git -C ~/dotfiles-ai checkout --detach origin/ai
+git -C ~/dotfiles-ai status --short                                         # must print nothing
+sudo ~/dotfiles-ai/install.sh --for-user <user> --dry-run
 ```
-3. Install:
-```
-sudo ~<user>/.dotfiles-ai/install.sh --for-user <user>
-```
-   **Coming:** `--for-user` is not in `install.sh` yet. Today the main user runs `~/.dotfiles-ai/install.sh` (with `--dry-run` first) and sudo is used where needed. macOS later: `~/.dotfiles-ai/install.sh`, no sudo.
+3. Install: the same, without `--dry-run`: `sudo ~/dotfiles-ai/install.sh --for-user <user>`. Update later: the fetch, checkout and status lines again, then install.
+   macOS: `~/.dotfiles-ai/install.sh`, no sudo.
 4. Fill the keys. `cp ~/.dotfiles-ai/secrets.env.example ~/.config/ai/secrets.env && chmod 600 ~/.config/ai/secrets.env`, then edit.
 5. Manual steps (below).
 6. `ai-doctor`.
@@ -52,7 +52,7 @@ Options:
 | `--dry-run` | Print what would change. Change nothing. |
 | `--agents a,b` | Only these agents: claude, codex, hermes, opencode, herdr. |
 | `--skip-packages` | Do not install system packages. |
-| `--docs-server` | Also set up the Grounded Docs server role on this machine (Ubuntu). |
+| `--docs-server` | Gone: Grounded Docs was dropped. Install removes an existing Grounded Docs server (recorded). |
 | `--yes` | Answer yes to the confirm questions. Not to the server question. |
 
 ## Ubuntu
@@ -78,15 +78,17 @@ Options:
 - Claude Code login. Codex device-code login. Hermes provider keys (`hermes setup`).
 - Codex: on Linux admin installs the ai-core, RTK, Ponytail and i-have-adhd hooks live in `/etc/codex/hooks.json` (managed: no trust step for any user; the plugin copies are switched off). On macOS, or a Linux install without admin, install writes trust hashes for ai-core and RTK, and you open `/hooks` once for Ponytail and i-have-adhd. Also open it when ai-doctor lists one of ours as untrusted.
 - SEO and blog skills from Hermes and Codex: Hermes never hands off to Claude; it follows the skill files in `/opt/agent-plugins/claude-seo` and `/opt/agent-plugins/claude-blog` itself (no Claude login for hermes). Codex hands off only when Claude is logged in for that user and you approved a network run for it; otherwise it follows the same skill files.
-- Hermes GitHub MCP: put `GITHUB_PERSONAL_ACCESS_TOKEN` in `~hermes/.config/ai/secrets.env` (mode 600), then admin re-runs `install.sh --for-user <user>`. Without the token the github server stays out and ai-doctor says so.
+- GitHub: replace the broad gh token with a fine-grained per-repo token (only the repos agents work on, the least scopes), and enable branch protection and push protection on GitHub. Agents use the `gh` CLI (the GitHub MCP was dropped).
 - claude.ai connectors (Gmail, Calendar, Drive) are off on Linux installs (`"disableClaudeAiConnectors": true` in `/etc/claude-code/managed-settings.json`), so unattended agents cannot reach your mail. To keep them: `install.sh --for-user <user> --keep-claudeai-connectors`.
 - oh-my-claudecode is the pinned Claude plugin `oh-my-claudecode@omc` (as on the Mac), exa MCP off. Run `/oh-my-claudecode:omc-setup` once in Claude.
 - claude-seo and claude-blog are installed but off (about 12k tokens per session each). Turn one on for one project: `ai-adopt --tools seo` (or `blog`), or put `"enabledPlugins": {"claude-seo@agricidaniel-claude-seo": true}` in that project's `.claude/settings.json`.
 - Claude: `/seo setup` then `/seo doctor`, once, in a project with claude-seo on.
 - `~/.config/ai/secrets.env`: GitHub token, provider keys, `DISCORD_ALLOWED_USERS` for Hermes, webhook copy for notifications.
-- Serena: `serena init`, then `serena download-ls-dependencies <language>`.
+- Serena and graphify are installed but off; turn them on per project: `ai-adopt --tools serena,graph`. Then `serena download-ls-dependencies <language>` once.
 - Notifications on Linux: webhook file readable by the user. How the user reads it (a user copy or a root helper) is documented in `ai/bin/claude-notify`. Without the webhook it does nothing.
 - Per project: `ai-adopt` for an existing repo, `ai-start` for a new one.
+- Claude Bash sandbox (Linux): commands run in bubblewrap with no access to `~/.ssh`, `~/.config/gh`, the Claude/Codex logins and `secrets.env`; git over SSH does not work inside it (use HTTPS remotes). If Claude refuses to start with a sandbox error, run `sudo ai-doctor --for-user <user>`: it checks bubblewrap and the AppArmor profile.
+- Skip a gate for a real exception (owner only): `sudo ai-gate-skip <gate> <minutes, max 60> <why>`.
 
 ## Verify
 
@@ -97,7 +99,7 @@ ai-sync --check
 `ai-sync --check` fails when a copied rule block (Codex, Hermes) differs from the source. Fix it with `ai-sync`. After each `git pull`, `ai-sync` should run (install the git hook once with `ai-sync --install-hook`).
 Then spot-check three things:
 - New Claude session starts with "ADHD MODE ACTIVE (always-on)".
-- `claude mcp list` shows serena, context7, github, grounded-docs connected.
+- `claude mcp list` shows context7 (plus serena or playwright only in a project that turned them on).
 - `rtk gain --history` grows after you run `git status` in a session.
 
 ## Remove or revert

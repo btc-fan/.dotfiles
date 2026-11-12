@@ -2,7 +2,7 @@
  "rule": "project-knowledge",
  "cases": [
   {
-   "name": "code repo: status line, no memory yet",
+   "name": "code repo without Map: status line says so",
    "expect": "fire",
    "event": "SessionStart",
    "payload": {
@@ -15,13 +15,16 @@
     }
    },
    "contains": [
-    "Memory: none yet",
-    "Graph: missing"
+    "Map: missing"
    ],
-   "not_contains": "{knowledge_index}"
+   "not_contains": [
+    "{knowledge_index}",
+    "Serena on",
+    "Graph:"
+   ]
   },
   {
-   "name": "code repo with memories: count only, never content",
+   "name": "Map present, counted, never quoted",
    "expect": "fire",
    "event": "SessionStart",
    "payload": {
@@ -31,12 +34,30 @@
     "git_init": true,
     "files": {
      "main.py": "print(1)\n",
-     ".serena/memories/core.md": "SECRET-MEMORY-TEXT\n",
-     ".serena/memories/conventions.md": "x\n"
+     "AGENTS.md": "<!-- AI:map START -->\n## Map\n- SECRET-MAP-TEXT\n- b\n<!-- AI:map END -->\n"
     }
    },
-   "contains": "Memory: 2 memories",
-   "not_contains": "SECRET-MEMORY-TEXT"
+   "contains": "Map: present (3 lines)",
+   "not_contains": "SECRET-MAP-TEXT"
+  },
+  {
+   "name": "Serena and graph only where enabled",
+   "expect": "fire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "main.py": "print(1)\n",
+     ".ai/enabled": "serena\ngraph\n"
+    }
+   },
+   "contains": [
+    "Serena on.",
+    "Graph: missing"
+   ]
   },
   {
    "name": "repo without code",

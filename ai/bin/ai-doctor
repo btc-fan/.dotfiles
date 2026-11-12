@@ -32,10 +32,23 @@ PLUGIN = os.path.join(AI_DIR, "marketplace", "plugins", "ai-core")
 STATE = os.environ.get("AI_STATE_DIR") or os.path.expanduser("~/.local/state/ai")
 CAP = 30 * 1024
 SECTIONS = ["vendor rules", "when", "enforcement", "proof", "setup checklist"]
-RESULTS = {"PASS": 0, "WARN": 0, "FAIL": 0}
+RESULTS = {"PASS": 0, "WARN": 0, "FAIL": 0, "SKIP": 0}
+SKIP_HERMES = "run as admin for the Hermes checks: sudo /usr/local/lib/ai/repo/ai/bin/ai-doctor --for-user <user>"
+MODE = "all"        # all | no-hermes (the user part of an admin run) | hermes-only (the root part)
 
 
 def main(argv):
+    global MODE
+    if "--for-user" in argv:
+        return admin_run(argv)
+    if os.environ.get("AI_DOCTOR_MODE") in ("no-hermes", "hermes-only"):
+        MODE = os.environ["AI_DOCTOR_MODE"]
+    if MODE == "hermes-only":
+        check_rule_files()
+        check_hermes()
+        check_handoff()
+        check_copies()
+        return finish()
     quick = "--quick" in argv
     check_render()
     check_agents_md()
@@ -50,12 +63,13 @@ def main(argv):
     check_claude_permissions()
     check_claudeai_connectors()
     check_env_delivery()
-    check_docs_service()
+    check_dropped()
+    check_claude_policy()
+    check_codex_policy()
     check_hermes()
     check_omc()
     check_handoff()
     check_gate_smoke()
-    check_serena_global()
     proj = argv[argv.index("--project") + 1] if "--project" in argv and argv.index("--project") + 1 < len(argv) \
         else os.getcwd()
     check_project(proj, explicit="--project" in argv)
@@ -66,8 +80,37 @@ def main(argv):
         check_evals()
         check_optional("omx", ["omx", "doctor"])
         check_optional("mise", ["mise", "ls"])
-    print("\nai-doctor: %d pass, %d warn, %d fail" % (RESULTS["PASS"], RESULTS["WARN"], RESULTS["FAIL"]))
+    return finish()
+
+
+def finish():
+    print("\nai-doctor%s: %d pass, %d warn, %d fail, %d skip" % (
+        " (Hermes, as root)" if MODE == "hermes-only" else "", RESULTS["PASS"], RESULTS["WARN"], RESULTS["FAIL"],
+        RESULTS["SKIP"]))
     return 1 if RESULTS["FAIL"] else 0
+
+
+def admin_run(argv):
+    """sudo ai-doctor --for-user <user>: every user check runs AS that user (no root-owned files appear in
+    the user's home), then the Hermes checks run here as root (hermes' home is closed to the user)."""
+    i = argv.index("--for-user")
+    user = argv[i + 1] if i + 1 < len(argv) else ""
+    rest = argv[:i] + argv[i + 2:]
+    if os.geteuid() != 0:
+        print("ai-doctor --for-user needs root: sudo %s --for-user %s" % (os.path.realpath(__file__), user))
+        return 2
+    import pwd
+    try:
+        pwd.getpwnam(user)
+    except KeyError:
+        print("ai-doctor: no such user: %s" % user)
+        return 2
+    me = os.path.realpath(__file__)
+    code_user = subprocess.call(["sudo", "-u", user, "-H", "env", "AI_DOCTOR_MODE=no-hermes", "python3", me] + rest,
+                                cwd="/")
+    print("")
+    code_root = subprocess.call(["python3", me] + rest, env=dict(os.environ, AI_DOCTOR_MODE="hermes-only"), cwd="/")
+    return 1 if (code_user or code_root) else 0
 
 
 # ---------------------------------------------------------------- checks
@@ -161,10 +204,13 @@ def check_contracts():
 def check_copies():
     """Copied rule blocks (Codex AGENTS.md, Hermes SOUL.md, Hermes plugin) must match ai/AGENTS.md: ai-sync --check."""
     code, out = run(["bash", os.path.join(BIN, "ai-sync"), "--check"])
-    lines = [ln for ln in out.splitlines() if ln[:4] in ("PASS", "FAIL", "WARN")]
+    lines = [ln for ln in out.splitlines() if ln[:4] in ("PASS", "FAIL", "WARN", "SKIP")]
     for ln in lines:
         level, _sp, what = ln.partition(" ")
-        say(level, what)
+        is_hermes = "Hermes" in what
+        if (MODE == "hermes-only" and not is_hermes) or (MODE == "no-hermes" and is_hermes):
+            continue
+        say(level, what, SKIP_HERMES if level == "SKIP" else "")
     if code != 0 and not any(ln.startswith("FAIL") for ln in lines):
         say("FAIL", "ai-sync --check failed", out[-300:])
     if not lines and code == 0:
@@ -258,6 +304,18 @@ def aiconf_module():
 
 def check_rule_files():
     """CLAUDE.md, Codex and Hermes point agents at ~/.config/ai/{rules/,TOOLBOX.md}: they must exist."""
+    if MODE != "hermes-only":
+        check_rule_files_user()
+    if hermes_present() and MODE != "no-hermes":
+        code, out = as_hermes("ls ~/.config/ai/rules/serena.md ~/.config/ai/rules/claude-seo.md ~/.config/ai/TOOLBOX.md")
+        if code is None:
+            say("SKIP", "Hermes ~/.config/ai/{rules,TOOLBOX.md}", SKIP_HERMES)
+        else:
+            say("PASS" if code == 0 else "FAIL", "Hermes ~/.config/ai/{rules,TOOLBOX.md} present",
+                "" if code == 0 else "admin: re-run install.sh --for-user (copies them for hermes)")
+
+
+def check_rule_files_user():
     base = os.path.join(HOME, ".config", "ai")
     rules = os.path.join(base, "rules")
     n = len([f for f in os.listdir(rules) if f.endswith(".md")]) if os.path.isdir(rules) else 0
@@ -265,13 +323,6 @@ def check_rule_files():
     say("PASS" if n and n >= src else "FAIL", "~/.config/ai/rules has the tool contracts (%d of %d)" % (n, src),
         "" if n else "re-run install.sh (links ~/.config/ai/rules)")
     say("PASS" if os.path.isfile(os.path.join(base, "TOOLBOX.md")) else "FAIL", "~/.config/ai/TOOLBOX.md present")
-    if hermes_present():
-        code, out = as_hermes("ls ~/.config/ai/rules/serena.md ~/.config/ai/rules/claude-seo.md ~/.config/ai/TOOLBOX.md")
-        if code is None:
-            say("WARN", "Hermes rule files not checked (needs sudo -n to %s)" % HERMES_USER)
-        else:
-            say("PASS" if code == 0 else "FAIL", "Hermes ~/.config/ai/{rules,TOOLBOX.md} present",
-                "" if code == 0 else "admin: re-run install.sh --for-user (copies them for hermes)")
 
 
 def check_codex_trust():
@@ -336,7 +387,7 @@ def check_claude_permissions():
     allow, deny = perms.get("allow") or [], perms.get("deny") or []
     if LINUX:
         deny = deny + ((load_json_file(MANAGED) or {}).get("permissions") or {}).get("deny", [])
-    need_allow = ["mcp__plugin_ai-core_serena__find_symbol", "mcp__plugin_ai-core_context7__*",
+    need_allow = ["mcp__plugin_ai-core_context7__*", "Bash(gh pr view *)",
                   "Bash(ai-doctor*)", "WebFetch"]
     need_deny = ["Edit(~/.claude/settings.json)", "Edit(//etc/claude-code/**)", "Edit(~/.codex/config.toml)",
                  "Edit(~/.hermes/config.yaml)", "Read(~/.config/ai/secrets.env)"]
@@ -347,8 +398,13 @@ def check_claude_permissions():
     say("PASS" if not miss_d else "FAIL", "Claude permissions.deny protects rule and config files",
         ("missing: " + ", ".join(miss_d)) if miss_d else "")
     bad = [r for r in allow if r in ("Bash", "Bash(*)", "Edit", "Write", "Bash(graphify *)", "Bash(rtk *)")
-           or r.startswith(("Bash(git push", "Bash(sudo", "Bash(rtk find", "Bash(rtk grep", "Bash(rtk tree",
-                            "Bash(rtk git diff", "Bash(rtk git log", "Bash(rtk git show"))]
+           or r.startswith(("Bash(git push", "Bash(sudo"))]
+    # rtk forms that pass arguments to a program that can run others: their exec forms must be denied.
+    for allow_rule, deny_rule in (("Bash(rtk find *)", "Bash(rtk find *-exec*)"), ("Bash(rtk grep *)", "Bash(rtk grep *--pre*)"),
+                                  ("Bash(rtk rg *)", "Bash(rtk rg *--pre*)"), ("Bash(rtk tree*)", "Bash(rtk tree* -o*)"),
+                                  ("Bash(rtk git diff*)", "Bash(rtk git * --ext-diff*)")):
+        if allow_rule in allow and deny_rule not in deny:
+            bad.append("%s without the deny %s" % (allow_rule, deny_rule))
     if bad:
         say("FAIL", "Claude allow list has write or push rules", ", ".join(bad))
 
@@ -395,19 +451,90 @@ def check_env_delivery():
         miss = [k for k in want if not re.search(r"^%s=" % k, etc, re.M)]
         say("PASS" if not miss else "FAIL", "/etc/environment has the switches (ssh commands, cron)",
             ("missing: " + ", ".join(miss[:8])) if miss else "")
-        code, out = run(["env", "-i", "HOME=" + HOME, "PATH=/usr/bin:/bin", "bash", "-c", 'printf %s "$PATH"'])
+        # What an ssh command gets: bash sources ~/.bashrc non-interactively (Debian builds bash so), and
+        # Ubuntu's ~/.bashrc returns early then. Source it the same way and look at PATH.
+        code, out = run(["env", "-i", "HOME=" + HOME, "PATH=/usr/bin:/bin", "bash", "-c",
+                         '[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc" >/dev/null 2>&1; printf %s "$PATH"'])
         ok = code == 0 and os.path.join(HOME, ".local", "bin") in out.split(":")
-        say("PASS" if ok else "FAIL", "~/.local/bin on PATH in a non-login, non-interactive bash",
-            "" if ok else "re-run install.sh (block at the top of ~/.bashrc)")
+        say("PASS" if ok else "FAIL", "~/.local/bin on PATH in a non-interactive bash (ssh command: ~/.bashrc)",
+            "" if ok else "re-run install.sh (the AI:path block must sit at the top of ~/.bashrc, above the "
+            "'not interactive: return' line)")
 
 
-def check_docs_service():
-    unit = "/etc/systemd/system/ai-docs-mcp.service"
-    if not LINUX or not os.path.exists(unit):
+def check_dropped():
+    """Grounded Docs and the GitHub MCP were dropped (2026-11-12): nothing of them may be left running."""
+    if LINUX and os.path.exists("/etc/systemd/system/ai-docs-mcp.service"):
+        code, out = run(["systemctl", "is-active", "ai-docs-mcp.service"])
+        say("FAIL", "Grounded Docs unit still installed (%s)" % out.strip(),
+            "admin: install.sh --for-user <user> removes it (recorded undo)")
+    if shutil.which("github-mcp-server"):
+        say("WARN", "github-mcp-server binary still on PATH (%s)" % shutil.which("github-mcp-server"),
+            "admin: install.sh --for-user <user> removes it")
+    plugin_mcp = load_json_file(os.path.join(PLUGIN, ".mcp.json")) or {}
+    extra = sorted(set((plugin_mcp.get("mcpServers") or {})) - {"context7"})
+    say("PASS" if not extra else "FAIL", "ai-core serves only context7 (Serena is the opt-in plugin ai-serena)",
+        ("unexpected: " + ", ".join(extra)) if extra else "")
+    if shutil.which("codex"):
+        code, out = run(["codex", "mcp", "list"], timeout=30)
+        left = [n for n in ("github", "grounded-docs", "serena") if re.search(r"(^|\s)%s(\s|$)" % n, out, re.M)]
+        if code == 0:
+            say("PASS" if not left else "WARN", "Codex MCP: no global github, grounded-docs or serena",
+                ("still registered: %s (re-run install.sh)" % ", ".join(left)) if left else "")
+
+
+def check_claude_policy():
+    """Linux: the managed Bash sandbox and the planted-config lock (escape tests in config form)."""
+    if not LINUX or not shutil.which("claude"):
         return
-    code, out = run(["systemctl", "is-active", "ai-docs-mcp.service"])
-    say("PASS" if out.strip() == "active" else "FAIL", "Grounded Docs service ai-docs-mcp is active (%s)" % out.strip(),
-        "" if out.strip() == "active" else "journalctl -u ai-docs-mcp -n 50; admin: install.sh --for-user <user> --docs-server")
+    ms = load_json_file(MANAGED) or {}
+    sb = ms.get("sandbox") or {}
+    on = sb.get("enabled") is True and sb.get("failIfUnavailable") is True and sb.get("allowUnsandboxedCommands") is False
+    say("PASS" if on else "FAIL", "Claude Bash sandbox required (enabled, failIfUnavailable, no unsandboxed retry)",
+        "" if on else "admin: install.sh --for-user <user> (managed-settings sandbox)")
+    want = ["~/.ssh", "~/.config/gh", "~/.claude/.credentials.json", "~/.codex/auth.json", "~/.config/ai/secrets.env",
+            "~/.hermes/.env"]
+    denied = set((sb.get("filesystem") or {}).get("denyRead") or []) | {
+        f.get("path") for f in ((sb.get("credentials") or {}).get("files") or []) if f.get("mode") == "deny"}
+    miss = [p for p in want if p not in denied]
+    say("PASS" if not miss else "FAIL", "sandbox denies reading the credential files", ", ".join(miss))
+    for tool in ("bwrap", "socat", "rg"):
+        if not shutil.which(tool):
+            say("FAIL", "sandbox dependency %s installed" % tool, "admin: apt-get install bubblewrap socat ripgrep")
+    if shutil.which("bwrap"):
+        code, out = run(["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--unshare-user", "--unshare-net", "true"],
+                        timeout=20)
+        say("PASS" if code == 0 else "FAIL", "bubblewrap can create a sandbox for this user",
+            "" if code == 0 else (out.strip()[-200:] + " (Ubuntu AppArmor: admin installs /etc/apparmor.d/bwrap)"))
+    lock = ms.get("strictPluginOnlyCustomization")
+    locked = lock is True or (isinstance(lock, list) and {"hooks", "mcp"} <= set(lock))
+    say("PASS" if locked else "FAIL", "planted .claude/settings.json hooks and .mcp.json servers do not load "
+        "(strictPluginOnlyCustomization hooks+mcp)", "" if locked else "admin: install.sh --for-user <user>")
+    forced = (ms.get("enabledPlugins") or {}).get("ai-core@ai") is True
+    say("PASS" if forced else "FAIL", "ai-core force-enabled in managed settings (router and gates cannot be switched off)",
+        "" if forced else "admin: install.sh --for-user <user>")
+    hooks = json.dumps(ms.get("hooks") or {})
+    if shutil.which("rtk") and locked:
+        say("PASS" if "rtk hook claude" in hooks else "WARN", "RTK hook runs as a managed hook (user hooks are locked)")
+    for n in ("ai-serena@ai", "claude-seo@agricidaniel-claude-seo", "claude-blog@agricidaniel-blog"):
+        val = (claude_settings().get("enabledPlugins") or {}).get(n)
+        if val is not None:
+            say("PASS" if val is False else "WARN", "%s off at user scope (opt-in per project)" % n.split("@")[0])
+    work = "/srv/proj/work"
+    if os.path.isdir(work):
+        code, out = run(["findmnt", "-n", "-o", "OPTIONS", "--target", work])
+        opts = out.strip().split(",")
+        ok = "nosuid" in opts and "nodev" in opts
+        say("PASS" if ok else "FAIL", "%s is mounted nosuid,nodev (a setuid file from a box cannot run on the host)"
+            % work, "" if ok else "options: %s (ubuntu-server branch: own filesystem with nosuid,nodev)" % out.strip())
+
+
+def check_codex_policy():
+    if not LINUX or not shutil.which("codex"):
+        return
+    req = read_text_file("/etc/codex/requirements.toml") or ""
+    ok = re.search(r'^allowed_sandbox_modes\s*=\s*\[[^\]]*\]', req, re.M) and "danger-full-access" not in req
+    say("PASS" if ok else "FAIL", "Codex sandbox pinned (requirements.toml: no danger-full-access)",
+        "" if ok else "admin: install.sh --for-user <user>")
 
 
 def hermes_present():
@@ -421,12 +548,20 @@ def hermes_present():
         return False
 
 
+_HERMES_SUDO = None
+
+
 def as_hermes(cmd):
-    """(exit code, output) of a command run as hermes from its home, or (None, '') without sudo -n."""
-    code, out = run(["sudo", "-n", "-u", HERMES_USER, "-H", "bash", "-lc", "cd ~ && " + cmd], timeout=30)
-    if code != 0 and ("password is required" in out or "a terminal is required" in out or "not allowed" in out):
+    """(exit code, output) of a command run as hermes from its home, or (None, '') when this process cannot
+    become hermes (a normal user without sudo: those checks are SKIP, the admin run does them)."""
+    global _HERMES_SUDO
+    if MODE == "no-hermes":
         return None, ""
-    return code, out
+    if _HERMES_SUDO is None:
+        _HERMES_SUDO = run(["sudo", "-n", "-u", HERMES_USER, "true"], timeout=15)[0] == 0
+    if not _HERMES_SUDO:
+        return None, ""
+    return run(["sudo", "-n", "-u", HERMES_USER, "-H", "bash", "-lc", "cd ~ && " + cmd], timeout=30)
 
 
 def check_hermes():
@@ -434,25 +569,20 @@ def check_hermes():
         return
     code, cfg = as_hermes("cat ~/.hermes/config.yaml")
     if code is None:
-        say("WARN", "Hermes config not checked (needs sudo -n to %s)" % HERMES_USER)
+        if MODE != "no-hermes":
+            say("SKIP", "Hermes MCP servers and updates.check", SKIP_HERMES)
         return
     if code != 0:
         say("FAIL", "Hermes ~/.hermes/config.yaml readable", cfg[-200:])
         return
     aiconf = aiconf_module()
-    for name in ("serena", "context7", "grounded-docs", "github"):
-        sub = aiconf.yaml_extract_child(cfg, "mcp_servers", name) or ""
-        enabled = bool(sub) and re.search(r"^\s*enabled:\s*(false|False|no|off)\s*$", sub, re.M) is None
-        if name == "github" and not enabled:
-            tcode, _ = as_hermes('grep -Eq "^[[:space:]]*(export[[:space:]]+)?GITHUB_PERSONAL_ACCESS_TOKEN=[^[:space:]]{8,}" '
-                                 '~/.config/ai/secrets.env')
-            if tcode != 0:
-                say("WARN", "Hermes github MCP off: no token",
-                    "owner step: put GITHUB_PERSONAL_ACCESS_TOKEN in ~%s/.config/ai/secrets.env (mode 600), then "
-                    "admin re-runs install.sh --for-user <user>" % HERMES_USER)
-                continue
-        say("PASS" if enabled else "FAIL", "Hermes MCP %s enabled" % name,
-            "" if enabled else "admin: re-run install.sh --for-user <user> (adds it from hermes' home)")
+    sub = aiconf.yaml_extract_child(cfg, "mcp_servers", "context7") or ""
+    enabled = bool(sub) and re.search(r"^\s*enabled:\s*(false|False|no|off)\s*$", sub, re.M) is None
+    say("PASS" if enabled else "FAIL", "Hermes MCP context7 enabled",
+        "" if enabled else "admin: re-run install.sh --for-user <user> (adds it from hermes' home)")
+    left = [n for n in ("github", "grounded-docs", "serena") if aiconf.yaml_extract_child(cfg, "mcp_servers", n)]
+    say("PASS" if not left else "WARN", "Hermes MCP: dropped servers removed",
+        ("still there: %s (re-run install.sh)" % ", ".join(left)) if left else "")
     m = re.search(r"^updates:\s*$(.*?)(?=^\S|\Z)", cfg, re.M | re.S)
     upd = bool(m) and re.search(r"^\s+check:\s*(false|False|no|off)\s*$", m.group(1), re.M) is not None
     say("PASS" if upd else "FAIL", "Hermes updates.check is false")
@@ -500,9 +630,11 @@ def check_handoff():
         return
     say("PASS" if len(paths) == 2 else "WARN", "claude-seo and claude-blog skill files readable (%d of 2)" % len(paths),
         "" if len(paths) == 2 else "admin: install.sh --for-user <user> clones them to /opt/agent-plugins")
-    if hermes_present():
+    if hermes_present() and MODE != "no-hermes":
         code, _ = as_hermes("test -r /opt/agent-plugins/claude-seo/skills/seo/SKILL.md")
-        if code is not None:
+        if code is None:
+            say("SKIP", "Hermes can read the claude-seo skill files", SKIP_HERMES)
+        else:
             say("PASS" if code == 0 else "WARN", "Hermes can read the claude-seo skill files")
 
 
@@ -529,8 +661,6 @@ def check_gate_smoke():
 
 # ---------------------------------------------------------------- project knowledge (memory design)
 
-MEM_CORE_CAP, MEM_OTHER_CAP, MEM_TOTAL_CAP = 60, 40, 16 * 1024
-MEM_VENDOR = ("core", "tech_stack", "suggested_commands", "conventions", "task_completion")
 PHONE_RX = re.compile(r"(?<![\w.:/-])\+\d[\d ()-]{7,}\d(?![\w.-])")   # international form only (no dates)
 EMAIL_RX = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 GITIGNORE_NEED = (".serena/cache/", ".serena/project.local.yml", ".serena/logs/", "graphify-out/")
@@ -543,19 +673,8 @@ def hooklib_module():
     return hooklib
 
 
-def check_serena_global():
-    if not shutil.which("serena"):
-        return
-    home = os.environ.get("SERENA_HOME") or os.path.join(HOME, ".serena")
-    mm = os.path.join(home, "memories", "global", "memory_maintenance.md")
-    say("PASS" if os.path.isfile(mm) else "WARN", "Serena global memory_maintenance present",
-        "" if os.path.isfile(mm) else "re-run install.sh (copies ai/serena/memory_maintenance.md)")
-    cfg = read_text_file(os.path.join(home, "serena_config.yml")) or ""
-    ro = re.search(r"^read_only_memory_patterns:.*global/", cfg, re.M) is not None
-    say("PASS" if ro else "WARN", "Serena read_only_memory_patterns covers global/.*")
-
-
 def check_project(path, explicit=False):
+    """Project knowledge in the repo AGENTS.md (Map and Libraries blocks) and the opt-in tools it enabled."""
     hl = hooklib_module()
     root = hl.project_root(path)
     if not root:
@@ -571,67 +690,41 @@ def check_project(path, explicit=False):
     if not has_code:
         return
     print("\nproject %s:" % root)
-    mems = hl.memory_files(root)
-    names = {os.path.relpath(m, os.path.join(root, hl.MEMORY_DIR))[:-3] for m in mems}
-    if not mems:
-        say("WARN", "Serena memories: none yet", "owner step: ai-adopt (runs Serena onboarding in its own session)")
+    mp = hl.map_block(root)
+    if mp is None:
+        say("WARN", "AGENTS.md Map section", "owner step: ai-adopt (writes the Map and Libraries sections)")
     else:
-        say("PASS" if "core" in names else "FAIL", "Serena mem:core present (%d memories)" % len(mems))
-        missing = [n for n in MEM_VENDOR[1:] if n not in names]
-        if missing:
-            say("WARN", "Serena memories missing: " + ", ".join(missing))
-        over, total = [], 0
-        for m in mems:
-            text = read_text_file(m) or ""
-            total += len(text.encode("utf-8"))
-            cap = MEM_CORE_CAP if m.endswith(os.sep + "core.md") else MEM_OTHER_CAP
-            if len(text.splitlines()) > cap:
-                over.append("%s (%d > %d lines)" % (os.path.basename(m), len(text.splitlines()), cap))
-        say("PASS" if not over and total <= MEM_TOTAL_CAP else "WARN",
-            "memory sizes (total %d of %d bytes)" % (total, MEM_TOTAL_CAP), ", ".join(over))
-        _c, commits, moves, stale = hl.memory_status(root, hl.git_history(root))
-        say("WARN" if stale else "PASS", "memories %s: %d code commit(s), %d code file(s) added or deleted since "
-            "the last memory update" % ("STALE" if stale else "fresh", commits, moves))
-    scan = mems + [os.path.join(root, ".ai", "libs.md")]
-    hits, pii = [], []
-    for f in scan:
-        text = read_text_file(f)
-        if not text:
-            continue
-        h = hl.builtin_scan("\n".join("+" + ln for ln in text.splitlines()), set())
-        hits += ["%s: %s" % (os.path.relpath(f, root), x) for x in sorted(set(h))]
-        if PHONE_RX.search(text) or EMAIL_RX.search(text):
-            pii.append(os.path.relpath(f, root))
-    say("PASS" if not hits else "FAIL", "no secrets in .serena/memories and .ai/libs.md", "; ".join(hits[:6]))
-    if pii:
-        say("WARN", "phone number or email in committed knowledge files (they are pushed)", ", ".join(pii[:6]))
-    if mems and shutil.which("serena"):
-        code, out = run(["serena", "memories", "check"], timeout=60)
-        if "No such command" in out or "Usage:" in out and code == 2:
-            print("info serena memories check not available")
-        else:
-            say("PASS" if code == 0 else "WARN", "serena memories check", out[-300:] if code else "")
-    g = hl.graph_status(root, hl.git_history(root))
-    say("PASS" if g == "fresh" else "WARN", "graphify graph %s" % g,
-        "" if g == "fresh" else ("GRAPHIFY_BACKEND=none graphify extract . --code-only" if g == "missing"
-                                 else "graphify update ."))
+        n = len([ln for ln in mp.splitlines() if ln.strip()])
+        say("PASS" if n <= hl.MAP_CAP_LINES else "WARN", "AGENTS.md Map section (%d of %d lines)" % (n, hl.MAP_CAP_LINES))
     libs = os.path.join(BIN, "ai-libs")
     if os.path.isfile(libs):
         code, out = run(["python3", libs, "--dir", root, "--check"], timeout=60)
-        say("PASS" if code == 0 else "WARN", ".ai/libs.md current (ai-libs --check)", out[-400:] if code else "")
-        unknown = [ln for ln in (read_text_file(os.path.join(root, ".ai", "libs.md")) or "").splitlines()
-                   if ln.startswith("|") and "| ? |" in ln]
-        if unknown:
-            print("info %d librar(y/ies) with unknown docs IDs in .ai/libs.md (docs server to-do list)" % len(unknown))
-    yml = read_text_file(os.path.join(root, ".serena", "project.yml"))
-    if yml is not None:
-        ok = re.search(r"^initial_prompt:\s*\S", yml, re.M) and not re.search(r"^initial_prompt:\s*(''|\"\")\s*$",
-                                                                               yml, re.M)
-        say("PASS" if ok else "WARN", ".serena/project.yml initial_prompt set")
+        say("PASS" if code == 0 else "WARN", "AGENTS.md Libraries section current (ai-libs --check)",
+            out[-400:] if code else "")
+    text = hl.repo_agents_md(root) or ""
+    blocks = "\n".join(m.group(0) for rx in (hl.MAP_RX, hl.LIBS_RX) for m in [rx.search(text)] if m)
+    hits = sorted(set(hl.builtin_scan("\n".join("+" + ln for ln in blocks.splitlines()), set())))
+    say("PASS" if not hits else "FAIL", "no secrets in the Map and Libraries sections", ", ".join(hits))
+    if PHONE_RX.search(blocks) or EMAIL_RX.search(blocks):
+        say("WARN", "phone number or email in the AGENTS.md knowledge sections (they are pushed)")
+    ids = hl.enabled_ids(root)
+    if "serena" in ids:
+        st = load_json_file(os.path.join(root, ".claude", "settings.json")) or {}
+        on = (st.get("enabledPlugins") or {}).get("ai-serena@ai") is True
+        say("PASS" if on else "WARN", "Serena enabled here (enabledPlugins ai-serena@ai)",
+            "" if on else "ai-adopt --tools serena")
+    if "graph" in ids or "graphify" in ids:
+        g = hl.graph_status(root, hl.git_history(root))
+        say("PASS" if g == "fresh" else "WARN", "graphify graph %s" % g,
+            "" if g == "fresh" else ("GRAPHIFY_BACKEND=none graphify extract . --code-only" if g == "missing"
+                                     else "graphify update ."))
     gi = read_text_file(os.path.join(root, ".gitignore")) or ""
-    miss = [x for x in GITIGNORE_NEED if x not in gi.splitlines()]
-    say("PASS" if not miss else "WARN", ".gitignore keeps Serena cache/logs and graphify-out out of git",
-        ("missing: " + ", ".join(miss)) if miss else "")
+    need = [x for x in GITIGNORE_NEED if (x != "graphify-out/" or "graph" in ids) and
+            (not x.startswith(".serena") or "serena" in ids)]
+    miss = [x for x in need if x not in gi.splitlines()]
+    if need:
+        say("PASS" if not miss else "WARN", ".gitignore keeps tool caches out of git",
+            ("missing: " + ", ".join(miss)) if miss else "")
 
 
 def read_text_file(path):

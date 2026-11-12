@@ -156,14 +156,9 @@ base_serena_config() {
     aiconf yaml-top-set "$cfg" excluded_tools "[execute_shell_command, serena_repl]"
     aiconf yaml-top-set "$cfg" web_dashboard false
     aiconf yaml-top-set "$cfg" web_dashboard_open_on_launch false
-    # Shared memory conventions for every project (Serena uses global/memory_maintenance instead of a
-    # project copy), read-only for agents. ai-adopt places the same file if it is missing.
+    # Global Serena memories stay read-only for agents (project knowledge now lives in the repo AGENTS.md).
     aiconf yaml-top-set "$cfg" read_only_memory_patterns '["global/.*"]'
-    if [ -f "$AI_HOME/ai/serena/memory_maintenance.md" ]; then
-        aiconf file-put "${SERENA_HOME:-$HOME/.serena}/memories/global/memory_maintenance.md" \
-            "$AI_HOME/ai/serena/memory_maintenance.md" --mode 644
-    fi
-    ok "Serena: tools interface, shell + REPL excluded, dashboard off, global memory_maintenance read-only ($cfg)"
+    ok "Serena: tools interface, shell + REPL excluded, dashboard off, global memories read-only ($cfg)"
 }
 
 # ---------------------------------------------------------------- admin layer (Linux, root-owned)
@@ -396,5 +391,6 @@ EOT
     done <<EOT
 $(claude_deny_rules)
 EOT
+    claude_managed_policy
     ok "Ubuntu: /etc/profile.d/ai-env.sh, /etc/environment.d/91-ai.conf, /etc/environment, $ms (env, deny rules)"
 }

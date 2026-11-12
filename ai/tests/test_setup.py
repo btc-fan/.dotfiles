@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 TESTS = os.path.dirname(os.path.realpath(__file__))
 AI_DIR = os.path.dirname(TESTS)
@@ -30,8 +31,9 @@ def main():
     work = tempfile.mkdtemp(prefix="ai-setup-tests-")
     try:
         for test in (t_codex_trust, t_codex_trust_hash_pin, t_codex_managed, t_claude_permissions, t_path_block, t_hermes_disabled,
-                     t_claude_handoff, t_codex_env, t_docs_unit, t_knowledge_status, t_session_start_order,
-                     t_user_hook_match, t_verify_source, t_connectors_keep, t_sudo_gate):
+                     t_claude_handoff, t_codex_env, t_dropped, t_sandbox_policy, t_hooks_remove, t_knowledge_status, t_session_start_order,
+                     t_user_hook_match, t_verify_source, t_connectors_keep, t_sudo_gate, t_gate_skip_owner_only,
+                     t_root_guard, t_update_clone, t_ai_sync_untrusted):
             try:
                 test(os.path.join(work, test.__name__))
                 print("ok   " + test.__name__)
@@ -238,9 +240,9 @@ def t_claude_permissions(work):
     assert data["model"] == "opus", "other keys must stay"
     assert perms["allow"][0] == "Bash(ls)" and "Bash(rm *)" in perms["deny"], "user rules must stay"
     assert len(perms["allow"]) == len(set(perms["allow"])), "duplicates after a second run"
-    for rule in ("mcp__plugin_ai-core_serena__find_symbol", "mcp__plugin_ai-core_serena__read_memory",
-                 "mcp__plugin_ai-core_context7__*", "mcp__plugin_ai-core_grounded-docs__*",
-                 "mcp__plugin_ai-core_github__get_file_contents", "Bash(graphify query *)", "Bash(agent-audit *)",
+    for rule in ("mcp__plugin_ai-serena_serena__find_symbol", "mcp__plugin_ai-serena_serena__read_memory",
+                 "mcp__plugin_ai-core_context7__*", "Bash(gh pr view *)", "Bash(gh issue list*)",
+                 "Bash(graphify query *)", "Bash(agent-audit *)",
                  "Bash(ai-doctor*)", "WebFetch", "WebSearch", "Read(~/.claude/plugins/**)", "Read(~/.config/ai/**)"):
         assert rule in perms["allow"], "missing allow " + rule
     for rule in ("Edit(~/.claude/settings.json)", "Write(~/.claude/settings.json)", "Edit(//etc/claude-code/**)",
@@ -253,12 +255,19 @@ def t_claude_permissions(work):
     assert not any(r.startswith("Bash(sudo") for r in perms["deny"]), "sudo is a router gate now, not a deny list"
     for rule in ("Bash(graphify * install*)", "Bash(graphify * uninstall*)", "Bash(graphify * hook*)"):
         assert rule in perms["ask"], "missing ask " + rule
-    for bad in ("Bash(graphify *)", "Bash(rtk find*)", "Bash(rtk grep*)", "Bash(rtk tree*)", "Bash(rtk git diff*)",
-                "Bash(rtk git log*)", "Bash(rtk git show*)", "Bash(rtk *)"):
+    for bad in ("Bash(graphify *)", "Bash(rtk *)"):
         assert bad not in perms["allow"], "allow must not hold " + bad
+    # What the RTK hook rewrites read-only commands into is allowed; the exec/write forms are denied.
+    for rule in ("Bash(rtk grep *)", "Bash(rtk rg *)", "Bash(rtk find *)", "Bash(rtk tree*)", "Bash(rtk git diff*)"):
+        assert rule in perms["allow"], "missing allow " + rule
+    for rule in ("Bash(rtk find *-exec*)", "Bash(rtk find *-delete*)", "Bash(rtk find *-execdir*)",
+                 "Bash(rtk grep *--pre*)", "Bash(rtk rg *--pre*)", "Bash(rtk rg *--hostname-bin*)",
+                 "Bash(rtk tree* -o*)", "Bash(rtk git * --ext-diff*)"):
+        assert rule in perms["deny"], "missing deny " + rule
     assert "Bash(graphify install*)" in perms["ask"], "graphify install must ask"
-    bad = [r for r in perms["allow"] if "github__create" in r or "github__merge" in r or "push" in r
-           or r.startswith(("Bash(rtk *", "Bash(sudo", "Edit", "Write"))]
+    bad = [r for r in perms["allow"] if "github__" in r or "grounded-docs" in r or "push" in r
+           or r.startswith(("Bash(rtk *", "Bash(sudo", "Edit", "Write", "Bash(gh pr create", "Bash(gh api"))]
+    assert "Bash(git push*)" in perms["ask"], "git push must always ask"
     assert not bad, "write rules in allow: %s" % bad
     code, out = bash(LIBS + 'AI_OS=macos; claude_deny_rules', env)
     assert "sudo" not in out
@@ -283,6 +292,14 @@ def t_path_block(work):
     assert os.path.join(home, ".local", "bin") in res.stdout.decode(), "PATH not set for non-interactive bash"
     code, out = aiconf(state, "undo")
     assert read(rc) == orig, "undo must restore the original file:\n" + read(rc)
+    # An older install appended the block BELOW the guard: the next run moves it to the top.
+    write(rc, orig + "# <!-- AI:path v1 START -->\nPATH=old\n# <!-- AI:path v1 END -->\n")
+    code, out = bash(LIBS + 'AI_OS=linux; AI_STATE_FILE=%s; base_path_block' % state, env)
+    text = read(rc)
+    assert text.count("AI:path v1 START") == 1 and text.index(".local/bin") < text.index("return;;"), text
+    res = subprocess.run(["env", "-i", "HOME=" + home, "PATH=/usr/bin:/bin", "bash", "-c",
+                          '. "$HOME/.bashrc"; printf %s "$PATH"'], stdout=subprocess.PIPE)
+    assert os.path.join(home, ".local", "bin") in res.stdout.decode(), "moved block must work"
 
 
 def t_hermes_disabled(work):
@@ -349,35 +366,100 @@ def t_codex_env(work):
         assert 'GRAPHIFY_BACKEND = "none"' in text
 
 
-def t_docs_unit(work):
-    text = read(os.path.join(AI_DIR, "mcp", "docs-server", "ai-docs-mcp.service"))
-    unit = text.split("[Service]")[0]
-    assert "StartLimitBurst=" in unit and "StartLimitIntervalSec=" in unit, "start limit must be in [Unit]"
-    assert "RestartMode=direct" in text, "restarts must not pass through failed (OnFailure per retry)"
-    tools = read(os.path.join(AI_DIR, "adapters", "tools.sh"))
-    assert "npm rebuild better-sqlite3" in tools and "docs_native_modules" in tools
+def t_dropped(work):
+    """Grounded Docs and GitHub MCP are gone from the plugin; their recorded installs are replayed away by
+    undo --only, other records stay; ai-serena is a separate opt-in plugin."""
+    mcp = json.load(open(os.path.join(PLUGIN, ".mcp.json")))["mcpServers"]
+    assert sorted(mcp) == ["context7"], mcp
+    ser = json.load(open(os.path.join(AI_DIR, "marketplace", "plugins", "ai-serena", ".mcp.json")))["mcpServers"]
+    assert "serena" in ser
+    names = [p["name"] for p in json.load(open(os.path.join(AI_DIR, "marketplace", ".claude-plugin",
+                                                          "marketplace.json")))["plugins"]]
+    assert names == ["ai-core", "ai-serena", "ai-playwright"], names
+    assert not os.path.exists(os.path.join(AI_DIR, "mcp", "docs-server"))
+    pins = read(os.path.join(AI_DIR, "pins.env"))
+    assert "DOCS_MCP" not in pins and "GITHUB_MCP" not in pins
+    state = os.path.join(work, "state.json")
+    log = os.path.join(work, "undo.log")
+    write(state, json.dumps({"version": 1, "entries": [
+        {"kind": "cmd", "id": "npm:docs-mcp", "undo": ["sh", "-c", "echo docs >> %s" % log], "key": "cmd:npm:docs-mcp"},
+        {"kind": "cmd", "id": "ufw:eth0:6280", "undo": ["sh", "-c", "echo ufw >> %s" % log], "key": "cmd:ufw:eth0:6280"},
+        {"kind": "cmd", "id": "bin:github-mcp-server", "undo": ["sh", "-c", "echo gh >> %s" % log],
+         "key": "cmd:bin:github-mcp-server"},
+        {"kind": "cmd", "id": "codex-mcp:github", "undo": ["sh", "-c", "echo cgh >> %s" % log], "key": "cmd:codex-mcp:github"},
+        {"kind": "cmd", "id": "bin:rtk", "undo": ["sh", "-c", "echo rtk >> %s" % log], "key": "cmd:bin:rtk"}]}))
+    env, home, _b = bash_env(work)
+    code, out = bash(LIBS + 'AI_OS=linux; aiconf_root() { python3 "$AI_HOME/ai/lib/aiconf.py" --state %s "$@"; }; '
+                     'AI_SYSTEM_STATE_FILE=%s; AI_MODE=system; tools_drop_system; AI_STATE_FILE=%s; tools_drop_user'
+                     % (state, state, state), env)
+    assert code == 0, out
+    done = read(log).split()
+    assert sorted(done) == ["cgh", "docs", "gh", "ufw"], done
+    left = [e["key"] for e in json.load(open(state))["entries"]]
+    assert left == ["cmd:bin:rtk"], left
+
+
+def t_sandbox_policy(work):
+    """The managed sandbox block: required, credential reads denied, limited writes, proxy domains."""
+    env, home, _b = bash_env(work)
+    code, out = bash(LIBS + "claude_sandbox_json", env)
+    assert code == 0, out
+    sb = json.loads(out)
+    assert sb["enabled"] is True and sb["failIfUnavailable"] is True and sb["allowUnsandboxedCommands"] is False
+    for p in ("~/.ssh", "~/.config/gh", "~/.claude/.credentials.json", "~/.codex/auth.json",
+              "~/.config/ai/secrets.env", "~/.hermes/.env"):
+        assert p in sb["filesystem"]["denyRead"] and {"path": p, "mode": "deny"} in sb["credentials"]["files"], p
+    assert "/tmp" in sb["filesystem"]["allowWrite"] and "~/.local/state/ai" in sb["filesystem"]["allowWrite"]
+    assert not any(w in ("~", "~/", "/") for w in sb["filesystem"]["allowWrite"])
+    for d in ("github.com", "registry.npmjs.org", "pypi.org", "files.pythonhosted.org", "context7.com"):
+        assert d in sb["network"]["allowedDomains"], d
+    assert "git push *" in sb["excludedCommands"] and not any(c.startswith(("gh api", "bash", "sh ")) for c in
+                                                              sb["excludedCommands"])
+    assert {"name": "GITHUB_PERSONAL_ACCESS_TOKEN", "mode": "deny"} in sb["credentials"]["envVars"]
+    # Dry run of the whole managed policy (no root needed): the lock and the RTK managed hook are planned.
+    code, out = bash(LIBS + "AI_OS=linux; AI_DRY_RUN=1; claude_managed_policy; codex_system_policy() { :; }", env)
+    assert code == 0 and "strictPluginOnlyCustomization" in out and "sandbox" in out, out
+    assert "enabledPlugins/ai-core@ai = true" in out, "ai-core must be force-enabled from managed settings"
+
+
+def t_hooks_remove(work):
+    """Global graphify hooks are removed from settings.json (recorded; undo puts them back)."""
+    f = os.path.join(work, "settings.json")
+    orig = {"hooks": {"PreToolUse": [{"matcher": "Glob|Grep", "hooks": [
+        {"type": "command", "command": "graphify hook-guard"}, {"type": "command", "command": "keep-me"}]}]}}
+    write(f, json.dumps(orig))
+    state = os.path.join(work, "s.json")
+    code, out = aiconf(state, "hooks-remove", f, "graphify (hook-guard|hook-check)")
+    assert code == 0, out
+    cmds = [h["command"] for g in json.load(open(f))["hooks"]["PreToolUse"] for h in g["hooks"]]
+    assert cmds == ["keep-me"], cmds
+    aiconf(state, "undo")
+    cmds = [h["command"] for g in json.load(open(f))["hooks"]["PreToolUse"] for h in g["hooks"]]
+    assert "graphify hook-guard" in cmds, cmds
 
 
 def t_knowledge_status(work):
-    """Status line: counts only; docs map stale when the lockfile hash changed."""
+    """Status line from the AGENTS.md blocks: Libraries stale when a lockfile hash changed; IDs validated."""
     sys.path.insert(0, os.path.join(PLUGIN, "hooks"))
     import hooklib
+    import hashlib
     proj = os.path.join(work, "p")
     os.makedirs(proj)
     subprocess.check_call(["git", "init", "-q", proj])
     write(os.path.join(proj, "app.py"), "print(1)\n")
     write(os.path.join(proj, "uv.lock"), "lock-a\n")
-    import hashlib
     h = hashlib.sha256(b"lock-a\n").hexdigest()[:12]
-    write(os.path.join(proj, ".ai", "libs.md"), "lock: uv.lock sha256:%s  synced: x\n| lib | version | context7 | "
-          "grounded-docs | note |\n|---|---|---|---|---|\n| httpx | 0.27 | /encode/httpx | ? | |\n" % h)
+    write(os.path.join(proj, "AGENTS.md"), "# x\n<!-- AI:map START -->\n## Map\n- app.py: entry\n<!-- AI:map END -->\n"
+          "<!-- AI:libraries START lock: uv.lock sha256:%s -->\n## Libraries\n| lib | version | context7 | note |\n"
+          "|---|---|---|---|\n| httpx | 0.27 | /encode/httpx | |\n<!-- AI:libraries END -->\n" % h)
     assert hooklib.docs_map_status(proj) == "matches uv.lock"
+    line = hooklib.knowledge_index(proj)
+    assert "Map: present (2 lines)" in line and "Libraries: match" in line and "Serena" not in line, line
     write(os.path.join(proj, "uv.lock"), "lock-b\n")
     assert hooklib.docs_map_status(proj) == "stale"
-    line = hooklib.knowledge_index(proj)
-    assert "Memory: none yet" in line and "run ai-libs --sync" in line and len(line) <= 600, line
+    assert "run ai-libs --sync" in hooklib.knowledge_index(proj)
     hits = hooklib.libs_hits(proj, ["httpx"])
-    assert "context7=/encode/httpx" in hits and "grounded" not in hits, hits
+    assert "context7=/encode/httpx" in hits, hits
 
 
 def t_session_start_order(work):
@@ -450,11 +532,13 @@ def t_verify_source(work):
     code, out = aiconf(os.devnull, "codex-trust-hooks", cfg, "--auto", "--check", "--verify-source",
                        "ai-core@ai=" + PLUGIN)
     assert code == 1 and "FAIL Codex plugin ai-core@ai" in out, out
-    shutil.rmtree(root)
-    shutil.copytree(PLUGIN, root, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    code, out = aiconf(os.path.join(work, "s.json"), "codex-trust-hooks", cfg, "--auto", "--verify-source",
+    # --refresh-stale: the cache is replaced by a copy of the source (codex plugin add keeps a same-version cache).
+    code, out = aiconf(os.path.join(work, "s.json"), "codex-trust-hooks", cfg, "--auto", "--refresh-stale",
+                       "--verify-source", "ai-core@ai=" + PLUGIN)
+    assert code == 0 and "ai-core@ai:" in read(cfg) and "tampered" not in read(os.path.join(root, "hooks", "router.py")), out
+    code, out = aiconf(os.devnull, "codex-trust-hooks", cfg, "--auto", "--check", "--verify-source",
                        "ai-core@ai=" + PLUGIN)
-    assert code == 0 and "ai-core@ai:" in read(cfg), out
+    assert code == 0, out
 
 
 def t_connectors_keep(work):
@@ -471,6 +555,30 @@ def t_connectors_keep(work):
     assert json.load(open(f)).get("disableClaudeAiConnectors") is True, "undo must restore the key"
 
 
+def t_gate_skip_owner_only(work):
+    """Only a root-owned /etc/ai/gate-skip counts; a user-owned file is ignored (no test override)."""
+    sys.path.insert(0, os.path.join(PLUGIN, "hooks"))
+    import hooklib
+    f = os.path.join(work, "gate-skip")
+    write(f, "audit-before-install %d reason\n" % (time.time() + 600))
+    old = dict(os.environ)
+    try:
+        os.environ["AI_GATE_SKIP_FILE"] = f
+        os.environ.pop("AI_GATE_SKIP_INSECURE_TEST", None)
+        skips, _notes = hooklib.gate_skips(None)
+        assert "audit-before-install" not in skips, "without the test switch the real root-owned path is used"
+        os.environ["AI_GATE_SKIP_INSECURE_TEST"] = "1"
+        skips, _notes = hooklib.gate_skips(None)
+        assert skips.get("audit-before-install") == "reason", skips
+        write(f, "audit-before-install %d too long\n" % (time.time() + 7200))
+        assert not hooklib.gate_skips(None)[0], "expiry more than 60 minutes ahead is refused"
+    finally:
+        os.environ.clear()
+        os.environ.update(old)
+    st = hooklib.parse_command("AI_GATE_SKIP='audit-before-install:x' npm i foo")
+    assert any("does nothing" in n for n in hooklib.gate_skips(st)[1])
+
+
 def t_sudo_gate(work):
     """sudo proj-agent passes only on Linux; everything else is blocked on every OS."""
     sys.path.insert(0, os.path.join(PLUGIN, "hooks"))
@@ -483,6 +591,88 @@ def t_sudo_gate(work):
     for c in ("sudo proj-agent", "sudo -u root proj-agent create x", "sudo env proj-agent x", "sudo python3 -c 1"):
         v = hooklib.gate_sudo(None, c, hooklib.parse_command(c))
         assert v and v[0] == "deny", c
+
+
+def t_root_guard(work):
+    """As root, install/uninstall run only an admin-owned, clean tree at origin/ai (id is faked to 0 here)."""
+    import getpass
+    me = getpass.getuser()
+    fake = os.path.join(work, "fakebin")
+    stub(fake, "id", 'if [ "${1:-}" = -u ]; then echo 0; else exec /usr/bin/id "$@"; fi')
+    tree = os.path.join(work, "clone")
+    os.makedirs(tree)
+    genv = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t.invalid", GIT_COMMITTER_NAME="t",
+                GIT_COMMITTER_EMAIL="t@t.invalid", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    write(os.path.join(tree, "f.txt"), "x\n", 0o644)
+    for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "x"], ["update-ref", "refs/remotes/origin/ai", "HEAD"]):
+        subprocess.check_call(["git", "-C", tree] + args, env=genv)
+    guard = os.path.join(AI_DIR, "lib", "root-guard.sh")
+
+    def run_guard(target, sudo_user, dirty_ok="0"):
+        env = dict(genv, PATH=fake + ":" + os.environ["PATH"], SUDO_USER=sudo_user)
+        res = subprocess.run(["sh", "-c", '. "$0"; ai_root_guard "$1" "$2" "$3" install.sh; echo PASSED', guard, tree,
+                              target, dirty_ok], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+        return res.stdout.decode()
+    assert "PASSED" in run_guard("ubuntu01", me), "admin-owned clean pushed tree must pass"
+    out = run_guard("ubuntu01", "someone-else")
+    assert "refusing" in out and "admin-owned clone" in out, out
+    assert "refusing" in run_guard(me, me), "a tree owned by the --for-user target must be refused"
+    write(os.path.join(tree, "f.txt"), "changed\n")
+    assert "uncommitted" in run_guard("ubuntu01", me), "dirty tree must be refused"
+    assert "PASSED" in run_guard("ubuntu01", me, "1"), "--allow-dirty skips only the clean check"
+    subprocess.check_call(["git", "-C", tree, "checkout", "-q", "--", "f.txt"])
+    os.chmod(os.path.join(tree, "f.txt"), 0o664)
+    assert "writable by group" in run_guard("ubuntu01", me), "group-writable file must be refused"
+    os.chmod(os.path.join(tree, "f.txt"), 0o644)
+    # install.sh itself stops before sourcing anything when its own tree is not root's or the admin's.
+    env = dict(genv, PATH=fake + ":" + os.environ["PATH"], SUDO_USER="someone-else")
+    res = subprocess.run(["bash", os.path.join(REPO, "install.sh"), "--for-user", "ubuntu01", "--dry-run"],
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    assert res.returncode == 1 and b"refusing to run as root" in res.stdout, res.stdout
+
+
+def t_update_clone(work):
+    """install.sh --update: root-owned clone only; fast-forward to origin/ai, refuse dirty or rewritten history.
+    stat is faked to report root (no root needed for the test)."""
+    genv = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t.invalid", GIT_COMMITTER_NAME="t",
+                GIT_COMMITTER_EMAIL="t@t.invalid", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    up = os.path.join(work, "upstream")
+    os.makedirs(up)
+    def git(d, *a):
+        subprocess.check_call(["git", "-C", d] + list(a), env=genv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    git(up, "init", "-q", "-b", "ai")
+    write(os.path.join(up, "f"), "1\n")
+    git(up, "add", "-A"); git(up, "commit", "-q", "-m", "one")
+    clone = os.path.join(work, "opt-ai-setup")
+    subprocess.check_call(["git", "clone", "-q", "--branch", "ai", up, clone], env=genv)
+    write(os.path.join(up, "f"), "2\n")
+    git(up, "commit", "-q", "-am", "two")
+    fake = os.path.join(work, "fakebin")
+    stub(fake, "stat", 'echo root')
+    guard = os.path.join(AI_DIR, "lib", "root-guard.sh")
+    def update():
+        env = dict(genv, PATH=fake + ":" + os.environ["PATH"])
+        r = subprocess.run(["sh", "-c", '. "$0"; ai_update_clone "$1" 0 && echo DONE', guard, clone],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+        return r.stdout.decode()
+    out = update()
+    assert "DONE" in out and "updated" in out and read(os.path.join(clone, "f")) == "2\n", out
+    assert "already at" in update()
+    write(os.path.join(clone, "f"), "dirty\n")
+    assert "uncommitted" in update(), "dirty clone must be refused"
+    git(clone, "checkout", "-q", "--", "f")
+    git(clone, "commit", "-q", "--allow-empty", "-m", "local")
+    write(os.path.join(up, "f"), "3\n")
+    git(up, "commit", "-q", "-am", "three")
+    assert "does not continue" in update(), "local commits must stop the update"
+
+
+def t_ai_sync_untrusted(work):
+    """ai-sync from a user's own tree on Linux leaves Hermes copies and /etc rules to the admin."""
+    env, home, _b = bash_env(work)
+    code, out = bash('AI_SYNC_NO_MAIN=1; . "$AI_HOME/ai/bin/ai-sync"; load_libs; AI_OS=linux; '
+                     'if tree_trusted; then echo TRUSTED; else echo UNTRUSTED; fi', env)
+    assert "UNTRUSTED" in out, out
 
 
 if __name__ == "__main__":

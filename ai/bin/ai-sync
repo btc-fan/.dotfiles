@@ -43,22 +43,44 @@ main() {
         rm -f "$tmp"
         codex_trust     # hook trust hashes follow the current hooks and plugin files
     fi
+    # Hermes copies and the Linux admin layer (/etc/claude-code/CLAUDE.md, /etc/opencode) are other users'
+    # and root's files: they are refreshed only from a tree no agent can change (root-owned, e.g.
+    # /opt/ai-setup, or root-guard passed). From a user's own work tree they are left to the admin.
+    if ! tree_trusted; then
+        if hermes_exists || [ "$AI_OS" = linux ]; then
+            info "Hermes copies and /etc rules are not refreshed from $AI_HOME (owned by $(tree_owner))."
+            info "Admin: sudo /opt/ai-setup/install.sh --update --for-user $(id -un)"
+        fi
+        return 0
+    fi
     if hermes_exists; then
         if [ "${AI_DRY_RUN:-0}" = 1 ] || sudo -n -u "$HERMES_USER" true 2>/dev/null; then
             hermes_rules
             hermes_hooks
         else
-            warn "Hermes copies not refreshed: needs sudo -n to user $HERMES_USER. Run ai-sync by hand."
+            warn "Hermes copies not refreshed: needs sudo -n to user $HERMES_USER."
         fi
     fi
-    # Linux admin layer (/etc/claude-code/CLAUDE.md, /etc/opencode): root-owned copies of the rules.
-    # sudo_ready = repo gate (clean tree, HEAD == origin/ai) + passwordless sudo + root helper refresh.
     if [ "$AI_OS" = linux ]; then
         if sudo_ready noninteractive; then
             base_admin_layer
         else
-            warn "admin layer not refreshed (repo not exactly origin/ai, or no passwordless sudo). Run ai-sync by hand."
+            warn "admin layer not refreshed (repo not exactly origin/ai, or no passwordless sudo)."
         fi
+    fi
+    return 0
+}
+
+tree_owner() { stat -c %U "$AI_HOME" 2>/dev/null || stat -f %Su "$AI_HOME" 2>/dev/null || echo unknown; }
+
+# Root-owned tree: trusted (root-guard checks it further when ai-sync runs as root). macOS keeps the old
+# one-user behaviour (no other users, no admin layer).
+tree_trusted() {
+    [ "$AI_OS" = linux ] || return 0
+    [ "$(tree_owner)" = root ] || return 1
+    if [ "$(id -u)" -eq 0 ]; then
+        . "$AI_HOME/ai/lib/root-guard.sh"
+        ai_root_guard "$AI_HOME" "" "${AI_ALLOW_DIRTY:-0}" ai/bin/ai-sync
     fi
     return 0
 }
@@ -85,7 +107,7 @@ check_copies() {
     if hermes_exists; then
         soul=$(sudo -n -u "$HERMES_USER" -H sh -c 'cat ~/.hermes/SOUL.md' 2>/dev/null || true)
         if [ -z "$soul" ]; then
-            echo "WARN Hermes SOUL.md not readable (needs sudo -n to $HERMES_USER)"
+            echo "SKIP Hermes SOUL.md and plugin copy (needs root: sudo ai-doctor --for-user <user>)"
         else
             printf '%s' "$soul" | block_matches - "Hermes SOUL.md" || rc=1
             plugin_matches || rc=1
@@ -174,4 +196,4 @@ exit 0
 EOF
 }
 
-main "$@"
+[ "${AI_SYNC_NO_MAIN:-0}" = 1 ] || main "$@"   # tests source the functions only

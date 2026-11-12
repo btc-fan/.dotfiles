@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # install.sh: the AI setup of the `ai` branch for macOS and Ubuntu (SPEC.md, sections 1 and 20).
 #
-#   Ubuntu server (admin installs, always):
-#     sudo ~<user>/.dotfiles-ai/install.sh --for-user <user> [--docs-server] [options]
-#       root steps as root, then the user part as <user> (sudo -u <user> -H ... --user).
+#   Ubuntu server (admin, always from the root-owned clone /opt/ai-setup, never from a user's home):
+#     sudo git clone --branch ai <repo URL> /opt/ai-setup                         (once)
+#     sudo /opt/ai-setup/install.sh --update --for-user <user> [options]    (fetch + fast-forward, then run)
 #   User part alone (testing; never calls sudo):   ~/.dotfiles-ai/install.sh --user [options]
 #   macOS, or a Linux user with sudo (one process): ~/.dotfiles-ai/install.sh [options]
 #
@@ -24,14 +24,16 @@ export AI_HOME AI_SRC_HOME
 usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 AI_DRY_RUN=0 AI_YES=0 AI_SKIP_PACKAGES=0 AI_DOCS_SERVER=0 AI_ALLOW_DIRTY=0 AGENTS=""
-AI_MODE=all AI_FOR_USER=""
+AI_MODE=all AI_FOR_USER="" AI_UPDATE=0
+AI_ARGS=("$@")
 while [ $# -gt 0 ]; do
     case "$1" in
         --dry-run) AI_DRY_RUN=1 ;;
         --yes|-y) AI_YES=1 ;;
         --skip-packages) AI_SKIP_PACKAGES=1 ;;
-        --docs-server) AI_DOCS_SERVER=1 ;;
+        --docs-server) printf 'note: --docs-server is gone (Grounded Docs was dropped; install removes it)\n' >&2 ;;
         --allow-dirty) AI_ALLOW_DIRTY=1 ;;
+        --update) AI_UPDATE=1 ;;
         --keep-claudeai-connectors) AI_CLAUDEAI_CONNECTORS=keep ;;
         --user) AI_MODE=user ;;
         --for-user) [ $# -ge 2 ] || usage 1; AI_MODE=system; AI_FOR_USER=$2; shift ;;
@@ -45,6 +47,30 @@ while [ $# -gt 0 ]; do
 done
 AI_CLAUDEAI_CONNECTORS=${AI_CLAUDEAI_CONNECTORS:-}
 export AI_DRY_RUN AI_YES AI_SKIP_PACKAGES AI_ALLOW_DIRTY AI_MODE AI_FOR_USER AI_CLAUDEAI_CONNECTORS
+
+# Root never runs code from a tree another user can change. This first check uses no file of the tree;
+# ai/lib/root-guard.sh (sourced only after it passed) adds the file, clean-tree and pushed-commit checks.
+if [ "$(id -u)" -eq 0 ]; then
+    _owner=$(stat -c %U "$AI_HOME" 2>/dev/null || stat -f %Su "$AI_HOME" 2>/dev/null || echo unknown)
+    if { [ "$_owner" != root ] && [ "$_owner" != "${SUDO_USER:-}" ]; } || [ "$_owner" = "${AI_FOR_USER:-}" ]; then
+        printf 'ERROR: refusing to run as root from %s (owned by %s). Root runs only the root-owned clone:\n' "$AI_HOME" "$_owner" >&2
+        printf '  sudo git clone --branch ai <repo URL> /opt/ai-setup    (once)\n' >&2
+        printf '  sudo /opt/ai-setup/install.sh --update --for-user <user>\n' >&2
+        exit 1
+    fi
+    . "$AI_HOME/ai/lib/root-guard.sh"
+    if [ "$AI_UPDATE" = 1 ]; then
+        # Fetch + fast-forward the root-owned clone, then run the updated install.sh (without --update).
+        ai_update_clone "$AI_HOME" "${AI_ALLOW_DIRTY:-0}"
+        _args=()
+        for _a in ${AI_ARGS[@]+"${AI_ARGS[@]}"}; do [ "$_a" = --update ] || _args+=("$_a"); done
+        exec bash "$AI_HOME/install.sh" ${_args[@]+"${_args[@]}"}
+    fi
+    ai_root_guard "$AI_HOME" "${AI_FOR_USER:-}" "${AI_ALLOW_DIRTY:-0}" "$(basename "$0")"
+elif [ "$AI_UPDATE" = 1 ]; then
+    printf 'ERROR: --update is for the root-owned clone: sudo /opt/ai-setup/install.sh --update ...\n' >&2
+    exit 1
+fi
 
 . "$AI_HOME/ai/lib/common.sh"
 
@@ -95,15 +121,14 @@ setup_system_target() {
     export AI_TARGET_HOME
     AI_STATE_DIR=/var/lib/ai
     AI_STATE_FILE=$AI_SYSTEM_STATE_FILE
-    root_prepare "$AI_SRC_HOME" || exit 1
+    root_prepare "$AI_HOME" || exit 1     # the admin clone this script runs from (root-guard checked it)
 }
 
 # ---------------------------------------------------------------- the three modes
 
 # Root steps only (admin, for one user). Ends by running the user part as that user.
 run_system() {
-    STEP_TOTAL=8
-    [ "$AI_DOCS_SERVER" = 1 ] && STEP_TOTAL=9
+    STEP_TOTAL=9
     step "prerequisites (apt)";                                  base_prereqs
     step "pins (ai/pins.env is the only source of versions)";    base_pins
     step "render AGENTS.md and routing data in the root-owned copy"; base_render
@@ -111,7 +136,7 @@ run_system() {
     step "system tools: RTK (built as $AI_FOR_USER), GitHub MCP, plugin sources"; tools_system
     step "system layer: /etc env, managed settings, admin rules, webhook helper"; do_system_layer
     step "Hermes (user $HERMES_USER)";                           do_hermes
-    [ "$AI_DOCS_SERVER" = 1 ] && { step "Grounded Docs server role"; tools_docs_server; }
+    step "dropped tools: Grounded Docs server, GitHub MCP binary"; tools_drop_system
     step "user part as $AI_FOR_USER";                            run_user_part
 }
 
@@ -137,7 +162,6 @@ run_user() {
 run_all() {
     STEP_TOTAL=14
     [ "$AI_OS" = linux ] && STEP_TOTAL=16
-    [ "$AI_DOCS_SERVER" = 1 ] && STEP_TOTAL=$((STEP_TOTAL + 1))
     if pgrep -x claude >/dev/null 2>&1; then
         warn "a Claude session is running: settings are written atomically, restart the session after install"
     fi
@@ -158,7 +182,7 @@ run_all() {
         step "Hermes (user $HERMES_USER)";                       do_hermes
     fi
     step "git hooks: ai-sync after each pull";                  base_sync_hook
-    [ "$AI_DOCS_SERVER" = 1 ] && { step "Grounded Docs server role"; tools_docs_server; }
+    [ "$AI_OS" = linux ] && tools_drop_system
     step "verify";                                              do_verify
 }
 
@@ -171,7 +195,8 @@ run_user_part() {
     [ -n "$AGENTS" ] && args="$args --agents $(printf '%s' "$AGENTS" | sed 's/,*hermes//; s/^,//')"
     info "running as $AI_FOR_USER: $AI_HOME/install.sh $args"
     # shellcheck disable=SC2086
-    if sudo -u "$AI_FOR_USER" -H env AI_SRC_HOME="$AI_SRC_HOME" AI_OMC_WIRING="${AI_OMC_WIRING:-plugin}" \
+    # AI_SRC_HOME for the user part = that user's own work tree (links, pull hook), never the admin clone.
+    if sudo -u "$AI_FOR_USER" -H env AI_SRC_HOME="$AI_TARGET_HOME/.dotfiles-ai" AI_OMC_WIRING="${AI_OMC_WIRING:-plugin}" \
         AI_CLAUDEAI_CONNECTORS="${AI_CLAUDEAI_CONNECTORS:-}" "$AI_HOME/install.sh" $args; then
         ok "user part for $AI_FOR_USER"
     else
@@ -191,7 +216,7 @@ Do the base server setup first, from the `ubuntu-server` branch of this repo:
   then follow ~/.dotfiles/README.md (its last section points back here).
 Then add this branch as the user, and let admin run this script for that user:
   git -C ~/.dotfiles worktree add ~/.dotfiles-ai ai
-  sudo ~<user>/.dotfiles-ai/install.sh --for-user <user>      (as admin)
+  sudo ~/dotfiles-ai/install.sh --for-user <user>             (as admin, from the admin's own clone)
 EOF
         exit 0
     fi
@@ -226,7 +251,10 @@ do_system_layer() {
     base_env_system
     base_admin_layer
     base_webhook_helper
+    # Owner-only gate skip: a root-owned copy (sudo must never run a user-writable script).
+    aiconf_root file-put /usr/local/sbin/ai-gate-skip "$AI_HOME/ai/hooks/root/ai-gate-skip" --mode 755
     codex_system_hooks
+    codex_system_policy
     # The ai-core SessionStart caffeinate hook runs on macOS only now: no Linux wrapper is installed.
     # One that an earlier install put in /usr/local/bin is removed by uninstall.sh (recorded file).
     return 0
@@ -244,6 +272,7 @@ do_hermes() {
 
 do_mcp() {
     base_serena_config
+    tools_drop_user
     want claude && claude_mcp
     want codex && codex_mcp
     want opencode && opencode_mcp
@@ -279,7 +308,7 @@ do_verify() {
         warn "ai/bin/ai-doctor missing (agent B): no verify run"
     fi
     local t
-    for t in claude codex opencode omc serena graphify rtk herdr github-mcp-server; do
+    for t in claude codex opencode omc serena graphify rtk herdr gh; do
         if has "$t"; then info "$t: $("$t" --version 2>/dev/null | head -n1)"; fi
     done
     return 0

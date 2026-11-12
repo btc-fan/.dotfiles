@@ -13,7 +13,7 @@ Our own rule is the owner block A.5 (PR author-sessions note). It sits in `ai/ag
 - `herdr agent get` gives `.result.agent.agent_session.value` and `.result.agent.cwd`.
 
 ## Enforcement
-- L0: block A.5. L1: herdr integration hooks (status) run beside ours. L3: the `prompting-others` nudge.
+- L0: block A.5. L1: herdr integration hooks (status) run beside ours. L0: AGENTS.md "Prompting other agents" (the `prompting-others` nudge row was removed in routing v4).
 - L4: the `pr-rules` gate blocks a PR body without the `<!-- author-sessions` block. This is the enforcement.
 - L7: ai-doctor checks `herdr --version` is 0.9.5, `herdr integration status claude` and `codex` are installed, `HERDR_PANE_ID` is set in a pane, `[update]` flags are false.
 

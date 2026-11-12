@@ -336,7 +336,6 @@ tools_user() {
     # Root pieces this user needs: report what is missing with the one admin command.
     if [ "$AI_MODE" = user ]; then
         has rtk || manual "rtk missing (system part): $(admin_cmd)"
-        has github-mcp-server || manual "github-mcp-server missing (system part): $(admin_cmd)"
         [ -d "$(plugin_src_dir ponytail)" ] || manual "Ponytail source missing (system part): $(admin_cmd)"
     fi
     return 0
@@ -346,7 +345,7 @@ tools_user() {
 tools_system() {
     if [ "$AI_SKIP_PACKAGES" = 1 ]; then skip "system tool installs (--skip-packages)"; return 0; fi
     tools_rtk
-    tools_github_mcp
+    tools_sandbox_deps
     plugin_clone ponytail "$PONYTAIL_REPO" "$PONYTAIL_SHA" || true
     plugin_clone i-have-adhd "$IHAVEADHD_REPO" "$IHAVEADHD_SHA" || true
     # Readable skill files of the Claude-only packs for agents that cannot hand off to Claude (Codex,
@@ -400,134 +399,49 @@ tools_rtk() {
     ok "rtk $RTK_VERSION built from source"
 }
 
-tools_github_mcp() {
-    if has github-mcp-server && github-mcp-server --version 2>/dev/null | grep -q "$GITHUB_MCP_VERSION"; then
-        info "github-mcp-server $GITHUB_MCP_VERSION present"; return 0
+# ---------------------------------------------------------------- dropped tools (owner decision 2026-11-12)
+
+# Grounded Docs (service, unit, port 6280, npm package, firewall rules) and the GitHub MCP (binary, MCP
+# entries) were dropped: agents use context7 and the gh CLI. Earlier installs recorded every piece, so the
+# removal replays exactly those undo records (uninstall stays symmetric: nothing left to undo later).
+DROPPED_SYSTEM_KEYS='^(cmd:npm:docs-mcp|cmd:systemd:ai-docs-mcp|cmd:ufw:.*:6280|file:/etc/systemd/system/ai-docs-mcp\.service|file:/etc/default/ai-docs-mcp|cmd:bin:github-mcp-server)$'
+DROPPED_USER_KEYS='^(cmd|restore):(codex|hermes)-mcp:(github|grounded-docs|serena)$|^json:.*opencode\.json:mcp/(github|grounded-docs|serena)$'
+
+tools_drop_system() {
+    [ "$AI_OS" = linux ] || return 0
+    [ "$AI_MODE" = user ] && return 0
+    if [ -f "$AI_SYSTEM_STATE_FILE" ] || [ "$AI_DRY_RUN" = 1 ]; then
+        aiconf_root undo --only "$DROPPED_SYSTEM_KEYS"
     fi
-    local asset sum os
-    case "$AI_OS:$AI_ARCH" in
-        linux:x86_64) asset="github-mcp-server_Linux_x86_64.tar.gz"; sum=$GITHUB_MCP_SHA256_LINUX_X86_64 ;;
-        macos:arm64)  asset="github-mcp-server_Darwin_arm64.tar.gz"; sum=$GITHUB_MCP_SHA256_DARWIN_ARM64 ;;
-        *) skip "github-mcp-server: no pinned asset for $AI_OS $AI_ARCH"; return 0 ;;
-    esac
-    if [ -z "$sum" ]; then
-        skip "github-mcp-server $GITHUB_MCP_VERSION: checksum not pinned yet (audit owed, contracts-mcp-b)"
-        manual "after the GitHub MCP audit, set GITHUB_MCP_SHA256_* in ai/pins.env and re-run"
-        return 0
+    if [ "$AI_DRY_RUN" != 1 ] && systemctl list-unit-files ai-docs-mcp.service >/dev/null 2>&1 \
+        && systemctl cat ai-docs-mcp.service >/dev/null 2>&1; then
+        warn "ai-docs-mcp.service still exists (not recorded by this setup): remove it by hand"
     fi
-    local url="https://github.com/github/github-mcp-server/releases/download/v$GITHUB_MCP_VERSION/$asset"
-    if [ "$AI_DRY_RUN" = 1 ]; then
-        info "[dry-run] agent-audit dir on tag v$GITHUB_MCP_VERSION source; download $url; sha256 $sum; install"
-        return 0
-    fi
-    local tmp; tmp=$(mktemp -d "${TMPDIR:-/tmp}/ai-ghmcp.XXXXXX")
-    # Audit the tag source first (SPEC 21), then take the release binary only if its sha256 is the pin.
-    git clone -q --depth 1 --branch "v$GITHUB_MCP_VERSION" https://github.com/github/github-mcp-server "$tmp/src" \
-        || { warn "github-mcp-server tag source clone failed"; rm -rf "$tmp"; return 0; }
-    audit_ok dir "$tmp/src" "v$GITHUB_MCP_VERSION" github-mcp-server || { rm -rf "$tmp"; return 0; }
-    curl -fsSL -o "$tmp/$asset" "$url" || { warn "download failed: $url"; rm -rf "$tmp"; return 0; }
-    sha256_is "$tmp/$asset" "$sum" || { warn "github-mcp-server checksum mismatch: not installed"; rm -rf "$tmp"; return 0; }
-    mkdir -p "$tmp/x" && tar -xzf "$tmp/$asset" -C "$tmp/x"
-    install_bin "$tmp/x/github-mcp-server" github-mcp-server
-    rm -rf "$tmp"
-    aiconf record-cmd bin:github-mcp-server -- $SUDO_UNDO rm -f "$(bin_dir)/github-mcp-server"
-    ok "github-mcp-server $GITHUB_MCP_VERSION installed (sha256 checked)"
+    ok "dropped tools removed from the system: Grounded Docs server, GitHub MCP binary (recorded undo replayed)"
 }
 
-# ---------------------------------------------------------------- Grounded Docs server role (step 13)
-
-# npm installs run with scripts off, so the native better-sqlite3 binding of docs-mcp-server is never
-# built ("Could not locate the bindings file"). After the audit passed (the package is installed only
-# then), build exactly that one module from its own audited source, inside that package dir. No version
-# change, no prebuilt binary download (build from source; node-gyp fetches only the node headers).
-DOCS_REBUILT=0
-docs_native_modules() {
-    local root pkg mod
-    root=$(npm root -g 2>/dev/null || echo /usr/lib/node_modules)
-    pkg="$root/@arabold/docs-mcp-server"
-    if [ "$AI_DRY_RUN" = 1 ]; then
-        info "[dry-run] cd $pkg && npm rebuild better-sqlite3 --build-from-source (only if the binding does not load)"
-        return 0
-    fi
-    [ -d "$pkg" ] || { warn "Grounded Docs: $pkg not found"; return 1; }
-    mod=$(cd "$pkg" && node -p 'require.resolve("better-sqlite3/package.json")' 2>/dev/null || true)
-    [ -n "$mod" ] || { warn "Grounded Docs: better-sqlite3 not found under $pkg"; return 1; }
-    if (cd "$pkg" && node -e 'new (require("better-sqlite3"))(":memory:").close()' >/dev/null 2>&1); then
-        info "Grounded Docs: better-sqlite3 binding loads (node $(node -v))"
-        return 0
-    fi
-    if ! has make || ! has g++; then
-        if confirm "apt-get install build-essential (to build the better-sqlite3 binding)?" y; then
-            run_root apt-get install -y -q build-essential
-        else
-            manual "install build-essential, then re-run with --docs-server"; return 1
-        fi
-    fi
-    info "Grounded Docs: building better-sqlite3 $(node -p "require('$mod').version") for node $(node -v)"
-    run_root sh -c "cd '$pkg' && npm_config_build_from_source=true npm rebuild better-sqlite3 --ignore-scripts=false --foreground-scripts"
-    if (cd "$pkg" && node -e 'new (require("better-sqlite3"))(":memory:").close()' >/dev/null 2>&1); then
-        ok "Grounded Docs: better-sqlite3 binding built from source"
-        DOCS_REBUILT=1
-        return 0
-    fi
-    warn "Grounded Docs: better-sqlite3 still does not load after the rebuild: service NOT started"
-    return 1
+# User side: our codex/hermes/opencode registrations of github, grounded-docs and the global serena.
+tools_drop_user() {
+    aiconf undo --only "$DROPPED_USER_KEYS"
+    ok "dropped MCP registrations removed (github, grounded-docs, global serena)"
 }
 
-tools_docs_server() {
-    [ "$AI_OS" = linux ] || { skip "Grounded Docs server role is Linux only"; return 0; }
-    if [ -z "$DOCS_MCP_INTEGRITY" ]; then
-        skip "Grounded Docs $DOCS_MCP_VERSION: integrity not pinned in ai/pins.env"
-        manual "after the Grounded Docs audit, set DOCS_MCP_INTEGRITY in ai/pins.env and re-run with --docs-server"
-        return 0
-    fi
-    if ! (has docs-mcp-server && npm ls -g --depth=0 2>/dev/null | grep -q "@arabold/docs-mcp-server@$DOCS_MCP_VERSION"); then
-        npm_pinned @arabold/docs-mcp-server "$DOCS_MCP_VERSION" "$DOCS_MCP_INTEGRITY" || return 0
-        aiconf_root record-cmd npm:docs-mcp -- npm rm -g @arabold/docs-mcp-server
-    fi
-    docs_native_modules || return 0
-    local d="$AI_HOME/ai/mcp/docs-server" unit_before
-    unit_before=$(snap_files /etc/systemd/system/ai-docs-mcp.service)
-    aiconf_root file-put /etc/systemd/system/ai-docs-mcp.service "$d/ai-docs-mcp.service" --mode 644
-    [ -f /etc/default/ai-docs-mcp ] || aiconf_root file-put /etc/default/ai-docs-mcp "$d/ai-docs-mcp.default" --mode 644
+# ---------------------------------------------------------------- Claude sandbox dependencies (Linux)
 
-    # S9: the server binds all interfaces, so the firewall must be ON and limit the port to the LAN
-    # interface and tailscale0 BEFORE it starts. Clients are read-only (DOCS_MCP_READ_ONLY=true in the
-    # unit), so nobody on the network can add a scrape source (no SSRF through the server).
-    has ufw || { warn "ufw not found: Grounded Docs NOT started (it would listen on every interface)"; return 0; }
-    local lan ifc
-    lan=$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}' || true)
-    for ifc in $lan tailscale0; do
-        [ -n "$ifc" ] || continue
-        run_root ufw allow in on "$ifc" to any port "$DOCS_MCP_PORT" proto tcp comment "ai grounded docs"
-        aiconf_root record-cmd "ufw:$ifc:$DOCS_MCP_PORT" -- ufw delete allow in on "$ifc" to any port "$DOCS_MCP_PORT" proto tcp
-    done
-    if [ "$AI_DRY_RUN" != 1 ]; then
-        local st; st=$(sudo ufw status 2>/dev/null || true)
-        if ! printf '%s\n' "$st" | grep -q '^Status: active' \
-            || ! printf '%s\n' "$st" | grep -qE "^$DOCS_MCP_PORT/tcp on "; then
-            warn "ufw is not active or has no $DOCS_MCP_PORT/tcp rule: Grounded Docs NOT started"
-            manual "enable ufw with the LAN/tailscale0 rules for $DOCS_MCP_PORT, then: sudo systemctl enable --now ai-docs-mcp"
-            return 0
-        fi
+# The Claude Bash sandbox needs bubblewrap, socat and ripgrep (code.claude.com/docs/en/sandboxing). Ubuntu
+# restricts unprivileged user namespaces through AppArmor: bubblewrap needs the profile the docs give.
+tools_sandbox_deps() {
+    [ "$AI_OS" = linux ] || return 0
+    local missing="" c
+    for c in bwrap socat rg; do has "$c" || missing="$missing $c"; done
+    if [ -n "$missing" ]; then
+        run_root apt-get install -y -q bubblewrap socat ripgrep && ok "apt-get install bubblewrap socat ripgrep (sandbox)"
     fi
-    run_root systemctl daemon-reload
-    run_root systemctl enable ai-docs-mcp.service
-    if [ "${DOCS_REBUILT:-0}" = 1 ] || [ "$unit_before" != "$(snap_files /etc/systemd/system/ai-docs-mcp.service)" ] \
-        || ! systemctl is-active --quiet ai-docs-mcp.service; then
-        # A unit that hit its start limit refuses to start until reset; restart picks up a rebuilt module
-        # or a changed unit. An unchanged, running service is left alone.
-        run_root systemctl reset-failed ai-docs-mcp.service 2>/dev/null || true
-        run_root systemctl restart ai-docs-mcp.service
-    else
-        info "ai-docs-mcp: unit and module unchanged, running: not restarted"
+    if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ] \
+        && ! grep -rqs '/usr/bin/bwrap' /etc/apparmor.d/ 2>/dev/null; then
+        aiconf_root file-put /etc/apparmor.d/bwrap "$AI_HOME/ai/adapters/linux/apparmor-bwrap" --mode 644
+        run_root systemctl reload apparmor
+        ok "AppArmor profile for /usr/bin/bwrap (user namespaces for the Claude sandbox)"
     fi
-    if [ "$AI_DRY_RUN" != 1 ]; then
-        sleep 3
-        systemctl is-active --quiet ai-docs-mcp.service \
-            || warn "ai-docs-mcp is not active after start: journalctl -u ai-docs-mcp -n 50"
-    fi
-    aiconf_root record-cmd systemd:ai-docs-mcp -- systemctl disable --now ai-docs-mcp.service
-    ok "Grounded Docs server on port $DOCS_MCP_PORT (telemetry off)"
-    manual "check flags in /etc/default/ai-docs-mcp against 'docs-mcp-server --help' (flag names UNVERIFIED), then index libraries"
+    return 0
 }

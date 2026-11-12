@@ -1,0 +1,86 @@
+{
+ "rule": "serena",
+ "cases": [
+  {
+   "name": "code repo with serena enabled",
+   "expect": "fire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "print(1)\n",
+     ".ai/base-version": "4\n",
+     ".ai/enabled": "serena\n"
+    }
+   },
+   "contains": [
+    "Serena is on here"
+   ]
+  },
+  {
+   "name": "code repo without serena enabled",
+   "expect": "nofire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "print(1)\n",
+     ".ai/base-version": "4\n"
+    }
+   }
+  },
+  {
+   "name": "serena enabled but no code",
+   "expect": "nofire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "README.md": "# x\n",
+     ".ai/enabled": "serena\n"
+    }
+   }
+  },
+  {
+   "name": "on through the project enabling plugin ai-serena@ai",
+   "expect": "fire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "x\n",
+     ".claude/settings.json": "{\"enabledPlugins\": {\"ai-serena@ai\": true}}"
+    }
+   }
+  },
+  {
+   "name": "Codex does not count the Claude plugin switch",
+   "expect": "nofire",
+   "event": "SessionStart",
+   "agent": "codex",
+   "payload": {
+    "source": "startup",
+    "turn_id": "t"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "x\n",
+     ".claude/settings.json": "{\"enabledPlugins\": {\"ai-serena@ai\": true}}"
+    }
+   }
+  }
+ ]
+}

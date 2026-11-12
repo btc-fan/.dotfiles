@@ -1,7 +1,7 @@
 # Context: what is installed and why
 
 One page that lists every part. Tables only. The reasons are in `ai/SPEC.md`. The rules for each tool are in `ai/rules/<tool>.md`.
-For the explanation of each tool, how tools overlap and interact: [TOOLS.md](TOOLS.md). For how the root rules reach each agent: [AGENTS-MD.md](AGENTS-MD.md).
+For the explanation of each tool, how tools overlap and interact: [TOOLS.md](TOOLS.md). Security model (sandbox, boxes, planted config): [SECURITY.md](SECURITY.md). For how the root rules reach each agent: [AGENTS-MD.md](AGENTS-MD.md).
 
 ## Rules
 
@@ -13,17 +13,16 @@ For the explanation of each tool, how tools overlap and interact: [TOOLS.md](TOO
 | Toolbox | `ai/TOOLBOX.md` | not loaded in sessions. One pointer line in the root rules |
 | Project rules | `<project>/AGENTS.md` + a one-line `CLAUDE.md` with `@AGENTS.md` | add rules. May override style or tooling only |
 | Opt-in tool blocks | `<!-- AI:<tool> v<N> START --> ... END -->` in the project AGENTS.md | skipped when the project already has text for the tool |
-| Memory conventions | `ai/serena/memory_maintenance.md` -> `~/.serena/memories/global/memory_maintenance.md` | Serena template + our size caps and no-secrets rule. Read-only for agents |
 
-## Project knowledge (per repo, made by ai-adopt)
+## Project knowledge (per repo, in its AGENTS.md, made by ai-adopt)
 
-| Item | File | Committed | Read with | Fresh when |
-|---|---|---|---|---|
-| Code facts | `.serena/memories/` (core, tech_stack, suggested_commands, conventions, task_completion) | yes | Serena `initial_instructions`, then `read_memory core` | fewer than 20 code commits and 5 added/deleted/renamed code files since the last memory commit |
-| Serena project | `.serena/project.yml` (`initial_prompt` points at core), `.serena/.gitignore` | yes | Serena | - |
-| Code graph | `graphify-out/graph.json` | no (gitignored) | `graphify query` | newer than the last code commit |
-| Library docs map | `.ai/libs.md` | yes | the agent; docs rows show cached IDs | `lock:` hashes equal the lockfiles |
-| Ignored | `.serena/cache/`, `.serena/project.local.yml`, `.serena/logs/`, `graphify-out/` | in `.gitignore` | - | - |
+| Item | Where | Committed | Fresh when |
+|---|---|---|---|
+| Map | `<!-- AI:map START -->` ... `<!-- AI:map END -->` in AGENTS.md: entry points, where things live, run and test, conventions; <= 60 lines | yes | `knowledge-check` asks for an update after a commit that adds, deletes or renames modules |
+| Libraries | `<!-- AI:libraries START lock: ... -->` ... `<!-- AI:libraries END -->` in AGENTS.md: lib, version, context7 ID, note | yes | the START line hashes equal the lockfiles (`ai-libs --check`) |
+| Playwright (opt-in) | `enabledPlugins` `ai-playwright@ai` in the project `.claude/settings.json`, `.codex/config.toml` | yes | - |
+| Serena (opt-in) | `enabledPlugins` `ai-serena@ai` in the project `.claude/settings.json`, `.codex/config.toml`, `.serena/project.yml`; `.serena/cache/` gitignored | yes, except the cache | Serena updates its index itself |
+| Code graph (opt-in) | `graphify-out/graph.json`, gitignored | no | newer than the last code commit |
 Worked example: `README.md`, section 3, example D.
 
 ## Agents
@@ -42,10 +41,8 @@ Worked example: `README.md`, section 3, example D.
 
 | Server | Scope | Contract |
 |---|---|---|
-| Serena 2.1.0 | global | `serena.md` |
+| Serena 2.1.0 | per project (`ai-adopt --tools serena`) | `serena.md` |
 | context7 4.6.0 | global | `context7.md` |
-| Grounded Docs | global, runs on the home server | `grounded-docs.md` |
-| GitHub MCP | global, full access | `github-mcp.md` |
 | Playwright MCP | per project only | `playwright.md` |
 
 ## Plugins and skills
@@ -55,7 +52,7 @@ Worked example: `README.md`, section 3, example D.
 | ai-core (our plugin) | global | repo | this repo |
 | Ponytail | global | 96608e078b2d5ea607c5c3b8b5a54d1c1fba6846 | `ponytail.md` |
 | i-have-adhd | global | 1ecea1993b7fce257ffbd686c070948b5e07eda6 | `i-have-adhd.md` |
-| graphify 0.9.105 | global | PyPI | `graphify.md` |
+| graphify 0.9.105 | per project (`ai-adopt --tools graph`) | PyPI | `graphify.md` |
 | RTK v1.2.0 | global | tag | `rtk.md` |
 | claude-seo v2.5.0 | per project (`ai-adopt --tools seo`) | 219ff485bb016314bb4c15bfc7978df61c668a4f | `claude-seo.md` |
 | claude-blog v2.3.2 | per project (`ai-adopt --tools blog`) | 4f9c2cb8fd17f594e868d6c2ce0e8fb2c971f987 | `claude-blog.md` |
@@ -73,28 +70,28 @@ Every pin lives in `ai/pins.env`. The table above must match it.
 |---|---|---|
 | SessionStart | rules with `when: session_start` (status lines); the L0 table after compaction or /clear (startup and resume get only the status lines; the table is in the root rules) | L1 |
 | UserPromptSubmit | regex rules, then forced-eval text when a rule matched | L2, L3 |
-| PreToolUse | gates (audit, secret scan, PR rules), nudges (serena-first, graph-first) | L4, L3 |
-| PostToolUse | graph-update, docs-on-dependency, agent-docs, no-em-dash lint, skill proof | L3, L7 |
+| PreToolUse | gates (audit, secret scan, no sudo, PR rules) | L4 |
+| PostToolUse | knowledge-check after a commit, no-em-dash lint, docs ID log, skill proof | L3, L7 |
 | Stop | miss log, then `claude-notify` | L7 |
 | Notification | `claude-notify` | owner hook |
 | SessionStart (startup, resume) | caffeinate | owner hook |
-| Vendor hooks | Serena activate and cleanup, graphify guard, RTK rewrite, Ponytail, i-have-adhd, herdr status | per tool |
+| Vendor hooks | RTK rewrite, Ponytail, i-have-adhd, OMC, herdr status | per tool |
 
 Owner hooks come from the owner's hooks.json. Each hook finishes well under the 30 s limit. The L2 hook has a 10 s timeout and falls back to L3.
 
 ## Routing
 
-Source: `ai/routing.yaml` (version 3). 31 rules (24 global, 7 opt-in, 4 are gates), a tie-break table, and a `layers` block.
+Source: `ai/routing.yaml` (version 4, owner decision 2026-11-12: passive context beats nudges). 21 rules (12 global, 9 opt-in, 4 are gates), a tie-break table of 5 rows, and a `layers` block.
 Rules by group:
-- Start of work: `kickoff`, `no-ai-base`.
-- Project knowledge: `project-knowledge` (session start status line), `no-memories`, `knowledge-check` (after a commit).
-- Code navigation: `no-graph`, `graph-first`, `serena-first`, `graph-update`.
-- Safety: `audit-before-install`, `secret-scan`, `no-sudo`, `no-em-dash`.
-- PR: `pr-rules`.
-- Topics: `seo-not-enabled`, `blog-not-enabled` (suggest `ai-adopt --tools seo|blog`), `docs-lookup`, `browser-not-enabled`, `docs-on-dependency`, `github`, `prompting-others`, `agent-docs`, `wait-what`, `toolbox`.
-- Opt-in: `seo`, `blog`, `ui`, `tracker-flow`, `domain-docs`, `browser`, `knowledge-wiki`.
-Tie-break examples: one post file means blog-*, a URL means seo-*. "grill me" means grilling, "deep interview" means OMC deep-interview. Code symbols mean Serena. Library docs mean `.ai/libs.md` IDs, then Grounded Docs, then context7.
-Action placeholders the router fills at fire time: `{knowledge_index}`, `{knowledge_delta}`, `{libs_hits}`, `{origin_slug}`. `docs-lookup` also fires when the prompt names a library from `.ai/libs.md` (`prompt_libs`).
+- Session start: `project-knowledge` (status line: Map, Libraries, opt-in tools), `no-ai-base`.
+- After a commit: `knowledge-check` (update the Map, `ai-libs --sync`, `graphify update .`; silent when nothing applies).
+- Gates: `audit-before-install`, `secret-scan`, `no-sudo`, `pr-rules`.
+- Lint and docs: `no-em-dash`, `docs-lookup` (also fires on a library name from the Libraries section).
+- Off in this project, suggest it: `seo-not-enabled`, `blog-not-enabled`, `browser-not-enabled`.
+- Opt-in catalog (`ai-adopt --tools <id>`): `serena`, `graph`, `seo`, `blog`, `browser`, `ui`, `tracker-flow`, `domain-docs`, `knowledge-wiki`.
+- Removed in v4 (ignored in the logs or unmeasured): `kickoff`, `no-memories`, `no-graph`, `graph-first`, `serena-first`, `graph-update`, `docs-on-dependency`, `github`, `prompting-others`, `agent-docs`, `wait-what`, `toolbox`.
+Tie-breaks: post file means blog-*, a URL means seo-*; new app means grilling; "deep interview" means OMC deep-interview; library docs mean context7 with the Libraries ID, not web search.
+Action placeholders the router fills at fire time: `{knowledge_index}`, `{knowledge_delta}`, `{libs_hits}`, `{claude_handoff}`.
 To read the full table: `ai/routing.yaml`. Do not copy it here.
 
 ## Commands
@@ -106,8 +103,8 @@ To read the full table: `ai/routing.yaml`. Do not copy it here.
 | `ai-sync` | after a pull: runs `ai-render`, refreshes the copied rule blocks (Codex, Hermes). `--check` compares, `--install-hook` makes `git pull` run it |
 | `agent-audit npm\|pypi\|dir\|skill <target>` | audit before install |
 | `ai-start` | new project: grilling, propose tools, write project config |
-| `ai-adopt` | existing repo: add the project layer and the knowledge layer (Serena project + onboarding, graph, `.ai/libs.md`, gitignore lines) |
-| `ai-libs` | `.ai/libs.md`: `--sync` writes it from the lockfiles, `--check` exits 1 when stale. Offline-safe. Sends only public library names to context7, one call per library once; local and private-registry packages never |
+| `ai-adopt` | existing repo: project layer, the Map and Libraries sections of AGENTS.md, opt-in tools (`--tools serena,graph,seo,blog,browser,...`) |
+| `ai-libs` | the Libraries section of AGENTS.md: `--sync` writes it from the lockfiles, `--check` exits 1 when stale. Offline-safe. Sends only public library names to context7, one call per library once; local and private-registry packages never |
 | `claude-notify` | notifications |
 | `pr-resume` | reads the author-sessions block of a PR |
 
@@ -116,14 +113,14 @@ To read the full table: `ai/routing.yaml`. Do not copy it here.
 | File | Written by |
 |---|---|
 | `~/.local/state/ai/audit.log` | agent-audit: `<iso-time> <ecosystem> <name> <version> PASS\|FAIL` |
-| `~/.local/state/ai/gates.log` | gates and escape hatches |
+| `~/.local/state/ai/gates.log` | gate blocks and owner skips (`sudo ai-gate-skip`; window in root-owned `/etc/ai/gate-skip`) |
 | `~/.local/state/ai/misses.jsonl` | Stop hook: a rule fired and no matching tool call followed |
 | `~/.local/state/ai/fired.jsonl` | skill proof: model calls (`Skill` matcher) and typed commands (UserPromptExpansion) |
-| `~/.local/state/ai/docs-ids.jsonl` | router: library and docs ID of each docs MCP call (context7, Grounded Docs). `ai-libs` reads it as a cache |
+| `~/.local/state/ai/docs-ids.jsonl` | router: library and context7 ID of each docs call. `ai-libs` reads it as a cache |
 | `~/.local/state/ai/nudges.json` | quiet windows and once-per-library state |
 | `~/.local/state/ai/router-errors.log` | internal router errors (the router fails open) |
 | `~/.local/state/ai/managed-keys.json` | what install added (for uninstall) |
-| `~/.cache/graphify-queries.log` | graphify |
+| `~/.cache/graphify-queries.log` | graphify (opt-in projects) |
 | `rtk gain --history` | RTK |
 
 ## Evals
@@ -134,6 +131,6 @@ To read the full table: `ai/routing.yaml`. Do not copy it here.
 
 - opencode has no hooks, no gates and no miss log. Only the root rules apply there.
 - Hermes has no per-prompt matching of skills. A small plugin does L2 and L3.
-- Skills that only the owner can type (grill-me, wait-what, retro, i-have-adhd) cannot be forced. The agent suggests them. Kickoff uses the model-invoked `grilling`, or OMC deep-interview when grilling is not installed.
+- Skills that only the owner can type (grill-me, wait-what, retro, i-have-adhd) cannot be forced. The agent suggests them. For a new app the tie-break names the model-invoked `grilling`.
 - opencode and Hermes get the knowledge flow only from the root rules (no session start line, no commit nudge).
 - Several vendor facts are marked UNVERIFIED in the contracts. They need a test on the server.
