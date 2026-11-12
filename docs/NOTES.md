@@ -473,3 +473,18 @@ for a fork; `tar --zstd` on 26.04; the host reaching a box IP through ufw.
 - Cost: agents lose the fast path (two extra git calls per git call, a few ms).
 - Tests: `tests/git-guard.test.sh` 82 checks (17 new: each marker, hooks outside workspaces,
   config refusals, owner's hooks still run, clone and commit for agents).
+
+### proj new through the socket failed: RestrictSUIDSGID (2026-11-12)
+- Seen in the first end-to-end test (Codex, box tool, socket): `proj-agent new` stopped after
+  the launch with "chmod: Operation not permitted (os error 1)" and left a box without tier or
+  owner. Cause, reproduced on the server: `RestrictSUIDSGID=yes` in proj-agent@.service forbids
+  setting a setgid bit, and proj makes every workspace folder `chmod 2775`. Same message with
+  `systemd-run --user -p RestrictSUIDSGID=yes`, gone with `=no`. Through sudo there is no such
+  filter, which is why it worked before. The option is removed; the workspaces are nosuid anyway.
+- `proj new` is now all or nothing: an EXIT trap after the launch removes, on any failure, the
+  box (protection off first), its data volume, and the workspace if this run made it (to .trash
+  when not empty), logs it and alerts. A workspace that existed before is never touched.
+- `tests/proj-agent-unit.test.sh` runs proj's host-side work (setgid folder, ACLs, the main
+  user's mode fixes, temp file moved in, lock, log, incus query) under the unit's options read
+  from step 70: as root every option in a system unit (verify runs it), as a normal user the
+  seccomp ones. It also checks that `RestrictSUIDSGID=yes` makes the same work fail.

@@ -246,6 +246,7 @@ if [ -n "${BOX_DISK_SERIAL:-}" ]; then
     fi
     chk "proj installed" test -x /usr/local/sbin/proj
     chk "proj-agent socket listening" systemctl is-active -q proj-agent.socket
+    chk "proj's host work runs under the proj-agent@ unit settings (tests/proj-agent-unit.test.sh)" bash "$REPO_DIR/tests/proj-agent-unit.test.sh"
     sh_chk "/run/proj-agent.sock root:${SHARED_GROUP:-devs} 660" "[ \"\$(stat -c %U:%G:%a /run/proj-agent.sock)\" = root:${SHARED_GROUP:-devs}:660 ]"
     chk "$MAIN_USER: proj-agent list without sudo (socket)" runuser -u "$MAIN_USER" -- /usr/local/sbin/proj-agent list
     agents_proj_checks
