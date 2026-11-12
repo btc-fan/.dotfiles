@@ -6,12 +6,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex SessionStart",
+            "command": "/usr/bin/python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex SessionStart",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "sh \"${PLUGIN_ROOT}/hooks/serena-hook\" activate --client=codex",
+            "command": "/bin/sh \"${PLUGIN_ROOT}/hooks/serena-hook\" activate --client=codex",
             "timeout": 10
           }
         ]
@@ -22,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex UserPromptSubmit",
+            "command": "/usr/bin/python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex UserPromptSubmit",
             "timeout": 5
           }
         ]
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex PreToolUse",
+            "command": "/usr/bin/python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex PreToolUse",
             "timeout": 25
           }
         ]
@@ -46,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex PostToolUse",
+            "command": "/usr/bin/python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex PostToolUse",
             "timeout": 10
           }
         ]
@@ -57,7 +57,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex Stop",
+            "command": "/usr/bin/python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex Stop",
             "timeout": 25
           }
         ]
@@ -68,12 +68,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${PLUGIN_ROOT}/hooks/serena-hook\" cleanup --client=codex",
+            "command": "/bin/sh \"${PLUGIN_ROOT}/hooks/serena-hook\" cleanup --client=codex",
             "timeout": 3
           },
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex SessionEnd",
+            "command": "/usr/bin/python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex SessionEnd",
             "timeout": 3
           }
         ]

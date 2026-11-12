@@ -86,7 +86,7 @@ Later: Gemini CLI and Kimi CLI (wired when enabled). Grok, Kimi and DeepSeek are
 
 ## 2. MCP servers
 
-MCP servers give agents extra tools, and each one costs context in every session, so the global list is short: only context7, from `ai/marketplace/plugins/ai-core/.mcp.json` (tool names `mcp__plugin_ai-core_context7__*`). Per project: Serena through the plugin `ai-serena@ai` (off at user scope, on with `enabledPlugins` in the project settings), Playwright through the plugin `ai-playwright@ai` (same mechanism, `ai-adopt --tools browser`). Managed settings block servers from a project `.mcp.json` (a planted file in a workspace must not start a process).
+MCP servers give agents extra tools, and each one costs context in every session, so the global list is short: context7 and our `box` server, from `ai/marketplace/plugins/ai-core/.mcp.json` (tool names `mcp__plugin_ai-core_<server>__*`). Per project: Serena through the plugin `ai-serena@ai` (off at user scope, on with `enabledPlugins` in the project settings), Playwright through the plugin `ai-playwright@ai` (same mechanism, `ai-adopt --tools browser`). Managed settings block servers from a project `.mcp.json` (a planted file in a workspace must not start a process).
 
 ### context7
 
@@ -104,6 +104,13 @@ MCP servers give agents extra tools, and each one costs context in every session
 - **How it works here.** `ai-adopt --tools serena` turns on the plugin `ai-serena@ai` for that project (`enabledPlugins` in the project `.claude/settings.json`; the plugin holds only the Serena MCP entry and is off at user scope), writes a Codex entry in `.codex/config.toml` (trusted projects only), and indexes the project. Hermes and opencode get no Serena. There: `get_symbols_overview`, `find_symbol`, `replace_symbol_body`. No memories by default: project knowledge lives in AGENTS.md.
 - **Pin.** `serena-agent==2.1.0`. **Telemetry off.** `SERENA_USAGE_REPORTING=false` in the server entry's `env`.
 - **Contract.** `ai/rules/serena.md`.
+
+### box (our server for project boxes)
+
+- **What.** An MCP server in ai-core with one tool per box action (`mcp__plugin_ai-core_box__<name>`): list, new, exec, logs, status, restart, ports, url, snapshot, doctor, help. `exec` takes `command` (a bash string, run with `bash -lc` in the box, so pipes and `&&` work) or `argv` (a list), optional `cwd` and `timeout` up to 3600 s. `new` takes `name` and `tier` (`try` or `mvp`), optional `docker` and `pg`. It runs the root-owned `proj-agent` for the agent.
+- **Why.** Agents have no sudo, and Claude's sandbox blocks unix sockets, so a shell client cannot reach `proj-agent`. An MCP tool works in Claude, Codex and Hermes alike.
+- **How it works here.** Registered on server installs for Claude (plugin), Codex (`codex mcp add box`, long tool timeout) and Hermes; on a Mac it lists no tools. "Make me a small web page" ends in the tool's `new`, then `exec` to run things inside the box. `sudo proj-agent` is denied by the no-sudo gate; plain `proj-agent <sub>` works only outside a sandbox.
+- **Contract.** `ai/rules/box.md`.
 
 ### GitHub: the `gh` CLI
 

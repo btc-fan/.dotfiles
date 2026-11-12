@@ -238,8 +238,14 @@ claude_allow_rules() {
         printf 'mcp__plugin_ai-serena_serena__%s\n' "$t"
     done
     # GitHub through the gh CLI (the GitHub MCP was dropped): read-only forms only; everything else asks.
-    printf '%s\n' 'Bash(gh pr view *)' 'Bash(gh pr list*)' 'Bash(gh pr diff *)' 'Bash(gh pr checks *)' \
-        'Bash(gh issue view *)' 'Bash(gh issue list*)' 'Bash(gh repo view*)' 'Bash(gh run view *)' 'Bash(gh run list*)'
+    # The bare forms run inside the sandbox; the absolute forms are what the router writes for the commands
+    # that leave the sandbox (excludedCommands, root-owned program only).
+    local gh; gh=$(sandbox_prog gh)
+    for t in 'pr view *' 'pr list*' 'pr diff *' 'pr checks *' 'issue view *' 'issue list*' 'repo view*' \
+        'run view *' 'run list*'; do
+        printf 'Bash(gh %s)\n' "$t"
+        [ -z "$gh" ] || printf 'Bash(%s %s)\n' "$gh" "$t"
+    done
     # Shell: our own read-only tools. graphify: the read and local-build subcommands (install/hook ask).
     # rtk: the RTK hook rewrites the read-only commands Claude allows by itself (cat/head/tail, grep, rg, ls,
     # find, tree, diff, wc, git status/log/diff/show) into `rtk <cmd>` (rtk v1.2.0 src/discover/rules.rs),
@@ -253,11 +259,10 @@ claude_allow_rules() {
         'Bash(rtk wc*)' 'Bash(rtk grep *)' 'Bash(rtk rg *)' 'Bash(rtk find *)' 'Bash(rtk tree*)' 'Bash(rtk diff *)' \
         'Bash(rtk git status*)' 'Bash(rtk git diff*)' 'Bash(rtk git log*)' 'Bash(rtk git show*)'
     printf '%s\n' WebFetch WebSearch 'Read(~/.claude/plugins/**)' 'Read(~/.config/ai/**)'
-    # Box work runs unattended: proj-agent is a plain client of the root socket service, which refuses
-    # everything outside its own menu (Linux servers only). The old sudo forms stay allowed for agents
-    # outside the Claude sandbox; in Claude the router turns them into the plain client call.
-    if proj_agent_present; then
-        printf '%s\n' 'Bash(proj-agent *)' 'Bash(sudo proj-agent *)' 'Bash(sudo -n proj-agent *)'
+    # Box work runs unattended through the box MCP tools (server installs): proj-agent behind them refuses
+    # everything outside its own menu, and exec runs inside the box, never on the host.
+    if box_present; then
+        printf '%s\n' "${CLAUDE_MCP_PREFIX}box__*"
     fi
     return 0
 }
@@ -266,23 +271,35 @@ claude_allow_rules() {
 claude_ask_rules() {
     # git push always asks, also when the sandbox would auto-allow a command (it runs outside the sandbox).
     printf '%s\n' 'Bash(git push*)' 'Bash(rtk git push*)'
+    local git; git=$(sandbox_prog git)
+    [ -z "$git" ] || printf 'Bash(%s push*)\n' "$git"
     printf '%s\n' 'Bash(graphify install*)' 'Bash(graphify uninstall*)' 'Bash(graphify hook*)' \
         'Bash(graphify * install*)' 'Bash(graphify * uninstall*)' 'Bash(graphify * hook*)'
 }
 
+# User-writable folders on PATH (ours: ~/.local/bin; the usual language tool folders). Claude's Write and
+# Edit tools run outside the Bash sandbox, so a program planted there would shadow a system one by name.
+CLAUDE_PATH_DIRS="~/.local/bin/** ~/bin/** ~/.npm-global/bin/** ~/.cargo/bin/** ~/go/bin/** ~/.bun/bin/** ~/.deno/bin/** ~/.local/share/pnpm/** ~/.volta/bin/** ~/.yarn/bin/**"
+
 # Agents never edit the files that carry the house rules and their own permissions.
 claude_deny_rules() {
     local f
+    set -f   # $CLAUDE_PATH_DIRS below is split on spaces, never globbed
     # Files that carry house rules, permissions, hooks, plugin code, shell start-up, Serena config and the
-    # global Serena memories. Edit covers every built-in editing tool (NotebookEdit too); Write is listed as
-    # well. Project .claude/settings*.json are written by ai-adopt (a script), never by an agent.
+    # global Serena memories. Edit(path) rules cover every built-in file-writing tool (Write and NotebookEdit
+    # too); Claude ignores Write(path) rules and warns about them, so none are listed (an earlier install's
+    # Write rules are dropped by the list sync). Project .claude/settings*.json are written by ai-adopt.
     for f in '~/.claude/settings.json' '~/.claude/settings.local.json' '~/.claude.json' '~/.claude/CLAUDE.md' \
         '~/.claude/plugins/**' '//etc/claude-code/**' '//etc/codex/**' '~/.codex/config.toml' '~/.codex/hooks.json' \
         '~/.codex/AGENTS.md' '~/.hermes/config.yaml' '~/.hermes/SOUL.md' '~/.config/ai/**' \
         '~/.serena/serena_config.yml' '~/.serena/memories/global/**' '~/.bashrc' '~/.zshenv' '~/.profile' \
-        '**/.claude/settings.json' '**/.claude/settings.local.json'; do
-        printf 'Edit(%s)\nWrite(%s)\n' "$f" "$f"
+        '**/.claude/settings.json' '**/.claude/settings.local.json' \
+        '~/.zshrc' '~/.zprofile' '~/.bash_profile' '~/.bash_login' '~/.bash_aliases' '~/.config/environment.d/**' \
+        '~/.config/rtk/**' '~/Library/Application Support/rtk/**' '~/.gitconfig' '~/.config/git/**' \
+        $CLAUDE_PATH_DIRS; do
+        printf 'Edit(%s)\n' "$f"
     done
+    set +f
     printf '%s\n' 'Read(~/.config/ai/secrets.env)'
     # The exec and write forms of the commands RTK rewrites (checked against rtk v1.2.0: find, tree, grep/rg
     # and git pass their arguments to the real program): a deny wins over the rtk allows above.
@@ -294,7 +311,7 @@ claude_deny_rules() {
         'Bash(rtk rg *--hostname-bin*)' 'Bash(*RIPGREP_CONFIG_PATH*)' 'Bash(rtk tree* -o*)' \
         'Bash(git * --output*)' 'Bash(rtk git * --output*)' 'Bash(git * --ext-diff*)' 'Bash(rtk git * --ext-diff*)'
     # sudo: not a deny list here (sudo python3 -c, sudo env bash... would pass). The router gate no-sudo
-    # blocks every sudo except `sudo proj-agent ...` on Linux; containment stays in sudoers.
+    # blocks every sudo (box work: the box MCP tools); containment stays in sudoers.
     return 0
 }
 
@@ -322,24 +339,78 @@ json_str() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; 
 SANDBOX_DENY_READ="~/.ssh ~/.config/gh ~/.claude/.credentials.json ~/.codex/auth.json ~/.config/ai/secrets.env ~/.hermes/.env"
 SANDBOX_DENY_ENV="GITHUB_PERSONAL_ACCESS_TOKEN GITHUB_TOKEN GH_TOKEN CONTEXT7_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY OPENROUTER_API_KEY"
 # Writes besides the working directory and the sandbox temp dir: /tmp and the caches the tools really use.
-SANDBOX_ALLOW_WRITE="/tmp ~/.cache/uv ~/.cache/pip ~/.npm ~/.cache/node-gyp ~/.cargo/registry ~/go/pkg/mod ~/.cache/go-build ~/.cache/graphify ~/.local/state/ai"
+# uv: its own cache folder for sandboxed commands (UV_CACHE_DIR in the Claude env, claude_env_sandbox). The
+# default ~/.cache/uv is what installs use: if the sandbox could write it, a file hard-linked from it into an
+# installed tool (graphify, serena) could be changed in place and then run outside the sandbox.
+SANDBOX_ALLOW_WRITE="/tmp ~/.cache/ai-sandbox ~/.cache/pip ~/.npm ~/.cache/node-gyp ~/.cargo/registry ~/go/pkg/mod ~/.cache/go-build ~/.cache/graphify ~/.local/state/ai"
+# Never writable by a sandboxed command, also when the session runs in a folder above them (cwd ~ is refused
+# by the router too): PATH folders (a planted program there shadows a system one for unsandboxed hooks and
+# excluded commands), uv's installed tools, shell start-up files, git's user config, every agent's config.
+# Claude adds its own built-in protections on top (.git/hooks, .git/config, rc files in the project; seen in
+# the 2.1.322 binary), so they are not repeated as globs here (denyWrite globs are not expanded on Linux).
+# Nothing under ~/.config is needed by sandboxed dev work (tool caches live in ~/.cache).
+SANDBOX_DENY_WRITE="~/.local/bin ~/bin ~/.npm-global/bin ~/.cargo/bin ~/go/bin ~/.bun/bin ~/.deno/bin ~/.local/share/uv/tools ~/.local/share/pnpm ~/.volta/bin ~/.yarn/bin ~/.bashrc ~/.profile ~/.bash_profile ~/.bash_login ~/.bash_aliases ~/.zshenv ~/.zshrc ~/.zprofile ~/.gitconfig ~/.config ~/.codex ~/.claude ~/.claude.json ~/.hermes ~/.serena ~/.ssh ~/.local/share/ai"
 # Hosts sandboxed commands reach without a prompt (git over HTTPS, npm, PyPI/uv, crates, Go, context7).
 # Other hosts prompt in an interactive session and are refused in a headless one (no strict allowlist:
 # a fixed list would break new package hosts; see docs).
 SANDBOX_DOMAINS="github.com *.github.com *.githubusercontent.com codeload.github.com registry.npmjs.org *.npmjs.org nodejs.org pypi.org files.pythonhosted.org *.pythonhosted.org astral.sh crates.io *.crates.io proxy.golang.org sum.golang.org context7.com *.context7.com"
 # Run outside the sandbox (they need the gh token or the git credential helper): still need permission.
-SANDBOX_EXCLUDED="git push *|gh pr view *|gh pr list *|gh pr diff *|gh pr checks *|gh pr create *|gh pr edit *|gh issue view *|gh issue list *|gh repo view *|gh run view *|gh run list *"
+# Written with the ABSOLUTE path of a root-owned program (sandbox_prog): a bare name would be found on PATH,
+# and ~/.local/bin (first on PATH) is writable by Claude's Write tool, so a planted `git` or `gh` there
+# would run outside the sandbox with the user's full rights. The router writes the absolute path for a
+# plain single call; anything else (a bare name in a chain, a planted copy) stays sandboxed.
+SANDBOX_EXCLUDED_GIT="push *"
+SANDBOX_EXCLUDED_GH="pr view *|pr list *|pr diff *|pr checks *|pr create *|pr edit *|issue view *|issue list *|repo view *|run view *|run list *"
+
+# sandbox_prog NAME: absolute path of NAME in /usr/local/bin, /usr/bin or /bin when the file and every folder
+# up to / are root-owned and not writable by group or others (symlinks followed and checked too); else empty.
+sandbox_prog() {
+    python3 - "$1" "${AI_SANDBOX_PROG_DIRS:-/usr/local/bin /usr/bin /bin}" "${AI_SANDBOX_PROG_INSECURE_TEST:-0}" <<'EOS'
+import os, stat, sys
+name, dirs, insecure = sys.argv[1], sys.argv[2].split(), sys.argv[3] == "1"
+def safe(p):
+    try:
+        st = os.stat(p)
+    except OSError:
+        return False
+    return (insecure or st.st_uid == 0) and not st.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+def chain(p):
+    p = os.path.abspath(p)
+    if insecure:          # tests only: the file itself, no owner or parent check (test folders sit in /tmp)
+        return safe(p)
+    while True:
+        if not safe(p):
+            return False
+        if p == "/":
+            return True
+        p = os.path.dirname(p)
+for d in dirs:
+    p = os.path.join(d, name)
+    if os.path.isfile(p) and os.access(p, os.X_OK) and chain(p) and chain(os.path.realpath(p)):
+        print(p)
+        break
+EOS
+}
+
+sandbox_excluded() {
+    local git gh t
+    git=$(sandbox_prog git); gh=$(sandbox_prog gh)
+    local IFS='|'
+    if [ -n "$git" ]; then for t in $SANDBOX_EXCLUDED_GIT; do printf '%s %s|' "$git" "$t"; done; fi
+    if [ -n "$gh" ]; then for t in $SANDBOX_EXCLUDED_GH; do printf '%s %s|' "$gh" "$t"; done; fi
+}
 
 claude_sandbox_json() {
-    python3 - "$SANDBOX_DENY_READ" "$SANDBOX_DENY_ENV" "$SANDBOX_ALLOW_WRITE" "$SANDBOX_DOMAINS" "$SANDBOX_EXCLUDED" <<'EOS'
+    python3 - "$SANDBOX_DENY_READ" "$SANDBOX_DENY_ENV" "$SANDBOX_ALLOW_WRITE" "$SANDBOX_DOMAINS" "$(sandbox_excluded)" \
+        "$SANDBOX_DENY_WRITE" <<'EOS'
 import json, sys
-deny_read, deny_env, allow_write, domains, excluded = sys.argv[1:6]
+deny_read, deny_env, allow_write, domains, excluded, deny_write = sys.argv[1:7]
 print(json.dumps({
     "enabled": True,
     "failIfUnavailable": True,
     "allowUnsandboxedCommands": False,
-    "excludedCommands": excluded.split("|"),
-    "filesystem": {"denyRead": deny_read.split(), "allowWrite": allow_write.split()},
+    "excludedCommands": [e for e in excluded.split("|") if e],
+    "filesystem": {"denyRead": deny_read.split(), "allowWrite": allow_write.split(), "denyWrite": deny_write.split()},
     "credentials": {"files": [{"path": p, "mode": "deny"} for p in deny_read.split()],
                     "envVars": [{"name": n, "mode": "deny"} for n in deny_env.split()]},
     "network": {"allowedDomains": domains.split(), "allowAllUnixSockets": False, "allowLocalBinding": False},
@@ -349,28 +420,26 @@ print(json.dumps({
 EOS
 }
 
-# The box tool: sudo cannot run in the sandbox ("no new privileges") and excludedCommands never apply in
-# claude -p, so proj-agent is a plain client (/usr/local/bin/proj-agent) of a root socket service
-# (/run/proj-agent.sock, root:devs 0660; ubuntu-server branch). The sandboxed command reaches the socket:
-# on Linux the seccomp filter blocks every AF_UNIX socket unless network.allowAllUnixSockets is true (the docs:
-# the path list allowUnixSockets is macOS only), so that is on, and the other sockets a user could reach are
-# hidden by denyRead (user bus, D-Bus, Tailscale, Docker, containerd, Incus, snapd).
-PROJ_AGENT=${AI_PROJ_AGENT_PATH:-/usr/local/bin/proj-agent}
-SANDBOX_SOCKET_HIDE="/run/user /run/dbus /run/tailscale /run/docker.sock /run/containerd /var/lib/incus /run/snapd.socket /run/snapd-snap.socket"
-proj_agent_present() { [ "$AI_OS" = linux ] && { [ -x "$PROJ_AGENT" ] || [ "${AI_PROJ_AGENT_FORCE:-0}" = 1 ]; }; }
+# The box tool: unix sockets stay blocked in the sandbox (allowAllUnixSockets false: on Linux there is no
+# per-socket list, and a host has sockets that are a full escape: Postgres, tmux, the user's systemd). Box
+# work goes through the box MCP server in ai-core (mcp/box.py), which runs outside the sandbox and talks to
+# the root socket service of the ubuntu-server branch (box_present in base.sh).
 
 # Add bwrapPath when the AppArmor-profiled copy exists (Ubuntu with the userns restriction): managed-only key.
 claude_sandbox_json_final() {
     local j; j=$(claude_sandbox_json)
-    if proj_agent_present; then
-        j=$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); d["network"]["allowAllUnixSockets"] = True; d["filesystem"]["denyRead"] += sys.argv[2].split(); print(json.dumps(d, sort_keys=True))' "$j" "$SANDBOX_SOCKET_HIDE")
-    fi
     if [ -e "${AI_BWRAP:-/usr/local/lib/ai/bwrap}" ] || [ "${AI_SANDBOX_BWRAP_FORCE:-0}" = 1 ]; then
         python3 -c 'import json,sys; d=json.loads(sys.argv[1]); d["bwrapPath"]=sys.argv[2]; print(json.dumps(d, sort_keys=True))' \
             "$j" "${AI_BWRAP:-/usr/local/lib/ai/bwrap}"
     else
         printf '%s\n' "$j"
     fi
+}
+
+# The sandbox's own uv cache (allowWrite has ~/.cache/ai-sandbox, not ~/.cache/uv): Claude's env, this user.
+claude_env_sandbox() {
+    has claude || return 0
+    aiconf json-set "$CLAUDE_DIR/settings.json" env/UV_CACHE_DIR "\"$HOME/.cache/ai-sandbox/uv\""
 }
 
 # managed-settings.json keys (merge; only these keys): the Bash sandbox, the planted-config lock, the RTK

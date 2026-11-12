@@ -17,7 +17,7 @@ Each ai/tests/cases/<rule>.json holds {"rule": id, "cases": [...]}. A case:
   env      extra environment for the router (e.g. AI_STATE_DIR pointing at a file: unwritable state)
   gate_skip  a line for the owner skip file (/etc/ai/gate-skip); {{SOON}} / {{PAST}} = expiry times
   contains / not_contains   text that must (not) be in the hook output
-Placeholders: {{PROJ}} {{NOW}} {{OLD}} {{TRANSCRIPT}} and fake secrets {{GH_TOKEN}} {{CTX7_KEY}}
+Placeholders: {{PROJ}} {{HOME}} {{NOW}} {{OLD}} {{TRANSCRIPT}} and fake secrets {{GH_TOKEN}} {{CTX7_KEY}}
 {{CTX7_OTHER}} {{PW}} {{ENVTOK}} {{NPM_TOKEN}} {{HF_TOKEN}} {{DBURL}}
 (fake secrets are built here at run time, so no secret-looking string is stored in the repo).
 Every run uses a throwaway HOME and state dir. Nothing touches the real home.
@@ -117,7 +117,8 @@ def run_case(rule_id, case, work, build):
     os.makedirs(os.path.join(ai_home, "ai", "mcp"))
     transcript = os.path.join(tmp, "transcript.jsonl")
     open(transcript, "w").close()
-    subs = dict(FAKE, **{"{{PROJ}}": proj, "{{NOW}}": NOW, "{{OLD}}": OLD, "{{TRANSCRIPT}}": transcript})
+    subs = dict(FAKE, **{"{{PROJ}}": proj, "{{NOW}}": NOW, "{{OLD}}": OLD, "{{TRANSCRIPT}}": transcript,
+                         "{{HOME}}": home})
 
     setup_project(proj, sub(case.get("project", {}), subs))
     if case.get("audit_log"):

@@ -43,6 +43,7 @@ Worked example: `README.md`, section 3, example D.
 |---|---|---|
 | Serena 2.1.0 | per project (`ai-adopt --tools serena`) | `serena.md` |
 | context7 4.6.0 | global | `context7.md` |
+| box (ours, ai-core) | global; does something only on a server with `proj-agent` | `box.md` |
 | Playwright MCP | per project only | `playwright.md` |
 
 ## Plugins and skills

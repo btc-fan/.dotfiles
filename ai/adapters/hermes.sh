@@ -29,8 +29,11 @@ hermes_mcp() {
             && aiconf_hermes record-cmd npm-local:context7 -- rm -rf "$c7"
     fi
     root=$(hermes_stage_dir "$(PLUGIN_DIR)" plugin-ai-core)
-    aiconf_hermes mcp-register hermes --mcp-json "$root/.mcp.json" --plugin-root "$root"
-    ok "Hermes MCP: context7 (github, grounded-docs and serena removed)"
+    local skip=()
+    box_present || skip=(--skip box)
+    # box: the box MCP tools for Hermes too (Hermes may also run plain proj-agent; it is in the agents' group).
+    aiconf_hermes mcp-register hermes --mcp-json "$root/.mcp.json" --plugin-root "$root" ${skip[@]+"${skip[@]}"}
+    ok "Hermes MCP: context7$(box_present && echo ', box') (github, grounded-docs and serena removed)"
 }
 
 hermes_serena_config() {

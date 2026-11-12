@@ -26,8 +26,12 @@ WRAPPERS_WITH_VALUES = {
     "xargs": {"-n", "-I", "-L", "-P", "-d", "-a", "-E", "-s", "--max-args", "--max-procs", "--delimiter"},
     "nice": {"-n"},
     "timeout": {"-s", "-k", "--signal", "--kill-after"},
+    "stdbuf": {"-i", "-o", "-e", "--input", "--output", "--error"},
 }
-PLAIN_WRAPPERS = {"command", "time", "nohup", "exec", "then", "do", "else", "!", "builtin", "stdbuf"}
+PLAIN_WRAPPERS = {"command", "time", "nohup", "exec", "then", "do", "else", "!", "builtin"}
+# RTK (managed hook) rewrites commands to `rtk <cmd>`, and agents type it too: `rtk git commit`, `rtk gh pr
+# create`, `rtk proxy <cmd>` run the same program. Every gate sees the command without it (Fable readiness B1).
+RTK_WRAPPERS = {"rtk"}
 
 
 # ---------------------------------------------------------------- shell parsing
@@ -234,6 +238,12 @@ def strip_wrappers(words, stage):
         if base in PLAIN_WRAPPERS:
             words.pop(0)
             continue
+        if base in RTK_WRAPPERS and not quoted and len(words) > 1:
+            stage.wrappers.append("rtk")
+            words.pop(0)
+            if words and words[0][0] == "proxy" and len(words) > 1:
+                words.pop(0)
+            continue
         if base in WRAPPERS_WITH_VALUES:
             stage.wrappers.append(base)
             words.pop(0)
@@ -373,10 +383,52 @@ def install_targets(stages, cwd):
     return out
 
 
+def run_mark(targets):
+    """Package runners (uvx, npx, ...) fetch and run without an install: eco "<eco>-run" (ask unless audited)."""
+    return [(eco + "-run", name, ver) if eco in ("pypi", "npm") else (eco, name, ver) for eco, name, ver in targets]
+
+
+def runner_spec(args, value_opts, pkg_opts):
+    """The package specs a runner fetches: --from/--package values, else its first positional word."""
+    specs, i, first = [], 0, None
+    while i < len(args):
+        a = args[i]
+        opt, eq, val = a.partition("=")
+        if opt in pkg_opts:
+            specs.append(val if eq else (args[i + 1] if i + 1 < len(args) else ""))
+            i += 1 if eq else 2
+            continue
+        if a in value_opts:
+            i += 2
+            continue
+        if a.startswith("-"):
+            i += 1
+            continue
+        first = a
+        break
+    return [s for s in specs if s] or ([first] if first else [])
+
+
 def stage_targets(exe, args, st, cwd):
+    if exe == "uvx" or (exe == "uv" and args[:2] == ["tool", "run"]):
+        rest = args if exe == "uvx" else args[2:]
+        specs = runner_spec(rest, UV_VALUE_OPTS | {"--with", "-w", "--with-requirements"}, {"--from"})
+        withs = uv_targets(with_opts(rest), cwd)
+        return run_mark([pip_spec_target(re.sub(r"^([\w.-]+)@([\w.+-]+)$", r"\1==\2", s), cwd)
+                         for s in specs] + withs)
     if exe == "uv" and args[:1] == ["run"]:
+        withs = run_mark(uv_targets(with_opts(args[1:]), cwd))
         rest = skip_options(args[1:], UV_VALUE_OPTS | UV_TARGET_OPTS)
-        return stage_targets(os.path.basename(rest[0]), rest[1:], st, cwd) if rest else []
+        return withs + (stage_targets(os.path.basename(rest[0]), rest[1:], st, cwd) if rest else [])
+    if exe in ("npx", "bunx") or (exe in ("pnpm", "yarn") and args[:1] == ["dlx"]) or (exe == "npm" and args[:1] == ["exec"]):
+        rest = args if exe in ("npx", "bunx") else args[1:]
+        if "--" in rest:
+            rest = rest[:rest.index("--")]
+        specs = runner_spec(rest, {"-c", "--call", "--registry", "--cache"}, {"-p", "--package"})
+        return run_mark([npm_or_path(s, cwd) for s in specs])
+    if exe == "pipx" and args[:1] == ["run"]:
+        specs = runner_spec(args[1:], {"--python", "--pip-args", "--index-url"}, {"--spec"})
+        return [("pipx", s, "") for s in specs] or [("pipx", "", "")]
     if re.match(r"^python[\d.]*$", exe):
         rest = list(args)
         while rest and rest[0].startswith("-") and rest[0] != "-m":
@@ -474,6 +526,26 @@ def uv_targets(args, cwd):
     return out
 
 
+def with_opts(args):
+    """Only the --with / -w / --with-requirements options (and their values) before the command word."""
+    out, i = [], 0
+    while i < len(args):
+        a = args[i]
+        opt, eq, _v = a.partition("=")
+        if opt in ("--with", "-w", "--with-requirements"):
+            out.extend(args[i:i + (1 if eq else 2)])
+            i += 1 if eq else 2
+            continue
+        if a in UV_VALUE_OPTS or opt == "--from":
+            i += 1 if eq else 2
+            continue
+        if a.startswith("-"):
+            i += 1
+            continue
+        break
+    return out
+
+
 def pip_spec_target(spec, cwd):
     if re.match(r"^[a-z+]+://", spec) or spec.startswith("git+"):
         return ("unknown", spec, "")
@@ -561,6 +633,16 @@ def gate_audit(ctx, cmd, stages):
     if not targets and not blocks:
         return ("ask", "Install command, but the package could not be parsed. Run agent-audit on it first.")
     for eco, name, version in targets:
+        if eco.endswith("-run"):
+            # A runner (uvx, npx, pnpm dlx, bunx, uv run --with): a local bin of the project is fine; an
+            # audited package is fine; anything else asks (the sandbox is the boundary, this is the habit check).
+            base = eco[:-4]
+            if base == "npm" and os.path.exists(os.path.join(ctx.cwd or ".", "node_modules", ".bin", name)):
+                continue
+            if audit_status(base, name, version) != "PASS":
+                asks.append("%s runs %s %s%s, fetched without an audit. Run: %s" % (
+                    "package runner", base, name, ("@" + version) if version else "", audit_hint(base, name, version)))
+            continue
         if eco in ASK_MANAGERS:
             asks.append("%s install of %s: agent-audit cannot scan %s packages yet." % (eco, name or "?", eco))
         elif eco == "unknown":
@@ -985,7 +1067,8 @@ def root_calls(cmd, depth=0):
         if after_wrapper and not kind and (text.startswith("-") or re.match(r"^\d+(\.\d+)?[smhd]?$", text)):
             continue        # wrapper options and values: timeout 5, nice -n 10, env -i
         base = os.path.basename(text)
-        if not kind and base in PLAIN_WRAPPERS | {"env", "nice", "timeout", "xargs", "stdbuf"}:
+        if not kind and (base in PLAIN_WRAPPERS | RTK_WRAPPERS | {"env", "nice", "timeout", "xargs", "stdbuf"}
+                         or (text == "proxy" and i > 0 and os.path.basename(toks[i - 1][0]) == "rtk")):
             after_wrapper = True
             continue
         at_cmd = False
@@ -1000,9 +1083,9 @@ def root_calls(cmd, depth=0):
 
 
 def gate_sudo(ctx, cmd, stages):
-    """House rule 45-no-root: agents never use sudo. The one exception, on a Linux server only, is
-    `sudo proj-agent <subcommand>` (the hosting rules). Everything else: give the owner the command.
-    Containment is the sudoers file; this gate catches the honest attempt early."""
+    """House rule 45-no-root: agents never use sudo, also not for proj-agent: box work goes through the box
+    MCP tools (they run outside the sandbox and reach the root socket service), or a plain `proj-agent <sub>`
+    where the agent is not sandboxed. Containment is the sudoers file; this gate catches the honest attempt."""
     import sys as _sys
     calls = root_calls(cmd)
     if not calls:
@@ -1014,13 +1097,17 @@ def gate_sudo(ctx, cmd, stages):
         words = list(rest)
         while words and words[0] in ("-n", "--non-interactive"):    # sudo -n proj-agent ... (no prompt)
             words.pop(0)
-        return words[:1] == ["proj-agent"] and len(words) > 1
-    bad = [t for t, rest in calls if not (linux and t == "sudo" and is_proj_agent(rest))]
-    if not bad:
-        return None
+        return words[:1] and os.path.basename(words[0]) == "proj-agent"
+    box = linux and any(t == "sudo" and is_proj_agent(rest) for t, rest in calls)
+    if box:
+        agent = getattr(ctx, "agent", "") or ""
+        how = ("use the box MCP tools (list, new, exec, logs, ports, url, ...): they reach proj-agent without sudo"
+               if agent == "claude" else
+               "use the box MCP tools, or plain `proj-agent <subcommand>` without sudo where you are not sandboxed")
+        return ("deny", "No sudo for proj-agent. Box work: %s." % how)
     return ("deny", "No sudo for agents (%s). Do not try another way to get root. Give the owner the exact command "
-            "to run himself.%s" % (", ".join(sorted(set(bad))),
-                                   " Only `sudo proj-agent <subcommand>` is allowed on this server." if linux else ""))
+            "to run.%s" % (", ".join(sorted(set(t for t, _ in calls))),
+                           " Box work: the box MCP tools." if linux else ""))
 
 
 def probe_sudo(stages, cmd=""):

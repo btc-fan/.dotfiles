@@ -24,8 +24,17 @@ codex_marketplace_plugin() {
 
 codex_mcp() {
     has codex || { skip "Codex MCP: codex not found"; return 0; }
-    aiconf mcp-register codex --mcp-json "$(PLUGIN_DIR)/.mcp.json" --plugin-root "$(PLUGIN_DIR)"
-    ok "Codex MCP: context7 (github, grounded-docs and the global serena were dropped)"
+    local skip=()
+    box_present || skip=(--skip box)
+    aiconf mcp-register codex --mcp-json "$(PLUGIN_DIR)/.mcp.json" --plugin-root "$(PLUGIN_DIR)" ${skip[@]+"${skip[@]}"}
+    if box_present; then
+        # The box server runs outside Codex's sandbox (MCP servers are not sandboxed): the only way a sandboxed
+        # Codex reaches the root socket. exec may run 3600 s; box work runs without an approval prompt (the box
+        # is the boundary; proj-agent refuses anything off its menu).
+        aiconf toml-set "$CODEX_DIR/config.toml" mcp_servers.box tool_timeout_sec 3720
+        aiconf toml-set "$CODEX_DIR/config.toml" mcp_servers.box default_tools_approval_mode '"approve"'
+    fi
+    ok "Codex MCP: context7$(box_present && echo ', box') (github, grounded-docs and the global serena were dropped)"
 }
 
 # ---------------------------------------------------------------- step 8: plugins
@@ -114,6 +123,8 @@ codex_system_policy() {
     local tmp; tmp=$(mktemp "${TMPDIR:-/tmp}/ai-codex-req.XXXXXX")
     cat > "$tmp" <<'EOR'
 # Managed by install.sh (ai branch). Codex reads this as the system requirements layer.
+# Codex workspace-write on Linux blocks every socket connect (seccomp), so `proj-agent` (the socket client)
+# fails inside it. Box work goes through the box MCP server (codex_mcp), which runs outside the sandbox.
 allowed_sandbox_modes = ["read-only", "workspace-write"]
 allowed_approval_policies = ["untrusted", "on-request"]
 EOR

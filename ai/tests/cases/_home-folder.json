@@ -1,0 +1,83 @@
+{
+ "rule": "_home-folder",
+ "cases": [
+  {
+   "name": "SessionStart in the home folder: hard warning",
+   "expect": "allow",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup",
+    "cwd": "{{HOME}}"
+   },
+   "contains": [
+    "home-folder",
+    "Start Claude inside a project folder"
+   ]
+  },
+  {
+   "name": "Bash in the home folder is denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "cwd": "{{HOME}}",
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ls"
+    }
+   },
+   "contains": "Start Claude inside a project folder"
+  },
+  {
+   "name": "Write in the home folder is denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "cwd": "{{HOME}}",
+    "tool_name": "Write",
+    "tool_input": {
+     "file_path": "{{HOME}}/x.txt",
+     "content": "x"
+    }
+   }
+  },
+  {
+   "name": "Read in the home folder is fine",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "cwd": "{{HOME}}",
+    "tool_name": "Read",
+    "tool_input": {
+     "file_path": "{{HOME}}/x.txt"
+    }
+   },
+   "not_contains": "home-folder"
+  },
+  {
+   "name": "Bash in a project folder is fine",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ls"
+    }
+   },
+   "not_contains": "home-folder"
+  },
+  {
+   "name": "Codex in the home folder is not refused by this rule",
+   "agent": "codex",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "cwd": "{{HOME}}",
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ls"
+    }
+   },
+   "not_contains": "home-folder"
+  }
+ ]
+}

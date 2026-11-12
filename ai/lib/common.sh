@@ -87,6 +87,15 @@ admin_cmd() { printf 'sudo /opt/ai-setup/install.sh --update --for-user %s   (ad
 
 has() { command -v "$1" >/dev/null 2>&1; }
 
+# The box tool of a server install (ubuntu-server branch): the root socket service or proj-agent itself.
+# One agreed path: /usr/local/sbin/proj-agent (a normal user's call hands over to the socket).
+AI_PROJ_AGENT=${AI_PROJ_AGENT_PATH:-/usr/local/sbin/proj-agent}
+AI_PROJ_AGENT_SOCK=${AI_PROJ_AGENT_SOCK:-/run/proj-agent.sock}
+box_present() {
+    [ "$AI_OS" = linux ] || return 1
+    [ "${AI_PROJ_AGENT_FORCE:-0}" = 1 ] || [ -S "$AI_PROJ_AGENT_SOCK" ] || [ -x "$AI_PROJ_AGENT" ]
+}
+
 # Run a command line as the hermes user (login shell for its PATH). Only on Linux.
 # Always from hermes' own home: the caller's cwd (admin's home) is closed to hermes, and tools that
 # look at the cwd (serena --project-from-cwd in `hermes mcp add` probes) fail there.

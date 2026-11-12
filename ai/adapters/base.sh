@@ -296,6 +296,7 @@ base_env_user() {
         claude_connectors_env "$CLAUDE_DIR/settings.json" aiconf
         ok "Claude: env switches in $CLAUDE_DIR/settings.json (merge): hooks, MCP servers and -p runs see them"
         claude_permissions
+        claude_env_sandbox
     fi
 
     want codex && codex_env

@@ -93,8 +93,8 @@
    }
   },
   {
-   "name": "Linux: sudo proj-agent becomes the plain socket client call",
-   "expect": "allow",
+   "name": "Linux: sudo proj-agent is denied; Claude is told to use the box MCP tools",
+   "expect": "deny",
    "event": "PreToolUse",
    "payload": {
     "tool_name": "Bash",
@@ -104,19 +104,19 @@
    },
    "project": {
     "git": true,
-    "files": {
-     "proj-agent": "#!/bin/sh\n"
-    }
+    "files": {}
    },
    "env": {
-    "AI_GATE_PLATFORM": "linux",
-    "AI_PROJ_AGENT_CLIENT": "{{PROJ}}/proj-agent"
+    "AI_GATE_PLATFORM": "linux"
    },
-   "contains": "\"command\": \"proj-agent exec web -- ls\""
+   "contains": [
+    "box MCP tools",
+    "No sudo for proj-agent"
+   ]
   },
   {
-   "name": "Linux: chained sudo proj-agent is not rewritten",
-   "expect": "allow",
+   "name": "Linux: chained sudo proj-agent is denied too",
+   "expect": "deny",
    "event": "PreToolUse",
    "payload": {
     "tool_name": "Bash",
@@ -126,15 +126,12 @@
    },
    "project": {
     "git": true,
-    "files": {
-     "proj-agent": "#!/bin/sh\n"
-    }
+    "files": {}
    },
    "env": {
-    "AI_GATE_PLATFORM": "linux",
-    "AI_PROJ_AGENT_CLIENT": "{{PROJ}}/proj-agent"
+    "AI_GATE_PLATFORM": "linux"
    },
-   "not_contains": "updatedInput"
+   "contains": "box MCP tools"
   },
   {
    "name": "Linux: other sudo still blocked",
@@ -160,6 +157,166 @@
      "command": "proj-agent new try web"
     }
    }
+  },
+  {
+   "name": "Linux: bare proj-agent is not rewritten (box work goes through the MCP tools)",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "proj-agent list"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "bin/git": "#!/bin/sh\n",
+     "bin/gh": "#!/bin/sh\n",
+     "managed.json": "{\"sandbox\": {\"excludedCommands\": [\"{{PROJ}}/bin/git push *\", \"{{PROJ}}/bin/gh pr view *\", \"{{PROJ}}/bin/gh pr create *\", \"gh issue list *\"]}}"
+    }
+   },
+   "env": {
+    "AI_GATE_PLATFORM": "linux",
+    "AI_CLAUDE_MANAGED_SETTINGS": "{{PROJ}}/managed.json"
+   },
+   "not_contains": "updatedInput"
+  },
+  {
+   "name": "Linux: git push becomes the absolute root-owned git and still asks",
+   "expect": "ask",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push origin feat/x"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "bin/git": "#!/bin/sh\n",
+     "bin/gh": "#!/bin/sh\n",
+     "managed.json": "{\"sandbox\": {\"excludedCommands\": [\"{{PROJ}}/bin/git push *\", \"{{PROJ}}/bin/gh pr view *\", \"{{PROJ}}/bin/gh pr create *\", \"gh issue list *\"]}}"
+    }
+   },
+   "env": {
+    "AI_GATE_PLATFORM": "linux",
+    "AI_CLAUDE_MANAGED_SETTINGS": "{{PROJ}}/managed.json"
+   },
+   "contains": "/bin/git push origin feat/x\""
+  },
+  {
+   "name": "Linux: read-only gh form becomes absolute and runs",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr view 12"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "bin/git": "#!/bin/sh\n",
+     "bin/gh": "#!/bin/sh\n",
+     "managed.json": "{\"sandbox\": {\"excludedCommands\": [\"{{PROJ}}/bin/git push *\", \"{{PROJ}}/bin/gh pr view *\", \"{{PROJ}}/bin/gh pr create *\", \"gh issue list *\"]}}"
+    }
+   },
+   "env": {
+    "AI_GATE_PLATFORM": "linux",
+    "AI_CLAUDE_MANAGED_SETTINGS": "{{PROJ}}/managed.json"
+   },
+   "contains": "/bin/gh pr view 12\""
+  },
+  {
+   "name": "Linux: a gate still wins over the absolute rewrite (gh pr create without the PR body)",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --fill"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "bin/git": "#!/bin/sh\n",
+     "bin/gh": "#!/bin/sh\n",
+     "managed.json": "{\"sandbox\": {\"excludedCommands\": [\"{{PROJ}}/bin/git push *\", \"{{PROJ}}/bin/gh pr view *\", \"{{PROJ}}/bin/gh pr create *\", \"gh issue list *\"]}}"
+    }
+   },
+   "env": {
+    "AI_GATE_PLATFORM": "linux",
+    "AI_CLAUDE_MANAGED_SETTINGS": "{{PROJ}}/managed.json"
+   },
+   "not_contains": "updatedInput"
+  },
+  {
+   "name": "Linux: chained git push is not rewritten (stays sandboxed)",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push && rm -rf x"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "bin/git": "#!/bin/sh\n",
+     "bin/gh": "#!/bin/sh\n",
+     "managed.json": "{\"sandbox\": {\"excludedCommands\": [\"{{PROJ}}/bin/git push *\", \"{{PROJ}}/bin/gh pr view *\", \"{{PROJ}}/bin/gh pr create *\", \"gh issue list *\"]}}"
+    }
+   },
+   "env": {
+    "AI_GATE_PLATFORM": "linux",
+    "AI_CLAUDE_MANAGED_SETTINGS": "{{PROJ}}/managed.json"
+   },
+   "not_contains": "updatedInput"
+  },
+  {
+   "name": "Linux: a bare excluded entry is ignored (never trusted from PATH)",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh issue list"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "bin/git": "#!/bin/sh\n",
+     "bin/gh": "#!/bin/sh\n",
+     "managed.json": "{\"sandbox\": {\"excludedCommands\": [\"{{PROJ}}/bin/git push *\", \"{{PROJ}}/bin/gh pr view *\", \"{{PROJ}}/bin/gh pr create *\", \"gh issue list *\"]}}"
+    }
+   },
+   "env": {
+    "AI_GATE_PLATFORM": "linux",
+    "AI_CLAUDE_MANAGED_SETTINGS": "{{PROJ}}/managed.json"
+   },
+   "not_contains": "updatedInput"
+  },
+  {
+   "name": "Linux, Codex: sudo proj-agent denied; plain proj-agent or the box tools",
+   "agent": "codex",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "sudo proj-agent list"
+    }
+   },
+   "env": {
+    "AI_GATE_PLATFORM": "linux"
+   },
+   "contains": "plain `proj-agent <subcommand>` without sudo"
   }
  ]
 }

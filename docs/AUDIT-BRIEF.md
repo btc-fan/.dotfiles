@@ -82,7 +82,7 @@ Read: `README.md`, `docs/HOSTING.md`, `docs/AGENTS-hosting.md`, `docs/NOTES.md`,
   into boxes (`/etc/proj-rules/AGENTS.md`).
 - Shared workspace (owner choice): code lives on the host in `/srv/proj/work/<box>`, mounted into
   the box with `shift=true` (idmapped). Host agents edit with their normal tools; code runs only in
-  the box: `ai-box exec <box> -- <cmd>` (`/usr/local/bin/ai-box` = `sudo -n proj-agent`; Claude's sandbox keeps any command that starts with sudo inside the sandbox, where sudo cannot run).
+  the box: the box tool `exec` (MCP server `box` in ai-core, which runs the root-owned `/usr/local/sbin/proj-agent`). Claude's sandbox blocks unix sockets, so there is no socket client; plain `proj-agent <sub>` only outside a sandbox.
 - `proj-agent` (`files/sbin/proj-agent`) is the only sudo an agent has: new try/mvp box, list,
   status, snapshot, doctor, logs, restart a service in a box, exec, ports, url. It refuses long
   tier, wipe and delete.
@@ -145,7 +145,7 @@ Read: `README.md`, `ai/SPEC.md`, `docs/INSTALL.md`, `docs/SECURITY.md`, `docs/TO
 - **Gates** (block, logged to `gates.log`): `audit-before-install` (no install without an
   `agent-audit` pass in the last 24 h), `secret-scan` (staged files and commit messages, also `-F`,
   stdin and heredocs), `pr-rules`, `no-sudo` (every sudo/su/doas/pkexec blocked except
-  box commands on a server: `ai-box <sub>`, or `sudo proj-agent <sub>` from Codex and Hermes). The only way past a gate is the owner's
+  `sudo proj-agent` too; box work goes through the box tool). The only way past a gate is the owner's
   `sudo ai-gate-skip <gate> <minutes max 60> <why>` (root-owned file); a variable in the command
   text does nothing.
 - **Supply chain**: every tool is pinned in `ai/pins.env` and audited by `ai/bin/agent-audit`

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude SessionStart",
+            "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude SessionStart",
             "timeout": 10
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ \"$(uname -s)\" = Darwin ] && command -v caffeinate >/dev/null 2>&1 && { nohup caffeinate -s -w $PPID >/dev/null 2>&1 & }; exit 0",
+            "command": "[ -x /usr/bin/caffeinate ] && [ \"$(/usr/bin/uname -s)\" = Darwin ] && { /usr/bin/nohup /usr/bin/caffeinate -s -w $PPID >/dev/null 2>&1 & }; exit 0",
             "timeout": 5
           }
         ]
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude UserPromptSubmit",
+            "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude UserPromptSubmit",
             "timeout": 5
           }
         ]
@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude UserPromptExpansion",
+            "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude UserPromptExpansion",
             "timeout": 5
           }
         ]
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude PreToolUse",
+            "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude PreToolUse",
             "timeout": 25
           }
         ]
@@ -62,7 +62,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude PostToolUse",
+            "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude PostToolUse",
             "timeout": 10
           }
         ]
@@ -74,7 +74,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/claude-notify\"",
+            "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/claude-notify\"",
             "timeout": 15
           }
         ]
@@ -85,7 +85,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude Stop",
+            "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude Stop",
             "timeout": 25
           }
         ]
@@ -96,12 +96,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/serena-hook\" cleanup --client=claude-code",
+            "command": "/bin/sh \"${CLAUDE_PLUGIN_ROOT}/hooks/serena-hook\" cleanup --client=claude-code",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude SessionEnd",
+            "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude SessionEnd",
             "timeout": 5
           }
         ]

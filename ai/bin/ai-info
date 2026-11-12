@@ -151,7 +151,7 @@ def render_short(f):
     lines = [
         "AI agents: " + agents,
         "Claude plugins on: %s%s" % (", ".join(on) or "none", ("; per project: " + ", ".join(optional)) if optional else ""),
-        "MCP: context7 (global); serena, playwright (per project)",
+        "MCP: context7, box (global); serena, playwright (per project)",
         "Skills: %s" % (", ".join(matt) + ((" (+%d more)" % (len(skills) - len(matt))) if len(skills) > len(matt) else "")
                         if matt else "%d installed (ai-info lists them)" % len(skills)),
         "Gates: %s. %s" % (", ".join(f["gates"]) or "none", GATE_HINT),
@@ -178,7 +178,8 @@ def render_full(f):
         out.append("  %-13s %-22s %s" % (short, state, scope))
     out += ["", "Skills (%d): %s" % (len(f["skills"]), ", ".join(f["skills"]) or "none"),
             "  mattpocock: " + ", ".join("%s%s" % (s, "" if s in f["skills"] else " (missing)") for s in MATT_SKILLS)]
-    out += ["", "MCP servers: context7 (global, library docs; IDs in the Libraries section of a repo AGENTS.md).",
+    out += ["", "MCP servers: context7 (global, library docs; IDs in the Libraries section of a repo AGENTS.md),",
+            "  box (global, server boxes: list, new, exec, logs, status, restart, ports, url, snapshot, doctor, help).",
             "  Per project only: serena (ai-adopt --tools serena), playwright (ai-adopt --tools browser)."]
     out += ["", "Gates: " + (", ".join(f["gates"]) or "none"), "  " + GATE_HINT,
             "  Agents never use sudo; a blocked gate or a sandbox error is final for them."]

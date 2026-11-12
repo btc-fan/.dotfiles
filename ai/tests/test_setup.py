@@ -33,7 +33,8 @@ def main():
         for test in (t_codex_trust, t_codex_trust_hash_pin, t_codex_managed, t_claude_permissions, t_path_block, t_hermes_disabled,
                      t_claude_handoff, t_codex_env, t_dropped, t_sandbox_policy, t_hooks_remove, t_knowledge_status, t_session_start_order,
                      t_user_hook_match, t_verify_source, t_connectors_keep, t_sudo_gate, t_gate_skip_owner_only,
-                     t_root_guard, t_update_clone, t_ai_sync_untrusted, t_plugin_files_tracked):
+                     t_root_guard, t_update_clone, t_ai_sync_untrusted, t_plugin_files_tracked,
+                     t_hooks_absolute, t_uv_copy, t_box_registration):
             try:
                 test(os.path.join(work, test.__name__))
                 print("ok   " + test.__name__)
@@ -185,14 +186,11 @@ def t_codex_managed(work):
     data = json.loads(text)
     assert "${" not in text and "/usr/local/lib/ai/repo/ai/marketplace/plugins/ai-core/hooks/router.py" in text
     cmds = [h["command"] for gs in data["hooks"].values() for g in gs for h in g["hooks"]]
-    assert all(c.startswith(sbin + "/") for c in cmds), "every program must be absolute: %s" % cmds
+    assert all(c.startswith(("/usr/bin/python3 ", "/bin/sh ", sbin + "/")) for c in cmds), \
+        "every program must be absolute: %s" % cmds
+    assert any(c.startswith(sbin + "/rtk hook codex") for c in cmds), "the rtk handler gets its safe path"
     pre = [h["command"] for g in data["hooks"]["PreToolUse"] for h in g["hooks"]]
     assert sbin + "/rtk hook codex" in pre and not any("graphify" in c for c in pre), pre
-    # Without the owner override, a user-owned program is refused (these hooks run for every user).
-    res = subprocess.run([sys.executable, AICONF, "--state", os.devnull, "codex-managed-hooks", "--plugin-root", "/r",
-                          "--hooks", os.path.join(PLUGIN, "hooks", "codex-hooks.json"), "--safe-path", sbin],
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    assert res.returncode != 0 and b"not root-owned" in res.stdout, res.stdout
     assert set(data["hooks"]) >= {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionEnd"}
     # Vendor plugin (Ponytail shape): root comes from process.env, so the managed copy sets it in front.
     vroot = os.path.join(work, "opt", "ponytail")
@@ -201,6 +199,11 @@ def t_codex_managed(work):
     vhooks = {"hooks": {"SessionStart": [{"matcher": "startup", "hooks": [{"type": "command", "timeout": 15,
               "command": "node -e \"require(process.env.CLAUDE_PLUGIN_ROOT + '/hooks/a.js')\""}]}]}}
     write(os.path.join(vroot, "hooks", "claude-codex-hooks.json"), json.dumps(vhooks))
+    # Without the owner override, a user-owned program is refused (these hooks run for every user).
+    res = subprocess.run([sys.executable, AICONF, "--state", os.devnull, "codex-managed-hooks", "--plugin-root", "/r",
+                          "--hooks", os.path.join(PLUGIN, "hooks", "codex-hooks.json"), "--plugin", vroot,
+                          "--safe-path", sbin], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    assert res.returncode != 0 and b"not root-owned" in res.stdout, res.stdout
     res = subprocess.run([sys.executable, AICONF, "--state", os.devnull, "codex-managed-hooks", "--plugin-root", "/r",
                           "--hooks", os.path.join(PLUGIN, "hooks", "codex-hooks.json"), "--plugin", vroot] + safe,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -238,7 +241,8 @@ def bash_env(work, extra=None):
     os.makedirs(bindir, exist_ok=True)
     env = {"PATH": bindir + ":" + os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home, "LANG": "C.UTF-8",
            "AI_HOME": REPO, "PYTHONDONTWRITEBYTECODE": "1",
-           "AI_PROJ_AGENT_PATH": "/nonexistent/proj-agent"}   # same result on a server that has proj-agent
+           "AI_PROJ_AGENT_PATH": "/nonexistent/proj-agent",   # same result on a server that has proj-agent
+           "AI_PROJ_AGENT_SOCK": "/nonexistent/proj-agent.sock"}
     env.update(extra or {})
     return env, home, bindir
 
@@ -257,7 +261,12 @@ def t_claude_permissions(work):
     # An earlier install recorded the GitHub MCP allow rule as ours (the server had it left over).
     write(os.path.join(home, ".local", "state", "ai", "managed-keys.json"), json.dumps({"version": 1, "entries": [
         {"kind": "json-item", "file": settings, "path": ["permissions", "allow"], "item": stale, "had_list": True,
-         "key": "json-item:%s:permissions/allow:%s" % (settings, json.dumps(stale))}]}))
+         "key": "json-item:%s:permissions/allow:%s" % (settings, json.dumps(stale))},
+        {"kind": "json-item", "file": settings, "path": ["permissions", "deny"], "item": "Write(~/.bashrc)",
+         "had_list": True, "key": "json-item:%s:permissions/deny:%s" % (settings, json.dumps("Write(~/.bashrc)"))}]}))
+    perms0 = json.load(open(settings))
+    perms0["permissions"]["deny"].append("Write(~/.bashrc)")
+    write(settings, json.dumps(perms0))
     for _ in range(2):
         code, out = bash(LIBS + 'AI_OS=linux; claude_permissions', env)
         assert code == 0, out
@@ -272,7 +281,14 @@ def t_claude_permissions(work):
                  "Bash(graphify query *)", "Bash(agent-audit *)",
                  "Bash(ai-doctor*)", "WebFetch", "WebSearch", "Read(~/.claude/plugins/**)", "Read(~/.config/ai/**)"):
         assert rule in perms["allow"], "missing allow " + rule
-    for rule in ("Edit(~/.claude/settings.json)", "Write(~/.claude/settings.json)", "Edit(//etc/claude-code/**)",
+    assert not any(r.startswith("Write(") for r in perms["deny"]), "Claude ignores Write(path) rules: Edit covers them"
+    # Every user-writable PATH folder and shell start-up file: a planted program there would shadow a system one.
+    for rule in ("Edit(~/.local/bin/**)", "Edit(~/bin/**)", "Edit(~/.npm-global/bin/**)", "Edit(~/.cargo/bin/**)",
+                 "Edit(~/go/bin/**)", "Edit(~/.bun/bin/**)", "Edit(~/.deno/bin/**)", "Edit(~/.zshrc)",
+                 "Edit(~/.bash_profile)", "Edit(~/.zprofile)", "Edit(~/.config/environment.d/**)"):
+        assert rule in perms["deny"], "missing deny " + rule
+    assert not any("*" in r and r.startswith("Edit(") and "/" not in r for r in perms["deny"]), "a glob expanded"
+    for rule in ("Edit(~/.claude/settings.json)", "Edit(//etc/claude-code/**)",
                  "Edit(~/.codex/config.toml)", "Edit(~/.hermes/config.yaml)", "Read(~/.config/ai/secrets.env)",
                  "Edit(~/.claude.json)", "Edit(~/.claude/plugins/**)", "Edit(~/.claude/CLAUDE.md)",
                  "Edit(~/.codex/AGENTS.md)", "Edit(~/.serena/serena_config.yml)", "Edit(~/.serena/memories/global/**)",
@@ -397,7 +413,7 @@ def t_dropped(work):
     """Grounded Docs and GitHub MCP are gone from the plugin; their recorded installs are replayed away by
     undo --only, other records stay; ai-serena is a separate opt-in plugin."""
     mcp = json.load(open(os.path.join(PLUGIN, ".mcp.json")))["mcpServers"]
-    assert sorted(mcp) == ["context7"], mcp
+    assert sorted(mcp) == ["box", "context7"], mcp
     ser = json.load(open(os.path.join(AI_DIR, "marketplace", "plugins", "ai-serena", ".mcp.json")))["mcpServers"]
     assert "serena" in ser
     names = [p["name"] for p in json.load(open(os.path.join(AI_DIR, "marketplace", ".claude-plugin",
@@ -440,8 +456,25 @@ def t_sandbox_policy(work):
     assert not any(w in ("~", "~/", "/") for w in sb["filesystem"]["allowWrite"])
     for d in ("github.com", "registry.npmjs.org", "pypi.org", "files.pythonhosted.org", "context7.com"):
         assert d in sb["network"]["allowedDomains"], d
-    assert "git push *" in sb["excludedCommands"] and not any(c.startswith(("gh api", "bash", "sh ")) for c in
-                                                              sb["excludedCommands"])
+    # Commands that leave the sandbox: only absolute paths of root-owned programs, never a bare name (PATH
+    # starts with ~/.local/bin, which Claude's Write tool can fill).
+    assert all(c.startswith("/") for c in sb["excludedCommands"]), sb["excludedCommands"]
+    progs = os.path.join(work, "sysbin")
+    for name in ("git", "gh"):
+        stub(progs, name, "exit 0")
+    os.chmod(progs, 0o755)
+    code, out = bash(LIBS + "claude_sandbox_json", dict(env, AI_SANDBOX_PROG_DIRS=progs))
+    assert json.loads(out)["excludedCommands"] == [], "user-owned git/gh must never leave the sandbox"
+    code, out = bash(LIBS + "claude_sandbox_json; claude_allow_rules; claude_ask_rules",
+                     dict(env, AI_SANDBOX_PROG_DIRS=progs, AI_SANDBOX_PROG_INSECURE_TEST="1"))
+    first, rest = out.split("\n", 1)
+    exc = json.loads(first)["excludedCommands"]
+    assert progs + "/git push *" in exc and progs + "/gh pr view *" in exc, exc
+    assert not any(c.startswith(("git ", "gh ", "bash", "sh ")) or " api " in c for c in exc), exc
+    assert "Bash(%s/gh pr view *)" % progs in rest and "Bash(%s/git push*)" % progs in rest, rest
+    os.chmod(os.path.join(progs, "gh"), 0o777)
+    code, out = bash(LIBS + "claude_sandbox_json", dict(env, AI_SANDBOX_PROG_DIRS=progs, AI_SANDBOX_PROG_INSECURE_TEST="1"))
+    assert not any("/gh " in c for c in json.loads(out)["excludedCommands"]), "a writable gh must stay sandboxed"
     assert {"name": "GITHUB_PERSONAL_ACCESS_TOKEN", "mode": "deny"} in sb["credentials"]["envVars"]
     # Dry run of the whole managed policy (no root needed): the lock and the RTK managed hook are planned.
     code, out = bash(LIBS + "AI_OS=linux; AI_DRY_RUN=1; claude_managed_policy; codex_system_policy() { :; }", env)
@@ -451,22 +484,27 @@ def t_sandbox_policy(work):
     # Ubuntu with the userns restriction: Claude must use the profiled bubblewrap copy, never /usr/bin/bwrap.
     code, out = bash(LIBS + "AI_SANDBOX_BWRAP_FORCE=1 claude_sandbox_json_final", env)
     assert json.loads(out)["bwrapPath"] == "/usr/local/lib/ai/bwrap", out
-    # Server with the proj-agent socket client: sandboxed commands may use unix sockets (Linux has no per-path
-    # list), the other sockets a user can reach are hidden, and no sudo or proj-agent excluded entry exists
-    # (excludedCommands never apply in claude -p).
+    # Server with the box tool: unix sockets stay blocked in the sandbox (no allow-all, no hide list); box
+    # work goes through the box MCP tools, which are allowed; no Bash rule for proj-agent, no sudo form.
     code, out = bash(LIBS + "AI_OS=linux; AI_PROJ_AGENT_FORCE=1 claude_sandbox_json_final", env)
     sbj = json.loads(out)
-    assert sbj["network"]["allowAllUnixSockets"] is True, sbj["network"]
-    for hidden in ("/run/user", "/run/dbus", "/run/docker.sock", "/run/tailscale", "/var/lib/incus"):
-        assert hidden in sbj["filesystem"]["denyRead"], hidden
-    assert "/run/proj-agent.sock" not in sbj["filesystem"]["denyRead"]
+    assert sbj["network"]["allowAllUnixSockets"] is False and "allowUnixSockets" not in sbj["network"], sbj["network"]
+    assert "/run/user" not in sbj["filesystem"]["denyRead"], "no hide list any more"
     assert not any("proj-agent" in e or e.startswith("sudo") for e in sbj["excludedCommands"]), sbj["excludedCommands"]
     code, out = bash(LIBS + "AI_OS=linux; AI_PROJ_AGENT_FORCE=1 claude_allow_rules", env)
-    assert "Bash(proj-agent *)" in out and "Bash(sudo proj-agent *)" in out and "Bash(sudo -n proj-agent *)" in out, out
-    code, out = bash(LIBS + "AI_OS=linux; claude_sandbox_json_final", env)
-    assert json.loads(out)["network"]["allowAllUnixSockets"] is False, "no proj-agent: unix sockets stay blocked"
+    assert "mcp__plugin_ai-core_box__*" in out and "proj-agent" not in out, out
+    code, out = bash(LIBS + "AI_OS=linux; claude_allow_rules", env)
+    assert "box__" not in out, "no box tool on this machine: no rule"
     code, out = bash(LIBS + "AI_OS=macos; AI_PROJ_AGENT_FORCE=1 claude_allow_rules; claude_sandbox_json_final", env)
-    assert "proj-agent" not in out, "macOS has no proj-agent: no rule"
+    assert "proj-agent" not in out and "box__" not in out, "macOS has no box tool: no rule"
+    # Writes a sandboxed command may never make, whatever its working folder (Fable round 3).
+    for p in ("~/.local/bin", "~/bin", "~/.npm-global/bin", "~/.cargo/bin", "~/go/bin", "~/.bun/bin", "~/.deno/bin",
+              "~/.local/share/uv/tools", "~/.bashrc", "~/.profile", "~/.zshenv", "~/.zshrc", "~/.gitconfig",
+              "~/.config", "~/.codex", "~/.claude", "~/.hermes", "~/.serena"):
+        assert p in sbj["filesystem"]["denyWrite"], "denyWrite misses " + p
+    assert not set(sbj["filesystem"]["denyWrite"]) & set(sbj["filesystem"]["allowWrite"]), "a path both allowed and denied"
+    assert "~/.cache/uv" not in sbj["filesystem"]["allowWrite"] and "~/.cache/ai-sandbox" in sbj["filesystem"]["allowWrite"]
+    assert "allowGitConfig" not in sbj, "Claude's built-in .git/hooks and .git/config protection stays on"
     prof = read(os.path.join(AI_DIR, "adapters", "linux", "apparmor-bwrap"))
     assert "profile ai-claude-bwrap /usr/local/lib/ai/bwrap flags=(unconfined)" in prof and "userns," in prof
     assert "/usr/bin/bwrap flags" not in prof, "Ubuntu's /usr/bin/bwrap restriction must stay for other programs"
@@ -643,20 +681,94 @@ def t_gate_skip_owner_only(work):
 
 
 def t_sudo_gate(work):
-    """sudo proj-agent passes only on Linux; everything else is blocked on every OS."""
+    """No sudo at all, also not for proj-agent: on Linux the message points to the box MCP tools."""
     sys.path.insert(0, os.path.join(PLUGIN, "hooks"))
     import hooklib
-    v = hooklib.gate_sudo(None, "sudo proj-agent create web", hooklib.parse_command("sudo proj-agent create web"))
-    if sys.platform.startswith("linux"):
-        assert v is None, v
-    else:
-        assert v and v[0] == "deny", "macOS: no agent sudo at all"
-    v = hooklib.gate_sudo(None, "sudo -n proj-agent list", hooklib.parse_command("sudo -n proj-agent list"))
-    assert (v is None) == sys.platform.startswith("linux"), v
+
+    class C:
+        agent = "claude"
+    old = os.environ.get("AI_GATE_PLATFORM")
+    os.environ["AI_GATE_PLATFORM"] = "linux"
+    try:
+        for c in ("sudo proj-agent create web", "sudo -n proj-agent list", "sudo /usr/local/sbin/proj-agent list"):
+            v = hooklib.gate_sudo(C, c, hooklib.parse_command(c))
+            assert v and v[0] == "deny" and "box MCP tools" in v[1] and "plain" not in v[1], (c, v)
+        C.agent = "codex"
+        v = hooklib.gate_sudo(C, "sudo proj-agent list", hooklib.parse_command("sudo proj-agent list"))
+        assert v and "plain `proj-agent <subcommand>`" in v[1], v
+        assert hooklib.gate_sudo(C, "proj-agent list", hooklib.parse_command("proj-agent list")) is None
+    finally:
+        if old is None:
+            os.environ.pop("AI_GATE_PLATFORM", None)
+        else:
+            os.environ["AI_GATE_PLATFORM"] = old
     for c in ("sudo proj-agent", "sudo -u root proj-agent create x", "sudo env proj-agent x", "sudo python3 -c 1",
               "sudo -n -u root proj-agent list", "sudo -n bash"):
         v = hooklib.gate_sudo(None, c, hooklib.parse_command(c))
         assert v and v[0] == "deny", c
+
+
+def t_hooks_absolute(work):
+    """Hooks run outside every sandbox: our hook commands and the box MCP server name absolute programs."""
+    for name in ("hooks.json", "codex-hooks.json"):
+        data = json.load(open(os.path.join(PLUGIN, "hooks", name)))
+        for event, groups in data["hooks"].items():
+            for g in groups:
+                for h in g["hooks"]:
+                    cmd = h["command"].strip()
+                    assert cmd.startswith(("/usr/bin/python3 ", "/bin/sh ", "[ -x /usr/bin/")), (name, event, cmd)
+                    assert " python3 " not in " " + cmd.split(" ", 1)[0] + " "
+    caff = json.load(open(os.path.join(PLUGIN, "hooks", "hooks.json")))["hooks"]["SessionStart"][1]["hooks"][0]["command"]
+    import re as _re
+    words = set(_re.findall(r"(?<![/\w$-])(uname|nohup|caffeinate|command)\b", caff))
+    assert not words, "bare programs in the caffeinate hook: %s" % words
+    box = json.load(open(os.path.join(PLUGIN, ".mcp.json")))["mcpServers"]["box"]
+    assert box["command"] == "/usr/bin/python3" and box["args"][0] == "-I" and box["timeout"] >= 3600 * 1000, box
+
+
+def t_uv_copy(work):
+    """uv tools are installed with UV_LINK_MODE=copy; a tool with hard links to a cache is reinstalled."""
+    env, home, bindir = bash_env(work)
+    tools = os.path.join(work, "uvtools")
+    os.makedirs(os.path.join(tools, "graphifyy", "lib"))
+    a = os.path.join(tools, "graphifyy", "lib", "a.py")
+    write(a, "x")
+    os.link(a, os.path.join(work, "cache-copy.py"))           # nlink 2: what the old install left
+    log = os.path.join(work, "uv.log")
+    stub(bindir, "uv", 'if [ "$1 $2" = "tool dir" ]; then echo %s; exit 0; fi\n'
+                       'echo "UV_LINK_MODE=$UV_LINK_MODE $*" >> %s' % (tools, log))
+    stub(bindir, "guarddog", "exit 0")
+    code, out = bash(LIBS + "audit_ok() { return 0; }; uv_pinned graphifyy 1.0", env)
+    assert code == 0, out
+    got = read(log)
+    assert "UV_LINK_MODE=copy tool install" in got and "--reinstall" in got, got
+    os.unlink(os.path.join(work, "cache-copy.py"))
+    os.unlink(log)
+    code, out = bash(LIBS + "audit_ok() { return 0; }; uv_pinned graphifyy 1.0", env)
+    got = read(log)
+    assert "UV_LINK_MODE=copy" in got and "--reinstall" not in got, got
+    envlist = read(os.path.join(AI_DIR, "adapters", "env.list"))
+    assert "\nUV_LINK_MODE=copy\n" in envlist, "every tool and the user shell get UV_LINK_MODE=copy"
+    stub(bindir, "claude")
+    code, out = bash(LIBS + "claude_env_sandbox", env)
+    assert code == 0, out
+    data = json.load(open(os.path.join(home, ".claude", "settings.json")))
+    assert data["env"]["UV_CACHE_DIR"] == os.path.join(home, ".cache", "ai-sandbox", "uv"), data
+
+
+def t_box_registration(work):
+    """The box MCP server goes to Codex (with a long tool timeout) only where the box tool exists."""
+    env, home, bindir = bash_env(work)
+    log = os.path.join(work, "codex.log")
+    stub(bindir, "codex", 'echo "$*" >> %s; [ "$2 $3" = "mcp get" ] && exit 1; exit 0' % log)
+    code, out = bash(LIBS + "AI_OS=linux; codex_mcp", env)
+    assert code == 0, out
+    assert "mcp add box" not in read(log) and "add context7" in read(log), read(log)
+    code, out = bash(LIBS + "AI_OS=linux; AI_PROJ_AGENT_FORCE=1 codex_mcp", env)
+    assert code == 0, out
+    assert "mcp add box -- /usr/bin/python3 -I " in read(log), read(log)
+    cfg = read(os.path.join(home, ".codex", "config.toml"))
+    assert "[mcp_servers.box]" in cfg and "tool_timeout_sec = 3720" in cfg and 'default_tools_approval_mode = "approve"' in cfg, cfg
 
 
 def t_root_guard(work):

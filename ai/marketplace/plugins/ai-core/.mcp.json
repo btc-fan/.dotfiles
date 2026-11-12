@@ -3,6 +3,14 @@
     "context7": {
       "command": "${CLAUDE_PLUGIN_ROOT}/mcp/context7.sh",
       "args": []
+    },
+    "box": {
+      "command": "/usr/bin/python3",
+      "args": [
+        "-I",
+        "${CLAUDE_PLUGIN_ROOT}/mcp/box.py"
+      ],
+      "timeout": 3720000
     }
   }
 }

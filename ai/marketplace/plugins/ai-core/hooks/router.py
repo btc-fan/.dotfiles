@@ -94,11 +94,36 @@ def parse_args(argv):
 
 # ---------------------------------------------------------------- event handlers
 
+# A Claude session started in the home folder: the sandbox would let commands write the whole home (PATH
+# folders, shell start-up files, agent config), and project files are mixed with everything else. Refused:
+# a hard warning at start, and every command or edit is denied until Claude runs inside a project folder.
+HOME_MSG = ("This Claude session started in the home folder (%s). Start Claude inside a project folder "
+            "instead: cd <project folder>; claude. Do not run commands or edit files here; tell the user this.")
+HOME_TOOLS = {"Bash", "Edit", "Write", "MultiEdit", "NotebookEdit"}
+
+
+def session_in_home(ctx):
+    if ctx.agent != "claude":
+        return ""
+    home = os.environ.get("HOME") or ""
+    cwd = str(ctx.payload.get("cwd") or "")
+    if not home or not cwd:
+        return ""
+    try:
+        same = os.path.realpath(cwd) == os.path.realpath(home)
+    except OSError:
+        return ""
+    return home if same else ""
+
+
 def on_session_start(ctx):
     rotate_logs()
     prune_sessions()
     routing = ctx.routing
     parts = []
+    home = session_in_home(ctx)
+    if home:
+        parts.append("[ai router: home-folder] STOP. " + HOME_MSG % home)
     # Status lines first. The L0 table only after compact or clear (owner decision 2026-11-12): at startup and
     # resume it is already in the root rules (CLAUDE.md, Codex AGENTS.md), so sending it again only costs
     # tokens. A cut at CONTEXT_CAP loses only the table tail. ai-render checks the budget.
@@ -162,6 +187,10 @@ def on_pre_tool(ctx):
     tin = tool_input(ctx.payload)
     cmd = command_of(tin)
     ctx.set_command(cmd)
+    home = session_in_home(ctx)
+    if home and tool in HOME_TOOLS:
+        ctx.decide("deny", "[ai router: home-folder] " + HOME_MSG % home)
+        return
     for rule in ctx.routing.get("rules", []):
         trig = rule.get("trigger", {})
         if not trig.get("tool_before") or not tool_matches(trig["tool_before"], tool):
@@ -179,22 +208,50 @@ def on_pre_tool(ctx):
         if text and ctx.state.allow_nudge(rule, nudge_key(rule, tool, tin, cmd)):
             ctx.fired(rule, "PreToolUse")
             ctx.add_context("[ai router: %s] %s" % (rule["id"], text))
-    box_rewrite(ctx, tool, tin, cmd)
+    abs_rewrite(ctx, tool, tin, cmd)
 
 
-# sudo cannot run in Claude's sandbox ("no new privileges"). proj-agent is now a plain client of a root socket
-# service, so a plain `sudo [-n] proj-agent <args>` becomes `proj-agent <args>`. Only that exact single
-# command: no operators, no redirection, no substitution.
-AI_BOX = os.environ.get("AI_PROJ_AGENT_CLIENT") or "/usr/local/bin/proj-agent"
-BOX_RX = re.compile(r"\s*sudo\s+(?:(?:-n|--non-interactive)\s+)?proj-agent((?:\s+[^;&|<>`$()\\\n]+)?)\s*")
+# The commands that leave the sandbox (managed sandbox.excludedCommands, written by install.sh as absolute
+# paths of root-owned programs) get that absolute path, so a copy planted on PATH is never the one that runs:
+# `git push ...` becomes `/usr/bin/git push ...` and so on. Only an exact single command is rewritten (no
+# operators, redirection or substitution); everything else is left alone and stays sandboxed. Box work is
+# not rewritten: it goes through the box MCP tools (the no-sudo gate says so).
+MANAGED_SETTINGS = os.environ.get("AI_CLAUDE_MANAGED_SETTINGS") or "/etc/claude-code/managed-settings.json"
+SAFE_ARGS = r"((?:\s+[^;&|<>`$()\\\n]+)?)\s*"
 
 
-def box_rewrite(ctx, tool, tin, cmd):
+READ_ONLY_WORDS = {"view", "list", "diff", "checks"}
+
+
+def excluded_programs():
+    try:
+        with open(MANAGED_SETTINGS) as f:
+            entries = (json.load(f).get("sandbox") or {}).get("excludedCommands") or []
+    except (OSError, ValueError, AttributeError):
+        return []
+    out = []
+    for e in entries:
+        parts = str(e).split()
+        if len(parts) >= 2 and parts[0].startswith("/") and parts[-1] == "*":
+            out.append((parts[0], parts[1:-1]))
+    return out
+
+
+def abs_rewrite(ctx, tool, tin, cmd):
     if ctx.agent != "claude" or tool != "Bash" or not cmd or ctx.decision is not None:
         return
-    m = BOX_RX.fullmatch(cmd)
-    if m and os.path.isfile(AI_BOX):
-        ctx.updated_input = dict(tin, command="proj-agent" + m.group(1).rstrip())
+    for prog, words in excluded_programs():
+        # `rtk git push` / `rtk proxy gh pr view` too: rtk would run the program from PATH inside the sandbox.
+        rx = (r"\s*(?:rtk\s+(?:proxy\s+)?)?" + re.escape(os.path.basename(prog))
+              + "".join(r"\s+" + re.escape(w) for w in words) + SAFE_ARGS)
+        m = re.fullmatch(rx, cmd)
+        if m and os.path.isfile(prog):
+            ctx.updated_input = dict(tin, command=" ".join([prog] + words) + m.group(1).rstrip())
+            # Read-only gh forms run unattended (they are on the allow list); git push, gh pr create/edit ask.
+            kind = "allow" if words and words[-1] in READ_ONLY_WORDS and os.path.basename(prog) == "gh" else "ask"
+            ctx.updated_decision = (kind, "runs outside the sandbox: absolute path of the root-owned program, "
+                                          "not a copy found on PATH")
+            return
 
 
 def on_post_tool(ctx):
@@ -275,7 +332,8 @@ class Ctx(object):
         self.cmd_text = ""        # the command with quoted words removed, for rule regexes
         self.skips = ({}, [])
         self.named_libs = None    # libraries named by the prompt or the dependency change ({libs_hits})
-        self.updated_input = None  # PreToolUse rewrite (sudo proj-agent -> proj-agent)
+        self.updated_input = None  # PreToolUse rewrite to an absolute program path (abs_rewrite)
+        self.updated_decision = ("allow", "")
         self._prompt_libs = None
 
     def prompt_libs(self, prompt):
@@ -353,9 +411,8 @@ class Ctx(object):
             self.emit({"permissionDecision": "ask", "permissionDecisionReason": "\n".join(self.reasons)})
             return 0
         if self.updated_input is not None:
-            self.emit({"permissionDecision": "allow", "updatedInput": self.updated_input,
-                       "permissionDecisionReason": "sudo cannot run in the sandbox: proj-agent is a plain "
-                                                   "client of the root socket service (it refuses anything off its menu)"})
+            kind, why = self.updated_decision
+            self.emit({"permissionDecision": kind, "updatedInput": self.updated_input, "permissionDecisionReason": why})
             return 0
         if self.contexts:
             self.emit({})
@@ -768,8 +825,8 @@ def run_gate(rule, ctx, cmd):
         return
     decision, msg = verdict
     # Decide first: logging below never raises, and a failure there must not lose the decision.
-    ctx.decide(decision, "[ai gate %s] %s\nOnly the owner can let it through: he runs "
-               "sudo ai-gate-skip %s <minutes, max 60> <why> himself. It is logged. Do not try to get around "
+    ctx.decide(decision, "[ai gate %s] %s\nOnly the owner can let it through, by running "
+               "sudo ai-gate-skip %s <minutes, max 60> <why>. It is logged. Do not try to get around "
                "the gate." % (rule["id"], msg, rule["id"]))
     log_line("gates.log", "%s %s %s session=%s cmd=%s" % (
         iso_now(), decision.upper(), rule["id"], ctx.session, redact(one_line(cmd))[:200]))

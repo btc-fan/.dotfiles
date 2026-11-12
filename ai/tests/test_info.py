@@ -40,7 +40,7 @@ def t_full(home, fake, repo):
     for want in ("claude    2.1.5", "codex     0.120.0", "hermes    not installed",
                  "ai-core       on", "claude-seo    off / on here", "ai-serena     not installed",
                  "mattpocock: grilling, grill-me, wait-what, retro, writing-for-agents (missing)",
-                 "context7 (global", "Gates: audit-before-install, secret-scan, no-sudo, pr-rules",
+                 "context7 (global", "box (global, server boxes", "Gates: audit-before-install, secret-scan, no-sudo, pr-rules",
                  "sudo ai-gate-skip", "ai-adopt --tools serena", "ai-adopt --tools browser", "docs/SECURITY.md"):
         assert want in out, "%r not in output:\n%s" % (want, out)
 

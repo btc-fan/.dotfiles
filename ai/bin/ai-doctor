@@ -66,6 +66,8 @@ def main(argv):
     check_env_delivery()
     check_dropped()
     check_claude_policy()
+    check_hooks_absolute()
+    check_uv_links()
     check_codex_policy()
     check_hermes()
     check_omc()
@@ -381,8 +383,30 @@ def claude_settings():
     return load_json_file(os.path.join(CLAUDE_DIR, "settings.json")) or {}
 
 
-# Intended on Linux server installs: the old sudo forms of the box tool (proj-agent refuses everything else).
-PROJ_AGENT_SUDO_ALLOW = ("Bash(sudo proj-agent *)", "Bash(sudo -n proj-agent *)")
+def root_owned_chain(path):
+    """The file (symlinks followed) and every folder up to / are owned by root and not group/other writable."""
+    if not path.startswith("/") or not os.path.isfile(path):
+        return False
+    for p in {os.path.abspath(path), os.path.realpath(path)}:
+        while True:
+            st = os.stat(p)
+            if st.st_uid != 0 or st.st_mode & 0o022:
+                return False
+            if p == "/":
+                break
+            p = os.path.dirname(p)
+    return True
+
+
+PROJ_AGENT = "/usr/local/sbin/proj-agent"
+PROJ_AGENT_SOCK = "/run/proj-agent.sock"
+# Never writable by a sandboxed command (managed sandbox.filesystem.denyWrite; claude.sh SANDBOX_DENY_WRITE).
+SANDBOX_DENY_WRITE_MIN = ("~/.local/bin", "~/.local/share/uv/tools", "~/.bashrc", "~/.profile", "~/.zshenv",
+                          "~/.zshrc", "~/.gitconfig", "~/.config", "~/.codex", "~/.claude", "~/.hermes", "~/.serena")
+
+
+def box_present():
+    return LINUX and (os.path.exists(PROJ_AGENT_SOCK) or os.path.exists(PROJ_AGENT))
 
 
 def check_claude_permissions():
@@ -403,7 +427,7 @@ def check_claude_permissions():
     say("PASS" if not miss_d else "FAIL", "Claude permissions.deny protects rule and config files",
         ("missing: " + ", ".join(miss_d)) if miss_d else "")
     bad = [r for r in allow if r in ("Bash", "Bash(*)", "Edit", "Write", "Bash(graphify *)", "Bash(rtk *)")
-           or (r.startswith(("Bash(git push", "Bash(sudo")) and not (LINUX and r in PROJ_AGENT_SUDO_ALLOW))]
+           or r.startswith(("Bash(git push", "Bash(sudo"))]
     # rtk forms that pass arguments to a program that can run others: their exec forms must be denied.
     for allow_rule, deny_rule in (("Bash(rtk find *)", "Bash(rtk find *-exec*)"), ("Bash(rtk grep *)", "Bash(rtk grep *--pre*)"),
                                   ("Bash(rtk rg *)", "Bash(rtk rg *--pre*)"), ("Bash(rtk tree*)", "Bash(rtk tree* -o*)"),
@@ -544,14 +568,14 @@ def check_claude_policy():
                          "--allowedTools", "Bash(echo *)"], timeout=180)
         ok = code == 0 and "AI_SANDBOX_OK" in out
         say("PASS" if ok else "FAIL", "live: claude -p runs a sandboxed Bash command", "" if ok else out[-300:])
-        if os.path.exists("/usr/local/bin/proj-agent"):
-            # The box tool from inside the sandbox: a plain client talking to /run/proj-agent.sock.
-            code, out = run(["claude", "-p", "Run exactly this Bash command and print its full output: proj-agent list",
-                             "--allowedTools", "Bash(proj-agent *)"], timeout=180)
-            bad = code != 0 or any(x in out for x in ("no new privileges", "Operation not permitted",
-                                                      "Permission denied", "Connection refused", "No such file"))
-            say("FAIL" if bad else "PASS", "live: claude -p runs proj-agent list (socket client, sandboxed)",
-                out[-300:] if bad else "")
+        if box_present():
+            # The box tool: the box MCP server (outside the sandbox) talks to the root socket service.
+            code, out = run(["claude", "-p", "List the boxes using the box tool (its list tool). Print its full output, "
+                             "starting with the exit code line.", "--allowedTools", "mcp__plugin_ai-core_box__list"],
+                            timeout=240)
+            ok = code == 0 and "exit code 0" in out
+            say("PASS" if ok else "FAIL", "live: claude -p lists the boxes through the box MCP tool",
+                "" if ok else out[-300:])
     lock = ms.get("strictPluginOnlyCustomization")
     locked = lock is True or (isinstance(lock, list) and {"hooks", "mcp"} <= set(lock))
     say("PASS" if locked else "FAIL", "planted .claude/settings.json hooks and .mcp.json servers do not load "
@@ -566,16 +590,42 @@ def check_claude_policy():
         val = (claude_settings().get("enabledPlugins") or {}).get(n)
         if val is not None:
             say("PASS" if val is False else "WARN", "%s off at user scope (opt-in per project)" % n.split("@")[0])
-    if os.path.exists("/usr/local/bin/proj-agent"):
-        net = sb.get("network") or {}
-        sock = "/run/proj-agent.sock"
-        ok = net.get("allowAllUnixSockets") is True and "/run/user" in ((sb.get("filesystem") or {}).get("denyRead") or [])
-        say("PASS" if ok else "FAIL", "box tool for sandboxed agents: unix sockets on, other sockets hidden",
-            "" if ok else "admin: sudo /opt/ai-setup/install.sh --update --for-user <user>")
-        if os.path.exists(sock):
-            can = os.access(sock, os.R_OK | os.W_OK)
-            say("PASS" if can else "FAIL", "%s reachable by this user (group devs)" % sock,
-                "" if can else "add the user to group devs (ubuntu-server branch), then log in again")
+    # Commands that leave the sandbox: absolute, root-owned, not writable (a bare name is found on PATH, and
+    # ~/.local/bin comes first and is writable by Claude's Write tool).
+    exc = sb.get("excludedCommands") or []
+    loose = [c for c in exc if not root_owned_chain(str(c).split()[0] if str(c).split() else "")]
+    say("PASS" if not loose else "FAIL", "sandbox exclusions use absolute root-owned programs only (%d)" % len(exc),
+        "" if not loose else "not safe: %s. admin: sudo /opt/ai-setup/install.sh --update --for-user <user>" % loose)
+    fix = "admin: sudo /opt/ai-setup/install.sh --update --for-user <user>"
+    deny = (ms.get("permissions") or {}).get("deny") or []
+    ok = "Edit(~/.local/bin/**)" in deny and "Edit(~/.bashrc)" in deny
+    say("PASS" if ok else "FAIL", "agents cannot write PATH folders or shell start-up files (managed Edit denies)",
+        "" if ok else fix)
+    fs = sb.get("filesystem") or {}
+    miss = [p for p in SANDBOX_DENY_WRITE_MIN if p not in (fs.get("denyWrite") or [])]
+    say("PASS" if not miss else "FAIL", "sandboxed commands cannot write PATH folders, uv tools, dotfiles, agent config "
+        "(denyWrite)", ("missing: %s. %s" % (", ".join(miss), fix)) if miss else "")
+    bad_w = [p for p in (fs.get("allowWrite") or []) if p in ("~/.cache/uv", "~", "~/")]
+    say("PASS" if not bad_w else "FAIL", "the sandbox does not write the uv cache that tool installs use",
+        ("allowWrite has %s. %s" % (", ".join(bad_w), fix)) if bad_w else "")
+    net = sb.get("network") or {}
+    ok = net.get("allowAllUnixSockets") is not True and not net.get("allowUnixSockets")
+    say("PASS" if ok else "FAIL", "unix sockets stay blocked in the sandbox (box work goes through the box MCP tool)",
+        "" if ok else fix)
+    if sb.get("allowGitConfig") is True or fs.get("disabled") is True:
+        say("FAIL", "the sandbox keeps its built-in .git/hooks and .git/config protection", fix)
+    if box_present():
+        if os.path.exists(PROJ_AGENT):
+            ok = root_owned_chain(PROJ_AGENT)
+            say("PASS" if ok else "FAIL", "%s and its folders are root-owned, not writable" % PROJ_AGENT,
+                "" if ok else "fix on the server (ubuntu-server branch installs it root:root 0755)")
+        if os.path.exists(PROJ_AGENT_SOCK):
+            can = os.access(PROJ_AGENT_SOCK, os.R_OK | os.W_OK)
+            say("PASS" if can else "FAIL", "%s reachable by this user (the box MCP tool runs as this user)" % PROJ_AGENT_SOCK,
+                "" if can else "add the user to the agents' group (ubuntu-server branch), then log in again")
+        allow = claude_settings().get("permissions", {}).get("allow") or []
+        ok = "mcp__plugin_ai-core_box__*" in allow
+        say("PASS" if ok else "FAIL", "Claude may use the box MCP tools without a prompt", "" if ok else fix)
     work = "/srv/proj/work"
     if os.path.isdir(work):
         code, out = run(["findmnt", "-n", "-o", "OPTIONS", "--target", work])
@@ -585,6 +635,51 @@ def check_claude_policy():
             % work, "" if ok else "options: %s (ubuntu-server branch: own filesystem with nosuid,nodev)" % out.strip())
 
 
+def check_hooks_absolute():
+    """Hooks run outside every sandbox: they must name their programs by absolute path (a bare name is found on
+    PATH, and ~/.local/bin comes first)."""
+    root = os.path.join(PLUGIN, "hooks")
+    bare = []
+    for name in ("hooks.json", "codex-hooks.json"):
+        data = load_json_file(os.path.join(root, name)) or {}
+        for groups in (data.get("hooks") or {}).values():
+            for g in groups:
+                for h in g.get("hooks") or []:
+                    cmd = (h.get("command") or "").strip()
+                    first = cmd.split()[0] if cmd.split() else ""
+                    if cmd and not first.startswith(("/", "[")):
+                        bare.append("%s: %s" % (name, first))
+    say("PASS" if not bare else "FAIL", "ai-core hook commands use absolute programs (/usr/bin/python3, /bin/sh)",
+        ", ".join(sorted(set(bare))))
+    mcp = load_json_file(os.path.join(PLUGIN, ".mcp.json")) or {}
+    box = (mcp.get("mcpServers") or {}).get("box") or {}
+    ok = box.get("command") == "/usr/bin/python3" and int(box.get("timeout") or 0) >= 3600 * 1000
+    say("PASS" if ok else "FAIL", "box MCP server: absolute python, tool timeout covers a 3600 s exec")
+
+
+def check_uv_links():
+    """uv tools must not share inodes with a cache (UV_LINK_MODE=copy): nlink 1 for every installed file."""
+    code, out = run(["uv", "tool", "dir"]) if shutil.which("uv") else (1, "")
+    tools = out.strip().splitlines()[-1] if code == 0 and out.strip() else ""
+    if not tools or not os.path.isdir(tools):
+        return
+    for tool in ("graphifyy", "serena-agent"):
+        d = os.path.join(tools, tool)
+        if not os.path.isdir(d):
+            continue
+        linked = 0
+        for base, _dirs, files in os.walk(d):
+            for f in files:
+                try:
+                    st = os.lstat(os.path.join(base, f))
+                except OSError:
+                    continue
+                if st.st_nlink > 1 and not os.path.islink(os.path.join(base, f)):
+                    linked += 1
+        say("PASS" if not linked else "FAIL", "uv tool %s: files are copies, not hard links to a cache" % tool,
+            "" if not linked else "%d linked files: re-run install.sh (reinstalls with UV_LINK_MODE=copy)" % linked)
+
+
 def check_codex_policy():
     if not LINUX or not shutil.which("codex"):
         return
@@ -592,6 +687,15 @@ def check_codex_policy():
     ok = re.search(r'^allowed_sandbox_modes\s*=\s*\[[^\]]*\]', req, re.M) and "danger-full-access" not in req
     say("PASS" if ok else "FAIL", "Codex sandbox pinned (requirements.toml: no danger-full-access)",
         "" if ok else "admin: sudo /opt/ai-setup/install.sh --update --for-user <user>")
+    if box_present():
+        cfg = read_text_file(os.path.join(os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex"),
+                                          "config.toml")) or ""
+        m = re.search(r'^\[mcp_servers\.box\]\s*$(.*?)(?=^\[|\Z)', cfg, re.M | re.S)
+        body = m.group(1) if m else ""
+        t = re.search(r'^tool_timeout_sec\s*=\s*([0-9.]+)', body, re.M)
+        ok = bool(m) and t is not None and float(t.group(1)) >= 3600
+        say("PASS" if ok else "FAIL", "Codex has the box MCP server (runs outside its sandbox, timeout >= 3600 s)",
+            "" if ok else "re-run install.sh (codex mcp: box)")
 
 
 def hermes_present():

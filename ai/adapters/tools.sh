@@ -42,13 +42,22 @@ npm_local() {
     if [ -n "$user" ]; then as_hermes "$cmd"; else run sh -c "$cmd"; fi
 }
 
-# uv tool install of an exact version, as the user (never root), wheels only (--no-build).
+# uv tool install of an exact version, as the user (never root), wheels only (--no-build). Files are copied
+# (UV_LINK_MODE=copy), never hard-linked to the uv cache; a tool an older install linked is reinstalled.
 uv_pinned() {
     # uv_pinned <pypi-name> <version> [python]
-    local name=$1 ver=$2 py=${3:-}
+    local name=$1 ver=$2 py=${3:-} re=()
     audit_ok pypi "$name" "$ver" || return 1
-    if [ -n "$py" ]; then run uv tool install --force --no-build -p "$py" "$name==$ver"
-    else run uv tool install --force --no-build "$name==$ver"; fi
+    uv_tool_linked "$name" && re=(--reinstall)
+    if [ -n "$py" ]; then run env UV_LINK_MODE=copy uv tool install --force --no-build ${re[@]+"${re[@]}"} -p "$py" "$name==$ver"
+    else run env UV_LINK_MODE=copy uv tool install --force --no-build ${re[@]+"${re[@]}"} "$name==$ver"; fi
+}
+
+# uv_tool_linked <name>: true when a file of that installed uv tool has more than one hard link.
+uv_tool_linked() {
+    local d; d="$(uv tool dir 2>/dev/null)/$1"
+    [ -d "$d" ] || return 1
+    [ -n "$(find "$d" -type f -links +1 -print -quit 2>/dev/null)" ]
 }
 
 bin_dir() { if [ "$AI_OS" = linux ]; then echo /usr/local/bin; else echo "$HOME/.local/bin"; fi; }
@@ -324,21 +333,40 @@ tools_herdr() {
 tools_user() {
     if [ "$AI_SKIP_PACKAGES" = 1 ]; then skip "user tool installs (--skip-packages)"; return 0; fi
 
-    if has serena && serena --version 2>/dev/null | grep -q "$SERENA_VERSION"; then info "serena $SERENA_VERSION present"
+    if has serena && serena --version 2>/dev/null | grep -q "$SERENA_VERSION" && ! uv_tool_linked serena-agent; then
+        info "serena $SERENA_VERSION present"
     else uv_pinned serena-agent "$SERENA_VERSION" "$SERENA_PYTHON" && ok "serena $SERENA_VERSION" \
         && aiconf record-cmd uv:serena -- uv tool uninstall serena-agent; fi
 
-    if has graphify && graphify --version 2>/dev/null | grep -q "$GRAPHIFY_VERSION"; then info "graphify $GRAPHIFY_VERSION present"
+    if has graphify && graphify --version 2>/dev/null | grep -q "$GRAPHIFY_VERSION" && ! uv_tool_linked graphifyy; then
+        info "graphify $GRAPHIFY_VERSION present"
     else uv_pinned graphifyy "$GRAPHIFY_VERSION" && ok "graphify $GRAPHIFY_VERSION (no extras)" \
         && aiconf record-cmd uv:graphify -- uv tool uninstall graphifyy; fi
 
     tools_context7
+    tools_rtk_excludes
     # Root pieces this user needs: report what is missing with the one admin command.
     if [ "$AI_MODE" = user ]; then
         has rtk || manual "rtk missing (system part): $(admin_cmd)"
         [ -d "$(plugin_src_dir ponytail)" ] || manual "Ponytail source missing (system part): $(admin_cmd)"
     fi
     return 0
+}
+
+# RTK must leave `git push` and every gh call alone (rtk v1.2.0 [hooks] exclude_commands; an entry also covers
+# the path spellings, /usr/bin/git push): Claude runs them OUTSIDE its sandbox only as the exact absolute
+# command in sandbox.excludedCommands, which the router writes. Two hooks returning updatedInput for one call
+# have no defined winner (hooks run in parallel), so RTK must not rewrite these at all (Fable readiness B2).
+RTK_EXCLUDE='["git push", "gh"]'
+rtk_config_file() {
+    if [ "$AI_OS" = macos ]; then echo "$HOME/Library/Application Support/rtk/config.toml"
+    else echo "${XDG_CONFIG_HOME:-$HOME/.config}/rtk/config.toml"; fi
+}
+tools_rtk_excludes() {
+    has rtk || return 0
+    local f; f=$(rtk_config_file)
+    mkdir -p "$(dirname "$f")"
+    aiconf toml-set "$f" hooks exclude_commands "$RTK_EXCLUDE"
 }
 
 # System tools: binaries in /usr/local/bin and audited plugin sources in /opt (root on Linux).

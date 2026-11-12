@@ -59,7 +59,7 @@ flowchart TD
         HOST["host: admin only, no project code"]
         BOX["one box per project<br/>/etc/proj-rules/AGENTS.md"]
     end
-    CLAUDE -.->|"ai-box new"| BOX
+    CLAUDE -.->|"box tool: new"| BOX
     CODEX -.-> BOX
     HERMES --- HOST
 ```
@@ -80,7 +80,7 @@ Read it from the top.
 |---|---|---|
 | Agents | Claude Code + OMC (main), Codex + OMX (main), Hermes, opencode, herdr, omo (optional) | [docs/TOOLS.md](docs/TOOLS.md) |
 | Plugin `ai-core` | our skills, hooks and MCP list, one folder, installed by Claude and Codex | `ai/marketplace/plugins/ai-core/` |
-| MCP servers | context7 (global, the one docs tool). Per project only: Serena, Playwright | [docs/TOOLS.md](docs/TOOLS.md) |
+| MCP servers | global: context7 (the one docs tool) and box (project boxes on a server). Per project only: Serena, Playwright | [docs/TOOLS.md](docs/TOOLS.md) |
 | Other tools | RTK, Ponytail, i-have-adhd, pinned mattpocock skills, `gh`. Per project only: graphify, claude-seo, claude-blog (`ai-adopt --tools graph,seo,blog`) | [docs/TOOLS.md](docs/TOOLS.md) |
 | Root rules | the one AGENTS.md all agents read | [docs/AGENTS-MD.md](docs/AGENTS-MD.md) |
 | Usage contracts | `ai/rules/<tool>.md`, five sections each | [docs/EXTENDING.md](docs/EXTENDING.md) |
@@ -114,7 +114,7 @@ A gate blocks a step until its condition holds.
 | `audit-before-install` | npm, pnpm, yarn, bun, pip, uv, npx `@latest`, curl piped to a shell. Asks the owner for brew, cargo, go, gem, pipx | `agent-audit` logged a PASS for that package in the last 24 hours |
 | `secret-scan` | `git commit`, `git push` | the diff has no key, token, password or private key |
 | `pr-rules` | `gh pr create`, `gh pr edit` | the body has a Mermaid block and the author-sessions block |
-| `no-sudo` | `sudo`, `su`, `doas`, `pkexec`, `sudoedit`, `run0` at a command position (also inside `bash -c`, behind `env`, `nice`, `timeout`) | never: the agent gives the owner the exact command. On a server agents run box commands as `ai-box <subcommand>` (a root-owned wrapper for `sudo -n proj-agent`; Claude's sandbox cannot run a command that starts with sudo). The router rewrites a plain `sudo proj-agent <sub>` from Claude to `ai-box <sub>` |
+| `no-sudo` | `sudo`, `su`, `doas`, `pkexec`, `sudoedit`, `run0` at a command position (also inside `bash -c`, behind `env`, `nice`, `timeout`) | never: the agent gives the owner the exact command. This includes `sudo proj-agent`. Box work goes through the box tool (MCP server `box` in ai-core); plain `proj-agent <sub>` (the root-owned `/usr/local/sbin/proj-agent`) only where no sandbox blocks it |
 
 Gates catch honest mistakes. They are not a sandbox against a hostile agent: the OS sandbox and the box are (see [docs/SECURITY.md](docs/SECURITY.md)). Escape hatch, owner only: `sudo ai-gate-skip <gate> <minutes max 60> <why>` (root-owned `/usr/local/sbin/ai-gate-skip` on Linux installs). It writes the root-owned `/etc/ai/gate-skip`; the gate lets the step through until it expires, and each pass is logged to `~/.local/state/ai/gates.log`. `AI_GATE_SKIP=...` inside a command does nothing any more (an agent could type it). Details and known limits: `ai/marketplace/plugins/ai-core/hooks/README.md`.
 
@@ -171,7 +171,7 @@ You type this in Claude Code on the server.
 1. **The prompt arrives.** The tie-break table says: for a new app, the grilling skill beats OMC deep-interview. The router adds a short forced-evaluation text (L2): answer YES or NO for grilling, or say none needed.
 2. **Questions first.** The agent asks one round of questions: who uses the bot, must it run 24/7, what data must stay. You answer. (`/grill-me` is the typed form; the agent cannot fire it.)
 3. **Project setup.** The agent proposes `ai-start` for the new repo: AGENTS.md with a Map and a Libraries section, opt-in tools only if needed.
-4. **Box rules apply (server).** The hosting rules (imported into the root rules) say: never create a project on the host. The agent picks a tier (a bot that must stay up is `mvp`) and runs `ai-box new <name> --tier mvp` (the root-owned wrapper for `sudo -n proj-agent`, the one root-level action agents may take). It makes an isolated box.
+4. **Box rules apply (server).** The hosting rules (imported into the root rules) say: never create a project on the host. The agent picks a tier (a bot that must stay up is `mvp`) and calls the box tool `new` (`mcp__plugin_ai-core_box__new`, name and tier; the server runs the root-owned `/usr/local/sbin/proj-agent`, the one root-level action agents may ask for). It makes an isolated box.
 5. **Inside the box.** Code goes to `/srv/app`, secrets to `/srv/app/.env`. The box has its own copy of the rules at `/etc/proj-rules/AGENTS.md`.
 6. **Library docs.** The agent adds the Telegram library. The root rules say: docs before code. It asks context7 (`resolve-library-id` once, then `query-docs`). It does not answer API details from memory. Before the commit it runs `ai-libs --sync`, so the Libraries section of AGENTS.md holds the ID and the next session skips the lookup step.
 7. **The install gate.** `pip install` or `npm install` of the library is blocked until `agent-audit` passed (see example B).
