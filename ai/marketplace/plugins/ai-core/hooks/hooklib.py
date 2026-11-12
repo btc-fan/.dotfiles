@@ -1435,7 +1435,7 @@ def prompt_libs(prompt, root):
     text = (prompt or "").lower()
     if not text.strip():
         return set()
-    names = project_libs(root) | (KNOWN_LIBS - COMMON_WORDS)
+    names = (project_libs(root) | (KNOWN_LIBS - COMMON_WORDS)) - own_names(root)
     hits = set()
     for n in names:
         if len(n) < 3 or n in COMMON_WORDS:
@@ -1443,6 +1443,56 @@ def prompt_libs(prompt, root):
         if re.search(r"(?<![\w.@/-])" + re.escape(n) + r"(?![\w-])", text):
             hits.add(n)
     return hits
+
+
+def own_names(root):
+    """The project's own package names (a repo of library X is not a docs question about X)."""
+    if not root:
+        return set()
+    out = {os.path.basename(os.path.abspath(root)).lower()}
+    try:
+        import tomllib
+        with open(os.path.join(root, "pyproject.toml"), "rb") as fh:
+            name = ((tomllib.load(fh).get("project") or {}).get("name") or "")
+        if name:
+            out |= {name.lower(), name.lower().replace("-", "_"), name.lower().replace("_", "-")}
+    except Exception:
+        m = re.search(r"(?m)^name\s*=\s*[\"']([^\"']+)[\"']", read_text(os.path.join(root, "pyproject.toml")) or "")
+        if m:
+            out.add(m.group(1).lower())
+    try:
+        name = json.loads(read_text(os.path.join(root, "package.json")) or "{}").get("name") or ""
+        if name:
+            out.add(name.lower())
+    except (ValueError, AttributeError):
+        pass
+    return out
+
+
+SYMBOL_RX = re.compile(r"`([A-Za-z_][\w.]{2,60})(?:\(\))?`|\b([a-z][a-z0-9]*_[a-z0-9_]+|[a-z]+[A-Z]\w+|[A-Za-z_]\w{2,}\(\))")
+
+
+def repo_symbol(prompt, root, timeout=0.4):
+    """A code name from the prompt (`name`, snake_case, camelCase, name()) that the repo itself contains, or ""."""
+    if not root:
+        return ""
+    names = []
+    for m in SYMBOL_RX.finditer(prompt or ""):
+        n = (m.group(1) or m.group(2) or "").rstrip("()").split(".")[-1]
+        if len(n) >= 3 and n not in names:
+            names.append(n)
+    if not names:
+        return ""
+    import subprocess
+    args = ["git", "-C", root, "grep", "--untracked", "-l", "-w", "-I", "-F", "--max-count=1"]
+    for n in names[:6]:
+        args += ["-e", n]
+    try:
+        res = subprocess.run(args + ["--", ".", ":!*.md"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                             timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return names[0] if res.returncode == 0 and res.stdout.strip() else ""
 
 
 # ---------------------------------------------------------------- generic helpers

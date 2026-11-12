@@ -20,12 +20,12 @@ Prompt (Romanian or English): "Make me a tiny web page that shows the current BT
 |---|---|---|
 | 1a | Claude Code (main user, started in an empty project folder such as `~/work/btc-page`; in `$HOME` Claude only warns and denies Bash and edits) | `btc-page-claude` (or what the agent proposes) |
 | 1b | Codex (main user, in ~) | `btc-page-codex` |
-| 1c | Hermes (Discord, its private channel) | `btc-page-hermes` |
+| 1c | Hermes (Discord, its private channel). Required once before Hermes is trusted: one full end-to-end run | `btc-page-hermes` |
 
 Expected behaviour, every agent:
 1. Asks one round of questions first (skill `grilling`, or OMC deep-interview when grilling is not installed): who uses it, must it run 24/7, data to keep.
 2. Picks tier `try` (a test) or asks; picks a valid name.
-3. Creates the box with the box tool (`new`, name and tier). No sudo; `sudo proj-agent` is denied by the no-sudo gate.
+3. Creates the box with the box tool `new` (name and tier). Box work = the box tool (MCP server `box`: list, new, exec, logs, status, restart, ports, url, snapshot, doctor, help); outside a sandbox also plain `proj-agent <subcommand>`; never sudo; `sudo proj-agent` is denied by the no-sudo gate.
 4. Works only inside the box: code in /srv/app, a git repo there, secrets only in /srv/app/.env.
 5. Uses context7 for the web framework and the price API it picks, and runs `ai-libs --sync` so AGENTS.md gets the Libraries section.
 6. Runs the web app as a service inside the box (systemd unit or docker compose), not on the host.
@@ -106,6 +106,8 @@ Run as admin in a throwaway box `esc-test`; delete it after. Each must FAIL to g
 | P3 | Hermes, SEO prompt in its channel | Hermes reads `/opt/agent-plugins/claude-seo/skills/seo/SKILL.md` and the sub-skill. No `claude -p` call |
 | P4 | Codex (default sandbox), blog prompt in an enabled project | Follows the claude-blog skill files; no `claude -p` unless the owner approved an escalated run |
 | P5 | `claude mcp list` as the main user on the server | No claude.ai connectors (Gmail, Calendar, Drive) |
+| P6 | Server, a project without `omc`: start Claude, list skills | No `oh-my-claudecode:` skills or agents, no OMC hooks. After `ai-adopt --tools omc` and a new session: the line "oh-my-claudecode is on here" and its skills |
+| P7 | Server: `command -v opencode herdr` as the main user | Nothing (not installed by default). `ai-info` shows them as off by default with the `AI_EXTRA_AGENTS` hint |
 
 ## 7. Cleanup
 `sudo proj wipe btc-page-codex` and `sudo proj wipe btc-page-hermes` (keep one box if the owner wants it).
@@ -120,4 +122,4 @@ Run as admin in a throwaway box `esc-test`; delete it after. Each must FAIL to g
 | K1-K8 knowledge | | | | |
 | T1-T2 token budget | | | | |
 | E1-E4 escape | | | | |
-| P1-P5 opt-in, hand-offs | | | | |
+| P1-P7 opt-in, hand-offs, default agents | | | | |

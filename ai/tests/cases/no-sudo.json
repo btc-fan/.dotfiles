@@ -317,6 +317,87 @@
     "AI_GATE_PLATFORM": "linux"
    },
    "contains": "plain `proj-agent <subcommand>` without sudo"
+  },
+  {
+   "name": "rtk proxy sudo",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rtk proxy sudo -n true"
+    }
+   }
+  },
+  {
+   "name": "rtk sudo",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rtk sudo -n true"
+    }
+   }
+  },
+  {
+   "name": "stdbuf with options before sudo",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "stdbuf -oL sudo -n true"
+    }
+   }
+  },
+  {
+   "name": "Linux: rtk git push (RTK's form) becomes the absolute git and asks",
+   "expect": "ask",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rtk git push origin feat/x"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "bin/git": "#!/bin/sh\n",
+     "bin/gh": "#!/bin/sh\n",
+     "managed.json": "{\"sandbox\": {\"excludedCommands\": [\"{{PROJ}}/bin/git push *\", \"{{PROJ}}/bin/gh pr view *\", \"{{PROJ}}/bin/gh pr create *\", \"gh issue list *\"]}}"
+    }
+   },
+   "env": {
+    "AI_GATE_PLATFORM": "linux",
+    "AI_CLAUDE_MANAGED_SETTINGS": "{{PROJ}}/managed.json"
+   },
+   "contains": "/bin/git push origin feat/x\""
+  },
+  {
+   "name": "Linux: rtk proxy gh pr view becomes the absolute gh",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rtk proxy gh pr view 12"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "bin/git": "#!/bin/sh\n",
+     "bin/gh": "#!/bin/sh\n",
+     "managed.json": "{\"sandbox\": {\"excludedCommands\": [\"{{PROJ}}/bin/git push *\", \"{{PROJ}}/bin/gh pr view *\", \"{{PROJ}}/bin/gh pr create *\", \"gh issue list *\"]}}"
+    }
+   },
+   "env": {
+    "AI_GATE_PLATFORM": "linux",
+    "AI_CLAUDE_MANAGED_SETTINGS": "{{PROJ}}/managed.json"
+   },
+   "contains": "/bin/gh pr view 12\""
   }
  ]
 }

@@ -154,7 +154,28 @@ hermes_rules() {
 
 # ---------------------------------------------------------------- step 12: env
 
+# Agent mode of the server's git guard for everything Hermes runs: its systemd user services (the gateway)
+# read ~/.config/environment.d. The guard also knows the hermes uid; this makes it explicit.
+hermes_agent_env() {
+    local hh f tmp before
+    hh=$(hermes_home)
+    f="$hh/.config/environment.d/92-ai-agent.conf"
+    before=$(as_hermes_ro "cat $(quote "$f")" || true)
+    tmp=$(mktemp "${TMPDIR:-/tmp}/ai-hermes-env.XXXXXX")
+    printf 'GIT_GUARD_AGENT=1\n' > "$tmp"
+    chmod 644 "$tmp"
+    as_hermes "mkdir -p $(quote "$(dirname "$f")")"
+    aiconf_hermes file-put "$f" "$tmp" --mode 644
+    rm -f "$tmp"
+    if [ "$before" != "GIT_GUARD_AGENT=1" ] && [ "$AI_DRY_RUN" != 1 ]; then
+        as_hermes 'systemctl --user daemon-reload </dev/null' || true
+        manual "as $HERMES_USER: hermes gateway restart (the gateway then has GIT_GUARD_AGENT=1)"
+    fi
+    ok "Hermes: GIT_GUARD_AGENT=1 for its user services ($f)"
+}
+
 hermes_env() {
+    hermes_agent_env
     as_hermes_ro 'command -v hermes' >/dev/null || return 0
     local key want cur
     # Owner decision 2026-11-11: smart approvals; unknown DMs ignored (allowed users: owner only, in secrets).

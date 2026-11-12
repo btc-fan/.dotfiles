@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # agent-audit: check a package, folder, skill or plugin BEFORE use. Port of the server wrapper.
-# Exit 0 = nothing found (PASS), 1 = findings (FAIL, read them before use), 2 = usage error.
+# Exit 0 = nothing found (PASS), 1 = findings (FAIL, read them before use), 2 = usage error,
+# 3 = a scanner could not run (ERROR: not a finding, but no PASS either; fix the scanner, run again).
+# Package forms: `agent-audit pypi httpx 0.28.1`, `agent-audit pypi httpx==0.28.1`, `agent-audit npm left-pad@1.3.0`.
 # Every run appends one line to ~/.local/state/ai/audit.log:
 #   <iso-time> <ecosystem> <name> <version|-> PASS|FAIL
 # The audit-before-install gate (ai-core router) allows an install only with a PASS for that
 # package in the last 24 h.
 # Network: downloads the package from npm/PyPI, and osv-scanner looks up package names + versions
 # on osv.dev. No LLM judge, no VirusTotal, no Socket (sfw is not used: forced telemetry).
-# A missing scanner counts as a finding (fail closed).
+# A missing or failing scanner is an ERROR (fail closed: no PASS is recorded), shown apart from findings.
 # No `set -e`: the script collects every scanner result in rc and reports them all.
 set -uo pipefail
 export SEMGREP_SEND_METRICS=off
@@ -16,23 +18,42 @@ export GUARDDOG_TELEMETRY=0
 usage() {
     cat <<'EOF'
 usage:
-  agent-audit npm   <name> [version]   guarddog: malicious-package checks on an npm package
-  agent-audit pypi  <name> [version]   guarddog: same for a PyPI package
+  agent-audit npm   <name> [version]   guarddog: malicious-package checks on an npm package (also name@version)
+  agent-audit pypi  <name> [version]   guarddog: same for a PyPI package (also name==version)
   agent-audit dir   <path>             osv-scanner (known CVEs) + guarddog + skill-scanner on a folder
   agent-audit skill <path>             cisco skill-scanner on every SKILL.md under <path>
 EOF
     exit 2
 }
 
+# split_spec ECO SPEC: "name version" from name==version (pypi) or name@version (npm, also @scope/name@1.2).
+split_spec() {
+    local eco=$1 spec=$2
+    case "$spec" in
+        *==*) printf '%s %s\n' "${spec%%==*}" "${spec#*==}"; return ;;
+    esac
+    if [ "$eco" = npm ] || [ "$eco" = pypi ]; then
+        local body=${spec#@}
+        case "$body" in
+            *@*) printf '%s %s\n' "${spec%@*}" "${spec##*@}"; return ;;
+        esac
+    fi
+    printf '%s \n' "$spec"
+}
+
 main() {
     rc=0
+    err=0
     case "${1:-}" in
         npm|pypi)
             [ $# -ge 2 ] || usage
-            args=("$1" scan "$2")
-            if [ -n "${3:-}" ]; then args+=(--version "$3"); fi
+            name=$2; ver=${3:-}
+            if [ -z "$ver" ]; then read -r name ver < <(split_spec "$1" "$2"); fi
+            [ -n "$name" ] || usage
+            args=("$1" scan "$name")
+            if [ -n "$ver" ]; then args+=(--version "$ver"); fi
             guard "${args[@]}"
-            record "$1" "$2" "${3:--}"
+            record "$1" "$name" "${ver:--}"
             ;;
         dir)
             [ -d "${2:-}" ] || usage
@@ -42,7 +63,7 @@ main() {
                 # 128 = no lockfiles or manifests found: nothing to check, not a finding.
                 [ "$s" -eq 0 ] || [ "$s" -eq 128 ] || rc=1
             else
-                echo "osv-scanner not installed"; rc=1
+                echo "ERROR: osv-scanner not installed"; err=1
             fi
             if [ -f "$target/package.json" ]; then guard npm scan "$target"; fi
             if [ -f "$target/pyproject.toml" ] || [ -f "$target/setup.py" ]; then guard pypi scan "$target"; fi
@@ -58,6 +79,11 @@ main() {
         *) usage ;;
     esac
 
+    if [ "$err" -ne 0 ]; then
+        echo "agent-audit: ERROR: a scanner could not run (see ERROR lines above). This is not a finding," \
+             "but nothing was passed either: fix the scanner or the arguments, then run again."
+        exit 3
+    fi
     if [ "$rc" -eq 0 ]; then echo "agent-audit: nothing found"; else echo "agent-audit: FINDINGS above, read them before use"; fi
     exit "$rc"
 }
@@ -66,14 +92,18 @@ main() {
 # network). Every package has some, so they are printed but do not fail the audit;
 # any other rule (download-and-execute, credential access, ...) does.
 guard() {
-    local out threats
+    local out threats errf
     if ! command -v guarddog >/dev/null 2>&1; then
-        echo "guarddog not installed"; rc=1; return
+        echo "ERROR: guarddog not installed"; err=1; return
     fi
-    out=$(guarddog "$@" --output-format json 2>/dev/null) || true
+    errf=$(mktemp "${TMPDIR:-/tmp}/agent-audit.XXXXXX")
+    out=$(guarddog "$@" --output-format json 2>"$errf") || true
     if ! printf '%s' "$out" | jq -e .results >/dev/null 2>&1; then
-        echo "guarddog failed on: $*"; rc=1; return
+        echo "ERROR: guarddog could not scan: $*"
+        tail -n 15 "$errf" | sed 's/^/   guarddog: /'
+        rm -f "$errf"; err=1; return
     fi
+    rm -f "$errf"
     echo "-- guarddog $*"
     printf '%s' "$out" | jq -r '.results | to_entries[]
         | select(.value != null and .value != {} and .value != [])
@@ -94,7 +124,7 @@ scan_skills() {
         if command -v skill-scanner >/dev/null 2>&1; then
             skill-scanner scan "$(dirname "$f")" --fail-on-severity high || rc=1
         else
-            echo "skill-scanner not installed"; rc=1
+            echo "ERROR: skill-scanner not installed"; err=1
         fi
     done < <(find "$1" -name SKILL.md -not -path '*/node_modules/*' -not -path '*/.git/*')
     [ "$found" -eq 1 ] || echo "-- no SKILL.md under $1"
@@ -104,6 +134,7 @@ scan_skills() {
 record() {
     local eco="$1" name="$2" ver="$3" result=PASS dir
     [ "$rc" -eq 0 ] || result=FAIL
+    [ "$err" -eq 0 ] || result=ERROR
     dir="${AI_STATE_DIR:-$HOME/.local/state/ai}"
     mkdir -p "$dir"
     printf '%s %s %s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$eco" "${name// /_}" "${ver:--}" "$result" >> "$dir/audit.log"

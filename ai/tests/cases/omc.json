@@ -1,0 +1,39 @@
+{
+ "rule": "omc",
+ "cases": [
+  {
+   "name": "code repo with omc enabled",
+   "expect": "fire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "print(1)\n",
+     ".ai/base-version": "4\n",
+     ".ai/enabled": "omc\n"
+    }
+   },
+   "contains": [
+    "oh-my-claudecode is on here"
+   ]
+  },
+  {
+   "name": "code repo without omc",
+   "expect": "nofire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "main.py": "print(1)\n",
+     ".ai/base-version": "4\n"
+    }
+   }
+  }
+ ]
+}

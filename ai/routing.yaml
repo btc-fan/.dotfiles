@@ -74,7 +74,7 @@ rules:
     scope: global
     trigger: {tool_before: 'Bash|shell|exec_command|local_shell', command: '\b(sudo|doas|pkexec|sudoedit|su|run0)\b'}
     summary: 'any sudo, su, doas, pkexec'
-    action: "No sudo for agents: give the owner the exact command. Box work on a server: the box tool (MCP server box); outside a sandbox also plain proj-agent <subcommand>."
+    action: "No sudo for agents: give the owner the exact command. Box work on a server: the box tool (MCP server box); outside a sandbox also plain proj-agent <subcommand>; never sudo."
     strength: gate    # blocks at a command position (also inside bash -c, behind env/nice/timeout); quoted text never counts
 
   - id: pr-rules
@@ -142,6 +142,15 @@ rules:
     trigger: {state: 'git repo with code'}
     summary: 'session start, graphify on here'
     action: "graphify is on here: graphify query before broad searches; graphify update . after code changes."
+    strength: nudge
+
+  - id: omc
+    scope: opt-in
+    tool: oh-my-claudecode
+    when: session_start
+    trigger: {state: 'git repo with code'}
+    summary: 'session start, oh-my-claudecode on here'
+    action: "oh-my-claudecode is on here: its skills and agents are available (/oh-my-claudecode:...). It writes .omc/ in this repo (keep it out of commits except .omc/skills/)."
     strength: nudge
 
   - id: seo

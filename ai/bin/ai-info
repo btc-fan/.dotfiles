@@ -26,7 +26,7 @@ AGENTS = ["claude", "codex", "opencode", "hermes", "herdr"]
 # Claude plugins of this setup: id -> (short name, default scope)
 PLUGINS = [
     ("ai-core@ai", "ai-core", "global"),
-    ("oh-my-claudecode@omc", "OMC", "global"),
+    ("oh-my-claudecode@omc", "OMC", "global (macOS); servers: per project, ai-adopt --tools omc"),
     ("ponytail@ponytail", "Ponytail", "global"),
     ("i-have-adhd@i-have-adhd", "i-have-adhd", "global"),
     ("claude-seo@agricidaniel-claude-seo", "claude-seo", "per project: ai-adopt --tools seo"),
@@ -71,6 +71,14 @@ def collect():
 
 def agent_version(name):
     from shutil import which
+    if name == "hermes" and not which(name):
+        # Hermes runs as its own user on a server: not on this user's PATH, but installed.
+        try:
+            import pwd
+            pwd.getpwnam(os.environ.get("HERMES_USER", "hermes"))
+            return "runs as user %s" % os.environ.get("HERMES_USER", "hermes")
+        except (KeyError, ImportError):
+            return None
     if not which(name):
         return None
     try:
@@ -167,7 +175,9 @@ def render_short(f):
 def render_full(f):
     out = ["AI setup on this machine (ai-info). Names and versions only.", "", "Agents:"]
     for a, v in f["agents"].items():
-        out.append("  %-9s %s" % (a, v or "not installed"))
+        extra = " (Linux servers: off by default, AI_EXTRA_AGENTS=opencode,herdr)" if (
+            not v and a in ("opencode", "herdr") and sys.platform.startswith("linux")) else ""
+        out.append("  %-9s %s%s" % (a, v or "not installed", extra))
     out += ["", "Claude plugins (on for you / on in this folder):"]
     for short, is_in, on_user, on_here, scope in f["plugins"]:
         if not is_in:

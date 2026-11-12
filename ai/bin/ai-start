@@ -20,7 +20,8 @@ What it writes (project root):
                      Plus one short managed block per enabled opt-in tool:
                      <!-- AI:<id> v<N> START --> <routing action> <!-- AI:<id> v<N> END -->
   CLAUDE.md          a line "@AGENTS.md" (created when missing)
-  .claude/settings.json   enabledPlugins for claude-seo / claude-blog when "seo" / "blog" is enabled
+  .claude/settings.json   enabledPlugins for claude-seo / claude-blog / oh-my-claudecode when "seo" / "blog" /
+                     "omc" is enabled (omc is off by default on servers, always on on macOS)
   .claude/settings.json   also enabledPlugins "ai-serena@ai" ("serena") and "ai-playwright@ai" ("browser"): each
                      plugin holds only its MCP entry; managed settings block project .mcp.json servers
   .codex/config.toml Codex entries for Playwright ("browser": ai-playwright-mcp, the pinned @playwright/mcp
@@ -103,6 +104,7 @@ def main(argv):
             fn()
         except (OSError, subprocess.SubprocessError) as exc:
             print("ai-%s: step failed, skipped (%s): %s" % (mode, name, exc))
+    drop_libs_pointer(root)
     paths = [os.path.relpath(p, root) for p, _ in plan]
     paths += [rel for rel in KNOWLEDGE_PATHS if (os.path.exists(os.path.join(root, rel)) or
                                                  git(root, "ls-files", "--", rel)) and rel not in paths]
@@ -116,12 +118,23 @@ def main(argv):
         print("ai-%s: secret scan found %s in AGENTS.md. Remove it, then run again. "
               "Files written, not committed." % (mode, ", ".join(sorted(set(hits)))))
         return 1
+    # git var fails exactly where git commit would (no name or email it may use): check before, not after.
+    if not (git(root, "var", "GIT_AUTHOR_IDENT") and git(root, "var", "GIT_COMMITTER_IDENT")):
+        print("ai-%s: files written, not committed: git does not know who you are here. Set it once, then run "
+              "again:\n  git config --global user.name \"Your Name\"\n  git config --global user.email you@example.com"
+              % mode)
+        return 1
     if not opts["yes"] and not ask("Commit this%s? [y/N] " % (" and push" if mode == "adopt" else "")):
         print("ai-%s: files written, not committed" % mode)
         return 0
     msg = ("chore(ai): adopt base AI setup v%s" if mode == "adopt" else "chore(ai): start project AI setup v%s") % version
-    subprocess.check_call(["git", "-C", root, "add", "-A", "--"] + paths)
-    subprocess.check_call(["git", "-C", root, "commit", "-m", msg, "--"] + paths)
+    try:
+        subprocess.check_call(["git", "-C", root, "add", "-A", "--"] + paths)
+        subprocess.check_call(["git", "-C", root, "commit", "-m", msg, "--"] + paths)
+    except subprocess.CalledProcessError as exc:
+        print("ai-%s: files written, git %s failed (exit %d): see the git message above"
+              % (mode, exc.cmd[3] if len(exc.cmd) > 3 else "", exc.returncode))
+        return 1
     if mode == "adopt" and has_remote(root):
         return subprocess.call(["git", "-C", root, "push"])
     return 0
@@ -223,7 +236,8 @@ def claude_md(text):
 # Serena too: plugin ai-serena@ai holds only its MCP entry, because managed strictPluginOnlyCustomization
 # blocks project .mcp.json files (planted-config defence) while plugin servers still load.
 CLAUDE_PLUGINS = {"seo": "claude-seo@agricidaniel-claude-seo", "blog": "claude-blog@agricidaniel-blog",
-                  "serena": "ai-serena@ai", "browser": "ai-playwright@ai"}
+                  "serena": "ai-serena@ai", "browser": "ai-playwright@ai",
+                  "omc": "oh-my-claudecode@omc"}      # server: off at user scope (owner 2026-11-12); Mac: always on
 
 
 def claude_plugins_plan(root, enabled):
@@ -329,6 +343,18 @@ def upsert_map(agents, body):
     if lines and lines[0].startswith("# "):
         return "\n".join([lines[0], "", block.rstrip("\n")] + ([""] + lines[1:] if lines[1:] else [])).rstrip("\n") + "\n"
     return block + "\n" + agents
+
+
+LIBS_POINTER = "- Library versions and docs IDs: the Libraries section below.\n"
+
+
+def drop_libs_pointer(root):
+    """The Map points to the Libraries section; without one (no dependencies found), the line goes."""
+    path = os.path.join(root, "AGENTS.md")
+    text = read(path) or ""
+    if LIBS_POINTER in text and "\n## Libraries" not in text:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text.replace(LIBS_POINTER, "", 1))
 
 
 def build_map(root):

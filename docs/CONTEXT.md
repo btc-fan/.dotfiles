@@ -29,11 +29,12 @@ Worked example: `README.md`, section 3, example D.
 
 | Agent | Status | Contract |
 |---|---|---|
-| Claude Code + oh-my-claudecode 5.8.4 (Claude plugin, exa off) | main | `omc.md` |
+| Claude Code | main | `omc.md` (OMC) |
+| oh-my-claudecode 5.8.4 (Claude plugin, exa off) | macOS: on; servers: per project (`ai-adopt --tools omc`) | `omc.md` |
 | Codex + oh-my-codex 0.22.6 | main (OMX not before 2026-11-17) | `omx.md` |
 | Hermes | configured, runs as user `hermes` | `hermes.md` |
-| herdr 0.9.5 | configured | `herdr.md` |
-| opencode 1.19.5 | always installed | `opencode.md` |
+| herdr 0.9.5 | macOS; servers only with `AI_EXTRA_AGENTS=herdr` | `herdr.md` |
+| opencode 1.19.5 | macOS; servers only with `AI_EXTRA_AGENTS=opencode` | `opencode.md` |
 | oh-my-openagent (omo) | optional, only when asked | `omo.md` |
 | Gemini CLI, Kimi CLI | later | none yet |
 
@@ -82,14 +83,14 @@ Owner hooks come from the owner's hooks.json. Each hook finishes well under the 
 
 ## Routing
 
-Source: `ai/routing.yaml` (version 4, owner decision 2026-11-12: passive context beats nudges). 21 rules (12 global, 9 opt-in, 4 are gates), a tie-break table of 5 rows, and a `layers` block.
+Source: `ai/routing.yaml` (version 4, owner decision 2026-11-12: passive context beats nudges). 22 rules (12 global, 10 opt-in, 4 are gates), a tie-break table of 5 rows, and a `layers` block.
 Rules by group:
 - Session start: `project-knowledge` (status line: Map, Libraries, opt-in tools), `no-ai-base`.
 - After a commit: `knowledge-check` (update the Map, `ai-libs --sync`, `graphify update .`; silent when nothing applies).
 - Gates: `audit-before-install`, `secret-scan`, `no-sudo`, `pr-rules`.
 - Lint and docs: `no-em-dash`, `docs-lookup` (also fires on a library name from the Libraries section).
 - Off in this project, suggest it: `seo-not-enabled`, `blog-not-enabled`, `browser-not-enabled`.
-- Opt-in catalog (`ai-adopt --tools <id>`): `serena`, `graph`, `seo`, `blog`, `browser`, `ui`, `tracker-flow`, `domain-docs`, `knowledge-wiki`.
+- Opt-in catalog (`ai-adopt --tools <id>`): `serena`, `graph`, `omc`, `seo`, `blog`, `browser`, `ui`, `tracker-flow`, `domain-docs`, `knowledge-wiki`.
 - Removed in v4 (ignored in the logs or unmeasured): `kickoff`, `no-memories`, `no-graph`, `graph-first`, `serena-first`, `graph-update`, `docs-on-dependency`, `github`, `prompting-others`, `agent-docs`, `wait-what`, `toolbox`.
 Tie-breaks: post file means blog-*, a URL means seo-*; new app means grilling; "deep interview" means OMC deep-interview; library docs mean context7 with the Libraries ID, not web search.
 Action placeholders the router fills at fire time: `{knowledge_index}`, `{knowledge_delta}`, `{libs_hits}`, `{claude_handoff}`.

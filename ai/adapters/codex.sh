@@ -126,14 +126,16 @@ codex_system_policy() {
 # Codex workspace-write on Linux blocks every socket connect (seccomp), so `proj-agent` (the socket client)
 # fails inside it. Box work goes through the box MCP server (codex_mcp), which runs outside the sandbox.
 allowed_sandbox_modes = ["read-only", "workspace-write"]
-allowed_approval_policies = ["untrusted", "on-request"]
+# "never" is allowed for `codex exec` (headless: no one to approve; without it exec falls back to untrusted and
+# runs nothing). The sandbox stays: never only means "do not ask", the command still runs in workspace-write.
+allowed_approval_policies = ["untrusted", "on-request", "never"]
 EOR
     aiconf_root file-put /etc/codex/requirements.toml "$tmp" --mode 644
     rm -f "$tmp"
     aiconf_root toml-set /etc/codex/config.toml "" sandbox_mode '"workspace-write"'
     aiconf_root toml-set /etc/codex/config.toml "" approval_policy '"on-request"'
     aiconf_root toml-set /etc/codex/config.toml sandbox_workspace_write network_access false
-    ok "Codex: sandbox read-only/workspace-write only, approvals untrusted/on-request (default workspace-write, on-request, no network)"
+    ok "Codex: sandbox read-only/workspace-write only, approvals untrusted/on-request/never (default workspace-write, on-request, no network)"
 }
 
 # Linux admin installs (system mode): the ai-core and RTK Codex hooks go to /etc/codex/hooks.json. Codex
@@ -225,5 +227,9 @@ codex_env() {
     done <<EOT
 $(env_pairs)
 EOT
-    ok "Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches in shell_environment_policy.set"
+    # Agent mode of the server's git guard (every repo hardened). Codex builds the command env from this policy
+    # once per request, before it picks the sandbox, so an approved command outside the sandbox gets it too
+    # (codex-rs 0.167 core/src/unified_exec/process_manager.rs open_session_with_sandbox: create_env first).
+    aiconf toml-set "$f" shell_environment_policy.set GIT_GUARD_AGENT '"1"'
+    ok "Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches and GIT_GUARD_AGENT in shell_environment_policy.set"
 }

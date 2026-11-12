@@ -22,11 +22,12 @@ Words used below:
 
 An agent is the program that talks to a model and runs tools. A harness is an agent plus extras that orchestrate it.
 
-### Claude Code (with oh-my-claudecode)
+### Claude Code (and oh-my-claudecode)
 
 - **What.** Anthropic's coding agent in the terminal. oh-my-claudecode (OMC) adds a workflow on top: plan, execute, review, verify, plus team runs and loops. It is installed as a pinned Claude plugin (`oh-my-claudecode@omc`, tag v5.8.4, commit checked), on servers too (owner decision 2026-11-12). The old npm route (`oh-my-claude-sisyphus`) stays available with `AI_OMC_WIRING=cli`.
 - **Why.** It is the main agent. It has the richest hook system, which the router and the gates need.
 - **How it works here.** The plugin `ai-core` is installed from our local marketplace `ai`. Claude reads the root rules through an `@import` line in a managed block of `~/.claude/CLAUDE.md`. Example: you type "autopilot: build a CSV to JSON tool". OMC's own keyword hook starts its autopilot skill and writes state to `.omc/state/`. Our rules still win on a clash: the 60-word reply limit and the confirm-first rules beat OMC defaults.
+- **OMC scope.** macOS: on everywhere. Servers: installed but off by default (owner decision 2026-11-12); on for one project with `ai-adopt --tools omc`. Where it is off, its skills, agents, hooks and MCP server do not load.
 - **Scope.** Global, main.
 - **Pin.** OMC 5.8.4 (`OMC_VERSION`, sha512 in `pins.env`). Claude Code comes from the signed apt repository on Ubuntu.
 - **claude.ai connectors off on servers.** The account connectors (Gmail, Calendar, Drive and the like) do not load in Claude Code on Linux installs (`disableClaudeAiConnectors` and `ENABLE_CLAUDEAI_MCP_SERVERS=false`), so an unattended agent cannot reach your mail. macOS keeps Claude's default. To keep them on a server: `install.sh --keep-claudeai-connectors` (see [INSTALL.md](INSTALL.md)).
@@ -47,6 +48,7 @@ An agent is the program that talks to a model and runs tools. A harness is an ag
 ### opencode
 
 - **What.** An open-source terminal agent that talks to many model providers.
+- **Where.** macOS: always installed. Linux servers: not installed by default (owner decision 2026-11-12); `AI_EXTRA_AGENTS=opencode,herdr` for install.sh brings it back.
 - **Why.** It is the front-end for other models (Grok, Kimi, DeepSeek) and a fallback. Always installed.
 - **How it works here.** It reads the root rules through the `instructions` key of `~/.config/opencode/opencode.json`. It reads the shared skills folder `~/.agents/skills`. It has no hooks, so no gates and no miss log inside it: only the root rules apply. Example: `opencode run "<prompt>" --format json`.
 - **Scope.** Global, always installed.
@@ -67,6 +69,7 @@ An agent is the program that talks to a model and runs tools. A harness is an ag
 ### herdr
 
 - **What.** A terminal multiplexer for agents: several agents in panes, with status and session ids.
+- **Where.** macOS: where present. Linux servers: not installed by default; `AI_EXTRA_AGENTS=opencode,herdr` brings it back.
 - **Why.** It gives us the session ids that the PR "author-sessions" block needs, and a status view.
 - **How it works here.** `herdr integration install claude|codex` adds status hooks. The agent reads its own session id with `herdr agent get "$HERDR_PANE_ID"`. The `pr-rules` gate blocks a PR body without the author-sessions block. `pr-resume` reads that block later to resume the sessions. herdr is not a harness: it makes no model call.
 - **Scope.** Global, configured.
@@ -140,7 +143,7 @@ MCP servers give agents extra tools, and each one costs context in every session
 
 - **What.** A command proxy that shortens the output of shell commands (git, test runs, logs) before the agent reads it.
 - **Why.** Output is the biggest token cost in a coding session. Savings are up to 90%.
-- **How it works here.** A hook rewrites `git status` to `rtk git status`. The agent does not call it by hand. Exception: `uv run` is not rewritten, so in a Python project the agent types `uv run rtk pytest`. For security tools and debugging use `rtk bypass <cmd>` so findings are not cut. Check with `rtk gain --history`.
+- **How it works here.** A hook rewrites `git status` to `rtk git status`. The agent does not call it by hand. `git push` and `gh` are never rewritten (`exclude_commands`), so their output and our gates see the plain command. Exception: `uv run` is not rewritten, so in a Python project the agent types `uv run rtk pytest`. For security tools and debugging use `rtk bypass <cmd>` so findings are not cut. Check with `rtk gain --history`.
 - **Scope.** Global, on by default.
 - **Pin.** v1.2.0, built from source (`cargo --locked`).
 - **Telemetry.** Never run `rtk telemetry enable`.

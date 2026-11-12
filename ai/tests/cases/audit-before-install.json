@@ -806,6 +806,180 @@
    "project": {
     "git": true
    }
+  },
+  {
+   "name": "rtk form: rtk pip install (was ask, must be deny)",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rtk pip install foo==1.0"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "rtk form: rtk npm install",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rtk npm install left-pad@1.3.0"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "rtk form: rtk uv add",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rtk uv add httpx==0.28.1"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "uvx runs an unaudited package: ask",
+   "expect": "ask",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "uvx evil-tool@1.0 --help"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "uvx --from",
+   "expect": "ask",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "uvx --from evil-pkg==2.0 tool"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "uv run --with",
+   "expect": "ask",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "uv run --with evil==1.0 python app.py"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "npx package: ask",
+   "expect": "ask",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "npx cowsay@1.6.0 hi"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "npx of a local bin of the project: fine",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "npx eslint ."
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "node_modules/.bin/eslint": "#!/bin/sh\n"
+    }
+   }
+  },
+  {
+   "name": "pnpm dlx",
+   "expect": "ask",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "pnpm dlx create-thing@1.0.0 app"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "bunx",
+   "expect": "ask",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "bunx some-cli@2.0.0"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "pipx run",
+   "expect": "ask",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "pipx run some-tool"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "uvx of an audited package passes",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "uvx ruff@0.8.0 check ."
+    }
+   },
+   "project": {
+    "git": true
+   },
+   "audit_log": [
+    "{{NOW}} pypi ruff 0.8.0 PASS"
+   ]
   }
  ]
 }

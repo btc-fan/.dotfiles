@@ -1,6 +1,7 @@
 # opencode (opencode-ai)
 
 Pin: 1.19.5. sha512 `sha512-tEqMvQahfhdDj8vceYpXtoIrvjPXm5XRfetWnPN5YISueU7adNx9JcUA3zZ+2GKuDVgDpGdQe1ZLtCZDjqodvA==`. Binary package `opencode-linux-x64@1.19.5`: `sha512-i1qh7VooLGML9xX6ud93y0JA8j/1aPeDYRKjsmYXrJX1TjIWHgBBMkEbEJPZthpWbsJg//XfBgR6Kb7+NPaJiQ==`. Docs: https://opencode.ai/docs/, https://opencode.ai/docs/skills/
+Linux servers: not installed by default (owner decision 2026-11-12; the defaults there are Claude, Codex and Hermes). An earlier install is undone from its records. Bring it back with `AI_EXTRA_AGENTS=opencode,herdr` in the environment of install.sh. macOS: always installed.
 
 ## Vendor rules
 NOT FOUND. opencode ships no rules template. It reads AGENTS.md as is, so the root file carries the rules. It reads `~/.claude/skills` and `~/.agents/skills`. It does not see Claude plugin skills.
@@ -24,7 +25,7 @@ NOT FOUND. opencode ships no rules template. It reads AGENTS.md as is, so the ro
 - Should not fire: an SEO request. Expect the hand-off to Claude Code, or the skill-file path when Claude is not logged in.
 
 ## Setup checklist
-1. `npm i -g --ignore-scripts opencode-ai@1.19.5`. Then `ln -f "$(npm root -g)/opencode-ai/node_modules/opencode-linux-x64/bin/opencode" "$(npm root -g)/opencode-ai/bin/opencode.exe"`. No AVX2 (`grep -c avx2 /proc/cpuinfo` is 0): use `opencode-linux-x64-baseline`. macOS package name and path: UNVERIFIED.
+1. macOS, or a server with `AI_EXTRA_AGENTS=opencode`: `npm i -g --ignore-scripts opencode-ai@1.19.5`. Then `ln -f "$(npm root -g)/opencode-ai/node_modules/opencode-linux-x64/bin/opencode" "$(npm root -g)/opencode-ai/bin/opencode.exe"`. No AVX2 (`grep -c avx2 /proc/cpuinfo` is 0): use `opencode-linux-x64-baseline`. macOS package name and path: UNVERIFIED.
 2. Env: `OPENCODE_DISABLE_AUTOUPDATE=1`, `OPENCODE_DISABLE_MODELS_FETCH=1`, `OPENCODE_DISABLE_LSP_DOWNLOAD=1`. Optional `OPENCODE_DISABLE_CLAUDE_CODE=1`. Leave `OPENCODE_AUTO_SHARE` and `OTEL_EXPORTER_OTLP_ENDPOINT` unset.
 3. Merge `~/.config/opencode/opencode.json`: `{"autoupdate":false,"share":"disabled"}` and the `instructions` key pointing at `~/.config/ai/AGENTS.md`.
 4. Keys from `~/.config/ai/secrets.env`. Login commands: UNVERIFIED.

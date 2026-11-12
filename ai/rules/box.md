@@ -12,7 +12,7 @@ NOT FOUND: our own server. The rules are in this file and in the hosting rules o
   - `exec`: `command` (a bash string, run with `bash -lc` in the box: pipes and `&&` work) or `argv` (a list); optional `cwd`, `timeout` (up to 3600 s).
   - `logs`: `box` or `unit`, optional `lines`. `restart`: a service in a box. `ports`, `url`: how to reach the app. `snapshot`: before a risky change.
 - Claude, Codex and Hermes all use the tool. Codex is told: the tool, or plain `proj-agent <subcommand>` without sudo where it is not sandboxed. Hermes the same.
-- Plain `proj-agent <sub>` only outside a sandbox. Never `sudo proj-agent`: the no-sudo gate denies it.
+- One wording everywhere: box work = the box tool (MCP server `box`: list, new, exec, logs, status, restart, ports, url, snapshot, doctor, help); outside a sandbox also plain `proj-agent <subcommand>`; never sudo. The no-sudo gate denies `sudo proj-agent`; its message names the box tools (Claude) or the tools and plain `proj-agent` (Codex, Hermes).
 - Not for long-tier boxes, wiping, restoring or touching another project: those are owner-only (`proj` as admin). The tool refuses them; tell the owner the exact command.
 - Not on macOS (no boxes there).
 - Code is edited in the workspace with the normal tools; it runs only inside the box (`exec`).

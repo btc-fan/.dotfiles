@@ -71,14 +71,14 @@ Read it from the top.
 3. Each agent receives that one file in the way it supports (see [docs/AGENTS-MD.md](docs/AGENTS-MD.md)).
 4. The plugin `ai-core` gives Claude and Codex our hooks, skills and MCP server list.
 5. The router hook adds a short status line at session start and a few cheap reminders. The gates block four unsafe steps.
-6. Every decision is logged. `ai-doctor` reads the logs and the contracts and tells you what is wrong.
+6. Every decision is logged. `ai-doctor` reads the logs and the contracts and tells you what is wrong. `ai-doctor --live` runs a canary `claude -p` session: a token commit, `gh pr create` without the PR blocks, and an unaudited `uv add` must each be denied (new DENY lines in `gates.log`).
 7. On a server, project work happens inside a box, never on the host.
 
 ### Parts, in one table
 
 | Part | What it is | Detail |
 |---|---|---|
-| Agents | Claude Code + OMC (main), Codex + OMX (main), Hermes, opencode, herdr, omo (optional) | [docs/TOOLS.md](docs/TOOLS.md) |
+| Agents | Claude Code (main), Codex + OMX (main), Hermes. OMC: on on macOS, per project on servers (`ai-adopt --tools omc`). opencode and herdr: macOS; on servers only with `AI_EXTRA_AGENTS=opencode,herdr`. omo: optional | [docs/TOOLS.md](docs/TOOLS.md) |
 | Plugin `ai-core` | our skills, hooks and MCP list, one folder, installed by Claude and Codex | `ai/marketplace/plugins/ai-core/` |
 | MCP servers | global: context7 (the one docs tool) and box (project boxes on a server). Per project only: Serena, Playwright | [docs/TOOLS.md](docs/TOOLS.md) |
 | Other tools | RTK, Ponytail, i-have-adhd, pinned mattpocock skills, `gh`. Per project only: graphify, claude-seo, claude-blog (`ai-adopt --tools graph,seo,blog`) | [docs/TOOLS.md](docs/TOOLS.md) |
@@ -111,10 +111,10 @@ A gate blocks a step until its condition holds.
 
 | Gate | Blocks | Until |
 |---|---|---|
-| `audit-before-install` | npm, pnpm, yarn, bun, pip, uv, npx `@latest`, curl piped to a shell. Asks the owner for brew, cargo, go, gem, pipx | `agent-audit` logged a PASS for that package in the last 24 hours |
+| `audit-before-install` | installs: npm, pnpm, yarn, bun, pip, uv (`uv add`, `pip install`, `npm install`/`ci`, ...); curl piped to a shell. Asks the owner for one-off runners (`uvx`, `uv tool run`, `uv run --with`, `npx`, `npm exec`, `pnpm dlx`, `yarn dlx`, `bunx`, `pipx run`) unless the package has a PASS or (npx) is a local bin of the project, and for brew, cargo, go, gem, pipx | `agent-audit` logged a PASS for that package in the last 24 hours (`agent-audit npm left-pad@1.3.0` or the two-word form) |
 | `secret-scan` | `git commit`, `git push` | the diff has no key, token, password or private key |
 | `pr-rules` | `gh pr create`, `gh pr edit` | the body has a Mermaid block and the author-sessions block |
-| `no-sudo` | `sudo`, `su`, `doas`, `pkexec`, `sudoedit`, `run0` at a command position (also inside `bash -c`, behind `env`, `nice`, `timeout`) | never: the agent gives the owner the exact command. This includes `sudo proj-agent`. Box work goes through the box tool (MCP server `box` in ai-core); plain `proj-agent <sub>` (the root-owned `/usr/local/sbin/proj-agent`) only where no sandbox blocks it |
+| `no-sudo` | `sudo`, `su`, `doas`, `pkexec`, `sudoedit`, `run0` at a command position (also inside `bash -c`, behind `env`, `nice`, `timeout`) | never: the agent gives the owner the exact command. This includes `sudo proj-agent`. Box work: the box tool (MCP server `box`: list, new, exec, logs, status, restart, ports, url, snapshot, doctor, help); outside a sandbox also plain `proj-agent <subcommand>`; never sudo (`proj-agent` is the root-owned `/usr/local/sbin/proj-agent`) |
 
 Gates catch honest mistakes. They are not a sandbox against a hostile agent: the OS sandbox and the box are (see [docs/SECURITY.md](docs/SECURITY.md)). Escape hatch, owner only: `sudo ai-gate-skip <gate> <minutes max 60> <why>` (root-owned `/usr/local/sbin/ai-gate-skip` on Linux installs). It writes the root-owned `/etc/ai/gate-skip`; the gate lets the step through until it expires, and each pass is logged to `~/.local/state/ai/gates.log`. `AI_GATE_SKIP=...` inside a command does nothing any more (an agent could type it). Details and known limits: `ai/marketplace/plugins/ai-core/hooks/README.md`.
 
@@ -145,7 +145,7 @@ sudo /opt/ai-setup/install.sh --update --for-user <user>                        
 
 `install.sh` asks "Is this a new Ubuntu server that needs the base server setup first?" The default is No. Answer Yes only on a fresh server: it prints the `ubuntu-server` instructions and stops.
 
-Options: `--update`, `--for-user <user>`, `--dry-run`, `--agents claude,codex,hermes,opencode,herdr`, `--skip-packages`, `--yes`. Run `install.sh --help` for the final list. More in [docs/INSTALL.md](docs/INSTALL.md).
+Options: `--update`, `--for-user <user>`, `--dry-run`, `--agents claude,codex,hermes`, `--skip-packages`, `--yes`. Env `AI_EXTRA_AGENTS=opencode,herdr` adds those two on a server (off by default there). Run `install.sh --help` for the final list. More in [docs/INSTALL.md](docs/INSTALL.md).
 
 ### macOS (later)
 
@@ -245,10 +245,11 @@ Big repos can add Serena or graphify for that project only (`ai-adopt --tools se
 |---|---|---|---|
 | Root rules (`AGENTS.md`) | yes, per user | yes, `/etc/proj-rules/AGENTS.md` | yes |
 | Plugin `ai-core` (router, gates) | yes | follows the agent: where an agent runs with the plugin, the hooks run | yes |
-| Claude Code + OMC, Codex + OMX | yes, admin work only | yes, project work | yes |
+| Claude Code, Codex + OMX | yes, admin work only | yes, project work | yes |
+| OMC | per project (`ai-adopt --tools omc`) | per project | yes, everywhere |
 | Hermes | yes, as its own user `hermes` | no | not part of the plan |
-| opencode | yes | yes | yes |
-| herdr | yes | no | yes |
+| opencode | only with `AI_EXTRA_AGENTS=opencode` | no | yes |
+| herdr | only with `AI_EXTRA_AGENTS=herdr` | no | yes |
 | RTK, `gh` | yes | yes | yes |
 | Serena, graphify | installed; on per project only | per project only | per project only |
 | context7 | yes | yes | yes |

@@ -259,6 +259,14 @@ claude_allow_rules() {
         'Bash(rtk wc*)' 'Bash(rtk grep *)' 'Bash(rtk rg *)' 'Bash(rtk find *)' 'Bash(rtk tree*)' 'Bash(rtk diff *)' \
         'Bash(rtk git status*)' 'Bash(rtk git diff*)' 'Bash(rtk git log*)' 'Bash(rtk git show*)'
     printf '%s\n' WebFetch WebSearch 'Read(~/.claude/plugins/**)' 'Read(~/.config/ai/**)'
+    # Installs run unattended (headless too): the audit-before-install gate is the decider (it denies a
+    # package without an agent-audit PASS in 24 h and asks for what it cannot parse); the sandbox still holds.
+    # Plain and RTK forms (RTK rewrites uv, pip, npm, pnpm, bun; Fable readiness B4).
+    for t in 'uv add *' 'uv pip install *' 'uv sync*' 'pip install *' 'pip3 install *' 'python3 -m pip install *' \
+        'npm install*' 'npm i *' 'npm ci*' 'pnpm add *' 'pnpm install*' 'yarn add *' 'yarn install*' 'bun add *' \
+        'bun install*'; do
+        printf 'Bash(%s)\nBash(rtk %s)\n' "$t" "$t"
+    done
     # Box work runs unattended through the box MCP tools (server installs): proj-agent behind them refuses
     # everything outside its own menu, and exec runs inside the box, never on the host.
     if box_present; then
@@ -342,7 +350,7 @@ SANDBOX_DENY_ENV="GITHUB_PERSONAL_ACCESS_TOKEN GITHUB_TOKEN GH_TOKEN CONTEXT7_AP
 # uv: its own cache folder for sandboxed commands (UV_CACHE_DIR in the Claude env, claude_env_sandbox). The
 # default ~/.cache/uv is what installs use: if the sandbox could write it, a file hard-linked from it into an
 # installed tool (graphify, serena) could be changed in place and then run outside the sandbox.
-SANDBOX_ALLOW_WRITE="/tmp ~/.cache/ai-sandbox ~/.cache/pip ~/.npm ~/.cache/node-gyp ~/.cargo/registry ~/go/pkg/mod ~/.cache/go-build ~/.cache/graphify ~/.local/state/ai"
+SANDBOX_ALLOW_WRITE="/tmp ~/.cache/ai-sandbox ~/.cache/pre-commit ~/.cache/pip ~/.npm ~/.cache/node-gyp ~/.cargo/registry ~/go/pkg/mod ~/.cache/go-build ~/.cache/graphify ~/.local/state/ai"
 # Never writable by a sandboxed command, also when the session runs in a folder above them (cwd ~ is refused
 # by the router too): PATH folders (a planted program there shadows a system one for unsandboxed hooks and
 # excluded commands), uv's installed tools, shell start-up files, git's user config, every agent's config.
@@ -442,6 +450,26 @@ claude_env_sandbox() {
     aiconf json-set "$CLAUDE_DIR/settings.json" env/UV_CACHE_DIR "\"$HOME/.cache/ai-sandbox/uv\""
 }
 
+# The managed "hooks" value: every router.py hook of ai-core's hooks.json, pointed at the root-owned copy
+# ($AI_ROOT_REPO, root guard) with --managed, plus RTK's PreToolUse hook when rtk is root-owned.
+claude_managed_hooks() {
+    python3 - "$(PLUGIN_DIR)/hooks/hooks.json" "${AI_ROOT_REPO}/ai/marketplace/plugins/ai-core" "${1:-}" <<'EOS'
+import json, sys
+src, root, rtk = sys.argv[1:4]
+data = json.load(open(src))["hooks"]
+out = {}
+for event, groups in data.items():
+    for g in groups:
+        hooks = [dict(h, command=h["command"].replace("${CLAUDE_PLUGIN_ROOT}", root) + " --managed")
+                 for h in g.get("hooks", []) if "/hooks/router.py" in h.get("command", "")]
+        if hooks:
+            out.setdefault(event, []).append(dict(g, hooks=hooks))
+if rtk:
+    out.setdefault("PreToolUse", []).append({"matcher": "Bash", "hooks": [{"type": "command", "command": rtk + " hook claude"}]})
+print(json.dumps(out, sort_keys=True))
+EOS
+}
+
 # managed-settings.json keys (merge; only these keys): the Bash sandbox, the planted-config lock, the RTK
 # hook as a managed hook, and a git setting that a planted .git/config cannot turn into code execution.
 claude_managed_policy() {
@@ -455,14 +483,19 @@ claude_managed_policy() {
     # ai-core (router, gates) force-enabled from managed settings: no user or agent can switch it off.
     # OMC, Ponytail and i-have-adhd stay as the owner set them (owner decision 2026-11-12).
     aiconf_root json-set "$ms" "enabledPlugins/ai-core@ai" true --mode 644
-    # RTK's hook lived in ~/.claude/settings.json, which the lock above stops: it moves here, absolute path.
+    # Managed hooks: the ai-core router (gates) from the root-owned copy, and RTK's hook (it lived in
+    # ~/.claude/settings.json, which the lock above stops). The plugin copy of the router in
+    # ~/.claude/plugins/cache is user-writable: with these in place it steps aside (router.py plugin_copy).
     rtk_bin=$(command -v rtk 2>/dev/null || true)
     case "$rtk_bin" in
-        /usr/local/bin/rtk|/usr/bin/rtk)
-            aiconf_root json-set "$ms" hooks/PreToolUse \
-                "[{\"matcher\": \"Bash\", \"hooks\": [{\"type\": \"command\", \"command\": \"$rtk_bin hook claude\"}]}]" --mode 644 ;;
-        *) warn "rtk not in /usr/local/bin: its Claude hook is not managed (it stops under the hooks lock)" ;;
+        /usr/local/bin/rtk|/usr/bin/rtk) ;;
+        *) warn "rtk not in /usr/local/bin: its Claude hook is not managed (it stops under the hooks lock)"; rtk_bin="" ;;
     esac
+    aiconf_root json-set "$ms" hooks "$(claude_managed_hooks "$rtk_bin")" --mode 644
+    # The server's git guard (ubuntu-server branch, /usr/local/bin/git) hardens EVERY repo for agents when it
+    # sees GIT_GUARD_AGENT=1: hooks off, config allow-list. Every process Claude starts gets it (Bash, the
+    # commands outside the sandbox such as git push, hooks, MCP servers).
+    aiconf_root json-set "$ms" env/GIT_GUARD_AGENT '"1"' --mode 644
     # core.fsmonitor from a planted .git/config would run a program on every git status.
     aiconf_root json-set "$ms" env/GIT_CONFIG_COUNT '"1"' --mode 644
     aiconf_root json-set "$ms" env/GIT_CONFIG_KEY_0 '"core.fsmonitor"' --mode 644
@@ -482,7 +515,14 @@ claude_omc_wiring() {
         cli) return 0 ;;
         plugin)
             claude_plugin omc "Yeachan-Heo/oh-my-claudecode#$OMC_PLUGIN_REF" oh-my-claudecode@omc "$OMC_PLUGIN_SHA" || true
-            manual "OMC plugin route: run /oh-my-claudecode:omc-setup once in Claude (CLAUDE.md block, HUD)"
+            if [ "$AI_OS" = linux ]; then
+                # Owner decision 2026-11-12 (servers only; the Mac keeps it on): installed, OFF at user scope
+                # (6.7k tokens per session, .omc/ in every repo). A project turns it on: ai-adopt --tools omc.
+                aiconf json-set "$CLAUDE_DIR/settings.json" "enabledPlugins/oh-my-claudecode@omc" false
+                ok "Claude: oh-my-claudecode off by default here (per project: ai-adopt --tools omc)"
+            else
+                manual "OMC plugin route: run /oh-my-claudecode:omc-setup once in Claude (CLAUDE.md block, HUD)"
+            fi
             ;;
         remove)
             if has omc; then manual "AI_OMC_WIRING=remove: admin runs: sudo npm uninstall -g oh-my-claude-sisyphus"; fi

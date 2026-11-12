@@ -448,9 +448,43 @@ tools_drop_system() {
     ok "dropped tools removed from the system: Grounded Docs server, GitHub MCP binary (recorded undo replayed)"
 }
 
+# Agents a Linux server does not use (owner decision 2026-11-12: Claude, Codex, Hermes). An earlier install of
+# opencode or herdr is undone from its records; AI_EXTRA_AGENTS=opencode,herdr brings them back.
+AGENT_USER_KEYS_opencode='^(json|json-del|json-item):[^:]*/opencode/opencode\.json:|^link:.*/opencode/plugin/|^file:.*/opencode/'
+AGENT_USER_KEYS_herdr='^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:'
+AGENT_SYSTEM_KEYS_opencode='^cmd:npm:opencode$|^(json|json-item|json-add):/etc/opencode/'
+AGENT_SYSTEM_KEYS_herdr='^cmd:bin:herdr$'
+agents_dropped() {
+    [ "$AI_OS" = linux ] || return 0
+    local a
+    for a in opencode herdr; do want "$a" || printf '%s\n' "$a"; done
+}
+agents_drop_user() {
+    local a keys
+    for a in $(agents_dropped); do
+        keys=AGENT_USER_KEYS_$a
+        aiconf undo --only "${!keys}"
+    done
+    [ -z "$(agents_dropped)" ] || ok "agents not used on this server, their user config undone: $(agents_dropped | tr '\n' ' ')"
+}
+agents_drop_system() {
+    [ "$AI_MODE" = user ] && return 0
+    local a keys
+    for a in $(agents_dropped); do
+        keys=AGENT_SYSTEM_KEYS_$a
+        aiconf_root undo --only "${!keys}"
+    done
+    [ -z "$(agents_dropped)" ] || ok "agents not used on this server removed (recorded undo): $(agents_dropped | tr '\n' ' ')"
+}
+
 # User side: our codex/hermes/opencode registrations of github, grounded-docs and the global serena.
 tools_drop_user() {
     aiconf undo --only "$DROPPED_USER_KEYS"
+    # A global Serena in Codex that an older install (or serena's own setup) added without a record: Serena is
+    # opt-in per project now, and a global one writes .serena/ into every repo Codex opens (Fable readiness).
+    if has codex && codex mcp get serena --json 2>/dev/null | grep -q 'start-mcp-server'; then
+        run codex mcp remove serena && ok "Codex: global serena MCP server removed (opt-in per project now)"
+    fi
     ok "dropped MCP registrations removed (github, grounded-docs, global serena)"
 }
 

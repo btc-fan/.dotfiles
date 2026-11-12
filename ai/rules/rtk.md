@@ -21,7 +21,8 @@ The owner block A.4 is the source text. It sits in `ai/agents-md/20-rtk.md`. Ven
 - L0: block A.4. L1 to L3: none. L4: RTK's own pipeline gate (run `rtk pipeline explain` when refused).
 - L5: Claude subagents inherit the hook. Codex and Hermes use their own config.
 - L7: `rtk gain --history` lists rewritten commands. `rtk discover` lists misses.
-- Our gates read the Bash command. After a rewrite the text has `rtk` in front. Our regexes use `\b`. Test it. Put our gates before RTK when the order is configurable.
+- `git push` and `gh` are excluded from rewriting (rtk config `exclude_commands`).
+- Our gates read the Bash command and see through `rtk`, `rtk proxy`, `env`, `nice`, `timeout`, `stdbuf` and `command`. After a rewrite the text has `rtk` in front. Our regexes use `\b`. Test it. Put our gates before RTK when the order is configurable.
 
 ## Proof
 - Should fire (EN): "show git status and the last 5 commits". Bash calls become `rtk git status`, `rtk git log ...`.

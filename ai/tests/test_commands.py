@@ -154,6 +154,19 @@ def t_agent_audit(work):
     assert log[1].split()[1:] == ["npm", "evil-pkg", "-", "FAIL"], log
     res = run(["bash", os.path.join(BIN, "agent-audit")], env=env)
     assert res.returncode == 2
+    # name==version (pypi) and name@version (npm, scoped too) are the same as two words.
+    for eco, spec, name, ver in (("pypi", "httpx==0.28.1", "httpx", "0.28.1"), ("npm", "left-pad@1.3.0", "left-pad", "1.3.0"),
+                                 ("npm", "@scope/pkg@2.0.0", "@scope/pkg", "2.0.0"), ("npm", "@scope/pkg", "@scope/pkg", "-")):
+        res = run(["bash", os.path.join(BIN, "agent-audit"), eco, spec], env=env)
+        assert res.returncode == 0, res.stdout
+        last = open(os.path.join(state, "audit.log")).read().splitlines()[-1].split()[1:]
+        assert last == [eco, name, ver, "PASS"], (spec, last)
+    # A scanner that cannot run is an ERROR (exit 3, its stderr shown), not FINDINGS.
+    write_exec(os.path.join(stub, "guarddog"), "#!/bin/sh\necho 'usage: guarddog bad arguments' >&2\nexit 2\n")
+    res = run(["bash", os.path.join(BIN, "agent-audit"), "pypi", "httpx", "0.28.1"], env=env)
+    assert res.returncode == 3 and "ERROR" in res.stdout and "bad arguments" in res.stdout, res.stdout
+    assert "FINDINGS" not in res.stdout, res.stdout
+    assert open(os.path.join(state, "audit.log")).read().splitlines()[-1].split()[-1] == "ERROR"
 
 
 def t_ai_start(work):
@@ -177,6 +190,19 @@ def t_ai_start(work):
     assert open(os.path.join(proj, "CLAUDE.md")).read() == "@AGENTS.md\n"
     res = run([sys.executable, os.path.join(BIN, "ai-start"), "--dir", proj, "--yes"], env=ident)
     assert "nothing to change" in res.stdout, "rerun must be idempotent: " + res.stdout
+    # No git identity (a fresh user): a clear message and exit 1, never a traceback (Fable readiness B6).
+    proj2 = os.path.join(work, "proj-noident")
+    os.makedirs(proj2)
+    run(["git", "init", "-q", proj2])
+    with open(os.path.join(proj2, "app.py"), "w") as fh:
+        fh.write("print(1)\n")
+    strict = dict(env, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="user.useConfigOnly",
+                  GIT_CONFIG_VALUE_0="true")
+    res = run([sys.executable, os.path.join(BIN, "ai-start"), "--dir", proj2, "--yes"], env=strict)
+    assert res.returncode == 1 and "does not know who you are" in res.stdout and "Traceback" not in res.stdout, res.stdout
+    # No dependencies, no Libraries section: the Map must not point to one.
+    agents2 = open(os.path.join(proj2, "AGENTS.md")).read()
+    assert "## Map" in agents2 and "Libraries section below" not in agents2, agents2
     run(["git", "-C", proj, "remote", "add", "origin", "https://github.com/third-party/repo.git"])
     res = run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", proj, "--dry-run"], env=env)
     assert res.returncode == 1 and "refused" in res.stdout, "third-party repo must be refused"

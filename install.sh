@@ -138,6 +138,8 @@ run_system() {
     step "Hermes (user $HERMES_USER)";                           do_hermes
     step "dropped tools: Grounded Docs server, GitHub MCP binary"; tools_drop_system
     step "user part as $AI_FOR_USER";                            run_user_part
+    # After the user part: herdr's integrations are undone with the herdr binary, which goes only now.
+    agents_drop_system
 }
 
 # Everything that lives in the user's home. Never calls sudo.
@@ -182,7 +184,7 @@ run_all() {
         step "Hermes (user $HERMES_USER)";                       do_hermes
     fi
     step "git hooks: ai-sync after each pull";                  base_sync_hook
-    [ "$AI_OS" = linux ] && tools_drop_system
+    [ "$AI_OS" = linux ] && { tools_drop_system; agents_drop_system; }
     step "verify";                                              do_verify
 }
 
@@ -197,7 +199,8 @@ run_user_part() {
     # shellcheck disable=SC2086
     # AI_SRC_HOME for the user part = that user's own work tree (links, pull hook), never the admin clone.
     if sudo -u "$AI_FOR_USER" -H env AI_SRC_HOME="$AI_TARGET_HOME/.dotfiles-ai" AI_OMC_WIRING="${AI_OMC_WIRING:-plugin}" \
-        AI_CLAUDEAI_CONNECTORS="${AI_CLAUDEAI_CONNECTORS:-}" "$AI_HOME/install.sh" $args; then
+        AI_CLAUDEAI_CONNECTORS="${AI_CLAUDEAI_CONNECTORS:-}" AI_EXTRA_AGENTS="${AI_EXTRA_AGENTS:-}" \
+        "$AI_HOME/install.sh" $args; then
         ok "user part for $AI_FOR_USER"
     else
         warn "user part for $AI_FOR_USER failed: see its output above"
@@ -241,9 +244,16 @@ pick_agents() {
     has claude && list="$list,claude"
     has codex && list="$list,codex"
     [ "$AI_MODE" != user ] && hermes_exists && list="$list,hermes"
-    # opencode is always installed (SPEC 3); herdr where it exists or on Linux servers.
-    list="$list,opencode"
-    { has herdr || [ "$AI_OS" = linux ]; } && list="$list,herdr"
+    # macOS: opencode always (SPEC 3), herdr where it exists. Linux servers (owner decision 2026-11-12): Claude
+    # and Codex only, plus Hermes; opencode and herdr only with AI_EXTRA_AGENTS=opencode,herdr (their code
+    # stays; without the flag an earlier install of them is undone: agents_drop_user / agents_drop_system).
+    if [ "$AI_OS" = linux ]; then
+        case ",${AI_EXTRA_AGENTS:-}," in *,opencode,*) list="$list,opencode" ;; esac
+        case ",${AI_EXTRA_AGENTS:-}," in *,herdr,*) list="$list,herdr" ;; esac
+    else
+        list="$list,opencode"
+        has herdr && list="$list,herdr"
+    fi
     AGENTS=${list#,}
 }
 
@@ -278,6 +288,7 @@ do_hermes() {
 do_mcp() {
     base_serena_config
     tools_drop_user
+    agents_drop_user
     want claude && claude_mcp
     want codex && codex_mcp
     want opencode && opencode_mcp

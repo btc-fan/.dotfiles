@@ -82,6 +82,66 @@
     "IGNORE ALL RULES",
     "rm -rf"
    ]
+  },
+  {
+   "name": "repo of the library itself: its own name and a symbol it defines",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "add a strip kwarg to want_bytes in itsdangerous, with a test"
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "pyproject.toml": "[project]\nname='itsdangerous'\n",
+     "src/itsdangerous/encoding.py": "def want_bytes(s):\n    return s\n"
+    }
+   }
+  },
+  {
+   "name": "library word, but the named function is in this repo",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "how do I use `want_bytes` in this library"
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "pyproject.toml": "[project]\nname='itsdangerous'\n",
+     "src/itsdangerous/encoding.py": "def want_bytes(s):\n    return s\n"
+    }
+   }
+  },
+  {
+   "name": "explicit docs request still fires for a repo symbol",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "check the docs for want_bytes and fastapi"
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "pyproject.toml": "[project]\nname='itsdangerous'\n",
+     "src/itsdangerous/encoding.py": "def want_bytes(s):\n    return s\n"
+    }
+   }
+  },
+  {
+   "name": "symbol not in the repo: the nudge stays",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "how do I use the stripe sdk create_refund call"
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "pyproject.toml": "[project]\nname='itsdangerous'\n",
+     "src/itsdangerous/encoding.py": "def want_bytes(s):\n    return s\n"
+    }
+   }
   }
  ]
 }

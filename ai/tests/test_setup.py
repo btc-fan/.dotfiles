@@ -34,7 +34,8 @@ def main():
                      t_claude_handoff, t_codex_env, t_dropped, t_sandbox_policy, t_hooks_remove, t_knowledge_status, t_session_start_order,
                      t_user_hook_match, t_verify_source, t_connectors_keep, t_sudo_gate, t_gate_skip_owner_only,
                      t_root_guard, t_update_clone, t_ai_sync_untrusted, t_plugin_files_tracked,
-                     t_hooks_absolute, t_uv_copy, t_box_registration):
+                     t_hooks_absolute, t_uv_copy, t_box_registration, t_readiness, t_managed_router,
+                     t_owner_2026_11_12):
             try:
                 test(os.path.join(work, test.__name__))
                 print("ok   " + test.__name__)
@@ -407,6 +408,7 @@ def t_codex_env(work):
             and got["DISABLE_TELEMETRY"] == "1", got
     else:
         assert 'GRAPHIFY_BACKEND = "none"' in text
+    assert 'GIT_GUARD_AGENT = "1"' in text, "git guard agent mode for every command Codex runs"
 
 
 def t_dropped(work):
@@ -760,7 +762,7 @@ def t_box_registration(work):
     """The box MCP server goes to Codex (with a long tool timeout) only where the box tool exists."""
     env, home, bindir = bash_env(work)
     log = os.path.join(work, "codex.log")
-    stub(bindir, "codex", 'echo "$*" >> %s; [ "$2 $3" = "mcp get" ] && exit 1; exit 0' % log)
+    stub(bindir, "codex", 'echo "$*" >> %s; [ "$1 $2" = "mcp get" ] && exit 1; exit 0' % log)
     code, out = bash(LIBS + "AI_OS=linux; codex_mcp", env)
     assert code == 0, out
     assert "mcp add box" not in read(log) and "add context7" in read(log), read(log)
@@ -769,6 +771,139 @@ def t_box_registration(work):
     assert "mcp add box -- /usr/bin/python3 -I " in read(log), read(log)
     cfg = read(os.path.join(home, ".codex", "config.toml"))
     assert "[mcp_servers.box]" in cfg and "tool_timeout_sec = 3720" in cfg and 'default_tools_approval_mode = "approve"' in cfg, cfg
+
+
+def t_readiness(work):
+    """Fable readiness round: install allow rules (B4), RTK leaves git push and gh alone (B2), global git
+    excludes for the sandbox placeholders (B3), Codex exec may use approval never (B5), no global Serena."""
+    env, home, bindir = bash_env(work)
+    code, out = bash(LIBS + "claude_allow_rules", env)
+    for r in ("Bash(uv add *)", "Bash(rtk uv add *)", "Bash(npm ci*)", "Bash(rtk npm install*)", "Bash(pip install *)",
+              "Bash(pnpm add *)", "Bash(yarn add *)"):
+        assert r in out.splitlines(), "missing install allow " + r
+    code, out = bash(LIBS + "claude_sandbox_json", env)
+    assert "~/.cache/pre-commit" in json.loads(out)["filesystem"]["allowWrite"]
+    # B2: RTK config
+    stub(bindir, "rtk", "exit 0")
+    code, out = bash(LIBS + "AI_OS=linux; tools_rtk_excludes", env)
+    assert code == 0, out
+    cfg = read(os.path.join(home, ".config", "rtk", "config.toml"))
+    assert "[hooks]" in cfg and 'exclude_commands = ["git push", "gh"]' in cfg, cfg
+    # B3: global excludes, then a fresh repo with the placeholder names stays clean
+    code, out = bash(LIBS + "base_git_excludes", env)
+    assert code == 0, out
+    ign = read(os.path.join(home, ".config", "git", "ignore"))
+    for n in ("/.bashrc", "/.gitconfig", "/.mcp.json", "/.vscode", "/.idea", "/.claude/commands", "/.claude/agents"):
+        assert n + "\n" in ign, n
+    repo = os.path.join(work, "fresh")
+    genv = dict(env, GIT_CONFIG_NOSYSTEM="1")
+    subprocess.check_call(["git", "init", "-q", repo], env=genv)
+    for n in (".bashrc", ".gitconfig", ".mcp.json", ".gitmodules", ".profile", ".zshrc", ".ripgreprc"):
+        write(os.path.join(repo, n), "")
+    for n in (".vscode", ".idea", os.path.join(".claude", "commands"), os.path.join(".claude", "agents")):
+        write(os.path.join(repo, n, "x"), "")
+    write(os.path.join(repo, "app.py"), "print(1)\n")
+    st = subprocess.run(["git", "-C", repo, "status", "--porcelain"], env=genv, stdout=subprocess.PIPE).stdout.decode()
+    assert st.strip() == "?? app.py", st
+    write(os.path.join(repo, "sub", ".bashrc"), "")      # only the repo root is ignored
+    st = subprocess.run(["git", "-C", repo, "status", "--porcelain"], env=genv, stdout=subprocess.PIPE).stdout.decode()
+    assert "sub/" in st, st
+    # B5: Codex exec may run with approval never (the sandbox stays)
+    src = read(os.path.join(AI_DIR, "adapters", "codex.sh"))
+    assert 'allowed_approval_policies = ["untrusted", "on-request", "never"]' in src
+    assert 'allowed_sandbox_modes = ["read-only", "workspace-write"]' in src, "never must not come with full access"
+    # A global Serena in Codex (no record) is removed
+    log = os.path.join(work, "codex.log")
+    stub(bindir, "codex", 'echo "$*" >> %s; if [ "$1 $2" = "mcp get" ]; then echo serena start-mcp-server; fi; exit 0'
+         % log)
+    code, out = bash(LIBS + "tools_drop_user", env)
+    assert code == 0 and "mcp remove serena" in read(log), (out, read(log))
+
+
+def t_managed_router(work):
+    """Server installs: the router runs from the root-owned copy as a managed hook; the plugin copy steps aside."""
+    env, home, bindir = bash_env(work)
+    code, out = bash(LIBS + "AI_ROOT_REPO=/usr/local/lib/ai/repo; claude_managed_hooks /usr/local/bin/rtk", env)
+    assert code == 0, out
+    hooks = json.loads(out)
+    cmds = [h["command"] for gs in hooks.values() for g in gs for h in g["hooks"]]
+    root = "/usr/local/lib/ai/repo/ai/marketplace/plugins/ai-core/hooks/router.py"
+    assert all(c.startswith('/usr/bin/python3 "%s" --agent claude ' % root) and c.endswith(" --managed")
+               for c in cmds if "router.py" in c), cmds
+    assert "/usr/local/bin/rtk hook claude" in cmds and not any("${" in c for c in cmds), cmds
+    assert set(hooks) >= {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"}
+    assert not any("serena-hook" in c or "claude-notify" in c or "caffeinate" in c for c in cmds), "router only"
+    # The plugin copy (CLAUDE_PLUGIN_ROOT set) steps aside when managed settings run the router.
+    ms = os.path.join(work, "managed.json")
+    write(ms, json.dumps({"hooks": hooks}))
+    proj = os.path.join(work, "p")
+    os.makedirs(os.path.join(proj, ".git"))
+    payload = json.dumps({"hook_event_name": "PreToolUse", "session_id": "m", "cwd": proj, "tool_name": "Bash",
+                          "tool_input": {"command": "sudo -n true"}}).encode()
+    renv = dict(env, AI_CLAUDE_MANAGED_SETTINGS=ms, AI_STATE_DIR=os.path.join(work, "st"))
+    router = os.path.join(PLUGIN, "hooks", "router.py")
+    res = subprocess.run([sys.executable, router, "--agent", "claude", "PreToolUse"], input=payload,
+                         env=dict(renv, CLAUDE_PLUGIN_ROOT=PLUGIN), stdout=subprocess.PIPE)
+    assert res.stdout.strip() == b"", "plugin copy must step aside: %r" % res.stdout
+    res = subprocess.run([sys.executable, router, "--agent", "claude", "PreToolUse", "--managed"], input=payload,
+                         env=renv, stdout=subprocess.PIPE)
+    assert b'"deny"' in res.stdout, res.stdout
+    res = subprocess.run([sys.executable, router, "--agent", "claude", "PreToolUse"], input=payload,
+                         env=dict(renv, CLAUDE_PLUGIN_ROOT=PLUGIN, AI_CLAUDE_MANAGED_SETTINGS=os.devnull),
+                         stdout=subprocess.PIPE)
+    assert b'"deny"' in res.stdout, "without managed hooks the plugin copy still gates: %r" % res.stdout
+
+
+def t_owner_2026_11_12(work):
+    """Server: OMC installed but off at user scope (opt-in per project); opencode and herdr not picked and their
+    records undone; GIT_GUARD_AGENT=1 for Claude (managed) and Hermes. The Mac keeps OMC on."""
+    env, home, bindir = bash_env(work)
+    stub(bindir, "claude", "exit 0")
+    settings = os.path.join(home, ".claude", "settings.json")
+    code, out = bash(LIBS + "AI_OS=linux; AI_OMC_WIRING=plugin; claude_plugin() { :; }; claude_omc_wiring", env)
+    assert code == 0, out
+    assert json.load(open(settings))["enabledPlugins"]["oh-my-claudecode@omc"] is False
+    os.remove(settings)
+    code, out = bash(LIBS + "AI_OS=macos; AI_OMC_WIRING=plugin; claude_plugin() { :; }; claude_omc_wiring", env)
+    assert not os.path.exists(settings) or "oh-my-claudecode" not in read(settings), "the Mac keeps OMC on"
+    start = read(os.path.join(AI_DIR, "bin", "ai-start"))
+    assert '"omc": "oh-my-claudecode@omc"' in start, "ai-adopt --tools omc turns it on per project"
+    # pick_agents: Linux default without opencode and herdr; AI_EXTRA_AGENTS brings them back.
+    pick = ('eval "$(sed -n \'/^pick_agents()/,/^}/p\' %s)"; has() { case "$1" in claude|codex|herdr|opencode) return 0;; '
+            'esac; return 1; }; hermes_exists() { return 1; }; AI_MODE=all; AGENTS=; ' % os.path.join(REPO, "install.sh"))
+    code, out = bash(pick + "AI_OS=linux; pick_agents; echo $AGENTS", env)
+    assert out.strip() == "claude,codex", out
+    code, out = bash(pick + "AI_OS=linux; AI_EXTRA_AGENTS=herdr,opencode; pick_agents; echo $AGENTS", env)
+    assert out.strip() == "claude,codex,opencode,herdr", out
+    code, out = bash(pick + "AI_OS=macos; pick_agents; echo $AGENTS", env)
+    assert out.strip() == "claude,codex,opencode,herdr", out
+    # Recorded opencode / herdr config is undone on a server that no longer picks them; other records stay.
+    log = os.path.join(work, "undo.log")
+    state = os.path.join(home, ".local", "state", "ai", "managed-keys.json")
+    oc = os.path.join(home, ".config", "opencode", "opencode.json")
+    entries = [
+        {"kind": "cmd", "id": "herdr-integration:claude", "undo": ["sh", "-c", "echo herdr >> %s" % log],
+         "key": "cmd:herdr-integration:claude"},
+        {"kind": "cmd", "id": "keep-me", "undo": ["sh", "-c", "echo keep >> %s" % log], "key": "cmd:keep-me"},
+        {"kind": "json", "file": oc, "path": ["autoupdate"], "prev": None, "had": False, "value": False,
+         "key": "json:%s:autoupdate" % oc},
+    ]
+    write(oc, json.dumps({"autoupdate": False, "mine": 1}))
+    write(state, json.dumps({"version": 1, "entries": entries}))
+    want = 'want() { case ",$AGENTS," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }; '
+    code, out = bash(LIBS + want + "AI_OS=linux; AGENTS=claude,codex; agents_drop_user", env)
+    assert code == 0, out
+    assert read(log).split() == ["herdr"], read(log)
+    assert "autoupdate" not in json.load(open(oc)), read(oc)
+    keys = [e["key"] for e in json.load(open(state))["entries"]]
+    assert keys == ["cmd:keep-me"], keys
+    code, out = bash(LIBS + want + "AI_OS=macos; AGENTS=claude; agents_drop_user", env)
+    assert read(log).split() == ["herdr"], "the Mac drops nothing"
+    # GIT_GUARD_AGENT: Claude managed env (planned in a dry run) and the Hermes environment.d file.
+    code, out = bash(LIBS + "AI_OS=linux; AI_DRY_RUN=1; claude_managed_policy", env)
+    assert "env/GIT_GUARD_AGENT" in out, out
+    herm = read(os.path.join(AI_DIR, "adapters", "hermes.sh"))
+    assert "92-ai-agent.conf" in herm and "GIT_GUARD_AGENT=1" in herm
 
 
 def t_root_guard(work):
@@ -811,7 +946,10 @@ def _root_guard_cases(work, me):
     os.chmod(os.path.join(tree, "f.txt"), 0o664)
     assert "writable by group" in run_guard("ubuntu01", me), "group-writable file must be refused"
     os.chmod(os.path.join(tree, "f.txt"), 0o644)
-    # install.sh itself stops before sourcing anything when its own tree is not root's or the admin's.
+    # install.sh itself stops before sourcing anything when its own tree is not root's or the admin's. Run from
+    # the root-owned copy (/usr/local/lib/ai/repo, owned by root) that tree is allowed by design: nothing to see.
+    if os.stat(REPO).st_uid != os.getuid():
+        return
     env = dict(genv, PATH=fake + ":" + os.environ["PATH"], SUDO_USER="someone-else")
     res = subprocess.run(["bash", os.path.join(REPO, "install.sh"), "--for-user", "ubuntu01", "--dry-run"],
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)

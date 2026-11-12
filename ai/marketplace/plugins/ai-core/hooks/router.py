@@ -32,7 +32,8 @@ sys.dont_write_bytecode = True      # no __pycache__ inside the (possibly read-o
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from hooklib import (GATES, GATE_PROBES, ai_home, append_jsonl, command_text, gate_skips,  # noqa: E402
                      iso_now, knowledge_delta, knowledge_index, libs_hits, log_error, log_line, one_line,
-                     origin_slug, parse_command, prompt_libs, redact, project_root, read_text, state_path)
+                     origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
+                     state_path)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
 CONTEXT_CAP = 9500          # additionalContext is cut here (hook output caps: Claude 10,000 chars, Codex ~2,500 tokens)
@@ -55,6 +56,11 @@ SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "target",
 
 def main(argv):
     agent, event = parse_args(argv)
+    if "--managed" not in argv and (agent or "claude") == "claude" and plugin_copy() and managed_router_present():
+        # Linux server installs run this router from the root-owned copy as a managed hook (managed-settings
+        # hooks, "--managed"). The plugin copy in ~/.claude/plugins/cache is user-writable, so it steps aside:
+        # the gates never depend on a file the user (or anything running as the user) can change.
+        return 0
     raw = sys.stdin.read() if not sys.stdin.isatty() else ""
     try:
         payload = json.loads(raw) if raw.strip() else {}
@@ -78,11 +84,29 @@ def main(argv):
         return 0
 
 
+def plugin_copy():
+    """True when Claude runs this file from its plugin copy (it sets CLAUDE_PLUGIN_ROOT for plugin hooks)."""
+    root = os.environ.get("CLAUDE_PLUGIN_ROOT") or ""
+    here = os.path.realpath(os.path.abspath(__file__))
+    return bool(root) and here.startswith(os.path.realpath(root) + os.sep)
+
+
+def managed_router_present():
+    try:
+        with open(MANAGED_SETTINGS) as f:
+            hooks = json.load(f).get("hooks") or {}
+    except (OSError, ValueError, AttributeError):
+        return False
+    return "router.py" in json.dumps(hooks) and "--managed" in json.dumps(hooks)
+
+
 def parse_args(argv):
     agent, event = None, ""
     args = list(argv)
     while args:
         a = args.pop(0)
+        if a == "--managed":
+            continue
         if a == "--agent" and args:
             agent = args.pop(0)
         elif a.startswith("--agent="):
@@ -147,6 +171,9 @@ def on_session_start(ctx):
         ctx.add_context("\n\n".join(parts))
 
 
+EXPLICIT_DOCS = re.compile(r"\b(docs|documentation|api reference|changelog|release notes)\b", re.I)
+
+
 def on_user_prompt(ctx):
     prompt = ctx.payload.get("prompt") or ""
     if not prompt.strip():
@@ -166,6 +193,8 @@ def on_user_prompt(ctx):
         state = rule["trigger"].get("state")
         if state and not check_state(state, ctx):
             continue
+        if rule["id"] == "docs-lookup" and not EXPLICIT_DOCS.search(prompt) and repo_symbol(prompt, ctx.root):
+            continue        # the prompt is about code in this repo (Fable readiness: a false docs nudge)
         matched.append(rule)
     ties = match_tiebreaks(routing.get("tiebreaks", []), prompt)
     if not matched and not ties:

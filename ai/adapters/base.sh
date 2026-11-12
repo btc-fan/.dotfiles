@@ -178,7 +178,7 @@ base_admin_layer() {
     # the environment step (telemetry keys kept, skill budget); nothing else is set there.
     aiconf_root file-put /etc/claude-code/CLAUDE.md "$tmp" --mode 644
     # opencode: managed config dir /etc/opencode/ (file name to confirm with `opencode debug config`).
-    if has opencode; then
+    if want opencode && has opencode; then
         aiconf_root json-add /etc/opencode/opencode.json instructions '"/etc/claude-code/CLAUDE.md"'
         manual "check that opencode reads /etc/opencode/opencode.json: opencode debug config (file name UNVERIFIED at $OPENCODE_VERSION)"
     fi
@@ -186,7 +186,7 @@ base_admin_layer() {
     # Codex: requirements.toml constrains settings (sandbox, approvals); it has no instructions key,
     # and support at the pinned version is not verified here.
     skip "Codex /etc/codex/requirements.toml: support at $CODEX_VERSION not verified, not written"
-    ok "admin layer: /etc/claude-code/CLAUDE.md (root 644)$(has opencode && printf ', /etc/opencode/opencode.json')"
+    ok "admin layer: /etc/claude-code/CLAUDE.md (root 644)$(want opencode && has opencode && printf ', /etc/opencode/opencode.json')"
 }
 
 # B's git hooks (post-merge, post-rewrite) run ai-sync after a pull in this work tree.
@@ -288,6 +288,7 @@ base_env_user() {
     fi
 
     base_path_block
+    base_git_excludes
 
     if want claude; then
         env_pairs | while IFS='=' read -r k v; do
@@ -352,6 +353,32 @@ base_path_block() {
     fi
     rm -f "$tmp"
     ok "~/.local/bin and ~/.config/ai/env.sh for non-login shells (top of ~/.bashrc, ~/.zshenv for zsh)"
+}
+
+# Claude's sandbox keeps placeholder entries for the protected names it finds missing in the project root (Claude
+# 2.1.322 binary: files .gitconfig .gitmodules .bashrc .bash_profile .zshrc .zprofile .profile .ripgreprc
+# .mcp.json, folders .vscode .idea .claude/commands .claude/agents). git status then lists them and
+# `git add -A` dies ("can only add regular files"). The user's global git excludes ignore exactly these names,
+# at the repo root only (a leading /). Tracked files stay tracked; a real new one needs `git add -f`.
+GIT_SANDBOX_EXCLUDES="/.gitconfig /.gitmodules /.bashrc /.bash_profile /.zshrc /.zprofile /.profile /.ripgreprc /.mcp.json /.vscode /.idea /.claude/commands /.claude/agents"
+git_excludes_file() {
+    local f; f=$(git config --global --get core.excludesFile 2>/dev/null || true)
+    case "$f" in
+        "") echo "${XDG_CONFIG_HOME:-$HOME/.config}/git/ignore" ;;
+        "~/"*) echo "$HOME/${f#\~/}" ;;
+        *) echo "$f" ;;
+    esac
+}
+base_git_excludes() {
+    has git || return 0
+    local f tmp
+    f=$(git_excludes_file)
+    mkdir -p "$(dirname "$f")"
+    tmp=$(mktemp "${TMPDIR:-/tmp}/ai-gitx.XXXXXX")
+    printf '%s\n' $GIT_SANDBOX_EXCLUDES > "$tmp"
+    aiconf block-upsert "$f" git-sandbox-placeholders 1 "$tmp" --comment
+    rm -f "$tmp"
+    ok "git: global excludes ignore the sandbox placeholders in project roots ($f)"
 }
 
 env_sh_file() {

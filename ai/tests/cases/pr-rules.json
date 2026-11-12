@@ -104,6 +104,34 @@
      "pr.md": "```mermaid\ngraph TD; a-->b\n```\n<!-- author-sessions\n-->\n"
     }
    }
+  },
+  {
+   "name": "rtk form: rtk gh pr create",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rtk gh pr create --title t --body x"
+    }
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "rtk proxy gh pr create",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rtk proxy gh pr create --title t --body x"
+    }
+   },
+   "project": {
+    "git": true
+   }
   }
  ]
 }
