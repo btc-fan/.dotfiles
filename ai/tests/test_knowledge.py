@@ -81,7 +81,7 @@ def main():
         for test in (t_libs_offline, t_libs_cache_and_notes, t_libs_online_fake, t_libs_check_stale,
                      t_libs_private_sources, t_libs_check_refuses_sync, t_libs_old_file_migrates, t_adopt_knowledge,
                      t_adopt_optin_serena_graph, t_adopt_gitignore_block, t_adopt_secret_in_map, t_optin_claude_plugins,
-                     t_map_tools_read_only):
+                     t_map_tools_read_only, t_libs_freeze_keeps_imported):
             try:
                 test(work, server)
                 print("ok   " + test.__name__)
@@ -122,6 +122,22 @@ def t_libs_offline(work, server):
     before = open(os.path.join(repo, "AGENTS.md")).read()
     res = libs(work, repo, "--sync", "--offline", url=DEAD_URL)
     assert open(os.path.join(repo, "AGENTS.md")).read() == before and "up to date" in res.stdout, "resync changed bytes"
+
+
+def t_libs_freeze_keeps_imported(work, server):
+    """A pip-freeze requirements.txt with more than 40 pins: only the packages the code imports."""
+    repo = os.path.join(work, "freeze")
+    os.makedirs(os.path.join(repo, "src"))
+    run(["git", "init", "-q", repo])
+    pins = ["fastapi==0.115.6", "PyYAML==6.0.2", "python-jose==3.5.0"] + ["transitive%02d==1.0" % i for i in range(45)]
+    with open(os.path.join(repo, "requirements.txt"), "w") as fh:
+        fh.write("\n".join(pins) + "\n")
+    with open(os.path.join(repo, "src", "app.py"), "w") as fh:
+        fh.write("import fastapi\nimport yaml\nfrom jose import jwt\n")
+    res = libs(work, repo, "--sync", "--offline", url=DEAD_URL)
+    assert res.returncode == 0, res.stdout
+    rows = table(repo)
+    assert set(rows) == {"fastapi", "pyyaml", "python-jose"}, sorted(rows)
 
 
 def t_libs_cache_and_notes(work, server):

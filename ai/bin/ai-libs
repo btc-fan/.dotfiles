@@ -155,7 +155,11 @@ def top_deps(root, deps):
         return max(counts.get(c, 0) for c in cands if c)
 
     order = {id(d): i for i, d in enumerate(deps)}
-    return sorted(deps, key=lambda d: (-used(d), order[id(d)]))[:MAX_ROWS]
+    ranked = sorted(deps, key=lambda d: (-used(d), order[id(d)]))
+    # A pinned full freeze (requirements.txt from pip freeze) lists transitive packages that no
+    # source file imports: when the code imports some of them, keep only those.
+    imported = [d for d in ranked if used(d) > 0]
+    return (imported or ranked)[:MAX_ROWS]
 
 
 def sync(root, deps, current, opts):

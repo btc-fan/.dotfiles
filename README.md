@@ -10,7 +10,7 @@ One AI setup for every machine. Agents, tools, rules, hooks and gates. Pinned, a
 
 Status: server first. macOS later. Windows planned, not supported yet. Items marked **coming** are designed but not in the code yet.
 
-## Where we stopped (2026-11-12) and what to do next
+## Where we stopped (2026-11-13) and what to do next
 
 Read this first when you pick the work up again. Full history and design: `docs/AUDIT-BRIEF.md`.
 Audit reports (local, not in git) live next to the checkouts in `ai-audit/`.
@@ -32,13 +32,15 @@ Audit reports (local, not in git) live next to the checkouts in `ai-audit/`.
 - docs/TOOLS.md sections 7 (every tool's default and configuration) and 8 (overlaps, one job each).
 
 **Open, in order:**
-1. **macOS installer bugs: FIXED in code, not yet rerun on the Mac.** Plugin install now refreshes
-   (or re-adds) the marketplace once and retries on "not found"; the audit scanners are installed
-   first by the installer on every OS (`tools_scanners`: guarddog and skill-scanner as pinned uv tools,
-   osv-scanner as a sha256-checked release binary; pins in `ai/pins.env`); macOS adds `~/.local/bin`,
-   `/usr/local/bin` and `/opt/homebrew/bin` to PATH when missing. Next: rerun
-   `~/.dotfiles-ai/install.sh --agents claude,codex --yes` on that Mac, then `ai-doctor`, then
-   `ai-adopt` in the first project (show the diff), then restart running Claude/OMC sessions.
+1. **macOS installer: DONE and proven on an old Intel Mac (macOS 12).** `ai-doctor`: 59 pass, 1 warn
+   (no `secrets.env`). Scanners install there through the source-build fallback and the legacy
+   skill-scanner pin; RTK built patched (`cargo update`). Gates fail closed on an internal error.
+   `ai-adopt` ran on the first project; its AGENTS.md now holds the project rules (CLAUDE.md is
+   only `@AGENTS.md`, so Codex reads the same rules).
+   **Not yet on the server:** `cec384d` and later. Next: `sudo /opt/ai-setup/install.sh --update
+   --for-user <user>`, then the test suite, `ai-doctor --live`, and an attack test of every gate.
+   2026-11-13: `ai-libs` keeps only imported packages when a full pip freeze has more than 40 pins;
+   house rules gained 3 lines (no `.env` edits, no prod deploy without OK, a failing test is a blocker).
 2. **RTK latest stable compatible: DONE in code.** `rtk_resolve_tag` takes the newest plain `vX.Y.Z`
    release (no pre-release, no draft) at least `RTK_COOLDOWN_DAYS` (7) old; the audited `RTK_TAG` wins
    when it is newer; offline means the pin. Always built from source (one path for every OS and arch,
