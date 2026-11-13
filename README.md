@@ -65,6 +65,7 @@ Read this first when you pick the work up again. Details of every fix: `docs/NOT
 - [Quirks we learned](#quirks-we-learned)
 - [Files](#files)
 - [AI setup](#ai-setup)
+- [Migrate a project to this server](#migrate-a-project-to-this-server)
 
 Other docs: [docs/HOSTING.md](docs/HOSTING.md) (rules for project boxes),
 [docs/AGENTS-hosting.md](docs/AGENTS-hosting.md) (rules for agents, imported by the `ai` branch),
@@ -684,3 +685,84 @@ snapshot, read logs and status, and restart services inside boxes. For anything 
 wipe, restore, host changes) they give you the exact command and you run it.
 The `ai` branch imports [docs/AGENTS-hosting.md](docs/AGENTS-hosting.md) into AGENTS.md.
 (Step 55, a host user for an agent, is the older way. Keep `AGENT_USER` empty for new servers.)
+
+## Migrate a project to this server
+
+The same steps for every source machine (an old Mac, a new Mac, a laptop). Placeholders:
+`<box>` = the project name (lower case, digits, `-`), `<server>`, `<main user>`.
+
+**Where everything goes**
+
+| What | Where |
+|---|---|
+| Code (git repo) | `/srv/proj/work/<box>` on the host = `/srv/app` in the box. One box per project. |
+| Database and other data | inside the box, `/srv/data` (`--pg`: Postgres data in `/srv/data/pg`, database named `<box>`) |
+| Secrets | `/srv/proj/work/<box>/.env`, mode 600, never in git |
+| Services and scheduled jobs | inside the box (systemd unit, timer, cron or `docker compose`), never on the host |
+| Agents (Claude, Codex) | on the host as the main user, in `/srv/proj/work/<box>`; they run code with `proj-agent exec` |
+| Migration files (dump, .env copy) | `~/migrate/<box>/` of the main user (mode 700), deleted after the move |
+
+A project in `HOST_PROJECTS` (a host service, for example a crawler) is not a box: it has its own
+move plan, and `proj` never touches it. Tier: start with `mvp`; `promote` to `long` (nightly
+backup, delete protection) when it works. `try` is for a 7-day test only.
+
+**On the old machine**
+1. `git status` is clean. `git log --branches --not --remotes --oneline` is empty (every branch
+   is pushed). `git worktree list`: push or drop each worktree branch.
+2. Write down what the project needs: runtime and version, services (Postgres, Redis, Docker
+   compose), ports, scheduled jobs (launchd, cron), env file names.
+3. Data: `pg_dump -Fc -f <box>.dump <db>` (plus any upload folders). Copy the dump and `.env`:
+   `ssh <main user>@<server> 'install -d -m 700 ~/migrate/<box>'`, then
+   `scp <box>.dump .env <main user>@<server>:migrate/<box>/`. Do not stop anything yet.
+
+**On the server** (`sudo` commands as the admin user, everything else as the main user)
+4. Make the box: `sudo proj new <box> --tier mvp [--pg] [--docker]` (the main user or an agent
+   can also do this with `proj-agent new`; `--docker` when the project uses compose).
+5. As the main user: `cd /srv/proj/work/<box> && gh repo clone <owner>/<repo> .` (the folder is
+   empty; `gh` uses HTTPS, so no GitHub SSH host key is needed).
+6. Secrets: `install -m 600 ~/migrate/<box>/.env .env`. Fix values that point at the old machine
+   (database host is `localhost` inside the box, local paths, ports).
+7. Install and start in the box: `proj-agent exec <box> -- <install>` (`uv sync`, `npm ci`,
+   `docker compose up -d`). Database: `install -d .scratch && cp ~/migrate/<box>/<box>.dump .scratch/`,
+   then `proj-agent exec <box> -- pg_restore --no-owner -d <box> /srv/app/.scratch/<box>.dump`,
+   then delete the copy. (`.scratch/` is local; add it to `.gitignore` when the repo lacks it.)
+8. Tests in the box: `proj-agent exec <box> -- <test command>`. Open it from the host:
+   `proj-agent url <box> <port>` (host only, nothing is opened to the LAN).
+9. AI layer: in `/srv/proj/work/<box>` run `ai-adopt` (Map, Libraries, Serena, graph, the
+   `.gitignore` block). It shows the diff and asks before it commits. Run it again even when the
+   project was adopted on another machine: it is safe to repeat and refreshes the Libraries.
+10. Scheduled jobs: create them again inside the box.
+11. When it works: `sudo proj promote <box> --to long` and `sudo proj snapshot <box> migrated`.
+12. Switch over: stop the service on the old machine only after the server copy runs and is
+    checked. Never two writers at once (two schedulers, two webhook receivers, two crawlers).
+    Keep the old copy one month, then delete it and `~/migrate/<box>/`.
+
+**Give the work to Claude**
+
+Use two sessions: Claude on the server cannot reach the old machine, and Claude on the old
+machine cannot run `proj`. Steps 1 to 3 on the old machine, steps 4 to 10 on the server.
+Steps 11 and 12, `long`, `wipe`, `restore`, anything with sudo and every production deploy stay
+with you: Claude gives you the exact command.
+
+On the server: `ssh <main user>@<server>`, then `claude`. The house rules and the agent hosting
+rules load by themselves. Claude reads first: this section (`/opt/server-setup/README.md`),
+`/opt/server-setup/docs/HOSTING.md`, `/etc/proj-host`, then `server-info`, `ai-info`,
+`proj-agent help`, and the project's own README and AGENTS.md.
+
+Prompt for the old machine:
+```
+Prepare <project> for the move to the home server. Read only, except a git push of branches
+I confirm. List: uncommitted changes, unpushed branches, worktrees, the services and ports it
+needs, scheduled jobs (launchd, cron), env files (names only, never values), databases and
+their size. Then make a pg_dump -Fc of <db> into ~/migrate/<project>/. Stop no running service.
+```
+
+Prompt for the server:
+```
+Migrate project <name> to this server. Read first: the section "Migrate a project to this
+server" in /opt/server-setup/README.md, /opt/server-setup/docs/HOSTING.md and /etc/proj-host.
+Source: <repo URL>, branch <branch>. It needs: <Postgres, Redis, Docker, ports, jobs>.
+The dump and .env are in ~/migrate/<name>/. Do steps 4 to 10 with the box tool, tier mvp.
+Do not promote, wipe or touch the old machine. Ask before anything that needs sudo.
+Report: box status, test result, URL, and what is left for me.
+```
