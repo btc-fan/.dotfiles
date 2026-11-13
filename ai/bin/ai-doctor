@@ -25,6 +25,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 BIN = os.path.dirname(os.path.realpath(__file__))
@@ -570,18 +571,21 @@ def check_claude_policy():
                 "" if ok else "managed sandbox.bwrapPath /usr/local/lib/ai/bwrap (root:ai-sandbox 0750) with /etc/apparmor.d/ai-claude-bwrap")
     if "--live" in sys.argv and shutil.which("claude"):
         # Optional end-to-end proof (one small model call): a headless Bash command through the sandbox.
+        # In a scratch folder: the home-folder gate blocks every command of a session started in ~.
+        scratch = tempfile.mkdtemp(prefix="ai-doctor-live-")
         code, out = run(["claude", "-p", "Run exactly this Bash command and print its output: echo AI_SANDBOX_OK",
-                         "--allowedTools", "Bash(echo *)"], timeout=180)
+                         "--allowedTools", "Bash(echo *)"], timeout=180, cwd=scratch)
         ok = code == 0 and "AI_SANDBOX_OK" in out
         say("PASS" if ok else "FAIL", "live: claude -p runs a sandboxed Bash command", "" if ok else out[-300:])
         if box_present():
             # The box tool: the box MCP server (outside the sandbox) talks to the root socket service.
             code, out = run(["claude", "-p", "List the boxes using the box tool (its list tool). Print its full output, "
                              "starting with the exit code line.", "--allowedTools", "mcp__plugin_ai-core_box__list"],
-                            timeout=240)
+                            timeout=240, cwd=scratch)
             ok = code == 0 and "exit code 0" in out
             say("PASS" if ok else "FAIL", "live: claude -p lists the boxes through the box MCP tool",
                 "" if ok else out[-300:])
+        shutil.rmtree(scratch, ignore_errors=True)
     lock = ms.get("strictPluginOnlyCustomization")
     locked = lock is True or (isinstance(lock, list) and {"hooks", "mcp"} <= set(lock))
     say("PASS" if locked else "FAIL", "planted .claude/settings.json hooks and .mcp.json servers do not load "
