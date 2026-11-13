@@ -37,8 +37,11 @@ Audit reports (local, not in git) live next to the checkouts in `ai-audit/`.
    skill-scanner pin; RTK built patched (`cargo update`). Gates fail closed on an internal error.
    `ai-adopt` ran on the first project; its AGENTS.md now holds the project rules (CLAUDE.md is
    only `@AGENTS.md`, so Codex reads the same rules).
-   **Not yet on the server:** `cec384d` and later. Next: `sudo /opt/ai-setup/install.sh --update
-   --for-user <user>`, then the test suite, `ai-doctor --live`, and an attack test of every gate.
+   **Server: deployed 2026-11-13** (`23b482c`): tests 219 cases + all suites green as the main user,
+   `ai-doctor --live` 97 pass, 0 fail (sandboxed Bash, box tool, 3 live gate canaries). Left: an attack
+   test of every gate by hand; oh-my-codex 0.22.6 after its cooldown (re-run the install after 2026-11-17).
+   Fixed on the way: ai-sync dropped Codex env keys added after the trust block (aiconf toml-set);
+   root-guard test failed for a user without sudo.
    2026-11-13: `ai-libs` keeps only imported packages when a full pip freeze has more than 40 pins;
    house rules gained 3 lines (no `.env` edits, no prod deploy without OK, a failing test is a blocker).
 2. **RTK latest stable compatible: DONE in code.** `rtk_resolve_tag` takes the newest plain `vX.Y.Z`
