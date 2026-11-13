@@ -344,7 +344,7 @@ MAP_TOOLS = ["Read", "Grep", "Glob", "Bash(git ls-files:*)", "Bash(rg:*)"]
 GI_START = "# >>> AI tools (managed by ai-adopt; edit outside this block) >>>"
 GI_END = "# <<< AI tools <<<"
 GI_RX = re.compile(r"^%s\n.*?^%s\n?" % (re.escape(GI_START), re.escape(GI_END)), re.M | re.S)
-GI_LINES = [".omc/*", "!.omc/skills/", ".codex/", ".claude/*", "!.claude/settings.json", ".serena/*",
+GI_LINES = [".omc/*", "!.omc/skills/", ".omx/", ".codex/", ".claude/*", "!.claude/settings.json", ".serena/*",
             "!.serena/project.yml", "graphify-out/", ".ai/*", "!.ai/enabled"]
 GI_OLD_HEAD = "# AI tools (ai-adopt): caches and generated graph"     # unmarked block of older ai-adopt runs
 GI_OLD_LINES = {".serena/cache/", ".serena/project.local.yml", ".serena/logs/", "graphify-out/"}
@@ -353,11 +353,13 @@ ENABLED_HEAD = "# ai-adopt: opt-in tool ids, one per line; no-serena / no-graph 
 
 def gitignore_text(text, enabled=None, root=None):
     """The .gitignore with the managed block (added or replaced by marker). None when nothing changes.
-    .claude/commands/ and .claude/agents/ stay ignored unless the repo already tracks files there."""
+    A .claude/ subfolder (commands, agents, rules, skills ...) stays ignored unless the repo already tracks
+    files there: then new files in it are shared too."""
     lines = list(GI_LINES)
-    for sub in ("commands", "agents"):
-        if root and git(root, "ls-files", "--", ".claude/%s" % sub):
-            lines.insert(lines.index("!.claude/settings.json") + 1, "!.claude/%s/" % sub)
+    tracked = (git(root, "ls-files", "--", ".claude") if root else None) or ""
+    subs = sorted({p.split("/")[1] for p in tracked.splitlines() if p.count("/") >= 2})
+    at = lines.index("!.claude/settings.json") + 1
+    lines[at:at] = ["!.claude/%s/" % sub for sub in subs]
     block = "\n".join([GI_START] + lines + [GI_END]) + "\n"
     text = text or ""
     if GI_RX.search(text):

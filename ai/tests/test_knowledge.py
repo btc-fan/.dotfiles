@@ -397,7 +397,7 @@ def t_adopt_optin_serena_graph(work, server):
     assert len(agents) < 4000, "opt-in blocks must stay short: %d bytes" % len(agents)
 
 
-GI_BLOCK = [".omc/*", "!.omc/skills/", ".codex/", ".claude/*", "!.claude/settings.json", ".serena/*",
+GI_BLOCK = [".omc/*", "!.omc/skills/", ".omx/", ".codex/", ".claude/*", "!.claude/settings.json", ".serena/*",
             "!.serena/project.yml", "graphify-out/", ".ai/*", "!.ai/enabled"]
 
 
@@ -439,6 +439,21 @@ def t_adopt_gitignore_block(work, server):
     run(["git", "-C", repo, "commit", "-qm", "command"], env=env)
     run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--yes"], env=env, cwd=repo)
     assert "!.claude/commands/" in open(os.path.join(repo, ".gitignore")).read().splitlines()
+    # the same for any tracked .claude subfolder (path-scoped rules, project skills)
+    for rel in (".claude/rules/billing.md", ".claude/skills/deploy/SKILL.md"):
+        os.makedirs(os.path.dirname(os.path.join(repo, rel)), exist_ok=True)
+        with open(os.path.join(repo, rel), "w") as fh:
+            fh.write("rule\n")
+        run(["git", "-C", repo, "add", "-f", rel], env=env)
+    run(["git", "-C", repo, "commit", "-qm", "rules"], env=env)
+    run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--yes"], env=env, cwd=repo)
+    gi_lines = open(os.path.join(repo, ".gitignore")).read().splitlines()
+    assert "!.claude/rules/" in gi_lines and "!.claude/skills/" in gi_lines, gi_lines
+    with open(os.path.join(repo, ".claude", "rules", "new.md"), "w") as fh:
+        fh.write("new rule\n")
+    ignored = subprocess.call(["git", "-C", repo, "-c", "core.excludesFile=/dev/null", "check-ignore", "-q",
+                               ".claude/rules/new.md"])   # global excludes of this machine left out
+    assert ignored == 1, "a new file in a tracked .claude/rules/ folder is ignored"
 
 
 def t_adopt_secret_in_map(work, server):
