@@ -281,6 +281,9 @@ setup_firewall() {
     for p in ${LAN_PORTS:-}; do
         ufw_allow from "$LAN_CIDR" to any port "$p" proto tcp comment 'LAN port (host.env)'
     done
+    for p in ${TAILNET_PORTS:-}; do
+        ufw_allow in on tailscale0 to any port "$p" proto tcp comment 'Tailscale port (host.env)'
+    done
     if ! ufw status | grep -q 'Status: active'; then
         run ufw --force enable
     fi

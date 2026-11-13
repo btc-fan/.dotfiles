@@ -46,9 +46,11 @@ Read this first when you pick the work up again. Details of every fix: `docs/NOT
    Discord info channel; host.env `CLAUDE_DAILY_TIME`, `CLAUDE_DAILY_MODEL`, `CLAUDE_DAILY_PROMPT`.
    Not built yet.
 3. Clean up test leftovers after the next live tests (boxes, workspaces, `/tmp` files).
-4. Moving the crawler project here needs its move kit adapted to this hardened server: run its
-   install as admin from a root-owned clone, restores through `sudo -u postgres`, one backup job
-   (this server's), the crawler unit in `DIGEST_UNITS`, and register it as a host project.
+4. Moving the crawler project here: its move kit (in the project repo) now follows this
+   server's rules (a root-owned clone under `/opt` with a read-only deploy key, superuser work as
+   `postgres`, this server's `pg-backup --big` as the only backup). host.env still needs
+   `PG_BIG_BACKUP_TIME` (after the project's night jobs), `DIGEST_UNITS` with its crawler unit,
+   and its console ports in `LAN_PORTS` and `TAILNET_PORTS`. Agents work on it in a box.
 
 ## Contents
 
@@ -185,7 +187,8 @@ It also prints the CPU, RAM and disks, and warns when the CPU has no AVX2 (see [
   One file: `/etc/ssh/sshd_config.d/10-server.conf`.
   Why `10-`: sshd keeps the first value it reads, and `10-` comes before `50-cloud-init.conf`.
 - **Firewall (ufw)**: deny all incoming. Allow SSH from `LAN_CIDR` and from Tailscale only.
-  `LAN_PORTS` opens more ports to the LAN only. Rules you add by hand stay.
+  `LAN_PORTS` opens more ports to the LAN only, `TAILNET_PORTS` to the tailnet only
+  (`tailscale0`). Rules you add by hand stay.
 - **fail2ban**: bans an address after 5 failed logins in 10 min. The ban starts at 10 min and
   doubles each time, up to 1 week. `recidive`: banned 3 times in 1 day means 1 week on all ports.
   Your LAN and Tailscale are never banned. It also reads `sshd-session` (OpenSSH 10 logs failed
