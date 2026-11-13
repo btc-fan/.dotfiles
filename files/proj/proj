@@ -380,15 +380,59 @@ host=$(host_name)
 EOF
 }
 
-# house_rules: print MAIN_USER's ~/.dotfiles-ai/ai/AGENTS.md, read AS that user, never as root
-# (a symlink to a root-only file must not end up in a box). Returns 1 when there is none.
+# read_user_file USER DIR REL: print DIR/REL (a file of USER, usually in their home) as root,
+# WITHOUT switching users (under the proj-agent@ socket unit a user switch is not possible:
+# setpriv: setresuid failed). Safe against a planted link: every path component is opened with
+# O_NOFOLLOW from / (no symlink anywhere), each folder must belong to root or USER and must not be
+# writable by everybody (unless sticky), the file must be a regular file owned by USER, at most
+# 256 KiB. Anything else: exit 1, nothing printed. So a link to a root-only file never gets out.
+read_user_file() {
+    /usr/bin/python3 -I -c '
+import os, pwd, stat, sys
+user, base, rel = sys.argv[1:4]
+try:
+    uid = pwd.getpwnam(user).pw_uid
+except KeyError:
+    sys.exit(1)
+parts = [p for p in (base + "/" + rel).split("/") if p]
+if not base.startswith("/") or ".." in parts:
+    sys.exit(1)
+fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+st = os.fstat(fd)
+for i, name in enumerate(parts):
+    last = i == len(parts) - 1
+    flags = os.O_RDONLY | os.O_NOFOLLOW | (os.O_NONBLOCK if last else os.O_DIRECTORY)
+    try:
+        nfd = os.open(name, flags, dir_fd=fd)
+    except OSError:
+        sys.exit(1)
+    os.close(fd)
+    fd = nfd
+    st = os.fstat(fd)
+    if st.st_uid not in (0, uid):
+        sys.exit(1)
+    if not last and st.st_mode & stat.S_IWOTH and not st.st_mode & stat.S_ISVTX:
+        sys.exit(1)
+if not stat.S_ISREG(st.st_mode) or st.st_uid != uid or st.st_size > 262144:
+    sys.exit(1)
+data = b""
+while len(data) <= 262144:
+    chunk = os.read(fd, 65536)
+    if not chunk:
+        break
+    data += chunk
+sys.stdout.buffer.write(data[:262144])
+' "$1" "$2" "$3"
+}
+
+# house_rules: print MAIN_USER's ~/.dotfiles-ai/ai/AGENTS.md (read_user_file: as root, no user
+# switch, no symlinks, owned by that user). Returns 1 when there is none.
 house_rules() {
     local user=${MAIN_USER:-} home
     [ -n "$user" ] && id "$user" >/dev/null 2>&1 || return 1
     home=$(getent passwd "$user" | cut -d: -f6 || true)
     [ -n "$home" ] || return 1
-    as_user "$user" test -f "$home/.dotfiles-ai/ai/AGENTS.md" || return 1
-    as_user "$user" cat -- "$home/.dotfiles-ai/ai/AGENTS.md"
+    read_user_file "$user" "$home" .dotfiles-ai/ai/AGENTS.md
 }
 
 # push_rules BOX: /etc/proj-rules/AGENTS.md (root 644) = house rules + AGENTS-hosting.md, and a

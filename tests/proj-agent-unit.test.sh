@@ -43,7 +43,7 @@ mkdir -p "$D"
 # The work, as proj does it on the host (ws_make, ws_acl, ws_fix_modes, registry, lock, log).
 cat > "$D/work.sh" <<'EOF'
 set -e
-D=$1 G=$2 MU=$3 MODE=$4
+D=$1 G=$2 MU=$3 MODE=$4 REPO=$5
 # As files/proj/proj does it (as_user): setpriv, no PAM session.
 as_main() { if [ "$MODE" = root ]; then setpriv --reuid="$(id -u "$MU")" --regid="$(id -g "$MU")" --init-groups -- "$@"; else "$@"; fi; }
 mkdir "$D/ws"
@@ -55,6 +55,12 @@ as_main mkdir "$D/ws/sub"
 as_main chmod g+s "$D/ws/sub"
 as_main sh -c 'echo code > "$1/sub/main.py"' sh "$D/ws"
 t=$(mktemp); echo registry > "$t"; mv "$t" "$D/REGISTRY.json"
+# House rules for a new box: read as root without a user switch (read_user_file in proj).
+home=$(getent passwd "$MU" | cut -d: -f6)
+if [ -f "$home/.dotfiles-ai/ai/AGENTS.md" ]; then
+    rules=$(PROJ_LIB=1 MAIN_USER=$MU bash -c '. "$1/files/proj/proj"; MAIN_USER=$2; house_rules' sh "$REPO" "$MU")
+    [ -n "$rules" ]
+fi
 exec 7> "$D/x.lock"; flock -w 2 7
 if [ "$MODE" = root ]; then
     mkdir -p /run/lock/proj && touch /run/lock/proj/.unit-test && rm -f /run/lock/proj/.unit-test
@@ -71,13 +77,13 @@ ok()  { pass=$((pass + 1)); }
 bad() { fail=$((fail + 1)); echo "FAIL: $*"; }
 
 echo "== $mode mode, ${#props[@]} unit options: ${props[*]}"
-out=$("${run[@]}" "${args[@]}" bash "$D/work.sh" "$D" "$G" "$MU" "$mode" 2> "$D/stderr")
+out=$("${run[@]}" "${args[@]}" bash "$D/work.sh" "$D" "$G" "$MU" "$mode" "$REPO" 2> "$D/stderr")
 grep -qx ALL-OK <<< "$out" && ok || bad "proj's host work fails under the unit options: $out $(cat "$D/stderr")"
 # Clean stderr: agents read any warning as an error (seen: pam_keyinit "cannot set user id").
 [ ! -s "$D/stderr" ] && ok || bad "proj's host work printed on stderr under the unit options: $(head -c 400 "$D/stderr")"
 
 rm -rf -- "$D/ws" "$D/REGISTRY.json"
-out=$("${run[@]}" "${args[@]}" -p RestrictSUIDSGID=yes bash "$D/work.sh" "$D" "$G" "$MU" "$mode" 2>&1)
+out=$("${run[@]}" "${args[@]}" -p RestrictSUIDSGID=yes bash "$D/work.sh" "$D" "$G" "$MU" "$mode" "$REPO" 2>&1)
 grep -qx ALL-OK <<< "$out" && bad "negative check: RestrictSUIDSGID=yes did not fail (the test cannot see the bug)" || ok
 
 echo "proj-agent unit tests: $pass passed, $fail failed"

@@ -211,6 +211,34 @@ out=$( (set -e; FAIL_SETFACL=1 cmd_new keptbox --tier try) 2>&1 ); rc=$?
 out=$( (set -e; cmd_new goodbox --tier try) 2>&1 ); rc=$?
 [ "$rc" = 0 ] && [ -e "$T/state/goodbox" ] && ok || bad "a good new was rolled back: rc=$rc $out"
 
+echo "== read_user_file: house rules read as root without a user switch, never through a link"
+H=$(cd "$T" && pwd -P)/home-rf   # physical path: a symlink anywhere above (macOS /var) is refused
+mkdir -p "$H/.dotfiles-ai/ai" "$T/secret"
+echo "house rules v1" > "$H/.dotfiles-ai/ai/AGENTS.md"
+out=$(read_user_file "$ME" "$H" .dotfiles-ai/ai/AGENTS.md 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$out" = "house rules v1" ] && ok || bad "read_user_file: rc=$rc out=$out"
+echo "root secret" > "$T/secret/s"
+mv "$H/.dotfiles-ai/ai/AGENTS.md" "$H/.dotfiles-ai/ai/AGENTS.real"
+ln -s "$T/secret/s" "$H/.dotfiles-ai/ai/AGENTS.md"
+out=$(read_user_file "$ME" "$H" .dotfiles-ai/ai/AGENTS.md 2>&1); rc=$?
+[ "$rc" = 1 ] && [ -z "$out" ] && ok || bad "a symlinked file was read: rc=$rc out=$out"
+rm "$H/.dotfiles-ai/ai/AGENTS.md"; mv "$H/.dotfiles-ai/ai/AGENTS.real" "$H/.dotfiles-ai/ai/AGENTS.md"
+mv "$H/.dotfiles-ai" "$H/real-ai"; ln -s "$H/real-ai" "$H/.dotfiles-ai"
+out=$(read_user_file "$ME" "$H" .dotfiles-ai/ai/AGENTS.md 2>&1); rc=$?
+[ "$rc" = 1 ] && [ -z "$out" ] && ok || bad "a symlinked parent folder was followed: rc=$rc out=$out"
+rm "$H/.dotfiles-ai"; mv "$H/real-ai" "$H/.dotfiles-ai"
+mkfifo "$H/.dotfiles-ai/ai/fifo" 2>/dev/null && {
+    out=$(read_user_file "$ME" "$H" .dotfiles-ai/ai/fifo 2>&1); rc=$?
+    [ "$rc" = 1 ] && ok || bad "a FIFO was not refused (rc=$rc)"; }
+chmod 777 "$H/.dotfiles-ai"
+out=$(read_user_file "$ME" "$H" .dotfiles-ai/ai/AGENTS.md 2>&1); rc=$?
+[ "$rc" = 1 ] && ok || bad "a world-writable folder on the path was accepted: rc=$rc"
+chmod 755 "$H/.dotfiles-ai"
+out=$(read_user_file "$ME" "$H" ../x 2>&1); rc=$?
+[ "$rc" = 1 ] && ok || bad ".. in the path was accepted"
+! grep -nE '^[^#]*(as_user|as_main|runuser|setpriv)' <<< "$(sed -n '/^house_rules() {/,/^}/p' "$REPO/files/proj/proj")" \
+    && ok || bad "house_rules still switches users"
+
 echo "== lock: two proj commands on the same box name never run at once"
 if command -v flock >/dev/null; then
     ( PROJ_LOCK_DIR=$T/locks; lock_box racebox; sleep 3 ) & holder=$!
