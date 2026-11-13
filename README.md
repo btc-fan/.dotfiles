@@ -10,9 +10,21 @@ To change the server, change `/etc/server/host.env` (or push new scripts) and ru
 
 AI agents are not on this branch. They are on the `ai` branch (see the end).
 
-## Where we stopped (2026-11-12) and what to do next
+## Where we stopped (2026-11-13) and what to do next
 
 Read this first when you pick the work up again. Details of every fix: `docs/NOTES.md`.
+
+**Next session, start here (2026-11-13):**
+1. `/opt/server-setup` is at `bac683b` (fetched by `--update --dry-run`), but the steps were not run yet.
+   Run `sudo /opt/server-setup/setup.sh --update`, then `--only verify`.
+2. verify has 2 FAIL lines, one cause: `motd-news.service` exits 203 because step 40-tools makes
+   `50-motd-news` not executable while `motd-news.timer` stays enabled. Fix in step 40-tools: also
+   `systemctl disable --now motd-news.timer` and `reset-failed motd-news.service`.
+3. The `ai` branch on the server (`/opt/ai-setup`) is at `2ab6f03`, 8 commits behind (gates fail closed,
+   RTK resolver, scanners, ai-libs, ai-adopt fixes). Run `sudo /opt/ai-setup/install.sh --update
+   --for-user <user>`, then the ai test suite, `ai-doctor --live`, and an attack test of every gate.
+4. The daily agent ping (05:00, `agent-daily-ping.timer`) was installed by hand, outside this branch.
+   Owner decision D9: add it here, or leave it server-only.
 
 **Done and proven on the server** (deployed from `/opt/server-setup`, verify about 147 PASS):
 - Root runs setup only from the root-owned clone (`sudo /opt/server-setup/setup.sh --update`).
