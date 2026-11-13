@@ -292,8 +292,10 @@ def cmd_toml_set(a):
                 return say("same", a.file, "[%s] %s" % (a.table, a.key))
             lines[idx] = want
         else:
+            # After the table's last key: trailing blank and comment lines belong to what follows (a managed
+            # block opens with a comment line; a key inserted after it would be wiped with that block).
             ins = end
-            while ins > start and not lines[ins - 1].strip():
+            while ins > start and (not lines[ins - 1].strip() or lines[ins - 1].lstrip().startswith("#")):
                 ins -= 1
             lines.insert(ins, want)
     new_text = "\n".join(lines) + "\n"

@@ -35,7 +35,7 @@ def main():
                      t_user_hook_match, t_verify_source, t_connectors_keep, t_sudo_gate, t_gate_skip_owner_only,
                      t_root_guard, t_update_clone, t_ai_sync_untrusted, t_plugin_files_tracked,
                      t_hooks_absolute, t_uv_copy, t_box_registration, t_readiness, t_managed_router,
-                     t_owner_2026_11_12, t_graph_refresh):
+                     t_owner_2026_11_12, t_graph_refresh, t_env_key_outside_trust_block):
             try:
                 test(os.path.join(work, test.__name__))
                 print("ok   " + test.__name__)
@@ -109,6 +109,27 @@ def fake_codex_home(work):
 
 
 # ---------------------------------------------------------------- tests
+
+def t_env_key_outside_trust_block(work):
+    """A key added to the table right above our trust block lands before the block, so a trust refresh keeps it."""
+    home, _root = fake_codex_home(work)
+    cfg = os.path.join(home, "config.toml")
+    write(cfg, 'model = "x"\n\n[shell_environment_policy.set]\nA = "1"\n')
+    state = os.path.join(work, "state.json")
+    code, out = aiconf(state, "codex-trust-hooks", cfg, "--auto")
+    assert code == 0 and "ai-core hook trust" in read(cfg), out
+    code, out = aiconf(state, "toml-set", cfg, "shell_environment_policy.set", "GIT_GUARD_AGENT", '"1"')
+    assert code == 0, out
+    text = read(cfg)
+    assert text.index("GIT_GUARD_AGENT") < text.index("ai-core hook trust"), "key went into the managed block:\n" + text
+    with open(os.path.join(_root, "hooks", "router.py"), "a") as fh:    # force a block rewrite
+        fh.write("\n# changed\n")
+    code, out = aiconf(state, "codex-trust-hooks", cfg, "--auto")
+    assert code == 0, out
+    if tomllib:
+        got = tomllib.loads(read(cfg))["shell_environment_policy"]["set"]
+        assert got == {"A": "1", "GIT_GUARD_AGENT": "1"}, "trust refresh dropped an env key: %s" % got
+
 
 def t_codex_trust(work):
     """Trust hashes for ai-core plugin hooks + rtk only; foreign tables kept; idempotent; check; undo."""
