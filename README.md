@@ -15,8 +15,8 @@ AI agents are not on this branch. They are on the `ai` branch (see the end).
 Read this first when you pick the work up again. Details of every fix: `docs/NOTES.md`.
 
 **Next session, start here (2026-11-13):**
-1. Deployed on 2026-11-13: `/opt/server-setup` and `/opt/ai-setup` run the latest pushed commits
-   (results in docs/NOTES.md and the commit log). motd-news: step 40-tools now also stops its timer.
+1. Deployed and checked on 2026-11-13: `/opt/server-setup` (verify 146 PASS, 0 FAIL) and `/opt/ai-setup`
+   (`ai-doctor --live` 0 FAIL). motd-news: step 40-tools now also stops its timer.
 2. Still to do: an attack test of every gate (Phase 0 of the factory plan).
 3. Migrating a project here: section "Migrate a project to this server" below.
 4. The daily agent ping (05:00, `agent-daily-ping.timer`) was installed by hand, outside this branch.
