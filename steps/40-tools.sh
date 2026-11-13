@@ -60,6 +60,14 @@ EOF
     if [ -f /etc/default/motd-news ] && grep -q '^ENABLED=1' /etc/default/motd-news; then
         run sed -i 's/^ENABLED=1/ENABLED=0/' /etc/default/motd-news
     fi
+    # The news script is not executable now, so its timer would start a unit that fails (203/EXEC)
+    # twice a day and shows up as a failed unit in verify. Stop the timer too.
+    if systemctl is-enabled -q motd-news.timer 2>/dev/null; then
+        run systemctl disable --now motd-news.timer
+    fi
+    if systemctl is-failed -q motd-news.service 2>/dev/null; then
+        run systemctl reset-failed motd-news.service
+    fi
 }
 
 # Distro packages. fd and bat have Debian names; add the usual short names.
