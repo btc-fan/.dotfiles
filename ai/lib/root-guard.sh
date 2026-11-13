@@ -23,7 +23,8 @@ ai_root_guard() {
     fi
     if [ -z "$why" ] && [ "$dirty_ok" != 1 ]; then
         g="git -C $tree"
-        [ "$owner" != root ] && g="sudo -u $owner git -C $tree"
+        # sudo -u only for another user: a user without sudo (the test on a server) checks its own tree directly.
+        [ "$owner" != root ] && [ "$owner" != "$(id -un)" ] && g="sudo -u $owner git -C $tree"
         if [ -n "$($g status --porcelain 2>/dev/null || echo not-a-repo)" ]; then
             why="the tree has uncommitted changes (or is not a git work tree)"
         elif [ "$($g rev-parse HEAD 2>/dev/null)" != "$($g rev-parse origin/ai 2>/dev/null)" ]; then
