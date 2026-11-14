@@ -46,6 +46,7 @@ TIMEOUT = float(os.environ.get("AI_RESOLVE_TIMEOUT") or 15)
 SEMVER = re.compile(r"v?(\d+)\.(\d+)\.(\d+)")
 PYPI_STABLE = re.compile(r"(\d+(?:\.\d+)*)(?:\.post(\d+))?")
 CHECKSUM_ASSET = re.compile(r"(?i)(sha256sums|checksums?(\.txt)?$|\.sha256$)")
+SIGNATURE_ASSET = re.compile(r"(?i)\.(sig|asc|pem|sigstore|bundle|crt|cert)$")
 FIELDS = ("version", "ref", "sha", "integrity", "checksums", "source", "status", "note")
 
 
@@ -195,10 +196,23 @@ def resolve_npm(name, hold=""):
 
 
 def pypi_key(v):
+    """(release padded with zeros, post number): 1.0.post5 < 1.0.1, 1.0 == 1.0.0."""
     m = PYPI_STABLE.fullmatch(v)
     if not m:
         return None
-    return tuple(int(x) for x in m.group(1).split(".")) + (int(m.group(2) or 0),)
+    release = [int(x) for x in m.group(1).split(".")]
+    return (tuple(release + [0] * (12 - len(release))), int(m.group(2) or 0))
+
+
+def same_version(a, b):
+    """1.0 == 1.0.0 (trailing zero parts ignored); anything else compares as text."""
+    def norm(v):
+        return re.sub(r"(\.0+)+$", "", v or "")
+    return norm(a) == norm(b)
+
+
+def is_checksum_asset(name):
+    return bool(CHECKSUM_ASSET.search(name or "")) and not SIGNATURE_ASSET.search(name or "")
 
 
 def resolve_pypi(name, hold=""):
@@ -262,7 +276,7 @@ def resolve_github(repo, hold=""):
         raise Unavailable("github %s: %s" % (repo, "held release %s not found" % hold if hold else "no stable release"))
     tag = best["tag_name"]
     sums = [a.get("browser_download_url") for a in best.get("assets") or []
-            if CHECKSUM_ASSET.search(a.get("name") or "")]
+            if is_checksum_asset(a.get("name"))]
     return {"version": tag.lstrip("v"), "ref": tag, "sha": tag_commit("https://github.com/%s" % repo, tag),
             "checksums": sums[0] if sums else ""}
 
@@ -365,7 +379,7 @@ def resolve(tool, write=True, specs=None, use_memo=True):
             entry["newest"] = dict({k: out[k] for k in ("version", "ref", "sha", "integrity", "checksums")},
                                    time=now(), hold=bool(spec["hold"]))
             save_state(data)
-    except (Unavailable, KeyError) as exc:
+    except (Unavailable, KeyError, ValueError, TypeError, AttributeError) as exc:   # odd registry answers too
         cached = (load_state()["tools"].get(tool) or {}).get("newest") or {}
         held = spec["hold"]
         if cached.get("version") and (not held or held.lstrip("v") == cached["version"] or held == cached.get("sha")):
@@ -383,6 +397,15 @@ def resolve(tool, write=True, specs=None, use_memo=True):
         except OSError:
             pass
     return out
+
+
+def safe_resolve(tool, specs):
+    """resolve() for `list`: one broken tool never stops the others."""
+    try:
+        return resolve(tool, write=False, specs=specs, use_memo=False)
+    except Exception as exc:
+        return dict({k: "" for k in FIELDS}, source=source_text(specs[tool]), status="none",
+                    note="resolver error: %s: %s" % (type(exc).__name__, exc))
 
 
 def record(tool, version, sha="", integrity="", specs=None):
@@ -418,7 +441,7 @@ def checksum(tool, version, asset, target=""):
         except Unavailable:
             rel = {}
         for a in rel.get("assets") or []:
-            if CHECKSUM_ASSET.search(a.get("name") or ""):
+            if is_checksum_asset(a.get("name")):
                 for line in http_get(a["browser_download_url"], accept="text/plain").splitlines():
                     parts = line.split()
                     if len(parts) >= 2 and parts[-1].lstrip("*") == asset and re.fullmatch(r"[0-9a-fA-F]{64}", parts[0]):
@@ -545,7 +568,8 @@ def status(network=False):
     """[{tool, installed, installed_sha, newest, newest_sha, state, note}] for every tool found on this machine.
     state: current | update | hold | unknown."""
     specs = tools()
-    states = [load_state(), load_state("/var/lib/ai/resolved.json")]
+    system = os.path.join(os.environ.get("AI_SYSTEM_STATE_DIR") or "/var/lib/ai", "resolved.json")
+    states = [load_state(), load_state(system)]
     rows = []
     for tool in sorted(specs):
         ver, sha = installed(tool)
@@ -571,7 +595,7 @@ def status(network=False):
                "newest_sha": r.get("sha", ""), "note": r.get("note", ""), "hold": specs[tool]["hold"]}
         if not row["newest"]:
             row["state"] = "unknown"
-        elif (sha and row["newest_sha"] and sha == row["newest_sha"]) or (ver and ver == row["newest"]):
+        elif (sha and row["newest_sha"] and sha == row["newest_sha"]) or (ver and same_version(ver, row["newest"])):
             row["state"] = "hold" if specs[tool]["hold"] else "current"
         else:
             row["state"] = "update"
@@ -602,8 +626,7 @@ def main(argv):
         specs = tools()
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=8) as pool:
-            results = list(pool.map(lambda t: (t, resolve(t, write=False, specs=specs, use_memo=False)),
-                                    sorted(specs)))
+            results = list(pool.map(lambda t: (t, safe_resolve(t, specs)), sorted(specs)))
         memo_path = os.environ.get("AI_RESOLVE_MEMO")
         if memo_path:
             try:
