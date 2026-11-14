@@ -311,6 +311,7 @@ PLACEHOLDER_WORDS = {
     "knowledge_index": "(status line: memories, graph, docs map)",
     "knowledge_delta": "Update mem:core, run ai-libs --sync or graphify update, as the commit needs.",
     "libs_hits": "(cached IDs)",
+    "ledger_hits": "Edit in a docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests.",
     "origin_slug": "(repo from origin)",
     "claude_handoff": "Other agents: hand off to Claude only when it is logged in, else follow the skill files.",
 }

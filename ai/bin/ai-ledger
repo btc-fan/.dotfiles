@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+"""ai-ledger: the regression ledger (docs/REGRESSIONS.md) of a repo, and its honesty checks.
+
+  ai-ledger [--dir PATH]                       list the rows (id, areas, test, reopened)
+  ai-ledger [--dir PATH] --hits FILE           the rows whose area covers FILE (what the edit nudge says)
+  ai-ledger [--dir PATH] --check [--base REF]  honesty checks; exit 1 on a FAIL (make check runs it, long tier)
+
+Checks (the Rust tidy idea: the list is machine-checked, exceptions cannot grow quietly):
+  FAIL  a row misses date, area, test or reopened, or an id is used twice
+  FAIL  a test path does not exist, or its file name does not carry the id (R-012: test_r012_*.py, r012_*.test.ts)
+  FAIL  a file in tests/regressions/ has no row
+  FAIL  against the base (default: the merge base with origin/HEAD, origin/main or main; else HEAD):
+        a row was removed, `reopened` went down, a quarantine line was added with an old date, or the
+        `since:` date of a quarantine line changed (the quarantine list only shrinks)
+  WARN  an area prefix matches no tracked file (moved code), a quarantine line is older than 14 days
+"""
+import datetime
+import os
+import re
+import subprocess
+import sys
+
+BIN = os.path.dirname(os.path.realpath(__file__))
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(BIN), "marketplace", "plugins", "ai-core", "hooks"))
+from hooklib import (LEDGER_REL, ledger_hits, ledger_note, norm_rel, parse_ledger, project_root,  # noqa: E402
+                     read_text)
+
+REG_DIR = os.path.join("tests", "regressions")
+NOT_TESTS = {"__init__.py", "conftest.py", "README.md", "__pycache__"}
+QUARANTINE_DAYS = 14
+
+
+def main(argv):
+    root = project_root(arg(argv, "--dir") or ".")
+    if not root:
+        print("ai-ledger: not a git repo")
+        return 2
+    text = read_text(os.path.join(root, LEDGER_REL))
+    if "--hits" in argv:
+        path = arg(argv, "--hits") or ""
+        rel = os.path.relpath(os.path.realpath(os.path.abspath(path)), os.path.realpath(root))
+        print(ledger_note(ledger_hits(root, rel)) or "no ledger row covers %s" % rel)
+        return 0
+    if "--check" in argv:
+        return check(root, text, arg(argv, "--base"))
+    if text is None:
+        print("no %s here" % LEDGER_REL)
+        return 0
+    for row in parse_ledger(text)["rows"]:
+        print("%s  %s  reopened %s  %s" % (row["id"], ",".join(row["area"]), row["reopened"], row["test"]))
+    return 0
+
+
+def arg(argv, name):
+    if name in argv and argv.index(name) + 1 < len(argv):
+        return argv[argv.index(name) + 1]
+    return None
+
+
+def check(root, text, base):
+    fails, warns = [], []
+    if text is None:
+        orphans = regression_files(root)
+        if orphans:
+            fails.append("%s missing, but tests/regressions/ has %s" % (LEDGER_REL, ", ".join(orphans[:5])))
+        return report(fails, warns, "no ledger yet")
+    led = parse_ledger(text)
+    rows = led["rows"]
+    for raw in led["bad"]:
+        fails.append("row misses date, area, test or reopened: %s" % raw[:120])
+    seen = set()
+    tracked = (git(root, "ls-files") or "").splitlines()
+    for row in rows:
+        if row["id"] in seen:
+            fails.append("%s is used twice" % row["id"])
+        seen.add(row["id"])
+        if row["test"]:
+            test_file = row["test"].split("::", 1)[0]
+            if not os.path.isfile(os.path.join(root, test_file)):
+                fails.append("%s: test %s does not exist" % (row["id"], test_file))
+            num = int(row["id"].split("-")[1])
+            if not re.search(r"(?<![a-z0-9])r0*%d(?!\d)" % num, os.path.basename(test_file).lower()):
+                fails.append("%s: test file %s does not carry the id (name it test_r%03d_<promise>)"
+                             % (row["id"], os.path.basename(test_file), num))
+        for area in row["area"]:
+            if not any(t.startswith(norm_rel(area)) for t in tracked):
+                warns.append("%s: area %s matches no tracked file (moved?)" % (row["id"], area))
+    listed = {r["test"].split("::", 1)[0] for r in rows}
+    for rel in regression_files(root):
+        if rel not in listed:
+            fails.append("%s has no ledger row" % rel)
+    today = datetime.date.today()
+    for q in led["quarantine"]:
+        age = (today - parse_date(q["since"])).days
+        if age > QUARANTINE_DAYS:
+            warns.append("quarantine %s since %s (%d days): fix it or delete it with the owner" % (q["test"], q["since"], age))
+    base_ref = base or default_base(root)
+    old_text = git(root, "show", "%s:%s" % (base_ref, LEDGER_REL.replace(os.sep, "/"))) if base_ref else None
+    if old_text is not None:
+        old = parse_ledger(old_text)
+        now = {r["id"]: r for r in rows}
+        for r in old["rows"]:
+            if r["id"] not in now:
+                fails.append("%s was removed (rows are never deleted; base %s)" % (r["id"], base_ref))
+            elif None not in (r["reopened"], now[r["id"]]["reopened"]) and now[r["id"]]["reopened"] < r["reopened"]:
+                fails.append("%s: reopened went down %d -> %d (it only goes up)" % (r["id"], r["reopened"],
+                                                                                  now[r["id"]]["reopened"]))
+        before = {q["test"]: q["since"] for q in old["quarantine"]}
+        for q in led["quarantine"]:
+            if q["test"] in before and before[q["test"]] != q["since"]:
+                fails.append("quarantine %s: since changed %s -> %s (the clock is not reset)"
+                             % (q["test"], before[q["test"]], q["since"]))
+            elif q["test"] not in before and (today - parse_date(q["since"])).days > 1:
+                fails.append("quarantine %s added with an old date %s (a new line has today's date)"
+                             % (q["test"], q["since"]))
+    return report(fails, warns, "%d rows, %d in quarantine%s" % (
+        len(rows), len(led["quarantine"]), (", compared with " + base_ref) if old_text is not None else ""))
+
+
+def report(fails, warns, summary):
+    for f in fails:
+        print("FAIL " + f)
+    for w in warns:
+        print("WARN " + w)
+    print("ai-ledger: %s; %d fail, %d warn" % (summary, len(fails), len(warns)))
+    return 1 if fails else 0
+
+
+def regression_files(root):
+    d = os.path.join(root, REG_DIR)
+    out = []
+    for dirpath, dirnames, files in os.walk(d):
+        dirnames[:] = [x for x in dirnames if x not in NOT_TESTS and not x.startswith((".", "fixtures", "data"))]
+        for f in sorted(files):
+            if f in NOT_TESTS or f.startswith(".") or f.endswith((".pyc", ".json", ".txt", ".md")):
+                continue
+            out.append(os.path.relpath(os.path.join(dirpath, f), root).replace(os.sep, "/"))
+    return out
+
+
+def default_base(root):
+    head = git(root, "rev-parse", "-q", "--verify", "HEAD")
+    if not head:
+        return None
+    for ref in ("origin/HEAD", "origin/main", "origin/master", "main", "master"):
+        mb = git(root, "merge-base", "HEAD", ref)
+        if mb and mb.strip() != head.strip():
+            return mb.strip()
+    return "HEAD"
+
+
+def parse_date(s):
+    try:
+        return datetime.date(*[int(x) for x in s.split("-")])
+    except (ValueError, TypeError):
+        return datetime.date.today()
+
+
+def git(root, *args):
+    try:
+        res = subprocess.run(["git", "-C", root] + list(args), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                             timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return res.stdout.decode("utf-8", "replace") if res.returncode == 0 else None
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

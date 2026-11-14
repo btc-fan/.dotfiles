@@ -31,7 +31,8 @@ import time
 sys.dont_write_bytecode = True      # no __pycache__ inside the (possibly read-only) plugin dir
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from hooklib import (GATES, GATE_PROBES, ai_home, append_jsonl, command_text, gate_skips,  # noqa: E402
-                     iso_now, knowledge_delta, knowledge_index, libs_hits, log_error, log_line, one_line,
+                     iso_now, knowledge_delta, knowledge_index, ledger_hits, ledger_note, libs_hits, log_error,
+                     log_line, one_line, project_tier,
                      origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
                      state_path, with_defaults, graph_git_calls, start_graph_refresh)
 
@@ -730,6 +731,26 @@ def _ph_libs_hits(ctx):
     return libs_hits(ctx.root, ctx.named_libs or ())
 
 
+def _ph_ledger_hits(ctx):
+    """Before an edit in a regression-ledger area (long tier): one reminder per area per session."""
+    if ctx.event != "PreToolUse" or not ctx.root or project_tier(ctx.root) != "long":
+        return ""
+    path = file_of(tool_input(ctx.payload))
+    if not path:
+        return ""
+    rel = os.path.relpath(os.path.realpath(os.path.join(ctx.cwd, path)), os.path.realpath(ctx.root))
+    if rel.startswith(".."):
+        return ""
+    hits = ledger_hits(ctx.root, rel)
+    seen = ctx.state.load().setdefault("ledger_areas", [])
+    new = [h for h in hits if h[1] not in seen]
+    if not new:
+        return ""
+    seen.extend(sorted({h[1] for h in new}))
+    ctx.state.dirty = True
+    return ledger_note(new)
+
+
 def _ph_origin_slug(ctx):
     return origin_slug(ctx.root)
 
@@ -742,6 +763,7 @@ PLACEHOLDERS = {
     "knowledge_index": _ph_knowledge_index,
     "knowledge_delta": _ph_knowledge_delta,
     "libs_hits": _ph_libs_hits,
+    "ledger_hits": _ph_ledger_hits,
     "origin_slug": _ph_origin_slug,
     "claude_handoff": _ph_claude_handoff,
 }

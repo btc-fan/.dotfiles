@@ -34,7 +34,8 @@ import time
 sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
-from hooklib import (ai_home, iso_now, log_line, project_root, project_tier, read_text, state_path)  # noqa: E402
+from hooklib import (ai_home, iso_now, ledger_hits, ledger_note, log_line, project_root, project_tier,  # noqa: E402
+                     read_text, state_path)
 
 CHECK_TIMEOUT = float(os.environ.get("AI_STOP_CHECK_TIMEOUT") or 55)   # env: tests only (the hook's own env)
 MAX_TRIES = 2
@@ -148,8 +149,9 @@ def on_stop(payload, agent):
             problem, output = "ai-ratchet (tests and skips) failed", msg
     if problem is None:
         st.data["last_ok"] = [fp, fingerprint(root)]       # the check may touch files (caches, formatters)
+        msg = ledger_stop_note(root, st, payload) if agent == "claude" and project_tier(root) == "long" else ""
         st.save()
-        return None
+        return note(agent, msg) if msg else None
     tries[fp] = tries.get(fp, 0) + 1
     st.save()
     tail = "\n".join(output.rstrip().splitlines()[-TAIL_LINES:])
@@ -157,6 +159,28 @@ def on_stop(payload, agent):
               "test to get green. If it cannot pass, say why and stop (block %d of %d for these files)."
               % (problem, TAIL_LINES, tail, tries[fp], MAX_TRIES))
     return {"decision": "block", "reason": reason}
+
+
+def ledger_stop_note(root, st, payload):
+    """Files changed in this session (Bash edits too: sed -i, formatters) that lie in a regression-ledger area
+    the edit nudge did not name yet: one line for the owner."""
+    names = set()
+    for e in git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all").split(b"\0"):
+        if len(e) > 3 and e[2:3] == b" ":
+            names.add(e[3:].decode("utf-8", "replace"))
+    if st.data.get("baseline_head"):
+        names |= set(git(root, "diff", "--name-only", st.data["baseline_head"], "HEAD").decode().splitlines())
+    sid = re.sub(r"[^A-Za-z0-9_.-]", "_", str(payload.get("session_id") or "nosession"))[:120]
+    try:
+        router = json.loads(read_text(state_path(os.path.join("sessions", sid + ".json"))) or "{}")
+    except ValueError:
+        router = {}
+    seen = set(router.get("ledger_areas") or []) | set(st.data.get("ledger_told") or [])
+    hits = [h for rel in sorted(names) for h in ledger_hits(root, rel) if h[1] not in seen]
+    if not hits:
+        return ""
+    st.data.setdefault("ledger_told", []).extend(sorted({h[1] for h in hits}))
+    return "Files changed in a regression area this session (Bash edits too). " + ledger_note(hits)
 
 
 def note(agent, text):

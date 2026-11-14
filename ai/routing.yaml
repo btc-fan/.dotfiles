@@ -91,6 +91,13 @@ rules:
     action: "PR body: summary, Mermaid diagram, one-way or two-way door, blast radius, Verify and Risk (tier mvp, long), Docs and Changed guards (long; Ledger on fix PRs), author-sessions block at the end."
     strength: gate    # blocks without ```mermaid, <!-- author-sessions, the tier fields (placeholders refused), a test file in a fix: PR; --fill/--web refused
 
+  - id: ledger-nudge
+    scope: global
+    summary: 'before an edit in a regression-ledger area (tier long)'
+    trigger: {tool_before: 'Edit|Write|MultiEdit|NotebookEdit'}
+    action: "{ledger_hits}"   # empty outside long-tier repos and areas; once per area per session
+    strength: nudge
+
   # ---------- lint and docs ----------
   - id: no-em-dash
     scope: global

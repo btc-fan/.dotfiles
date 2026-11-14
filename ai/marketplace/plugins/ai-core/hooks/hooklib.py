@@ -1595,6 +1595,102 @@ GATE_PROBES = {"audit-before-install": probe_audit, "secret-scan": probe_secrets
                "no-sudo": probe_sudo, "no-destroy": probe_destroy}
 
 
+# ---------------------------------------------------------------- regression ledger (docs/REGRESSIONS.md)
+# One row per bug that reached main (Tier 1 T3, long tier):
+#   R-012 | 2026-11-12 | area: crawler/gone | symptom: ... | cause: ... | test: tests/regressions/test_r012_x.py |
+#           reopened: 0
+# A row may wrap onto indented lines. Rows are read under "## Ledger" (the whole file when that heading is
+# missing); "## Quarantine" holds `- <test id> | since: YYYY-MM-DD | why` lines. ai-ledger --check keeps it honest.
+
+LEDGER_REL = os.path.join("docs", "REGRESSIONS.md")
+LEDGER_ROW = re.compile(r"^(R-\d+)\s*\|")
+QUARANTINE_ROW = re.compile(r"^\s*[-*]\s+(.+?)\s*\|\s*since:\s*(\d{4}-\d{2}-\d{2})\s*(?:\|\s*(.*))?$")
+
+
+def parse_ledger(text):
+    """{"rows": [{id, date, area: [prefixes], test, reopened (int or None), raw}], "quarantine": [{test, since,
+    why}], "bad": [raw lines that start like a row but miss a field]}."""
+    rows, quarantine, bad = [], [], []
+    scoped = re.search(r"^##\s+Ledger\b", text or "", re.M) is not None
+    section, cur = "", None
+    for ln in (text or "").splitlines():
+        h = re.match(r"^##\s+(.*)$", ln)
+        if h:
+            section, cur = h.group(1).strip().lower(), None
+            continue
+        if section.startswith("quarantine"):
+            m = QUARANTINE_ROW.match(ln)
+            if m:
+                quarantine.append({"test": m.group(1).strip("` "), "since": m.group(2), "why": (m.group(3) or "")})
+            continue
+        if scoped and section != "ledger":
+            continue
+        if LEDGER_ROW.match(ln):
+            cur = {"raw": ln.strip()}
+            rows.append(cur)
+        elif cur is not None and ln[:1] in (" ", "\t") and ln.strip():
+            cur["raw"] += " " + ln.strip()
+        else:
+            cur = None
+    out = []
+    for r in rows:
+        parts = [p.strip() for p in r["raw"].split("|")]
+        row = {"id": parts[0], "date": parts[1] if len(parts) > 1 else "", "area": [], "test": "", "reopened": None,
+               "raw": r["raw"]}
+        for p in parts[2:]:
+            key, sep, val = p.partition(":")
+            key = key.strip().lower()
+            if not sep:
+                continue
+            if key == "area":
+                row["area"] = [a.strip().strip("`") for a in val.split(",") if a.strip()]
+            elif key == "test":
+                row["test"] = val.strip().strip("`")
+            elif key == "reopened":
+                row["reopened"] = int(val.strip()) if val.strip().isdigit() else None
+        if not (row["area"] and row["test"] and row["reopened"] is not None and re.match(r"^\d{4}-\d{2}-\d{2}$",
+                                                                                         row["date"])):
+            bad.append(r["raw"])
+        out.append(row)
+    return {"rows": out, "quarantine": quarantine, "bad": bad}
+
+
+def ledger_rows(root):
+    return parse_ledger(read_text(os.path.join(root, LEDGER_REL)) if root else "")["rows"]
+
+
+def ledger_hits(root, rel):
+    """[(id, area, test)] for the ledger rows whose area prefix covers the repo-relative path rel."""
+    rel = norm_rel(rel)
+    out = []
+    for row in ledger_rows(root):
+        for area in row["area"]:
+            a = norm_rel(area)
+            if a and (rel == a.rstrip("/") or rel.startswith(a)):
+                out.append((row["id"], a, row["test"]))
+                break
+    return out
+
+
+def norm_rel(path):
+    path = path.replace(os.sep, "/")
+    while path.startswith("./"):
+        path = path[2:]
+    return path
+
+
+def ledger_note(hits, max_ids=3):
+    """One reminder line for hits [(id, area, test)], or ''."""
+    if not hits:
+        return ""
+    ids = sorted({h[0] for h in hits}, key=lambda i: int(i.split("-")[1]))
+    areas = sorted({h[1] for h in hits})
+    tests = sorted({h[2] for h in hits if h[2]})
+    shown = ", ".join(ids[:max_ids]) + (" +%d more" % (len(ids) - max_ids) if len(ids) > max_ids else "")
+    return ("Regression area %s has %s (docs/REGRESSIONS.md): keep them green, run %s or the whole check."
+            % (", ".join(areas[:3]), shown, " ".join(tests[:max_ids]) or "their tests"))
+
+
 # ---------------------------------------------------------------- project knowledge (router placeholders)
 # Project knowledge lives in the repo AGENTS.md (read every session, no tool call): a Map block (<= 60 lines)
 # and a Libraries block (context7 IDs + lockfile hashes), both written by ai-adopt / ai-libs. The router only

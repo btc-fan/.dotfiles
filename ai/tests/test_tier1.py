@@ -324,6 +324,93 @@ def t_stop_omc_coexistence(work):
     assert hook(repo, env, "Stop") is None, "legacy OMC state with this session id"
 
 
+# ---------------------------------------------------------------- T3: regression ledger
+
+LEDGER = """# Regressions
+## Ledger
+R-012 | 2026-11-12 | area: src/billing/ | symptom: double refund | cause: retry path skipped the lock |
+        test: tests/regressions/test_r012_refund_once.py | reopened: 1
+## Quarantine
+"""
+
+
+def ledger_repo(work, name, ledger=LEDGER, extra=None):
+    files = {"docs/REGRESSIONS.md": ledger, "src/billing/refund.py": "x = 1\n",
+             "tests/regressions/test_r012_refund_once.py": "def test_refund_once(): pass\n",
+             ".ai/enabled": "tier: long\n", "Makefile": STOP_MAKEFILE, "check.sh": PASS_SH}
+    files.update(extra or {})
+    repo = tree(work, name, files)
+    env = git_env(work, name)
+    run(["git", "init", "-q", repo])
+    run(["git", "-C", repo, "add", "-A"], env=env)
+    run(["git", "-C", repo, "commit", "-q", "-m", "init"], env=env)
+    return repo, env
+
+
+def ledger_check(repo, env):
+    return run([sys.executable, os.path.join(BIN, "ai-ledger"), "--check", "--dir", repo], env=env)
+
+
+def t_ledger_check_honest(work):
+    import datetime
+    repo, env = ledger_repo(work, "ledger-ok")
+    res = ledger_check(repo, env)
+    assert res.returncode == 0 and "1 rows" in res.stdout, res.stdout
+    ledger = os.path.join(repo, "docs", "REGRESSIONS.md")
+    cases = [
+        ("missing test file", LEDGER.replace("test_r012_refund_once.py", "test_r012_gone.py"), "does not exist"),
+        ("test name without the id", LEDGER.replace("test_r012_refund_once.py", "test_refund.py"), "does not carry"),
+        ("row removed", "# Regressions\n## Ledger\n## Quarantine\n", "R-012 was removed"),
+        ("reopened went down", LEDGER.replace("reopened: 1", "reopened: 0"), "reopened went down 1 -> 0"),
+        ("malformed row", LEDGER.replace("## Quarantine", "R-013 | 2026-11-13 | symptom: x\n## Quarantine"),
+         "row misses"),
+        ("old quarantine date added", LEDGER + "- tests/test_a.py::test_x | since: 2026-01-01 | timing\n",
+         "added with an old date"),
+    ]
+    for label, text, want in cases:
+        write(ledger, text)
+        res = ledger_check(repo, env)
+        assert res.returncode == 1 and want in res.stdout, "%s: %s" % (label, res.stdout)
+    today = datetime.date.today().isoformat()
+    write(ledger, LEDGER + "- tests/test_a.py::test_x | since: %s | timing\n" % today)
+    res = ledger_check(repo, env)
+    assert res.returncode == 0, "a new quarantine line with today's date is fine: " + res.stdout
+    write(ledger, LEDGER)
+    write(os.path.join(repo, "tests", "regressions", "test_r099_orphan.py"), "def test_x(): pass\n")
+    res = ledger_check(repo, env)
+    assert res.returncode == 1 and "test_r099_orphan.py has no ledger row" in res.stdout, res.stdout
+
+
+def t_ledger_quarantine_clock(work):
+    old = LEDGER + "- tests/test_a.py::test_x | since: 2026-01-01 | timing\n"
+    repo, env = ledger_repo(work, "ledger-q", ledger=old)
+    res = ledger_check(repo, env)
+    assert res.returncode == 0 and "WARN quarantine tests/test_a.py::test_x since 2026-01-01" in res.stdout, res.stdout
+    write(os.path.join(repo, "docs", "REGRESSIONS.md"), old.replace("2026-01-01", "2026-11-14"))
+    res = ledger_check(repo, env)
+    assert res.returncode == 1 and "since changed" in res.stdout, res.stdout
+    moved = LEDGER.replace("area: src/billing/", "area: src/payments/")
+    write(os.path.join(repo, "docs", "REGRESSIONS.md"), moved)
+    res = ledger_check(repo, env)
+    assert res.returncode == 0 and "area src/payments/ matches no tracked file" in res.stdout, res.stdout
+
+
+def t_ledger_stop_note(work):
+    repo, env = ledger_repo(work, "ledger-stop")
+    hook(repo, env, "SessionStart")
+    write(os.path.join(repo, "src", "billing", "refund.py"), "x = 2\n")     # like sed -i: no Edit hook saw it
+    out = hook(repo, env, "Stop")
+    assert out and "R-012" in out.get("systemMessage", "") and "decision" not in out, out
+    write(os.path.join(repo, "src", "billing", "refund.py"), "x = 3\n")
+    assert hook(repo, env, "Stop") is None, "one note per area per session"
+    repo2, env2 = ledger_repo(work, "ledger-stop-nudged")
+    write(os.path.join(env2["AI_STATE_DIR"], "sessions", "s1.json"), json.dumps({"ledger_areas": ["src/billing/"]}))
+    hook(repo2, env2, "SessionStart")
+    write(os.path.join(repo2, "src", "billing", "refund.py"), "x = 2\n")
+    assert hook(repo2, env2, "Stop") is None, "the edit nudge already named this area"
+    assert hook(repo2, env2, "Stop", agent="codex") is None
+
+
 # ---------------------------------------------------------------- helpers
 
 def detect(repo):
@@ -406,7 +493,8 @@ TESTS_LIST = [t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_g
               t_plan_keeps_targets, t_adopt_try_tier_own_done, t_adopt_long_tier, t_adopt_monorepo_refused,
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_hook_active_silent,
               t_stop_success_silent_both_agents, t_stop_codex_block_and_timeout, t_stop_floor_zero_tests,
-              t_stop_off_switches, t_stop_omc_coexistence]
+              t_stop_off_switches, t_stop_omc_coexistence, t_ledger_check_honest, t_ledger_quarantine_clock,
+              t_ledger_stop_note]
 
 if __name__ == "__main__":
     sys.exit(main())
