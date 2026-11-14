@@ -773,7 +773,7 @@ FAKE_CLAUDE = r'''#!/usr/bin/env python3
 # marketplace's plugins; add Owner/repo#ref stores {source: github, repo, ref}; update + plugin update move).
 # install writes enabledPlugins[p] = true in settings.json, uninstall drops the key (data kept with --keep-data).
 # FAKE_FAIL_ADD=<source>: that add fails. FAKE_UPDATE_BROKEN=1: plugin update does nothing.
-# FAKE_BAD_INSTALL=1: install records a wrong version.
+# FAKE_BAD_INSTALL=1: install records a wrong version. FAKE_UNINSTALL_FAIL=1, FAKE_MCP_REMOVE_FAIL=1: those fail.
 import json, os, shutil, subprocess, sys
 cfg = os.environ["CLAUDE_CONFIG_DIR"]
 pd = os.path.join(cfg, "plugins")
@@ -846,10 +846,14 @@ elif a[:2] == ["plugin", "install"] or (a[:2] == ["plugin", "update"] and not os
     if a[1] == "install":
         en[p] = True
 elif a[:2] == ["plugin", "uninstall"]:
+    if os.environ.get("FAKE_UNINSTALL_FAIL"):
+        sys.exit(1)
     drop(a[2])
 elif a[:2] == ["plugin", "list"]:
     print("\\n".join(i["plugins"]))
 elif a[:2] == ["mcp", "remove"]:          # claude mcp remove --scope user NAME: the user scope of .claude.json
+    if os.environ.get("FAKE_MCP_REMOVE_FAIL"):
+        sys.exit(1)
     cj = os.path.join(cfg, ".claude.json")
     d = load(cj, {})
     if a[-1] not in (d.get("mcpServers") or {}):

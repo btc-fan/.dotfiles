@@ -37,7 +37,7 @@ def main():
     try:
         for test in (t_drop_claude, t_drop_keeps_shared_marketplace, t_drop_codex_and_serena, t_off_plugins,
                      t_serena_take, t_rtk_brew, t_rtk_no_brew, t_omx_node_fix, t_last30days, t_doctor,
-                     t_omc_companion):
+                     t_omc_companion, t_drop_failures, t_rtk_brew_mismatch, t_codex_restore_quoted):
             for k, v in saved.items():
                 if v is None:
                     os.environ.pop(k, None)
@@ -145,6 +145,8 @@ if a[:2] == ["mcp", "get"]:
         sys.exit(1)
     print(json.dumps({"name": a[2], "raw": "\n".join("\n".join(tables(text)[t]) for t in found)}))
 elif a[:2] == ["mcp", "remove"]:
+    if os.environ.get("FAKE_CODEX_REMOVE_FAIL"):
+        sys.exit(1)
     drop = set(server(a[2]))
     if not drop:
         sys.exit(1)
@@ -172,10 +174,13 @@ elif a[:2] == ["plugin", "list"]:
 '''
 
 FAKE_BREW = r'''#!/bin/sh
-# Fake brew: --prefix prints $FAKE_BREW_PREFIX; `upgrade rtk` installs $FAKE_BREW_RTK_NEW in the Cellar and links it.
-echo "brew $*" >> "$FAKE_LOG"
+# Fake brew: --prefix prints $FAKE_BREW_PREFIX; `info --json=v2 rtk` reports $FAKE_BREW_TAP and
+# $FAKE_BREW_STABLE; `upgrade rtk` installs $FAKE_BREW_RTK_NEW in the Cellar and links it.
+echo "brew $* (HOMEBREW_NO_AUTO_UPDATE=${HOMEBREW_NO_AUTO_UPDATE:-})" >> "$FAKE_LOG"
 case "$1" in
     --prefix) echo "$FAKE_BREW_PREFIX" ;;
+    info) printf '{"formulae": [{"name": "rtk", "tap": "%s", "versions": {"stable": "%s"}}]}\n' \
+        "${FAKE_BREW_TAP:-homebrew/core}" "${FAKE_BREW_STABLE:-$FAKE_BREW_RTK_NEW}" ;;
     upgrade)
         [ "$2" = rtk ] || exit 1
         mkdir -p "$FAKE_BREW_PREFIX/Cellar/rtk/$FAKE_BREW_RTK_NEW/bin"
@@ -226,6 +231,7 @@ def t_drop_claude(work):
     user MCP servers are removed; each saved in the undo folder and recorded; the vendor hook files stay and are
     reported; a dry run changes nothing; a second run changes nothing; undo restores all of it."""
     env, home = caveman_setup(work)
+    tr.set_enabled(home, "caveman@caveman", False)
     script = LIBS + "claude_mcp; claude_drop_plugins; claude_drop_hooks"
     before = snapshot(home)
     code, out = bash(LIBS + "AI_DRY_RUN=1; claude_mcp; claude_drop_plugins; claude_drop_hooks", env)
@@ -258,6 +264,7 @@ def t_drop_claude(work):
     assert code == 0, out
     known, plugins = tr.claude_files(home)
     assert "caveman@caveman" in plugins and known["caveman"]["source"]["repo"] == "JuliusBrussee/caveman", (known, out)
+    assert tr.enabled(home)["caveman@caveman"] is False, "the old enabledPlugins value comes back"
     st = jload(os.path.join(home, ".claude", "settings.json"))
     cmds = " ".join(h["command"] for gs in st["hooks"].values() for g in gs for h in g["hooks"])
     assert "caveman-activate.js" in cmds and "caveman-mode-tracker.js" in cmds and "herdr" in cmds, cmds
@@ -347,6 +354,16 @@ def t_serena_take(work):
     assert code == 0 and "serena" in jload(cj)["mcpServers"], out
     set_settings(home, enabledPlugins={"ai-serena@ai": True})
     code, out = bash(LIBS + "claude_take_serena", env)
+    assert code == 0 and "serena" in jload(cj)["mcpServers"] and "serena not on PATH" in out, \
+        "no serena binary: the plugin cannot run, the user copy stays: " + out
+    stub(os.path.join(bindir, "serena"), "#!/bin/sh\necho serena 2.1.0\n")
+    os.rename(os.path.join(bindir, "claude"), os.path.join(bindir, "claude-real"))
+    stub(os.path.join(bindir, "claude"), '#!/bin/sh\nif [ "$1 $2" = "plugin list" ]; then\n'
+         'printf "Installed plugins:\\n\\n  \\342\\235\\257 ai-serena@ai\\n    Scope: user\\n    Status: x %s\\n" "$FAKE_SERENA_STATUS"\n'
+         'exit 0\nfi\nexec "$(dirname "$0")/claude-real" "$@"\n')
+    code, out = bash(LIBS + "claude_take_serena", dict(env, FAKE_SERENA_STATUS="disabled"))
+    assert code == 0 and "serena" in jload(cj)["mcpServers"], "listed disabled: kept: " + out
+    code, out = bash(LIBS + "claude_take_serena", dict(env, FAKE_SERENA_STATUS="enabled"))
     assert code == 0, out
     assert set(jload(cj)["mcpServers"]) == {"context7"}, read(cj)
     assert "restore:claude-user-mcp:serena" in [e["key"] for e in entries(home)]
@@ -355,16 +372,18 @@ def t_serena_take(work):
 
 
 RTK_RELEASES = [{"tag_name": "v1.2.0", "prerelease": False, "draft": False, "assets": []},
+                {"tag_name": "v1.1.0", "prerelease": False, "draft": False, "assets": []},
                 {"tag_name": "v0.49.0", "prerelease": False, "draft": False, "assets": []}]
 
 
-def rtk_env(work, with_brew=True):
+def rtk_env(work, with_brew=True, hold=""):
     sha = "c" * 40
     fx = os.path.join(work, "fx.json")
     write(fx, json.dumps({"http": {"https://api.github.com/repos/rtk-ai/rtk/releases?per_page=100": RTK_RELEASES},
-                          "git": {"https://github.com/rtk-ai/rtk --tags": "%s\trefs/tags/v1.2.0\n" % sha}}))
+                          "git": {"https://github.com/rtk-ai/rtk --tags": "%s\trefs/tags/v1.2.0\n%s\trefs/tags/v1.1.0\n"
+                                  % (sha, "d" * 40)}}))
     prefix = os.path.join(work, "brew")
-    env, home, bindir = env_for(work, 'RTK_SOURCE="github rtk-ai/rtk stable"\n',
+    env, home, bindir = env_for(work, 'RTK_SOURCE="github rtk-ai/rtk stable"\n' + ("RTK_HOLD=%s\n" % hold if hold else ""),
                                 extra_path=os.path.join(prefix, "bin") + ":" + os.path.join(work, "home", ".local", "bin"))
     env.update({"AI_RESOLVE_FIXTURES": fx, "FAKE_BREW_PREFIX": prefix, "FAKE_BREW_RTK_NEW": "1.2.0"})
     cellar = os.path.join(prefix, "Cellar", "rtk", "0.49.0", "bin", "rtk")
@@ -386,28 +405,29 @@ def t_rtk_brew(work):
     write(os.path.join(home, STATE, "rtk.build"), "v0.40.0 cargo-update=1\n")
     script = LIBS + 'git_source_audited() { echo "AUDIT $*"; }; tools_rtk'
     code, out = bash(LIBS + 'AI_DRY_RUN=1; git_source_audited() { echo "AUDIT $*"; }; tools_rtk', env)
-    assert code == 0 and "[dry-run] brew upgrade rtk" in out and os.path.exists(own), out
+    assert code == 0 and "[dry-run] env HOMEBREW_NO_AUTO_UPDATE=1 brew upgrade rtk" in out and os.path.exists(own), out
     assert "brew upgrade" not in read(env["FAKE_LOG"]) and "cargo" not in out, out
     code, out = bash(script, env)
     assert code == 0, out
-    assert "brew upgrade rtk" in read(env["FAKE_LOG"]), read(env["FAKE_LOG"])
+    assert "brew upgrade rtk (HOMEBREW_NO_AUTO_UPDATE=1)" in read(env["FAKE_LOG"]), read(env["FAKE_LOG"])
     assert "AUDIT rtk https://github.com/rtk-ai/rtk v1.2.0 %s" % sha in out, out
     res = subprocess.run([os.path.join(prefix, "bin", "rtk"), "--version"], stdout=subprocess.PIPE)
     assert res.stdout.decode().strip() == "rtk 1.2.0", res.stdout
     assert not os.path.exists(own) and not os.path.exists(os.path.join(home, STATE, "rtk.build")), out
     backups = os.listdir(os.path.join(home, STATE, "backup"))
     assert len(backups) == 1 and backups[0].startswith("rtk."), backups
-    assert "cmd:rtk-own-copy-removed" in [e["key"] for e in entries(home)]
+    assert "cmd:bin:rtk-own-copy-removed" in [e["key"] for e in entries(home)], "undone with the tools"
     resolved = jload(os.path.join(home, STATE, "resolved.json"))
     assert resolved["tools"]["rtk"]["installed"]["version"] == "1.2.0", resolved
-    assert "brew-upgrade 0.49.0 -> 1.2.0" in read(os.path.join(home, STATE, "audit.log"))
+    assert "brew-upgrade 0.49.0 -> 1.2.0 (homebrew/core; tag v1.2.0 (%s) audited)" % sha in \
+        read(os.path.join(home, STATE, "audit.log"))
     code, out = bash(LIBS + "type -ap rtk | sort -u | wc -l", env)
     assert out.strip() == "1", "one rtk on PATH: " + out
     os.remove(env["FAKE_LOG"])
     code, out = bash(script, env)
     assert code == 0 and "present (Homebrew formula, newest stable)" in out, out
     assert "upgrade" not in read(env["FAKE_LOG"]), read(env["FAKE_LOG"])
-    code, out = run_undo(env, home, only="^cmd:rtk-own-copy-removed$")
+    code, out = run_undo(env, home, only="^cmd:bin:rtk-own-copy-removed$")
     assert os.path.exists(own), "undo puts our copy back: " + out
 
 
@@ -467,6 +487,11 @@ def t_omx_node_fix(work):
     assert code == 0 and "no oh-my-codex hook on a versioned Cellar node" in out, out
     code, out = run_undo(env, home)
     assert code == 0 and jload(hj) == hooks and read(cfg) == orig_cfg, (out, read(cfg))
+    code, out = bash(LIBS + "codex_omx_node_fix", env)
+    os.remove(cellar)                      # brew upgrade node removed the old Cellar folder
+    code, out = run_undo(env, home)
+    assert code == 0 and "no longer exists" in out, out
+    assert jload(hj)["hooks"]["Stop"][0]["hooks"][0]["command"] == omx_hook(stable), "undo keeps the working path"
 
 
 def t_last30days(work):
@@ -479,6 +504,10 @@ def t_last30days(work):
     code, out = bash("claude plugin marketplace add mvanhorn/last30days-skill && "
                      "claude plugin install last30days@last30days-skill --scope user", env)
     assert code == 0, out
+    tr.set_enabled(home, "last30days@last30days-skill", False)
+    code, out = bash(LIBS + 'audit_ok() { return 1; }; claude_last30days', env)
+    assert code == 0 and tr.enabled(home)["last30days@last30days-skill"] is False, "plugin step failed: not turned on"
+    assert not os.path.exists(os.path.join(home, STATE, "last30days.on-once")), out
     os.remove(os.path.join(work, "log"))
     script = LIBS + 'audit_ok() { echo "AUDIT $*"; return 0; }; claude_last30days'
     code, out = bash(script, env)
@@ -495,6 +524,9 @@ def t_last30days(work):
     os.remove(os.path.join(work, "log"))
     code, out = bash(script, env)
     assert code == 0 and tr.mutations(work) == [], tr.mutations(work)
+    tr.set_enabled(home, "last30days@last30days-skill", False)       # the owner turns it off later
+    code, out = bash(script, env)
+    assert code == 0 and tr.enabled(home)["last30days@last30days-skill"] is False and "off by your choice" in out, out
     pins = read(os.path.join(AI_DIR, "pins.env"))
     assert 'LAST30DAYS_SOURCE="git https://github.com/mvanhorn/last30days-skill stable"' in pins
     contract = read(os.path.join(AI_DIR, "rules", "last30days.md"))
@@ -510,7 +542,7 @@ def t_last30days(work):
     assert "### last30days" in read(os.path.join(REPO, "docs", "TOOLS.md"))
 
 
-def doctor_run(env):
+def doctor_run(env, linux=None):
     """check_drops_and_defaults of ai-doctor with this env; returns its printed lines."""
     from importlib.machinery import SourceFileLoader
     import importlib.util
@@ -522,6 +554,8 @@ def doctor_run(env):
         spec = importlib.util.spec_from_loader("ai_doctor_m3", loader)
         mod = importlib.util.module_from_spec(spec)
         loader.exec_module(mod)
+        if linux is not None:
+            mod.LINUX = linux
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             mod.check_drops_and_defaults()
@@ -544,7 +578,8 @@ def t_doctor(work):
     set_settings(home, enabledPlugins={"typesafe@typesafe-ai": True, "ai-serena@ai": True},
                  hooks={"SessionStart": [{"hooks": [{"type": "command", "command": "node caveman-activate.js"}]}]})
     write(os.path.join(home, ".claude", ".claude.json"),
-          json.dumps({"mcpServers": {"byterover-mcp": {"url": "u"}, "serena": {"command": "uvx"}}}))
+          json.dumps({"mcpServers": {"byterover-mcp": {"url": "u"}, "serena": {"command": "uvx"}},
+                      "projects": {"/w/p": {"mcpServers": {"caveman-shrink": {"command": "npx"}}}}}))
     write(os.path.join(home, ".codex", "config.toml"), '[mcp_servers.byterover-mcp]\nurl = "u"\n')
     write(os.path.join(home, ".codex", "hooks.json"), json.dumps({"hooks": {"Stop": [{"hooks": [
         {"type": "command", "command": omx_hook("/opt/homebrew/Cellar/node/26.5.0_1/bin/node")}]}]}}))
@@ -555,6 +590,10 @@ def t_doctor(work):
         assert any(want in ln for ln in fails), (want, out)
     assert "claude:byterover-mcp" in out and "codex:byterover-mcp" in out, out
     assert any(ln.startswith("WARN typesafe off at user scope") for ln in out.splitlines()), out
+    assert "WARN dropped MCP servers in project (local) scope: caveman-shrink (/w/p)" in out, out
+    out = doctor_run(env, linux=True)
+    assert any(ln.startswith("WARN rtk on PATH") for ln in out.splitlines()) and "one rtk" not in out, \
+        "servers: a second rtk is a WARN, not a FAIL: " + out
     os.remove(os.path.join(second, "rtk"))
     installed_plugins(home, ["typesafe@typesafe-ai", "ai-serena@ai", "last30days@last30days-skill"])
     set_settings(home, enabledPlugins={"typesafe@typesafe-ai": False, "ai-serena@ai": True,
@@ -567,6 +606,68 @@ def t_doctor(work):
     bad = [ln for ln in out.splitlines() if ln.startswith(("FAIL", "WARN"))]
     assert not bad, out
     assert "PASS OMX Codex hooks do not use a versioned Cellar node" in out and "PASS one rtk on PATH" in out, out
+
+
+def t_drop_failures(work):
+    """A failing `claude mcp remove` / `codex mcp remove` is a warning: the install goes on (set -e), the entry
+    stays, nothing is recorded. A failing plugin uninstall leaves its settings.json hooks alone."""
+    env, home = caveman_setup(work)
+    code, out = bash(LIBS + "claude_mcp; echo CONTINUED", dict(env, FAKE_MCP_REMOVE_FAIL="1"))
+    assert code == 0 and "CONTINUED" in out and "WARN: claude mcp remove --scope user" in out, out
+    assert {"byterover-mcp", "caveman-shrink"} <= set(jload(os.path.join(home, ".claude", ".claude.json"))["mcpServers"])
+    assert not any(e["key"].startswith("restore:claude-user-mcp:") for e in entries(home)), entries(home)
+    code, out = bash(LIBS + "claude_drop_plugins; claude_drop_hooks; echo CONTINUED", dict(env, FAKE_UNINSTALL_FAIL="1"))
+    assert code == 0 and "CONTINUED" in out and "uninstall caveman@caveman failed" in out, out
+    assert "still installed" in out and "caveman-activate.js" in read(os.path.join(home, ".claude", "settings.json"))
+    assert not any(e["key"].startswith(("hook:", "cmd:claude-plugin-restore")) for e in entries(home)), entries(home)
+    stub(os.path.join(env["PATH"].split(":")[0], "codex"), FAKE_CODEX)
+    cfg = os.path.join(home, ".codex", "config.toml")
+    write(cfg, '[mcp_servers.byterover-mcp]\nurl = "u"\n')
+    code, out = bash(LIBS + 'aiconf codex-drop-mcp "$CODEX_DIR/config.toml" $AI_DROP_MCP; echo CONTINUED',
+                     dict(env, FAKE_CODEX_REMOVE_FAIL="1"))
+    assert code == 0 and "CONTINUED" in out and "WARN: codex mcp remove byterover-mcp failed" in out, out
+    assert "byterover-mcp" in read(cfg) and not any(e["key"].startswith("restore:codex-mcp:") for e in entries(home))
+
+
+def t_rtk_brew_mismatch(work):
+    """HIGH review item: Homebrew's formula must be exactly the audited version from homebrew/core, else no brew
+    upgrade (WARN, the installed rtk stays); RTK_HOLD counts as the audited version; RTK_BREW_MISMATCH=build takes
+    the source build of the audited tag instead."""
+    env, home, bindir, prefix, sha = rtk_env(work)
+    script = LIBS + 'git_source_audited() { echo "AUDIT $*"; }; tools_rtk'
+    code, out = bash(script, dict(env, FAKE_BREW_STABLE="1.3.0"))
+    assert code == 0 and "Homebrew formula is homebrew/core 1.3.0, the audited version is 1.2.0" in out, out
+    assert "upgrade" not in read(env["FAKE_LOG"]) and "AUDIT" not in out, read(env["FAKE_LOG"])
+    code, out = bash(script, dict(env, FAKE_BREW_TAP="someone/tap"))
+    assert code == 0 and "someone/tap 1.2.0" in out and "upgrade" not in read(env["FAKE_LOG"]), out
+    stub(os.path.join(bindir, "cargo"), "#!/bin/sh\nexit 0\n")
+    code, out = bash(LIBS + 'AI_DRY_RUN=1; RTK_BREW_MISMATCH=build; tools_rtk', dict(env, FAKE_BREW_STABLE="1.3.0"))
+    assert code == 0 and "source build instead" in out and "[dry-run] git clone --depth 1 --branch v1.2.0" in out, out
+    hold_work = os.path.join(work, "hold")
+    os.makedirs(hold_work)
+    env, home, bindir, prefix, sha = rtk_env(hold_work, hold="1.1.0")
+    code, out = bash(script, env)                     # brew has 1.2.0, the hold is 1.1.0: no upgrade
+    assert code == 0 and "audited version is 1.1.0" in out and "upgrade" not in read(env["FAKE_LOG"]), out
+    code, out = bash(script, dict(env, FAKE_BREW_STABLE="1.1.0", FAKE_BREW_RTK_NEW="1.1.0"))
+    assert code == 0 and "brew upgrade rtk" in read(env["FAKE_LOG"]) and "AUDIT rtk https://github.com/rtk-ai/rtk v1.1.0 " \
+        + "d" * 40 in out, out
+    code, out = bash(script, dict(env, FAKE_BREW_STABLE="1.1.0", FAKE_BREW_RTK_NEW="1.1.0"))
+    assert code == 0 and "present (Homebrew formula, held version)" in out, out
+
+
+def t_codex_restore_quoted(work):
+    """Undo of a Codex MCP restore does not append a second copy when the entry is back under a quoted header."""
+    env, home, bindir = env_for(work)
+    stub(os.path.join(bindir, "codex"), "#!/bin/sh\nexit 0\n")
+    cfg = os.path.join(home, ".codex", "config.toml")
+    write(cfg, '[mcp_servers."byterover-mcp"]\nurl = "u"\n')
+    blob = os.path.join(work, "blob.toml")
+    write(blob, '[mcp_servers.byterover-mcp]\nurl = "u"\n')
+    write(os.path.join(home, STATE, "managed-keys.json"), json.dumps({"version": 1, "entries": [
+        {"kind": "codex-mcp-restore", "file": cfg, "name": "byterover-mcp", "blob": blob, "prefix": [],
+         "key": "restore:codex-mcp:byterover-mcp"}]}))
+    code, out = run_undo(env, home)
+    assert code == 0 and read(cfg).count("byterover-mcp") == 1, (out, read(cfg))
 
 
 OMC_COMPANION = "# OMC\n<!-- OMC:START -->\nomc rules here\n<!-- OMC:END -->\n"
