@@ -1302,17 +1302,33 @@ def gate_destroy(ctx, cmd, stages):
     cwd = ctx.cwd or "."
     root = project_root(cwd)
     conf = destructive_config(root)
-    here = cwd
+    here = cwd                  # None after `cd $X` / `cd -`: the folder is unknown from here on
     for st in stages:
-        if st.exe in ("cd", "pushd") and st.args:
-            here = os.path.normpath(os.path.join(here, os.path.expanduser(st.args[0])))
+        if st.exe in ("cd", "pushd", "popd"):
+            here = cd_target(st, here)
             continue
-        why = (rm_rule(st, here, root) or git_destroy_rule(st, here) or compose_rule(st)
-               or sql_rule(st, stages, cmd, here, conf["db"]) or repo_cmd_rule(st, conf["cmd"]))
+        why = (rm_rule(st, here, root) or git_destroy_rule(st, here or cwd) or compose_rule(st)
+               or sql_rule(st, stages, cmd, here or cwd, conf["db"]) or repo_cmd_rule(st, conf["cmd"]))
         if why:
             return ("deny", "Destructive command blocked: %s. Do not rephrase it or work around it: give the owner the "
                     "exact command and the reason, and let the owner run it." % why)
     return None
+
+
+def cd_target(st, here):
+    """The folder after a cd stage: bare `cd` and `cd ~` = home; a variable, `-`, popd = unknown (None)."""
+    if st.exe == "popd":
+        return None
+    args = [a for a in st.args if a not in ("-L", "-P", "-e", "-@", "--")]
+    if not args:
+        return os.path.expanduser("~")
+    t = args[0]
+    m = re.match(r"^(\$HOME|\$\{HOME\})(/.*)?$", t)
+    if m:
+        t = "~" + (m.group(2) or "")
+    if t == "-" or "$" in t or "`" in t or here is None or (t.startswith("~") and not re.match(r"^~(/|$)", t)):
+        return None
+    return os.path.normpath(os.path.join(here, os.path.expanduser(t)))
 
 
 def probe_destroy(stages, cmd=""):
@@ -1349,16 +1365,42 @@ def rm_rule(st, cwd, session_root=None):
             targets.append(a)
     if not ({"r", "R", "--recursive"} & flags):
         return None
+    if st.op == "(":                        # rm -rf $(pwd), rm -rf `pwd`: the target is a command's output
+        return "rm -r of a command substitution (cannot tell the target)"
+    if cwd is None:
+        bad = [t for t in targets if not rebuildable_name(t)]
+        return "rm -r %s after cd to a folder that cannot be told (a variable or cd -)" % bad[0] if bad else None
     for t in targets:
-        why = rm_target_problem(t, cwd, session_root)
-        if why:
-            return "rm -r %s (%s)" % (t, why)
+        for alt in brace_expand(t):
+            why = rm_target_problem(alt, cwd, session_root)
+            if why:
+                return "rm -r %s (%s)" % (t, why)
     return None
 
 
+def rebuildable_name(t):
+    base = os.path.basename(t.rstrip("/")) or t
+    return base in REBUILDABLE or base.endswith(".egg-info")
+
+
+def brace_expand(t):
+    """{a,b} alternatives (nested, first group first); text without a group is itself."""
+    m = re.search(r"\{([^{}]*,[^{}]*)\}", t)
+    if not m:
+        return [t]
+    out = []
+    for alt in m.group(1).split(","):
+        out.extend(brace_expand(t[:m.start()] + alt + t[m.end():]))
+    return out
+
+
+TEMP_VARS = re.compile(r"^\$\{?(TMPDIR|TMP|TEMP|tmpdir|tmp|temp|tempdir|TEMPDIR)\}?(/.*)?$")
+
+
 def rm_target_problem(t, cwd, session_root=None):
-    base_name = os.path.basename(t.rstrip("/")) or t
-    rebuildable = base_name in REBUILDABLE or base_name.endswith(".egg-info")
+    rebuildable = rebuildable_name(t)
+    if TEMP_VARS.match(t):
+        return None                         # $TMPDIR/x, "$tmpdir": a temp folder by its name
     if "$" in t or "`" in t:
         m = re.match(r"^(\$HOME|\$\{HOME\})(/.*)?$", t)
         if m:
@@ -1367,6 +1409,13 @@ def rm_target_problem(t, cwd, session_root=None):
             return None
         else:
             return "a variable path: cannot tell what it points to"
+    if t.startswith("~+"):
+        t = cwd + t[2:]
+    elif t.startswith("~") and not re.match(r"^~(/|$)", t):
+        expanded = os.path.expanduser(t)
+        if expanded == t:                   # ~- (OLDPWD) or an unknown user
+            return None if rebuildable else "a ~ form that cannot be told (~-, ~user)"
+        t = expanded
     home = home_dir()
     root = project_root(cwd)
     if root:
@@ -1390,19 +1439,30 @@ def rm_target_problem(t, cwd, session_root=None):
     if root and inside(root, path):
         return "the repo root or a parent of it"
     if ".git" in parts:
+        sub = parts[parts.index(".git") + 1:]
+        if sub and (sub[0].startswith("rebase-") or sub[0].endswith(".lock")):
+            return None                     # a stuck rebase or a stale lock: git's own scratch state
         return "the git history (.git)"
     if root and inside(path, root):
         rel = os.path.relpath(path, root).split(os.sep)
         if any(p in REBUILDABLE or p.endswith(".egg-info") for p in rel):
             return None
-        if any(p.lower() in DATA_NAMES or p.lower().endswith(DATA_EXT) for p in rel):
+        if (len(rel) == 1 and rel[0].lower() in DATA_NAMES) or rel[-1].lower().endswith(DATA_EXT):
             return "a data folder or database file"
         return None
+    if root and is_worktree_of(root, path):
+        return None                         # another git worktree of this repo
     if inside(path, home):
         return None if rebuildable else "a path outside this repo"
     if any(inside(path, os.path.realpath(r)) or inside(path, r) for r in temp_roots()):
         return None
     return "a path outside this repo"
+
+
+def is_worktree_of(root, path):
+    out = git_quick(root, ["worktree", "list", "--porcelain"]) or ""
+    trees = [os.path.realpath(ln[9:]) for ln in out.splitlines() if ln.startswith("worktree ")]
+    return any(os.path.realpath(path) == t and t != os.path.realpath(root) for t in trees)
 
 
 def git_sub(st, cwd):
@@ -1460,8 +1520,9 @@ def git_destroy_rule(st, cwd):
                 continue
             paths.append(a)
         root = project_root(d)
-        at_root = root and os.path.realpath(d) == os.path.realpath(root)
-        whole = not paths or all(p in (".", "./", ":/") for p in paths)
+        top = bool(paths) and all(re.match(r"^:(/|\(top\))\.?/?$", p) for p in paths)   # :/ = the whole repo
+        at_root = root and (top or os.path.realpath(d) == os.path.realpath(root))
+        whole = not paths or top or all(p in (".", "./") for p in paths)
         if force and ignored and at_root and whole:
             return "git clean -x at the repo root (deletes ignored files: .env, local databases, caches)"
     return None
@@ -1499,7 +1560,8 @@ def push_rule(rest, d):
                 if not src:
                     delete = True
                 s = dst
-            dsts.add(re.sub(r"^refs/heads/", "", s))
+            s = re.sub(r"^refs/heads/", "", s)
+            dsts.add(current_branch(d) if s in ("HEAD", "@") else s)   # HEAD / @ push the current branch
     else:
         dsts = {current_branch(d)}
     hit = sorted(dsts & PROTECTED_BRANCHES)

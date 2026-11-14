@@ -10,7 +10,7 @@ Each ai/tests/cases/<rule>.json holds {"rule": id, "cases": [...]}. A case:
   steps    [{event, payload, transcript_append: [json rows]}]  (or one "event" + "payload")
   agent    claude (default) | codex
   project  {git: true, git_init: true, files: {rel: text}, stage: {rel: text}, commit: "<message>",
-           dirty: {rel: text} (written after the commit), extra_commits: [{rel: text}, ...] (after the commit)}
+           dirty: {rel: text} (written after the commit), worktree: "../wt" (git worktree add), extra_commits: [{rel: text}, ...] (after the commit)}
   audit_log  lines for ~/.local/state/ai/audit.log
   ai_mcp   text for $AI_HOME/ai/mcp/context7.json, committed (secret-scan allowlist reads HEAD);
            ai_mcp_commit: false keeps it uncommitted
@@ -294,6 +294,9 @@ def setup_project(proj, spec):
             write(os.path.join(proj, rel), text)
         subprocess.check_call(["git", "-C", proj, "add", "-A"], env=git_env)
         subprocess.check_call(["git", "-C", proj, "commit", "-q", "--no-verify", "-m", "extra %d" % i], env=git_env)
+    if spec.get("worktree"):                # a second git worktree of the same repo
+        subprocess.check_call(["git", "-C", proj, "worktree", "add", "-q", "-b", "wt", spec["worktree"]],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for rel, text in spec.get("dirty", {}).items():     # changed after the commit (uncommitted work)
         write(os.path.join(proj, rel), text)
 

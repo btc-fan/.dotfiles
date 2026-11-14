@@ -1563,6 +1563,534 @@
    "state_contains": {
     "gates.log": "SKIP no-destroy"
    }
+  },
+  {
+   "name": "rm -rf $(pwd)",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf $(pwd)"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "command substitution"
+   ]
+  },
+  {
+   "name": "rm -rf backtick pwd",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf `pwd`"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "command substitution"
+   ]
+  },
+  {
+   "name": "brace expansion with home",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf {src,~}"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "brace expansion with /",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf {/,x}"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "rm -rf ~+ (the cwd: repo root)",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf ~+"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "repo root"
+   ]
+  },
+  {
+   "name": "rm -rf ~- (OLDPWD)",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf ~-"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "cannot be told"
+   ]
+  },
+  {
+   "name": "bare cd then rm -rf",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd && rm -rf ."
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "home"
+   ]
+  },
+  {
+   "name": "cd; rm -rf of the home folder",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd; rm -rf ."
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "cd $HOME then rm -rf",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd $HOME && rm -rf ."
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "home folder"
+   ]
+  },
+  {
+   "name": "cd $X then rm -rf",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd $X && rm -rf work"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "cannot be told"
+   ]
+  },
+  {
+   "name": "cd - then rm -rf",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd - && rm -rf src"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "cannot be told"
+   ]
+  },
+  {
+   "name": "force push HEAD on the default branch",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push -f origin HEAD"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "force push"
+   ]
+  },
+  {
+   "name": "force-with-lease HEAD",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push --force-with-lease origin HEAD"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "force push"
+   ]
+  },
+  {
+   "name": "push +HEAD",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push origin +HEAD"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "force push"
+   ]
+  },
+  {
+   "name": "force push @",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push -f origin @"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "force push"
+   ]
+  },
+  {
+   "name": "clean -fdx :/ from a subfolder",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd src && git clean -fdx :/"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "git clean -x"
+   ]
+  },
+  {
+   "name": "clean -fdx :/ with -C",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git -C src clean -fdx :/"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "git clean -x"
+   ]
+  },
+  {
+   "name": "a data folder deeper in the repo",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf src/app/data db/migrations/tmp tests/fixtures/db"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "a stuck rebase folder",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf .git/rebase-merge"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "a temp variable",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf \"$tmpdir\" $TMPDIR/build"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "brace expansion of rebuildable folders",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf {node_modules,dist}"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "~+ to a rebuildable folder",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf ~+/node_modules"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "force push HEAD to a feature branch",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push -f origin HEAD:feature/x"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "another worktree of this repo",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf ../wt2"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n"
+    },
+    "commit": "init",
+    "worktree": "../wt2"
+   },
+   "not_contains": "Destructive command blocked"
   }
  ]
 }
