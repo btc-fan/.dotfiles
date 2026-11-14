@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""ai-ratchet: counts that may only get better (test count, skip count, lint count), against .ai/ratchet.json.
+
+  ai-ratchet [--dir PATH]             count, compare with the baseline; exit 1 when a count got worse;
+                                      a better count tightens the baseline (commit .ai/ratchet.json with it)
+  ai-ratchet --only tests,skips       only these counters (the Stop hook: no linter run)
+  ai-ratchet --no-write               never write the baseline (the Stop hook: the tree must not change)
+  ai-ratchet --init | --reset         write the baseline from the current counts (--reset: after the owner
+                                      agreed to delete or skip a test; say so in the PR "Changed guards")
+  ai-ratchet --show                   print the counts, compare nothing
+
+Counters (no test run, so it is fast; it counts definitions in test files):
+  tests  Python def test_* in test_*.py / *_test.py; JS/TS it( / test( in *.test.* / *.spec.* / __tests__;
+         Go func Test* in *_test.go; Rust #[test] / #[tokio::test]
+  skips  pytest.mark.skip/skipif/xfail, unittest.skip, pytest.skip(; it.skip / test.skip / xit / .todo;
+         t.Skip; #[ignore]
+  lint   ruff findings (configured ruff: [tool.ruff], ruff.toml) or the project's own eslint
+         (node_modules/.bin/eslint); left out when no linter is configured or installed
+tests may only go up; skips and lint may only go down. A missing baseline passes with a note.
+"""
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+BASELINE = os.path.join(".ai", "ratchet.json")
+SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "target", "__pycache__", ".tox", "vendor",
+             ".next", "graphify-out", ".serena", ".omc", ".ai", "site-packages", ".mypy_cache", ".ruff_cache"}
+PY_TEST_FILE = re.compile(r"^(test_.*|.*_test)\.py$")
+JS_TEST_FILE = re.compile(r"\.(test|spec)\.[cm]?[jt]sx?$")
+COUNTS = {
+    "py": (re.compile(r"^\s*(?:async\s+)?def\s+test_\w*\s*\(", re.M),
+           re.compile(r"@pytest\.mark\.(?:skip|skipif|xfail)\b|@unittest\.skip\w*|\bpytest\.skip\(")),
+    "js": (re.compile(r"(?<![\w.$])(?:it|test)(?:\.each\s*\([^)]*\))?\s*\("),
+           re.compile(r"(?<![\w.$])(?:it|test|describe)\.(?:skip|todo)\s*\(|(?<![\w.$])x(?:it|test|describe)\s*\(")),
+    "go": (re.compile(r"^func\s+Test\w*\s*\(", re.M), re.compile(r"\bt\.Skip(?:f|Now)?\s*\(")),
+    "rs": (re.compile(r"#\[(?:tokio::)?test\]"), re.compile(r"#\[ignore\b")),
+}
+BETTER_UP = {"tests"}          # the others (skips, lint) are better when they go down
+
+
+def main(argv):
+    root = os.path.abspath(arg(argv, "--dir") or ".")
+    only = set((arg(argv, "--only") or "tests,skips,lint").split(","))
+    cur = counts(root, only)
+    path = os.path.join(root, BASELINE)
+    if "--show" in argv:
+        print(json.dumps(cur, sort_keys=True))
+        return 0
+    if "--init" in argv or "--reset" in argv:
+        write(path, cur)
+        print("ai-ratchet: baseline %s written: %s" % (BASELINE, fmt(cur)))
+        return 0
+    try:
+        with open(path) as fh:
+            base = json.load(fh)
+    except (OSError, ValueError):
+        print("ai-ratchet: no baseline (%s): run ai-ratchet --init and commit it. Counts now: %s" % (BASELINE, fmt(cur)))
+        return 0
+    worse, better, new = [], [], {}
+    for key, val in sorted(cur.items()):
+        if key not in base:
+            new[key] = val
+            continue
+        old = base[key]
+        if val == old:
+            continue
+        up = val > old
+        if up == (key in BETTER_UP):
+            better.append("%s %d -> %d" % (key, old, val))
+            new[key] = val
+        else:
+            worse.append("%s %d -> %d" % (key, old, val))
+    if worse:
+        print("ai-ratchet: worse than the baseline: %s. Tests may only grow; skips and lint findings may only "
+              "shrink. Put the test back or fix the finding. Only the owner may accept it (ai-ratchet --reset, "
+              "and the PR lists it under Changed guards)." % "; ".join(worse))
+        return 1
+    if new and "--no-write" not in argv:
+        merged = dict(base)
+        merged.update(new)
+        write(path, merged)
+        print("ai-ratchet: baseline tightened (%s); commit %s" % ("; ".join(better) or "new counter", BASELINE))
+    else:
+        print("ai-ratchet: ok (%s)" % fmt(cur))
+    return 0
+
+
+def arg(argv, name):
+    if name in argv and argv.index(name) + 1 < len(argv):
+        return argv[argv.index(name) + 1]
+    return None
+
+
+def fmt(d):
+    return ", ".join("%s %d" % kv for kv in sorted(d.items())) or "nothing to count"
+
+
+def write(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as fh:
+        fh.write(json.dumps(data, indent=1, sort_keys=True) + "\n")
+
+
+# ---------------------------------------------------------------- counters
+
+def counts(root, only):
+    out = {}
+    if only & {"tests", "skips"}:
+        tests = skips = 0
+        for path, kind in test_files(root):
+            try:
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    text = fh.read()
+            except OSError:
+                continue
+            test_rx, skip_rx = COUNTS[kind]
+            skips += len(skip_rx.findall(text))
+            tests += len(test_rx.findall(text))      # it.skip( / xit( are not matched here: skips only
+        if "tests" in only:
+            out["tests"] = tests
+        if "skips" in only:
+            out["skips"] = skips
+    if "lint" in only:
+        n = lint_count(root)
+        if n is not None:
+            out["lint"] = n
+    return out
+
+
+def test_files(root):
+    for dirpath, dirnames, files in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS and not d.startswith("."))
+        in_tests_dir = "__tests__" in dirpath.split(os.sep)
+        for f in sorted(files):
+            p = os.path.join(dirpath, f)
+            if PY_TEST_FILE.match(f):
+                yield p, "py"
+            elif JS_TEST_FILE.search(f) or (in_tests_dir and re.search(r"\.[cm]?[jt]sx?$", f)):
+                yield p, "js"
+            elif f.endswith("_test.go"):
+                yield p, "go"
+            elif f.endswith(".rs"):
+                yield p, "rs"
+
+
+def lint_count(root):
+    py = read(os.path.join(root, "pyproject.toml")) or ""
+    if "[tool.ruff" in py or os.path.isfile(os.path.join(root, "ruff.toml")) or \
+            os.path.isfile(os.path.join(root, ".ruff.toml")):
+        if os.path.isfile(os.path.join(root, "uv.lock")) and shutil.which("uv"):
+            cmd = ["uv", "run", "--quiet", "ruff"]
+        elif shutil.which("ruff"):
+            cmd = ["ruff"]
+        else:
+            return None
+        data = run_json(cmd + ["check", "--output-format", "json", "--exit-zero", "."], root)
+        return len(data) if isinstance(data, list) else None
+    eslint = os.path.join(root, "node_modules", ".bin", "eslint")
+    if os.access(eslint, os.X_OK):
+        data = run_json([eslint, "-f", "json", "."], root)
+        if isinstance(data, list):
+            return sum(int(f.get("errorCount", 0)) + int(f.get("warningCount", 0)) for f in data if isinstance(f, dict))
+    return None
+
+
+def run_json(cmd, cwd):
+    try:
+        res = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=300)
+        return json.loads(res.stdout.decode("utf-8", "replace") or "null")
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def read(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

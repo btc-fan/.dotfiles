@@ -112,7 +112,8 @@ def main(argv):
     plan.append(write_plan(os.path.join(root, ".gitignore"), gitignore_text(read(os.path.join(root, ".gitignore")),
                                                                             with_defaults(enabled), root)))
     plan = [p for p in plan if p]
-    steps = knowledge_steps(root, opts, with_defaults(enabled)) + check_steps(root, opts, tier, checks, plan)
+    steps = knowledge_steps(root, opts, with_defaults(enabled)) + check_steps(root, opts, tier, checks, plan) \
+        + ratchet_steps(root, tier)
 
     if not plan and not steps:
         print("ai-%s: nothing to change (base v%s)" % (mode, version))
@@ -848,6 +849,14 @@ def check_steps(root, opts, tier, checks, plan):
         return []
     return [("time %s once (writes the seconds into the Map)" % checks["fast_cmd"],
              lambda: measure_check(root, checks))]
+
+
+def ratchet_steps(root, tier):
+    """Long tier: the ratchet baseline (.ai/ratchet.json, committed) when it is missing."""
+    if tier != "long" or os.path.isfile(os.path.join(root, ".ai", "ratchet.json")):
+        return []
+    return [("ai-ratchet --init (test, skip and lint counts that may only improve)",
+             lambda: run_step([sys.executable, os.path.join(BIN, "ai-ratchet"), "--init", "--dir", root], root, 600))]
 
 
 def measure_check(root, checks):

@@ -127,7 +127,7 @@ def t_adopt_long_tier(work):
     res = adopt(repo, env, "--tier", "long")
     assert res.returncode == 0, res.stdout
     files = run(["git", "-C", repo, "show", "--name-only", "--format=", "HEAD"]).stdout.split()
-    for rel in ("docs/REGRESSIONS.md", "Makefile", ".ai/enabled"):
+    for rel in ("docs/REGRESSIONS.md", "Makefile", ".ai/enabled", ".ai/ratchet.json"):
         assert rel in files, "%s not committed: %s" % (rel, files)
     agents = read(os.path.join(repo, "AGENTS.md"))
     assert "a line in docs/REGRESSIONS.md" in agents, agents
@@ -411,6 +411,91 @@ def t_ledger_stop_note(work):
     assert hook(repo2, env2, "Stop", agent="codex") is None
 
 
+# ---------------------------------------------------------------- T7: ai-ratchet
+
+FAKE_RUFF = """#!/bin/sh
+# ruff check --output-format json: one finding per LINT word under src/
+n=$(grep -ro LINT src 2>/dev/null | wc -l | tr -d ' ')
+printf '['; i=0
+while [ "$i" -lt "$n" ]; do [ "$i" -gt 0 ] && printf ','; printf '{"code": "F401"}'; i=$((i+1)); done
+printf ']\\n'
+"""
+PY_TESTS = """import pytest
+
+def test_a():
+    assert 1
+
+def test_b():
+    assert 2
+
+@pytest.mark.skip(reason="flaky")
+def test_c():
+    assert 3
+"""
+
+
+def ratchet(repo, env, *args):
+    return run([sys.executable, os.path.join(BIN, "ai-ratchet"), "--dir", repo] + list(args), env=env)
+
+
+def t_ratchet(work):
+    repo = tree(work, "ratchet", {"pyproject.toml": "[project]\nname='x'\n[tool.ruff]\n", "tests/test_a.py": PY_TESTS,
+                                  "src/app.py": "import os  # LINT\nimport sys  # LINT\n"})
+    fake = os.path.join(work, "fakebin-ratchet")
+    write(os.path.join(fake, "ruff"), FAKE_RUFF)
+    os.chmod(os.path.join(fake, "ruff"), 0o755)
+    env = {"PATH": fake + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin")}
+    res = ratchet(repo, env)
+    assert res.returncode == 0 and "no baseline" in res.stdout, res.stdout
+    assert ratchet(repo, env, "--init").returncode == 0
+    base = json.loads(read(os.path.join(repo, ".ai", "ratchet.json")))
+    assert base == {"tests": 3, "skips": 1, "lint": 2}, base
+    tests = os.path.join(repo, "tests", "test_a.py")
+    write(tests, PY_TESTS.replace("def test_b():\n    assert 2\n", ""))
+    res = ratchet(repo, env)
+    assert res.returncode == 1 and "tests 3 -> 2" in res.stdout, "deleting a test must fail: " + res.stdout
+    write(tests, PY_TESTS.replace("def test_a():", "@pytest.mark.xfail\ndef test_a():"))
+    res = ratchet(repo, env)
+    assert res.returncode == 1 and "skips 1 -> 2" in res.stdout, "a new skip must fail: " + res.stdout
+    write(tests, PY_TESTS)
+    write(os.path.join(repo, "src", "app.py"), "import os  # LINT\nimport os\nimport sys  # LINT\n# LINT\n")
+    res = ratchet(repo, env)
+    assert res.returncode == 1 and "lint 2 -> 3" in res.stdout, "a new lint finding must fail: " + res.stdout
+    write(os.path.join(repo, "src", "app.py"), "import os  # LINT\n")
+    res = ratchet(repo, env)
+    assert res.returncode == 0 and "tightened" in res.stdout, res.stdout
+    assert json.loads(read(os.path.join(repo, ".ai", "ratchet.json")))["lint"] == 1, "fixing lint tightens the baseline"
+    write(tests, PY_TESTS + "\ndef test_d():\n    assert 4\n")
+    res = ratchet(repo, env, "--only", "tests,skips", "--no-write")
+    assert res.returncode == 0 and json.loads(read(os.path.join(repo, ".ai", "ratchet.json")))["tests"] == 3, \
+        "--no-write must not change the baseline"
+    res = ratchet(repo, env, "--show")
+    assert json.loads(res.stdout) == {"tests": 4, "skips": 1, "lint": 1}, res.stdout
+
+
+def t_ratchet_other_languages(work):
+    repo = tree(work, "ratchet-js", {
+        "web/a.test.ts": "it('a', () => {})\ntest.each([1, 2])('b %d', () => {})\nit.skip('c', () => {})\n"
+                         "xit('d', () => {})\nconst xtest = 1\n",
+        "pkg/a_test.go": "func TestA(t *testing.T) {}\nfunc TestB(t *testing.T) { t.Skip(\"later\") }\n",
+        "src/lib.rs": "#[test]\nfn a() {}\n#[tokio::test]\n#[ignore]\nasync fn b() {}\n"})
+    res = ratchet(repo, {}, "--show", "--only", "tests,skips")
+    assert json.loads(res.stdout) == {"tests": 6, "skips": 4}, res.stdout
+
+
+def t_stop_ratchet_long_tier(work):
+    repo, env = ledger_repo(work, "stop-ratchet", extra={"tests/test_a.py": PY_TESTS})
+    assert ratchet(repo, env, "--init").returncode == 0
+    run(["git", "-C", repo, "add", "-A"], env=env)
+    run(["git", "-C", repo, "commit", "-q", "-m", "baseline"], env=env)
+    hook(repo, env, "SessionStart")
+    write(os.path.join(repo, "tests", "test_a.py"), PY_TESTS.replace("def test_b():\n    assert 2\n", ""))
+    out = hook(repo, env, "Stop")
+    assert out and out["decision"] == "block" and "ai-ratchet" in out["reason"] and "tests" in out["reason"], out
+    assert not run(["git", "-C", repo, "status", "--porcelain", "--", ".ai/ratchet.json"]).stdout.strip(), \
+        "the Stop hook must not write the baseline"
+
+
 # ---------------------------------------------------------------- helpers
 
 def detect(repo):
@@ -494,7 +579,7 @@ TESTS_LIST = [t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_g
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_hook_active_silent,
               t_stop_success_silent_both_agents, t_stop_codex_block_and_timeout, t_stop_floor_zero_tests,
               t_stop_off_switches, t_stop_omc_coexistence, t_ledger_check_honest, t_ledger_quarantine_clock,
-              t_ledger_stop_note]
+              t_ledger_stop_note, t_ratchet, t_ratchet_other_languages, t_stop_ratchet_long_tier]
 
 if __name__ == "__main__":
     sys.exit(main())
