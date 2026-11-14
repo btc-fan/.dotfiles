@@ -574,6 +574,7 @@ def t_doctor(work):
     stub(os.path.join(bindir, "rtk"), "#!/bin/sh\necho rtk 1.2.0\n")
     stub(os.path.join(second, "rtk"), "#!/bin/sh\necho rtk 0.40.0\n")
     env["PATH"] = ":".join([bindir, second, SYS_PATH])
+    env["AI_PROFILE"] = "server"        # last30days is a server default (dev-mac has none)
     installed_plugins(home, ["caveman@caveman", "typesafe@typesafe-ai", "ai-serena@ai"])
     set_settings(home, enabledPlugins={"typesafe@typesafe-ai": True, "ai-serena@ai": True},
                  hooks={"SessionStart": [{"hooks": [{"type": "command", "command": "node caveman-activate.js"}]}]})

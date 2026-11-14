@@ -144,6 +144,7 @@ def t_devmac_plan(work):
     assert "uv tool install --force --no-build --managed-python -p 3.12 cisco-ai-skill-scanner==2.3.2" in out, out
     assert "audit skipped: profile dev-mac (pypi serena-agent 2.1.0)" in out, out
     assert "box MCP: not installed (profile dev-mac)" in out and "ai-box" not in out, out
+    assert "last30days: not installed (profile dev-mac)" in out and "last30days-skill at" not in out, out
     for gone in ("cmd:uv:guarddog", "cmd:bin:osv-scanner", "cmd:npm:opencode"):
         assert "undo %s" % gone.split(":", 1)[1] in out or gone in out, (gone, out)
     assert "scanners not used by profile dev-mac removed: guarddog osv-scanner" in out, out
@@ -194,6 +195,7 @@ def t_render_profiles(work):
     assert "skill-scanner HIGH or CRITICAL finding is never installed" in srv and "<!-- profiles" not in srv
     assert "skill-scanner HIGH or CRITICAL finding is never installed" in dev and "<!-- profiles" not in dev
     for gone in ("agent-audit npm|pypi|dir|skill", "sudo ai-gate-skip", "the box tool (MCP server box: list", "opencode", "Hermes",
+                 "- last30days (Claude, on everywhere)",
                  "audit-before-install"):
         assert gone in srv and gone not in dev, gone
     assert "A blocked gate is final for you: the owner runs it himself." in dev, dev
@@ -251,6 +253,25 @@ def t_doctor_devmac(work):
                  "box MCP server not registered"):
         assert any(want in ln for ln in fails), (want, out)
     assert "Claude plugin ai-box@ai" in out and "Codex mcp_servers.box" in out, out
+    # A default plugin skill-scanner rejected (resolved.json "rejected", written by audit_ok on exit 4) and not
+    # installed is a WARN, not a FAIL; other rejected items are listed as WARN too.
+    write(os.path.join(state, "resolved.json"), json.dumps({"version": 1, "tools": {
+        "last30days": {"rejected": {"version": "3.39.0", "sha": "f" * 40, "findings": "HIGH: x", "by": "skill-scanner"}},
+        "ponytail": {"rejected": {"version": "5.3.4", "sha": "e" * 40, "findings": "CRITICAL: y", "by": "skill-scanner"}}}}))
+    stub = os.path.join(work, "doc-bin")
+    write(os.path.join(stub, "claude"), "#!/bin/sh\nexit 0\n", 0o755)
+    code2 = code.replace("m.check_profile()", "m.check_drops_and_defaults()")
+    for prof, want in (("server", "WARN"), ("dev-mac", None)):
+        env = {"HOME": home, "PATH": stub + ":/usr/bin:/bin", "AI_STATE_DIR": state, "AI_PROFILE": prof,
+               "CODEX_HOME": os.path.join(home, ".codex")}
+        res = subprocess.run([sys.executable, "-c", code2], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        text = res.stdout.decode()
+        assert "last30days installed and on" not in text, (prof, text)
+        if want:
+            assert "rejected by skill-scanner: last30days 3.39.0" in text, text
+        else:       # dev-mac: last30days is not a default there, so no line about it being missing
+            assert "rejected by skill-scanner: last30days" not in text, text
+        assert "rejected by skill-scanner: ponytail 5.3.4" in text, text
 
 
 TESTS_LIST = [t_doctor_devmac, t_render_profiles, t_server_plan_unchanged, t_devmac_plan, t_profile_choice]

@@ -194,14 +194,7 @@ undo --only ^cmd:npm:opencode$|^(json|json-item|json-add):/etc/opencode/: 1 entr
   box MCP: not installed (profile dev-mac)
   same    ~/.claude.json no user-scope MCP duplicates the plugin
   manual: Claude, once per machine, in a project with claude-seo on: /seo setup, then /seo doctor (venv + Chromium)
-  last30days: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 3.39.0
-  [dry-run] git clone https://github.com/mvanhorn/last30days-skill at v3.39.0; agent-audit dir
-  [dry-run] claude plugin marketplace add mvanhorn/last30days-skill#v3.39.0
-  [dry-run] record  claude-marketplace:last30days-skill undo: claude plugin marketplace remove last30days-skill
-  [dry-run] claude plugin install last30days@last30days-skill --scope user
-  [dry-run] record  claude-plugin:last30days@last30days-skill undo: claude plugin uninstall last30days@last30days-skill
-  planned: Claude plugin last30days@last30days-skill (user scope)
-  [dry-run] set     ~/.claude/settings.json enabledPlugins/last30days@last30days-skill = true
+  last30days: not installed (profile dev-mac)
   [dry-run] codex plugin marketplace add $REPO/ai/marketplace
   [dry-run] record  codex-marketplace:ai undo: codex plugin marketplace remove ai
   [dry-run] codex plugin add ai-core@ai
@@ -316,7 +309,7 @@ undo --only ^cmd:npm:opencode$|^(json|json-item|json-add):/etc/opencode/: 1 entr
 
 ==== summary ====
 
-done (38)
+done (37)
   - (planned) brew install curl
   - (planned) sources resolved (ai/pins.env)
   - (planned) links
@@ -339,7 +332,6 @@ done (38)
   - (planned) Claude plugin oh-my-claudecode@omc (user scope)
   - (planned) Claude plugin ai-serena@ai (user scope)
   - (planned) Claude plugin ai-playwright@ai (user scope)
-  - (planned) Claude plugin last30days@last30days-skill (user scope)
   - (planned) Codex plugin ai-core@ai
   - (planned) Codex plugin ponytail@ponytail
   - (planned) Codex plugin i-have-adhd@i-have-adhd

@@ -470,8 +470,6 @@ claude_box_plugin() {
 # last30days.on-once in the state folder); on later runs a value the user set to false is kept.
 claude_last30days() {
     local pk=last30days@last30days-skill stamp="$AI_STATE_DIR/last30days.on-once"
-    # Profile dev-mac: never installed (owner removed it from the Mac by hand); an installed copy is left alone.
-    if [ "${PROFILE_LAST30DAYS:-1}" = 0 ]; then info "last30days: not installed (profile $AI_PROFILE)"; return 0; fi
     # Profile dev-mac (owner decision 2026-11-14): no last30days on the Macs; an installed copy is removed.
     if [ "${PROFILE_LAST30DAYS:-1}" = 0 ]; then
         if claude_has_plugin "$pk"; then

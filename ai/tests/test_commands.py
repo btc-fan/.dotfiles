@@ -222,6 +222,7 @@ def t_skill_scanner_reject(work):
     # audit_ok: exit 4 is final even for an exact version on the accept list; exit 1 still honours it.
     home = os.path.join(work, "ss-aihome")
     os.makedirs(os.path.join(home, "ai"))
+    os.symlink(os.path.join(AI_DIR, "lib"), os.path.join(home, "ai", "lib"))    # resolve.py records the rejection
     sha = "a" * 40
     open(os.path.join(home, "ai", "audit-accepted.txt"), "w").write("dir tool %s 2026-11-14 reviewed\n" % sha)
     os.symlink(audit, os.path.join(stub, "agent-audit"))
@@ -230,6 +231,8 @@ def t_skill_scanner_reject(work):
     res = run(["bash", "-c", script], env=dict(env, AI_HOME=home, FAKE_SS_SEV="HIGH"))
     assert "RESULT=fail" in res.stdout and "skill-scanner REJECTED tool" in res.stdout, res.stdout
     assert "HIGH: R1 SKILL.md" in res.stdout and "ACCEPTED" not in res.stdout, res.stdout
+    rej = json.load(open(os.path.join(work, ".local", "state", "ai", "resolved.json")))["tools"]["tool"]["rejected"]
+    assert rej["sha"] == sha and rej["by"] == "skill-scanner" and "HIGH: R1" in rej["findings"], rej
     write_exec(os.path.join(stub, "osv-scanner"), "#!/bin/sh\nexit 1\n")      # an osv finding: accept list applies
     res = run(["bash", "-c", script], env=dict(env, AI_HOME=home, FAKE_SS_SEV="MEDIUM"))
     assert "RESULT=pass" in res.stdout and "ACCEPTED owner-reviewed" in res.stdout, res.stdout
