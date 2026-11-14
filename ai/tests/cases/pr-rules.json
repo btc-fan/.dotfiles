@@ -22,7 +22,7 @@
    "payload": {
     "tool_name": "Bash",
     "tool_input": {
-     "command": "gh pr create --title x --body \"$(cat <<'EOF'\nSummary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\n<!-- author-sessions\nupdated: 2026-11-11\nmain: abc dir: ~/w # did it\n-->\nEOF\n)\""
+     "command": "gh pr create --title x --body \"$(cat <<'EOF'\nSummary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: `make check`: 12 passed\nRisk: low, docs only\n<!-- author-sessions\nupdated: 2026-11-11\nmain: abc dir: ~/w # did it\n-->\nEOF\n)\""
     }
    },
    "project": {
@@ -101,7 +101,7 @@
    "project": {
     "git": true,
     "files": {
-     "pr.md": "```mermaid\ngraph TD; a-->b\n```\n<!-- author-sessions\n-->\n"
+     "pr.md": "```mermaid\ngraph TD; a-->b\n```\n**Verify:**\n```\nmake check\n12 passed in 0.3s\n```\n**Risk:** the parser only\n<!-- author-sessions\n-->\n"
     }
    }
   },
@@ -132,6 +132,308 @@
    "project": {
     "git": true
    }
+  },
+  {
+   "name": "try tier: no Verify or Risk needed",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tier: try\n",
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   }
+  },
+  {
+   "name": "mvp (default): Verify and Risk missing",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   },
+   "contains": [
+    "Verify: (the check command",
+    "Risk: (one line"
+   ]
+  },
+  {
+   "name": "mvp: placeholder Verify",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: TODO\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   },
+   "contains": "placeholder, in Verify"
+  },
+  {
+   "name": "mvp: angle-bracket placeholder",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: <command and output>\nRisk: <one line>\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   },
+   "contains": "placeholder, in Risk"
+  },
+  {
+   "name": "long: Docs and Changed guards missing",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   },
+   "contains": [
+    "Docs: (",
+    "Changed guards: ("
+   ]
+  },
+  {
+   "name": "long: Docs: none without a reason",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\nDocs: none\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   },
+   "contains": "a reason after Docs: none"
+  },
+  {
+   "name": "long: complete body",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   }
+  },
+  {
+   "name": "long: fix PR without Ledger",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'fix(api): retry on 429' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\nDocs: README\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   },
+   "contains": "R-NNN"
+  },
+  {
+   "name": "fix PR without a test file in the diff",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'fix: price rounding' --body-file pr.md --base HEAD~1"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/a.py": "x = 1\n",
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    },
+    "commit": "init",
+    "extra_commits": [
+     {
+      "src/a.py": "x = 2\n"
+     }
+    ]
+   },
+   "contains": "a test file in the diff of a fix: PR"
+  },
+  {
+   "name": "fix PR with a test file in the diff",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'Fix: price rounding' --body-file pr.md --base HEAD~1"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/a.py": "x = 1\n",
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    },
+    "commit": "init",
+    "extra_commits": [
+     {
+      "src/a.py": "x = 2\n",
+      "tests/test_price.py": "def test_p(): pass\n"
+     }
+    ]
+   }
+  },
+  {
+   "name": "over 400 changed lines: allowed with a warning",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md --base HEAD~1"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/a.py": "x = 1\n",
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    },
+    "commit": "init",
+    "extra_commits": [
+     {
+      "src/big.py": "v0 = 0\nv1 = 1\nv2 = 2\nv3 = 3\nv4 = 4\nv5 = 5\nv6 = 6\nv7 = 7\nv8 = 8\nv9 = 9\nv10 = 10\nv11 = 11\nv12 = 12\nv13 = 13\nv14 = 14\nv15 = 15\nv16 = 16\nv17 = 17\nv18 = 18\nv19 = 19\nv20 = 20\nv21 = 21\nv22 = 22\nv23 = 23\nv24 = 24\nv25 = 25\nv26 = 26\nv27 = 27\nv28 = 28\nv29 = 29\nv30 = 30\nv31 = 31\nv32 = 32\nv33 = 33\nv34 = 34\nv35 = 35\nv36 = 36\nv37 = 37\nv38 = 38\nv39 = 39\nv40 = 40\nv41 = 41\nv42 = 42\nv43 = 43\nv44 = 44\nv45 = 45\nv46 = 46\nv47 = 47\nv48 = 48\nv49 = 49\nv50 = 50\nv51 = 51\nv52 = 52\nv53 = 53\nv54 = 54\nv55 = 55\nv56 = 56\nv57 = 57\nv58 = 58\nv59 = 59\nv60 = 60\nv61 = 61\nv62 = 62\nv63 = 63\nv64 = 64\nv65 = 65\nv66 = 66\nv67 = 67\nv68 = 68\nv69 = 69\nv70 = 70\nv71 = 71\nv72 = 72\nv73 = 73\nv74 = 74\nv75 = 75\nv76 = 76\nv77 = 77\nv78 = 78\nv79 = 79\nv80 = 80\nv81 = 81\nv82 = 82\nv83 = 83\nv84 = 84\nv85 = 85\nv86 = 86\nv87 = 87\nv88 = 88\nv89 = 89\nv90 = 90\nv91 = 91\nv92 = 92\nv93 = 93\nv94 = 94\nv95 = 95\nv96 = 96\nv97 = 97\nv98 = 98\nv99 = 99\nv100 = 100\nv101 = 101\nv102 = 102\nv103 = 103\nv104 = 104\nv105 = 105\nv106 = 106\nv107 = 107\nv108 = 108\nv109 = 109\nv110 = 110\nv111 = 111\nv112 = 112\nv113 = 113\nv114 = 114\nv115 = 115\nv116 = 116\nv117 = 117\nv118 = 118\nv119 = 119\nv120 = 120\nv121 = 121\nv122 = 122\nv123 = 123\nv124 = 124\nv125 = 125\nv126 = 126\nv127 = 127\nv128 = 128\nv129 = 129\nv130 = 130\nv131 = 131\nv132 = 132\nv133 = 133\nv134 = 134\nv135 = 135\nv136 = 136\nv137 = 137\nv138 = 138\nv139 = 139\nv140 = 140\nv141 = 141\nv142 = 142\nv143 = 143\nv144 = 144\nv145 = 145\nv146 = 146\nv147 = 147\nv148 = 148\nv149 = 149\nv150 = 150\nv151 = 151\nv152 = 152\nv153 = 153\nv154 = 154\nv155 = 155\nv156 = 156\nv157 = 157\nv158 = 158\nv159 = 159\nv160 = 160\nv161 = 161\nv162 = 162\nv163 = 163\nv164 = 164\nv165 = 165\nv166 = 166\nv167 = 167\nv168 = 168\nv169 = 169\nv170 = 170\nv171 = 171\nv172 = 172\nv173 = 173\nv174 = 174\nv175 = 175\nv176 = 176\nv177 = 177\nv178 = 178\nv179 = 179\nv180 = 180\nv181 = 181\nv182 = 182\nv183 = 183\nv184 = 184\nv185 = 185\nv186 = 186\nv187 = 187\nv188 = 188\nv189 = 189\nv190 = 190\nv191 = 191\nv192 = 192\nv193 = 193\nv194 = 194\nv195 = 195\nv196 = 196\nv197 = 197\nv198 = 198\nv199 = 199\nv200 = 200\nv201 = 201\nv202 = 202\nv203 = 203\nv204 = 204\nv205 = 205\nv206 = 206\nv207 = 207\nv208 = 208\nv209 = 209\nv210 = 210\nv211 = 211\nv212 = 212\nv213 = 213\nv214 = 214\nv215 = 215\nv216 = 216\nv217 = 217\nv218 = 218\nv219 = 219\nv220 = 220\nv221 = 221\nv222 = 222\nv223 = 223\nv224 = 224\nv225 = 225\nv226 = 226\nv227 = 227\nv228 = 228\nv229 = 229\nv230 = 230\nv231 = 231\nv232 = 232\nv233 = 233\nv234 = 234\nv235 = 235\nv236 = 236\nv237 = 237\nv238 = 238\nv239 = 239\nv240 = 240\nv241 = 241\nv242 = 242\nv243 = 243\nv244 = 244\nv245 = 245\nv246 = 246\nv247 = 247\nv248 = 248\nv249 = 249\nv250 = 250\nv251 = 251\nv252 = 252\nv253 = 253\nv254 = 254\nv255 = 255\nv256 = 256\nv257 = 257\nv258 = 258\nv259 = 259\nv260 = 260\nv261 = 261\nv262 = 262\nv263 = 263\nv264 = 264\nv265 = 265\nv266 = 266\nv267 = 267\nv268 = 268\nv269 = 269\nv270 = 270\nv271 = 271\nv272 = 272\nv273 = 273\nv274 = 274\nv275 = 275\nv276 = 276\nv277 = 277\nv278 = 278\nv279 = 279\nv280 = 280\nv281 = 281\nv282 = 282\nv283 = 283\nv284 = 284\nv285 = 285\nv286 = 286\nv287 = 287\nv288 = 288\nv289 = 289\nv290 = 290\nv291 = 291\nv292 = 292\nv293 = 293\nv294 = 294\nv295 = 295\nv296 = 296\nv297 = 297\nv298 = 298\nv299 = 299\nv300 = 300\nv301 = 301\nv302 = 302\nv303 = 303\nv304 = 304\nv305 = 305\nv306 = 306\nv307 = 307\nv308 = 308\nv309 = 309\nv310 = 310\nv311 = 311\nv312 = 312\nv313 = 313\nv314 = 314\nv315 = 315\nv316 = 316\nv317 = 317\nv318 = 318\nv319 = 319\nv320 = 320\nv321 = 321\nv322 = 322\nv323 = 323\nv324 = 324\nv325 = 325\nv326 = 326\nv327 = 327\nv328 = 328\nv329 = 329\nv330 = 330\nv331 = 331\nv332 = 332\nv333 = 333\nv334 = 334\nv335 = 335\nv336 = 336\nv337 = 337\nv338 = 338\nv339 = 339\nv340 = 340\nv341 = 341\nv342 = 342\nv343 = 343\nv344 = 344\nv345 = 345\nv346 = 346\nv347 = 347\nv348 = 348\nv349 = 349\nv350 = 350\nv351 = 351\nv352 = 352\nv353 = 353\nv354 = 354\nv355 = 355\nv356 = 356\nv357 = 357\nv358 = 358\nv359 = 359\nv360 = 360\nv361 = 361\nv362 = 362\nv363 = 363\nv364 = 364\nv365 = 365\nv366 = 366\nv367 = 367\nv368 = 368\nv369 = 369\nv370 = 370\nv371 = 371\nv372 = 372\nv373 = 373\nv374 = 374\nv375 = 375\nv376 = 376\nv377 = 377\nv378 = 378\nv379 = 379\nv380 = 380\nv381 = 381\nv382 = 382\nv383 = 383\nv384 = 384\nv385 = 385\nv386 = 386\nv387 = 387\nv388 = 388\nv389 = 389\nv390 = 390\nv391 = 391\nv392 = 392\nv393 = 393\nv394 = 394\nv395 = 395\nv396 = 396\nv397 = 397\nv398 = 398\nv399 = 399\nv400 = 400\nv401 = 401\nv402 = 402\nv403 = 403\nv404 = 404\nv405 = 405\nv406 = 406\nv407 = 407\nv408 = 408\nv409 = 409\nv410 = 410\nv411 = 411\nv412 = 412\nv413 = 413\nv414 = 414\nv415 = 415\nv416 = 416\nv417 = 417\nv418 = 418\nv419 = 419\nv420 = 420\nv421 = 421\nv422 = 422\nv423 = 423\nv424 = 424\nv425 = 425\nv426 = 426\nv427 = 427\nv428 = 428\nv429 = 429\nv430 = 430\nv431 = 431\nv432 = 432\nv433 = 433\nv434 = 434\nv435 = 435\nv436 = 436\nv437 = 437\nv438 = 438\nv439 = 439\nv440 = 440\nv441 = 441\nv442 = 442\nv443 = 443\nv444 = 444\nv445 = 445\nv446 = 446\nv447 = 447\nv448 = 448\nv449 = 449\n"
+     }
+    ]
+   },
+   "contains": "warning: 450 changed lines"
+  },
+  {
+   "name": "lockfile lines do not count for the size",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md --base HEAD~1"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/a.py": "x = 1\n",
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    },
+    "commit": "init",
+    "extra_commits": [
+     {
+      "uv.lock": "l0\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\nl11\nl12\nl13\nl14\nl15\nl16\nl17\nl18\nl19\nl20\nl21\nl22\nl23\nl24\nl25\nl26\nl27\nl28\nl29\nl30\nl31\nl32\nl33\nl34\nl35\nl36\nl37\nl38\nl39\nl40\nl41\nl42\nl43\nl44\nl45\nl46\nl47\nl48\nl49\nl50\nl51\nl52\nl53\nl54\nl55\nl56\nl57\nl58\nl59\nl60\nl61\nl62\nl63\nl64\nl65\nl66\nl67\nl68\nl69\nl70\nl71\nl72\nl73\nl74\nl75\nl76\nl77\nl78\nl79\nl80\nl81\nl82\nl83\nl84\nl85\nl86\nl87\nl88\nl89\nl90\nl91\nl92\nl93\nl94\nl95\nl96\nl97\nl98\nl99\nl100\nl101\nl102\nl103\nl104\nl105\nl106\nl107\nl108\nl109\nl110\nl111\nl112\nl113\nl114\nl115\nl116\nl117\nl118\nl119\nl120\nl121\nl122\nl123\nl124\nl125\nl126\nl127\nl128\nl129\nl130\nl131\nl132\nl133\nl134\nl135\nl136\nl137\nl138\nl139\nl140\nl141\nl142\nl143\nl144\nl145\nl146\nl147\nl148\nl149\nl150\nl151\nl152\nl153\nl154\nl155\nl156\nl157\nl158\nl159\nl160\nl161\nl162\nl163\nl164\nl165\nl166\nl167\nl168\nl169\nl170\nl171\nl172\nl173\nl174\nl175\nl176\nl177\nl178\nl179\nl180\nl181\nl182\nl183\nl184\nl185\nl186\nl187\nl188\nl189\nl190\nl191\nl192\nl193\nl194\nl195\nl196\nl197\nl198\nl199\nl200\nl201\nl202\nl203\nl204\nl205\nl206\nl207\nl208\nl209\nl210\nl211\nl212\nl213\nl214\nl215\nl216\nl217\nl218\nl219\nl220\nl221\nl222\nl223\nl224\nl225\nl226\nl227\nl228\nl229\nl230\nl231\nl232\nl233\nl234\nl235\nl236\nl237\nl238\nl239\nl240\nl241\nl242\nl243\nl244\nl245\nl246\nl247\nl248\nl249\nl250\nl251\nl252\nl253\nl254\nl255\nl256\nl257\nl258\nl259\nl260\nl261\nl262\nl263\nl264\nl265\nl266\nl267\nl268\nl269\nl270\nl271\nl272\nl273\nl274\nl275\nl276\nl277\nl278\nl279\nl280\nl281\nl282\nl283\nl284\nl285\nl286\nl287\nl288\nl289\nl290\nl291\nl292\nl293\nl294\nl295\nl296\nl297\nl298\nl299\nl300\nl301\nl302\nl303\nl304\nl305\nl306\nl307\nl308\nl309\nl310\nl311\nl312\nl313\nl314\nl315\nl316\nl317\nl318\nl319\nl320\nl321\nl322\nl323\nl324\nl325\nl326\nl327\nl328\nl329\nl330\nl331\nl332\nl333\nl334\nl335\nl336\nl337\nl338\nl339\nl340\nl341\nl342\nl343\nl344\nl345\nl346\nl347\nl348\nl349\nl350\nl351\nl352\nl353\nl354\nl355\nl356\nl357\nl358\nl359\nl360\nl361\nl362\nl363\nl364\nl365\nl366\nl367\nl368\nl369\nl370\nl371\nl372\nl373\nl374\nl375\nl376\nl377\nl378\nl379\nl380\nl381\nl382\nl383\nl384\nl385\nl386\nl387\nl388\nl389\nl390\nl391\nl392\nl393\nl394\nl395\nl396\nl397\nl398\nl399\nl400\nl401\nl402\nl403\nl404\nl405\nl406\nl407\nl408\nl409\nl410\nl411\nl412\nl413\nl414\nl415\nl416\nl417\nl418\nl419\nl420\nl421\nl422\nl423\nl424\nl425\nl426\nl427\nl428\nl429\nl430\nl431\nl432\nl433\nl434\nl435\nl436\nl437\nl438\nl439\nl440\nl441\nl442\nl443\nl444\nl445\nl446\nl447\nl448\nl449\nl450\nl451\nl452\nl453\nl454\nl455\nl456\nl457\nl458\nl459\nl460\nl461\nl462\nl463\nl464\nl465\nl466\nl467\nl468\nl469\nl470\nl471\nl472\nl473\nl474\nl475\nl476\nl477\nl478\nl479\nl480\nl481\nl482\nl483\nl484\nl485\nl486\nl487\nl488\nl489\nl490\nl491\nl492\nl493\nl494\nl495\nl496\nl497\nl498\nl499\nl500\nl501\nl502\nl503\nl504\nl505\nl506\nl507\nl508\nl509\nl510\nl511\nl512\nl513\nl514\nl515\nl516\nl517\nl518\nl519\nl520\nl521\nl522\nl523\nl524\nl525\nl526\nl527\nl528\nl529\nl530\nl531\nl532\nl533\nl534\nl535\nl536\nl537\nl538\nl539\nl540\nl541\nl542\nl543\nl544\nl545\nl546\nl547\nl548\nl549\nl550\nl551\nl552\nl553\nl554\nl555\nl556\nl557\nl558\nl559\nl560\nl561\nl562\nl563\nl564\nl565\nl566\nl567\nl568\nl569\nl570\nl571\nl572\nl573\nl574\nl575\nl576\nl577\nl578\nl579\nl580\nl581\nl582\nl583\nl584\nl585\nl586\nl587\nl588\nl589\nl590\nl591\nl592\nl593\nl594\nl595\nl596\nl597\nl598\nl599\nl600\nl601\nl602\nl603\nl604\nl605\nl606\nl607\nl608\nl609\nl610\nl611\nl612\nl613\nl614\nl615\nl616\nl617\nl618\nl619\nl620\nl621\nl622\nl623\nl624\nl625\nl626\nl627\nl628\nl629\nl630\nl631\nl632\nl633\nl634\nl635\nl636\nl637\nl638\nl639\nl640\nl641\nl642\nl643\nl644\nl645\nl646\nl647\nl648\nl649\nl650\nl651\nl652\nl653\nl654\nl655\nl656\nl657\nl658\nl659\nl660\nl661\nl662\nl663\nl664\nl665\nl666\nl667\nl668\nl669\nl670\nl671\nl672\nl673\nl674\nl675\nl676\nl677\nl678\nl679\nl680\nl681\nl682\nl683\nl684\nl685\nl686\nl687\nl688\nl689\nl690\nl691\nl692\nl693\nl694\nl695\nl696\nl697\nl698\nl699\nl700\nl701\nl702\nl703\nl704\nl705\nl706\nl707\nl708\nl709\nl710\nl711\nl712\nl713\nl714\nl715\nl716\nl717\nl718\nl719\nl720\nl721\nl722\nl723\nl724\nl725\nl726\nl727\nl728\nl729\nl730\nl731\nl732\nl733\nl734\nl735\nl736\nl737\nl738\nl739\nl740\nl741\nl742\nl743\nl744\nl745\nl746\nl747\nl748\nl749\nl750\nl751\nl752\nl753\nl754\nl755\nl756\nl757\nl758\nl759\nl760\nl761\nl762\nl763\nl764\nl765\nl766\nl767\nl768\nl769\nl770\nl771\nl772\nl773\nl774\nl775\nl776\nl777\nl778\nl779\nl780\nl781\nl782\nl783\nl784\nl785\nl786\nl787\nl788\nl789\nl790\nl791\nl792\nl793\nl794\nl795\nl796\nl797\nl798\nl799\nl800\nl801\nl802\nl803\nl804\nl805\nl806\nl807\nl808\nl809\nl810\nl811\nl812\nl813\nl814\nl815\nl816\nl817\nl818\nl819\nl820\nl821\nl822\nl823\nl824\nl825\nl826\nl827\nl828\nl829\nl830\nl831\nl832\nl833\nl834\nl835\nl836\nl837\nl838\nl839\nl840\nl841\nl842\nl843\nl844\nl845\nl846\nl847\nl848\nl849\nl850\nl851\nl852\nl853\nl854\nl855\nl856\nl857\nl858\nl859\nl860\nl861\nl862\nl863\nl864\nl865\nl866\nl867\nl868\nl869\nl870\nl871\nl872\nl873\nl874\nl875\nl876\nl877\nl878\nl879\nl880\nl881\nl882\nl883\nl884\nl885\nl886\nl887\nl888\nl889\nl890\nl891\nl892\nl893\nl894\nl895\nl896\nl897\nl898\nl899\n",
+      "src/a.py": "x = 3\n"
+     }
+    ]
+   },
+   "not_contains": "warning:"
+  },
+  {
+   "name": "--fill hides the body",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "project": {
+    "git": true
+   },
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --fill"
+    }
+   },
+   "contains": "--fill / --web"
+  },
+  {
+   "name": "--web hides the body",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "project": {
+    "git": true
+   },
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create -w --title x"
+    }
+   },
+   "contains": "--fill / --web"
+  },
+  {
+   "name": "gh pr edit with a body is checked too",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   },
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr edit 12 --body-file pr.md"
+    }
+   },
+   "contains": "Verify:"
   }
  ]
 }

@@ -10,7 +10,7 @@ Each ai/tests/cases/<rule>.json holds {"rule": id, "cases": [...]}. A case:
   steps    [{event, payload, transcript_append: [json rows]}]  (or one "event" + "payload")
   agent    claude (default) | codex
   project  {git: true, git_init: true, files: {rel: text}, stage: {rel: text}, commit: "<message>",
-           dirty: {rel: text} (written after the commit)}
+           dirty: {rel: text} (written after the commit), extra_commits: [{rel: text}, ...] (after the commit)}
   audit_log  lines for ~/.local/state/ai/audit.log
   ai_mcp   text for $AI_HOME/ai/mcp/context7.json, committed (secret-scan allowlist reads HEAD);
            ai_mcp_commit: false keeps it uncommitted
@@ -289,6 +289,11 @@ def setup_project(proj, spec):
                        GIT_COMMITTER_EMAIL="t@t.invalid", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
         subprocess.check_call(["git", "-C", proj, "add", "-A"], env=git_env)
         subprocess.check_call(["git", "-C", proj, "commit", "-q", "--no-verify", "-m", spec["commit"]], env=git_env)
+    for i, files in enumerate(spec.get("extra_commits", [])):     # more commits (diff against HEAD~N)
+        for rel, text in files.items():
+            write(os.path.join(proj, rel), text)
+        subprocess.check_call(["git", "-C", proj, "add", "-A"], env=git_env)
+        subprocess.check_call(["git", "-C", proj, "commit", "-q", "--no-verify", "-m", "extra %d" % i], env=git_env)
     for rel, text in spec.get("dirty", {}).items():     # changed after the commit (uncommitted work)
         write(os.path.join(proj, rel), text)
 

@@ -1004,36 +1004,153 @@ def allowed_secrets():
 
 # ---------------------------------------------------------------- pr-rules
 
+# Tier fields (owner plan Tier 1 T4): mvp needs Verify and Risk; long also Docs, Changed guards and (fix: PRs)
+# Ledger. try: only the two blocks above. A fix: PR needs a test file in its diff (mvp and long); over 400 changed
+# lines (lockfiles and generated files left out) is a warning, never a block.
+PR_FILL = {"--fill", "--fill-first", "--fill-verbose", "--web", "-f", "-w"}
+PR_FIELDS = {"try": (), "mvp": ("Verify", "Risk"), "long": ("Verify", "Risk", "Docs", "Changed guards")}
+PR_FIELD_HELP = {"Verify": "the check command and the tail of its output", "Risk": "one line: what can break",
+                 "Docs": "the docs changed, or \"none, because ...\"",
+                 "Changed guards": "every edited or removed test with the reason, or \"none\"",
+                 "Ledger": "R-NNN and the test path (docs/REGRESSIONS.md)"}
+PR_PLACEHOLDER = re.compile(r"^(<[^>]*>|todo|tbd|\.{2,}|xxx+|\?+|-+|n/?a|fill (it )?in|placeholder|same|see above|"
+                            r"(add|describe|write)\b.*\bhere)\W*$", re.I)
+PR_FIX_TITLE = re.compile(r"^\s*(fix|bugfix|hotfix)\b", re.I)
+PR_TEST_PATH = re.compile(r"(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]*\.py$|_test\.(go|py)$|"
+                          r"\.(test|spec)\.[cm]?[jt]sx?$")
+PR_GENERATED = re.compile(r"(^|/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|poetry\.lock|Cargo\.lock|"
+                          r"go\.sum|bun\.lockb?|composer\.lock|Gemfile\.lock)$|\.(lock|min\.js|min\.css|snap)$|"
+                          r"(^|/)(dist|vendor|generated|__generated__)/")
+PR_SIZE_WARN = 400
+
+
 def gate_pr(ctx, cmd, stages):
-    missing_all = []
+    problems = []
     for st in stages:
         if st.exe != "gh" or st.args[:1] != ["pr"] or len(st.args) < 2 or st.args[1] not in ("create", "edit"):
             continue
-        args = st.args[2:]
-        body_flag = any(a.split("=")[0] in ("--body", "-b", "--body-file", "-F", "--fill", "--fill-first",
-                                            "--fill-verbose") for a in args)
-        if st.args[1] == "edit" and not body_flag:
+        sub, args = st.args[1], st.args[2:]
+        if sub == "create" and any(a.split("=")[0] in PR_FILL for a in args):
+            problems.append("--fill / --web hide the body from this check: write the body and pass it with --body "
+                            "or --body-file")
             continue
-        text = " ".join(args)
-        for i, a in enumerate(args):
-            opt, eq, val = a.partition("=")
-            if opt in ("--body-file", "-F"):
-                path = val if eq else (args[i + 1] if i + 1 < len(args) else "-")
-                if path != "-":
-                    text += "\n" + (read_text(os.path.join(ctx.cwd, os.path.expanduser(path))) or "")
-        if "<<" in cmd and "--body" in cmd:
-            text += "\n" + cmd       # heredoc body inside $(cat <<EOF ...)
+        body_flag = any(a.split("=")[0] in ("--body", "-b", "--body-file", "-F") for a in args)
+        if sub == "edit" and not body_flag:
+            continue
+        text = pr_body_text(ctx, cmd, args)
         missing = []
         if "```mermaid" not in text:
             missing.append("a ```mermaid diagram")
         if "<!-- author-sessions" not in text:
             missing.append("the <!-- author-sessions block")
-        missing_all.extend(m for m in missing if m not in missing_all)
-    if not missing_all:
+        root = project_root(ctx.cwd)
+        tier = project_tier(root) if root else "mvp"
+        fields = list(PR_FIELDS[tier])
+        fix = bool(PR_FIX_TITLE.match(flag_value(args, ("--title", "-t")) or ""))
+        if fix and tier == "long":
+            fields.append("Ledger")
+        for name in fields:
+            why = pr_field_problem(name, pr_field(text, name))
+            if why:
+                missing.append(why)
+        if sub == "create" and root and tier != "try":
+            missing.extend(pr_diff_checks(ctx, root, args, fix))
+        problems.extend(m for m in missing if m not in problems)
+    if not problems:
         return None
-    return ("deny", "PR body is missing %s. Body needs: summary, Mermaid diagram of the change, one-way or "
-            "two-way door, blast radius, author-sessions block at the end. Pass it with --body or --body-file."
-            % " and ".join(missing_all))
+    return ("deny", "PR not ready, missing: %s. Body needs: summary, Mermaid diagram of the change, one-way or "
+            "two-way door, blast radius, the fields of this project's tier (mvp: Verify, Risk; long: also Docs, "
+            "Changed guards, Ledger on fix PRs), author-sessions block at the end. Pass it with --body or "
+            "--body-file." % "; ".join(problems))
+
+
+def pr_body_text(ctx, cmd, args):
+    text = " ".join(args)
+    for i, a in enumerate(args):
+        opt, eq, val = a.partition("=")
+        if opt in ("--body-file", "-F"):
+            path = val if eq else (args[i + 1] if i + 1 < len(args) else "-")
+            if path != "-":
+                text += "\n" + (read_text(os.path.join(ctx.cwd, os.path.expanduser(path))) or "")
+    if "<<" in cmd and "--body" in cmd:
+        text += "\n" + cmd       # heredoc body inside $(cat <<EOF ...)
+    return text
+
+
+def flag_value(args, names):
+    for i, a in enumerate(args):
+        opt, eq, val = a.partition("=")
+        if opt in names:
+            return val if eq else (args[i + 1] if i + 1 < len(args) else "")
+    return None
+
+
+def pr_field(text, name):
+    """The text after `Name:` (markdown bold, heading or list marks allowed before it), or the next lines when
+    the label stands alone. None when the label is missing."""
+    m = re.search(r"(?im)^[ \t>*#_-]*\**%s\**[ \t]*:\**[ \t]*(.*)$" % re.escape(name), text)
+    if not m:
+        return None
+    value = m.group(1).strip()
+    if value:
+        return value
+    lines = []
+    for ln in text[m.end():].splitlines():
+        if re.match(r"^[ \t>*#_-]*\**[A-Z][\w ]{1,30}\**[ \t]*:", ln) or ln.startswith("<!--"):
+            break
+        if ln.strip():
+            lines.append(ln.strip())
+        if len(lines) >= 4:
+            break
+    return " ".join(lines)
+
+
+def pr_field_problem(name, value):
+    help_text = "%s: (%s)" % (name, PR_FIELD_HELP[name])
+    if value is None:
+        return help_text
+    plain = re.sub(r"[`*_]", "", value).strip()
+    if len(re.sub(r"\W", "", plain)) < 3 or PR_PLACEHOLDER.match(plain):
+        return "real text, not a placeholder, in " + help_text
+    if name == "Docs" and re.match(r"^none\b", plain, re.I) and \
+            not re.search(r"\b(because|since|as)\b|[,:;]\s*\w{3,}", plain[4:], re.I):
+        return "a reason after Docs: none (\"none, because ...\")"
+    if name == "Ledger" and not re.search(r"\bR-\d+\b", plain):
+        return "an R-NNN id in Ledger: (fix PRs in a long-tier project)"
+    return None
+
+
+def pr_diff_checks(ctx, root, args, fix):
+    """A fix: PR without a test file -> problem; size over PR_SIZE_WARN -> a warning in the context only."""
+    base = flag_value(args, ("--base", "-B"))
+    head = flag_value(args, ("--head", "-H")) or "HEAD"
+    if ":" in head:
+        head = "HEAD"           # owner:branch of a fork: compare the local HEAD
+    candidates = ["origin/" + base, base] if base else []
+    ref = (git_quick(root, ["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"]) or "").strip()
+    candidates += ([ref] if ref else []) + ["origin/main", "origin/master", "main", "master"]
+    base_ref = next((c for c in candidates if git_quick(root, ["rev-parse", "-q", "--verify", c + "^{commit}"])), None)
+    numstat = git_quick(root, ["diff", "--numstat", "%s...%s" % (base_ref, head)]) if base_ref else None
+    if numstat is None:
+        ctx.add_context("[ai gate pr-rules] could not diff against the base branch: the test-file and size checks "
+                        "did not run.")
+        return []
+    files, lines = [], 0
+    for row in numstat.splitlines():
+        parts = row.split("\t")
+        if len(parts) < 3:
+            continue
+        files.append(parts[2])
+        if not PR_GENERATED.search(parts[2]):
+            lines += sum(int(x) for x in parts[:2] if x.isdigit())
+    out = []
+    if fix and not any(PR_TEST_PATH.search(f) for f in files):
+        out.append("a test file in the diff of a fix: PR (tests/..., test_*.py, *_test.go, *.test.ts); none against %s"
+                   % base_ref)
+    if lines > PR_SIZE_WARN:
+        ctx.add_context("[ai gate pr-rules] warning: %d changed lines against %s (generated files left out), over %d. "
+                        "Split the PR or say in the body why it must stay one." % (lines, base_ref, PR_SIZE_WARN))
+    return out
 
 
 def probe_pr(stages, cmd=""):

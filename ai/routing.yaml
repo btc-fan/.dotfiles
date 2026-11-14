@@ -88,8 +88,8 @@ rules:
     scope: global
     summary: 'before gh pr create or edit'
     trigger: {tool_before: 'Bash', command: '\bgh pr (create|edit)\b'}
-    action: "PR body: summary, Mermaid diagram, one-way or two-way door, blast radius, author-sessions block at the end."
-    strength: gate    # blocks when the body has no ```mermaid block or no <!-- author-sessions block
+    action: "PR body: summary, Mermaid diagram, one-way or two-way door, blast radius, Verify and Risk (tier mvp, long), Docs and Changed guards (long; Ledger on fix PRs), author-sessions block at the end."
+    strength: gate    # blocks without ```mermaid, <!-- author-sessions, the tier fields (placeholders refused), a test file in a fix: PR; --fill/--web refused
 
   # ---------- lint and docs ----------
   - id: no-em-dash
