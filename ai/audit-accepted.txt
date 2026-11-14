@@ -1,5 +1,7 @@
 # Owner-reviewed audit acceptances (SPEC section 22). One line per EXACT version:
 #   <ecosystem> <name> <exact version> <YYYY-MM-DD> <reason>
+# dir lines (git sources: plugin sources, RTK, mattpocock skills) give the FULL 40-character commit as the
+# version, never a tag: a tag can be moved to other code. Write the tag in the reason.
 # The full agent-audit scan always runs. Only when it reports findings AND the line below matches
 # ecosystem + name + exact version does the installer go on, logging "ACCEPTED owner-reviewed".
 # A new version is never covered: review its findings again, then add a new line (docs/EXTENDING.md).
@@ -7,8 +9,8 @@ npm oh-my-claude-sisyphus 5.8.4 2026-11-11 intake-triage (SPEC 19): telegram rep
 npm opencode-ai 1.19.5 2026-11-11 intake-triage (SPEC 19): closed binary; never run "opencode upgrade"
 npm @upstash/context7-mcp 4.6.0 2026-11-11 env reads are URL settings; subscription telemetry wraps its own handler, no outside endpoint
 pypi graphifyy 0.9.105 2026-11-11 sensitive-file hits are patterns that keep secrets OUT of the index; steganography hit is an image-extension list
-dir claude-seo v2.5.0 2026-11-12 every guarddog threat hit is in tests/ (URL-safety and manifest fixtures, never run in use); skill-scanner clean; opt-in plugin, off by default
-dir claude-blog v2.3.2 2026-11-12 socket hits are its SSRF guard (resolve, refuse private IPs, pin the checked IP); curl|bash hit is a doc line saying that installer was removed; Google auth sends the user's own key to Google; opt-in plugin
+dir claude-seo 219ff485bb016314bb4c15bfc7978df61c668a4f 2026-11-12 tag v2.5.0: every guarddog threat hit is in tests/ (URL-safety and manifest fixtures, never run in use); skill-scanner clean; opt-in plugin, off by default
+dir claude-blog 4f9c2cb8fd17f594e868d6c2ce0e8fb2c971f987 2026-11-12 tag v2.3.2: socket hits are its SSRF guard (resolve, refuse private IPs, pin the checked IP); curl|bash hit is a doc line saying that installer was removed; Google auth sends the user's own key to Google; opt-in plugin
 pypi serena-agent 2.1.0 2026-11-12 owner-reviewed: every guarddog hit is benign: "memory" = Serena's ReadMemoryTool, psutil.Process of its own dashboard, DEVNULL when opening the dashboard browser (dashboard off), lean4 install hint text, "**/.env" ignore glob, platform.system()
-dir ponytail 96608e078b2d 2026-11-12 owner-reviewed: hook spawns its own local band-import script detached; benchmarks/judge.py reads its own .env API key and is never run in use; skill-scanner clean
-dir rtk v1.2.0 2026-11-12 owner-reviewed: built after a semver-compatible cargo update (RTK_CARGO_UPDATE=1); left: quick-xml 0.37 (RUSTSEC-2026-0194/0195), libsqlite3-sys 0.32 (RUSTSEC-2026-0459), lru 0.12, paste (unmaintained) need upstream; local output filter, own SQLite stats file, telemetry off
+dir ponytail 96608e078b2d5ea607c5c3b8b5a54d1c1fba6846 2026-11-12 owner-reviewed: hook spawns its own local band-import script detached; benchmarks/judge.py reads its own .env API key and is never run in use; skill-scanner clean
+dir rtk e288a18c04452fd26192f59132e5324a8bb6924d 2026-11-12 tag v1.2.0: owner-reviewed: built after a semver-compatible cargo update (RTK_CARGO_UPDATE=1); left: quick-xml 0.37 (RUSTSEC-2026-0194/0195), libsqlite3-sys 0.32 (RUSTSEC-2026-0459), lru 0.12, paste (unmaintained) need upstream; local output filter, own SQLite stats file, telemetry off

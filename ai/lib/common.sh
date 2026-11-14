@@ -317,6 +317,7 @@ report_changes() {
 audit_ok() {
     # audit_ok <ecosystem> <target> [version] [name]
     # name: for `dir` audits of a temp folder, the tool name to look up in ai/audit-accepted.txt.
+    # version: for `dir` audits the full commit of the source (the accept list keys git sources by commit).
     local eco=$1 target=$2 ver=${3:-} name=${4:-$2} reason
     if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] agent-audit $eco $target${ver:+ $ver}"; return 0; fi
     if ! has agent-audit; then warn "agent-audit not found: cannot audit $target, not installing it"; return 1; fi
@@ -336,8 +337,14 @@ audit_ok() {
 }
 
 # audit_accepted <ecosystem> <name> <version>: prints the reviewed reason if that exact version is listed.
+# dir audits (git sources) are keyed by the full 40-character commit, never by a tag: a tag can move to
+# another commit, an accepted commit cannot.
 audit_accepted() {
     local f="$AI_HOME/ai/audit-accepted.txt"
     [ -n "$3" ] && [ -f "$f" ] || return 0
+    if [ "$1" = dir ]; then
+        case "$3" in *[!0-9a-f]*) return 0 ;; esac
+        [ ${#3} -eq 40 ] || return 0
+    fi
     awk -v e="$1" -v n="$2" -v v="$3" '!/^#/ && $1==e && $2==n && $3==v { $1=$2=$3=""; sub(/^ +/, ""); print; exit }' "$f"
 }
