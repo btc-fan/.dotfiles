@@ -556,8 +556,10 @@ restore where something existing is removed; dry-run safe.
   ui-ux-pro-max (per project: `ai-adopt --tools ui`), typesafe (no per-project id).
 - Serena: once `ai-serena@ai` is installed and enabled, a user-scope `serena` in `~/.claude.json` is moved out
   (saved, restore recorded). Codex already saves and replaces a foreign `serena` entry.
-- RTK on macOS: when the Homebrew formula `rtk` is installed, `brew upgrade rtk` moves it when it is older than
-  the newest stable release, after `agent-audit dir` of the release tag; no source build, no Rust. An older copy
+- RTK on macOS: when the Homebrew formula `rtk` is installed, `HOMEBREW_NO_AUTO_UPDATE=1 brew upgrade rtk` moves it,
+  only when the homebrew/core formula's stable version equals the resolved version (newest stable or RTK_HOLD),
+  after `agent-audit dir` of that release tag; no source build, no Rust. A mismatch is a WARN and the installed
+  rtk stays (`RTK_BREW_MISMATCH=build`: source build of the audited tag instead). An older copy
   this setup built in `~/.local/bin` is moved to the backup folder (restore recorded): one rtk on PATH. No brew
   formula: the source build as before.
 - OMX: kept and updated (newest stable, audited). oh-my-codex hook commands in `~/.codex/hooks.json` on a

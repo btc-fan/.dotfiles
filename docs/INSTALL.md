@@ -72,7 +72,7 @@ Options:
 
 ## macOS (later)
 
-- brew only for missing CLIs. Never `brew upgrade`, with one exception: when the Homebrew formula `rtk` is installed, install.sh runs `brew upgrade rtk` (after the audit of the release tag) when it is older than the newest stable release, instead of a source build (no Rust needed). An older copy this setup built in `~/.local/bin/rtk` is moved to the backup folder so one rtk stays on PATH (owner decision 2026-11-14).
+- brew only for missing CLIs. Never `brew upgrade`, with one exception: when the Homebrew formula `rtk` is installed, install.sh runs `HOMEBREW_NO_AUTO_UPDATE=1 brew upgrade rtk` instead of a source build (no Rust needed), but only when the homebrew/core formula's stable version is exactly the resolved version (newest stable or `RTK_HOLD`), after the audit of that release tag. Otherwise it warns and keeps the installed rtk (`RTK_BREW_MISMATCH=build` in `ai/pins.env`: source build instead). An older copy this setup built in `~/.local/bin/rtk` is moved to the backup folder so one rtk stays on PATH (owner decision 2026-11-14).
 - Never writes macOS managed settings (an employer may manage them). Environment keys go into `~/.claude/settings.json` `env`.
 - RTK hook: on by default everywhere is the goal (see `install.sh --help` for the current switch). Install only changes agent configuration, never projects, databases or services.
 - Dropped plugins on `AI_DROP_CLAUDE_PLUGINS` in `ai/pins.env` (caveman, owner decision 2026-11-14) are removed and recorded; a later drop is one word there. The context7 plugin is only reported: the installer prints the remove command.

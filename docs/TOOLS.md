@@ -149,7 +149,7 @@ MCP servers give agents extra tools, and each one costs context in every session
 - **Why.** Output is the biggest token cost in a coding session. Savings are up to 90%.
 - **How it works here.** A hook rewrites `git status` to `rtk git status`. The agent does not call it by hand. `git push` and `gh` are never rewritten (`exclude_commands`), so their output and our gates see the plain command. Exception: `uv run` is not rewritten, so in a Python project the agent types `uv run rtk pytest`. For security tools and debugging use `rtk bypass <cmd>` so findings are not cut. Check with `rtk gain --history`.
 - **Scope.** Global, on by default.
-- **Pin.** Intake v1.2.0. Installed: the newest stable release, built from source (`cargo --locked`). On macOS with the Homebrew formula `rtk` (same project): `brew upgrade rtk` after the audit of the release tag, no Rust and no build; an older copy this setup built in `~/.local/bin` is moved to the backup folder, so one rtk stays on PATH (owner decision 2026-11-14).
+- **Pin.** Intake v1.2.0. Installed: the newest stable release, built from source (`cargo --locked`). On macOS with the Homebrew formula `rtk` (same project): `brew upgrade rtk` after the audit of the release tag, only when the homebrew/core formula is exactly that version (else a WARN and the installed rtk stays), no Rust and no build; an older copy this setup built in `~/.local/bin` is moved to the backup folder, so one rtk stays on PATH (owner decision 2026-11-14).
 - **Telemetry.** Never run `rtk telemetry enable`.
 - **Contract.** `ai/rules/rtk.md`.
 
