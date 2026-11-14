@@ -924,6 +924,12 @@ def check_drops_and_defaults():
              if re.search(r'^\s*\[mcp_servers\.(%s|"%s")\]' % (re.escape(n), re.escape(n)), cfg, re.M)]
     say("PASS" if not left else "FAIL", "dropped MCP servers gone from Claude and Codex (%s)" % " ".join(drop_mcp),
         ("still registered: %s. %s" % (", ".join(left), fix)) if left else "")
+    # Local scope (one project each, in ~/.claude.json projects): not removed by install, only reported.
+    local = sorted("%s (%s)" % (n, proj) for proj, pv in (cj.get("projects") or {}).items() if isinstance(pv, dict)
+                   for n in (pv.get("mcpServers") or {}) if n in drop_mcp)
+    if local:
+        say("WARN", "dropped MCP servers in project (local) scope: %s" % "; ".join(local[:5]),
+            "remove in that project: claude mcp remove --scope local <name>")
     for pk in pins_words("AI_OFF_CLAUDE_PLUGINS"):
         if pk in installed:
             off = enabled.get(pk) is False
@@ -934,7 +940,13 @@ def check_drops_and_defaults():
         say("PASS" if not dup else "FAIL", "one Serena for Claude (plugin ai-serena; no user-scope serena in ~/.claude.json)",
             "user-scope serena still there: %s" % fix if dup else "")
     rtks = on_path("rtk")
-    if rtks:
+    if rtks and LINUX:
+        # Servers: the root-owned /usr/local/bin/rtk is the managed hook's absolute path; another copy only
+        # changes what a shell finds first, so it is a WARN there, not a FAIL.
+        ok = len(rtks) == 1 or (rtks[0] == "/usr/local/bin/rtk")
+        say("PASS" if ok else "WARN", "rtk on PATH (%s)" % ", ".join(rtks),
+            "" if ok else "a shell runs %s first; the managed Claude hook runs /usr/local/bin/rtk" % rtks[0])
+    elif rtks:
         say("PASS" if len(rtks) == 1 else "FAIL", "one rtk on PATH (%s)" % ", ".join(rtks),
             "" if len(rtks) == 1 else "the first one shadows the others and the version check never matches; %s" % fix)
     hj = load_json_file(os.path.join(CODEX_HOME, "hooks.json")) or {}
