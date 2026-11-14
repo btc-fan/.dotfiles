@@ -5,8 +5,9 @@
 #
 #   pg-base-backup     pg_basebackup (plain files, WAL streamed in, read at most PG_BASE_MAX_RATE)
 #                      into PG_BASE_DIR/<date>.partial, checked with pg_verifybackup, then renamed
-#                      to PG_BASE_DIR/<date>. Keeps PG_BASE_KEEP (2) base backups and removes the
-#                      archived WAL older than the oldest one kept (pg_archivecleanup).
+#                      to PG_BASE_DIR/<date>. Every extra tablespace goes to PG_BASE_DIR/ts.<date>.<name>
+#                      (tablespace mapping; restore: README). Keeps PG_BASE_KEEP (2) base backups;
+#                      with PG_PITR=yes it also removes the archived WAL older than the oldest one.
 #
 # Why not pg_dump for big databases: a dump reads row by row in random order and holds one
 # transaction for hours (no cleanup meanwhile). A base backup reads the data files in order.
@@ -33,12 +34,17 @@ if [ -n "${BACKUP_MOUNT:-}" ] && ! mountpoint -q "$BACKUP_MOUNT"; then
 fi
 install -d -o postgres -g postgres -m 700 "$base"
 
-# A half-done backup from a killed run.
-find "$base" -mindepth 1 -maxdepth 1 -name '*.partial' -exec rm -rf {} +
+# A half-done backup from a killed run (its tablespace copies too).
+find "$base" -mindepth 1 -maxdepth 1 \( -name '*.partial' -o -name 'ts.*.partial.*' \) -exec rm -rf {} +
 
-# Free space: the data directory size plus 10 %.
+# Extra tablespaces: name and location (pg_basebackup -Fp needs a new place for each).
+mapfile -t spaces < <(as_pg psql -XAtF ' ' -c "SELECT spcname, pg_tablespace_location(oid) FROM pg_tablespace WHERE spcname NOT IN ('pg_default', 'pg_global')")
+
+# Free space: the data directory and every tablespace, plus 10 %.
 data=$(as_pg psql -XAtc "SHOW data_directory")
-need=$(( $(du -sb "$data" | cut -f1) * 11 / 10 ))
+need=$(du -sb "$data" | cut -f1)
+for sp in "${spaces[@]}"; do need=$(( need + $(du -sb "${sp#* }" | cut -f1) )); done
+need=$(( need * 11 / 10 ))
 free=$(df -B1 --output=avail "$base" | tail -n 1 | tr -d ' ')
 [ "$free" -gt "$need" ] || { echo "not enough space in $base: need $need, free $free" >&2; exit 1; }
 
@@ -46,20 +52,36 @@ day=$(date +%F)
 dst="$base/$day"
 [ ! -e "$dst" ] || { echo "$dst exists already: one base backup a day" >&2; exit 0; }
 t0=$(date +%s)
+maps=()
+for sp in "${spaces[@]}"; do
+    maps+=(-T "${sp#* }=$base/ts.$day.partial.${sp%% *}")
+done
 as_pg "$bin/pg_basebackup" -D "$dst.partial" -Fp -X stream --checkpoint=spread --max-rate="$rate" \
-    --label="pg-base-backup $day" --no-password
+    --label="pg-base-backup $day" --no-password "${maps[@]}"
 as_pg "$bin/pg_verifybackup" -q "$dst.partial"
+# Tablespace copies first (the base links to them by absolute path: fix the links after the rename).
+for sp in "${spaces[@]}"; do
+    n=${sp%% *}
+    mv "$base/ts.$day.partial.$n" "$base/ts.$day.$n"
+    for l in "$dst.partial"/pg_tblspc/*; do
+        if [ "$(readlink "$l")" = "$base/ts.$day.partial.$n" ]; then ln -sfn "$base/ts.$day.$n" "$l"; fi
+    done
+done
 mv "$dst.partial" "$dst"
 echo "base backup $dst: $(du -sh "$dst" | cut -f1) in $(( ($(date +%s) - t0) / 60 )) min, verified"
 
 # Keep the newest $keep, then drop the WAL the oldest kept one no longer needs.
 mapfile -t all < <(find "$base" -mindepth 1 -maxdepth 1 -type d -name '[0-9][0-9][0-9][0-9]-*' ! -name '*.partial' | sort)
 if [ "${#all[@]}" -gt "$keep" ]; then
-    for old in "${all[@]:0:${#all[@]}-keep}"; do rm -rf "$old"; echo "removed old base backup $old"; done
+    for old in "${all[@]:0:${#all[@]}-keep}"; do
+        d=$(basename "$old")
+        rm -rf "$old" "$base"/ts."$d".*
+        echo "removed old base backup $old"
+    done
 fi
 oldest=$(find "$base" -mindepth 1 -maxdepth 1 -type d -name '[0-9][0-9][0-9][0-9]-*' ! -name '*.partial' | sort | head -n 1)
 first=$(sed -n 's/^START WAL LOCATION: .* (file \([0-9A-F]\{24\}\))$/\1/p' "$oldest/backup_label")
-if [ -n "$first" ] && [ -d "$wal" ]; then
+if [ "${PG_PITR:-no}" = yes ] && [ -n "$first" ] && [ -d "$wal" ]; then
     as_pg "$bin/pg_archivecleanup" -x .zst "$wal" "$first"
     echo "WAL archive: kept from $first on ($(du -sh "$wal" | cut -f1))"
 fi

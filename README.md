@@ -378,32 +378,41 @@ Restore one database: `sudo -u postgres pg_restore -d NAME --clean < /backup/pos
 (big ones: `/backup/postgres-big/NAME/daily/<date>/NAME.dump`). Test without touching anything:
 `sudo pg-restore-drill --test`.
 
-**Big databases on HDDs: `PG_PITR=yes`.** Measured on the reference server: the first dump of a
+**Big databases on HDDs: `PG_PITR`.** Measured on the reference server: the first dump of a
 64 GB database ran 9 hours and was not half done. It reads rows in random order and holds one
-transaction open, so no cleanup runs meanwhile and the live system slows down. With
-`PG_PITR=yes` the big databases get no daily dump (`pg-backup-big` is turned off). Instead:
+transaction open, so no cleanup runs meanwhile and the live system slows down. Three modes:
 
-| Job | Default | What | Keeps |
+| `PG_PITR` | Big databases | Restore point | Cost |
 |---|---|---|---|
-| WAL archive | always | Postgres hands every finished 16 MB WAL file to `pg-wal-archive`, which writes it zstd-compressed to `PG_WAL_DIR` (default `BACKUP_MOUNT/postgres-wal`). At most 15 min of changes wait (`archive_timeout`) | from the oldest base backup on |
-| `pg-base-backup` | Sun 05:30 | `pg_basebackup` copies the data files in order (read at most `PG_BASE_MAX_RATE`, 50M) to `PG_BASE_DIR` (default `BACKUP_MOUNT/postgres-base`)`/<date>`, checked with `pg_verifybackup` | `PG_BASE_KEEP` (2) |
+| `no` (default) | daily `pg_dump` (`pg-backup-big`) | last dump | hours of random reads on an HDD |
+| `base` | `pg-base-backup` on `PG_BASE_BACKUP_DAY` (daily, a day, or a list): `pg_basebackup` copies the data files in order (read at most `PG_BASE_MAX_RATE`, 50M) to `PG_BASE_DIR/<date>`, checked with `pg_verifybackup`. Self-contained (the WAL it needs is streamed in) | last base backup | about 20 min of sequential reads per 60 GB |
+| `yes` | `base` plus the WAL archive: every finished 16 MB WAL file, zstd-compressed, to `PG_WAL_DIR`. At most 15 min of changes wait (`archive_timeout`). Needs one PostgreSQL restart (step 60 prints the command) | any moment since the oldest base backup | the backup disk must hold the WAL of `PG_BASE_KEEP` intervals: archived WAL is about 0.6 x the WAL written. If the backup disk fills, archiving fails, `pg_wal` grows on the data disk and Postgres stops. Size it first |
 
-Turning it on needs one PostgreSQL restart (`archive_mode`); step 60 never restarts Postgres
-itself and prints the command. The daily digest shows the base backup age and when the last WAL
-file was archived, and alerts on a failure. Small databases keep their daily `pg-backup`.
+Extra tablespaces (for example indexes on an SSD) are copied too: `PG_BASE_DIR/ts.<date>.<name>`,
+linked from `<date>/pg_tblspc`. The daily digest shows the base backup age (and with `yes` when the
+last WAL file was archived, and archive failures). Small databases keep their daily `pg-backup`.
 
-Restore from the base backup and the WAL archive (the whole cluster, to a moment you choose):
+Restore from a base backup (the whole cluster):
 
 ```bash
 sudo systemctl stop postgresql@16-main
 sudo mv /data/postgresql/16/main /data/postgresql/16/main.broken          # keep it until the restore works
 sudo cp -a /backup/postgres-base/<date> /data/postgresql/16/main
+# each extra tablespace: put its copy back at its live place and point the link there
+ls -l /data/postgresql/16/main/pg_tblspc/                                 # <oid> -> /backup/postgres-base/ts.<date>.<name>
+sudo mv /var/lib/postgresql/ssd /var/lib/postgresql/ssd.broken            # the live location (pg_tablespace_location)
+sudo cp -a /backup/postgres-base/ts.<date>.ssd /var/lib/postgresql/ssd
+sudo ln -sfn /var/lib/postgresql/ssd /data/postgresql/16/main/pg_tblspc/<oid>
+# PG_PITR=yes only, to replay the WAL archive (else skip these two lines):
 sudo -u postgres touch /data/postgresql/16/main/recovery.signal
 echo "restore_command = 'zstd -q -dc /backup/postgres-wal/%f.zst > %p'
 recovery_target_time = '2026-11-20 14:00:00+02'   # leave out = replay to the newest WAL
 recovery_target_action = 'promote'" | sudo -u postgres tee /etc/postgresql/16/main/conf.d/90-restore.conf
-sudo systemctl start postgresql@16-main      # replays the WAL, then opens; then remove 90-restore.conf
+sudo systemctl start postgresql@16-main      # then remove 90-restore.conf
 ```
+
+Never restore a copy on the same server while the live cluster runs on the same tablespace paths:
+the copy would write into the live tablespace.
 
 ### 70-hosting (optional)
 

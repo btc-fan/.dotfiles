@@ -32,8 +32,8 @@ main() {
     fi
     if is_yes "${INSTALL_POSTGRES:-yes}"; then
         enable_unit pg-backup.timer --now
-        if is_yes "${PG_PITR:-no}"; then
-            # The base backup + WAL archive cover the big databases: no daily dump of them.
+        if [ "${PG_PITR:-no}" = base ] || is_yes "${PG_PITR:-no}"; then
+            # The base backups (and with "yes" the WAL archive) cover the big databases: no daily dump.
             if systemctl is-enabled -q pg-backup-big.timer 2>/dev/null; then run systemctl disable --now pg-backup-big.timer; fi
             enable_unit pg-base-backup.timer --now
         else
@@ -46,29 +46,39 @@ main() {
     dry || systemctl list-timers --all --no-pager 'pg-backup*.timer' 'pg-base-backup.timer' 'pg-restore-drill.timer' 'work-snapshot.timer' 'backup-mirror.timer' | sed 's/^/   /'
 }
 
-# PG_PITR=yes: every finished WAL file is copied to the backup disk (archive_command) and a base
-# backup of the whole cluster runs once a week. Restore to any moment since the oldest base
-# backup kept. archive_mode needs one PostgreSQL restart: this step never restarts PostgreSQL,
-# it says when the restart is still due.
+# PG_PITR: how the big databases are backed up.
+#   no    daily pg_dump of PG_BACKUP_SKIP_DBS (pg-backup-big)
+#   base  base backups of the whole cluster on PG_BASE_BACKUP_DAY (self-contained, no WAL archive)
+#   yes   base backups plus every finished WAL file copied to the backup disk: restore to any
+#         moment since the oldest base backup. Size it first: archived WAL is about 0.6 x the WAL
+#         written (zstd), and the backup disk must hold the WAL of PG_BASE_KEEP base intervals.
+# archive_mode needs one PostgreSQL restart: this step never restarts PostgreSQL itself.
 pg_pitr() {
     local conf="/etc/postgresql/$PG_VERSION/main/conf.d/30-wal-archive.conf"
-    if ! is_yes "${PG_PITR:-no}"; then
-        if [ -f "$conf" ]; then
-            run rm -f "$conf"
-            warn "PG_PITR is off: $conf removed. Restart PostgreSQL to stop archiving: sudo systemctl restart postgresql@$PG_VERSION-main"
-        fi
-        return 0
+    case "${PG_PITR:-no}" in no|base|yes) ;; *) die "PG_PITR: no, base or yes, not '${PG_PITR}'" ;; esac
+    if [ "${PG_PITR:-no}" != yes ] && [ -f "$conf" ]; then
+        run rm -f "$conf"
+        dry || runuser -u postgres -- psql -XAtqc "SELECT pg_reload_conf()" >/dev/null
+        warn "WAL archive off: $conf removed (a pending archive_mode no longer waits for a restart)"
     fi
+    [ "${PG_PITR:-no}" != no ] || return 0
     [ -n "${BACKUP_MOUNT:-}" ] || die "PG_PITR=yes needs BACKUP_MOUNT (the WAL archive and the base backups go there)"
     local wal=${PG_WAL_DIR:-$BACKUP_MOUNT/postgres-wal} base=${PG_BASE_DIR:-$BACKUP_MOUNT/postgres-base}
     local day=${PG_BASE_BACKUP_DAY:-Sun} at=${PG_BASE_BACKUP_TIME:-05:30}
-    [[ "$day" =~ ^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$ ]] || die "PG_BASE_BACKUP_DAY: Mon..Sun, not '$day'"
+    # PG_BASE_BACKUP_DAY: daily, or days like Sun or Wed,Sun
+    [[ "$day" =~ ^(daily|(Mon|Tue|Wed|Thu|Fri|Sat|Sun)(,(Mon|Tue|Wed|Thu|Fri|Sat|Sun))*)$ ]] \
+        || die "PG_BASE_BACKUP_DAY: daily or Mon..Sun (comma list), not '$day'"
     [[ "$wal" =~ ^/[A-Za-z0-9/._-]+$ ]] || die "PG_WAL_DIR: odd path '$wal'"
-    log "PITR: WAL archive -> $wal (zstd), base backup every $day at $at -> $base, keep ${PG_BASE_KEEP:-2}"
+    local cal="$day *-*-*"; [ "$day" != daily ] || cal="*-*-*"
+    log "base backup ($day at $at) -> $base, keep ${PG_BASE_KEEP:-2}; WAL archive: $([ "$PG_PITR" = yes ] && echo "$wal (zstd)" || echo off)"
     apt_install zstd
-    run install -d -o postgres -g postgres -m 700 "$wal" "$base"
-    put_file sbin/pg-wal-archive /usr/local/sbin/pg-wal-archive 755
+    run install -d -o postgres -g postgres -m 700 "$base"
     put_file sbin/pg-base-backup /usr/local/sbin/pg-base-backup 750
+    pg_unit pg-base-backup "Base backup of the PostgreSQL cluster" "/usr/local/sbin/pg-base-backup" "$base"
+    timer pg-base-backup "PostgreSQL base backup" "$at" "$cal"
+    [ "$PG_PITR" = yes ] || return 0
+    run install -d -o postgres -g postgres -m 700 "$wal"
+    put_file sbin/pg-wal-archive /usr/local/sbin/pg-wal-archive 755
     put "$conf" 644 postgres:postgres <<EOF
 # Managed by ~/.dotfiles setup.sh (step 60-backups, PG_PITR=yes). archive_mode needs a restart.
 archive_mode = on
@@ -79,8 +89,6 @@ EOF
     if ! dry && [ "$(runuser -u postgres -- psql -XAtc "SHOW archive_mode")" != on ]; then
         warn "archive_mode needs one PostgreSQL restart (seconds; clients reconnect): sudo systemctl restart postgresql@$PG_VERSION-main"
     fi
-    pg_unit pg-base-backup "Weekly base backup of the PostgreSQL cluster (PITR)" "/usr/local/sbin/pg-base-backup" "$wal $base"
-    timer pg-base-backup "Weekly PostgreSQL base backup" "$at" "$day *-*-*"
 }
 
 # timer NAME DESCRIPTION HH:MM [DAYS]: DAYS is the OnCalendar date part (default every day).
