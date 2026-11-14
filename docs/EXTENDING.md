@@ -127,3 +127,8 @@ tests in `ai/tests/test_tier1.py` (and router cases for gates and rows). Common 
    AGENTS.md text for something a hook or a check can do.
 6. The Stop hook keeps a 60 s timeout (SPEC 24): `check-fast` must stay under 60 s; the router hooks stay well
    under 30 s.
+7. A project verification skill is made in the project (`/create-verification-skill`), never in this repo. Change
+   our copy of the pstack skills only through `ai/lib/pstack_adapt.py` or a refreshed vendor copy
+   (`ai/rules/vendor/pstack-verification/`); `t_verify_skills_copy` fails on a hand edit.
+8. A new mattpocock opt-in skill: add its name to `MATTPOCOCK_OPTIN_PICKS` (tools.sh) and `OPTIN_SKILLS` (ai-start),
+   its callees to `SKILL_CALLEES`, audit it, and update `ai/rules/mattpocock-skills.md`. Global picks stay five.

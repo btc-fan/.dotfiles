@@ -76,7 +76,7 @@ On a Mac: `git -C ~/.dotfiles-ai pull` (ai-sync runs), or rerun `~/.dotfiles-ai/
 
 1. [How the whole thing fits together](#1-how-the-whole-thing-fits-together)
 2. [Install](#2-install)
-3. [How it works, in plain words (5 examples)](#3-how-it-works-in-plain-words)
+3. [How it works, in plain words (6 examples)](#3-how-it-works-in-plain-words)
 4. [What runs where](#4-what-runs-where)
 5. [Manual steps per machine](#5-manual-steps-per-machine)
 6. [Verify](#6-verify)
@@ -226,7 +226,7 @@ Planned, not supported yet.
 
 ## 3. How it works, in plain words
 
-Five real cases. Each shows which layer does what.
+Six real cases. Each shows which layer does what.
 
 ### Example A: "Make me a Telegram bot"
 
@@ -317,6 +317,20 @@ You type: "refunds are paid twice when the bank times out, fix it".
 6. **PR.** `gh pr create --title "fix(billing): one refund per timeout"` needs `Verify:` (command and output), `Risk:`, `Docs:`, `Changed guards:`, `Ledger: R-013`, and a test file in the diff. `TODO` in a field counts as missing.
 
 An `mvp` project gets steps 2, 4 and the PR fields `Verify:` and `Risk:`. A `try` project gets the check targets, the Done block and step 4. With oh-my-claudecode in a persistent mode (ralph, autopilot), OMC owns the stop; the check runs at the first stop after the mode ends, so one stop is never blocked twice.
+
+### Example F: a new feature (the feature flow)
+
+The repo is adopted with tier `mvp`. `.ai/enabled` has `skills: grill-with-docs, domain-modeling, to-spec, to-tickets, tdd`, so `ai-adopt` linked those mattpocock skills (and their callees) into `.claude/skills/` and `.agents/skills/`. The repo has a verification skill `.agents/skills/verify-shop/` (made once with `/create-verification-skill`, committed) with a feature map, and the session status says "Verify skill: verify-shop (6 features)."
+
+You type: "implement a discount code option at checkout".
+
+1. **Questions first.** The `feature-grill` row adds: grill-with-docs first. The agent asks one round of questions (who may use a code, can codes stack, what the receipt shows), then writes the answers to `GLOSSARY.md` and, for a hard-to-reverse choice, `docs/adr/`.
+2. **Spec and tickets** (the feature touches 3+ files). `to-spec` writes `docs/specs/discount-codes.md`; `to-tickets` writes `docs/tickets/discount-codes/01-...md`, one vertical slice each, with acceptance criteria and the verify-shop feature (`checkout`) the slice must pass. No GitHub issue is made without you.
+3. **Per slice, the Done order.** After the first code edit the router says once: check-fast, then verify-shop on the changed feature, then e2e. The agent runs `make check-fast` (the Stop hook would run it anyway); then `verify-shop`: launch, doctor, drive every entry point `features/checkout.md` lists (button, keyboard, CLI), screenshots and the order row in the database as evidence, cleanup keeps the evidence; only then a Playwright e2e test with a screenshot comparison for the proven journey.
+4. **PR.** `Verify:` names the check output, `artifacts/checkout/discount.png` and `tests/e2e/test_discount.py`. Without the verify run and the test path the pr-rules gate blocks a PR that changes app code.
+5. **Upkeep.** After 25 code commits (or 30 days with code commits) since the feature map changed, the status says "stale: run /maintain-verification-skill". It drives every feature again and ships one PR of map fixes.
+
+Tier `try` skips the skills (plain grilling) and the verify step is optional.
 
 ## 4. What runs where
 

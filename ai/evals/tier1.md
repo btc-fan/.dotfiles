@@ -19,3 +19,7 @@ Copied from the proof sections of `ai/rules/<tool>.md`. Change both places toget
 
 ## Prompt rows
 - feature-grill | "add a CSV export endpoint to the API" ; "adaugă o funcționalitate de export în CSV" ; "добавь функцию экспорта в CSV" | NOT "fix the typo in the README" ; "исправь опечатку в README" | signal: `- feature-grill:` in the L2 context, then a `grilling` Skill call
+
+## Feature flow (mattpocock opt-in skills, project with grill-with-docs, to-spec, to-tickets linked)
+- feature-grill flow | "implement a discount code option at checkout" ; "adaugă o funcționalitate de export în CSV" ; "добавь функцию экспорта в CSV" | NOT "fix the typo in the README" ; the same prompt in tier try (plain grilling) | signal: L2 text "grill-with-docs first ... to-spec, then to-tickets ... check-fast, verify-<app>, then e2e"; Skill `grill-with-docs`; tickets as files in docs/tickets/<feature>/, no `gh issue create`
+- tracker-flow (to-tickets linked) | "split the spec into tickets" ; "imparte specificatia in tichete" ; "разбей спецификацию на тикеты" | NOT a project whose skills line has no to-tickets ; "what is a ticket?" in a project without links | signal: `- tracker-flow:` with docs/tickets/

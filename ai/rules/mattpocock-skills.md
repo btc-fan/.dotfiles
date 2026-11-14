@@ -1,7 +1,7 @@
 # mattpocock/skills (copies at the newest stable tag)
 
 Version: newest stable release (SPEC 23). Read and audited at intake: commit 4ae2317ddb22b046e26455e4f9c9b3aaaf62212d (dated 2026-10-31). Source: https://github.com/mattpocock/skills/blob/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d/
-GLOBAL (5): grilling, grill-me, wait-what, retro, writing-for-agents. Everything else is opt-in per project.
+GLOBAL (5): grilling, grill-me, wait-what, retro, writing-for-agents. OPT-IN PER PROJECT (10, owner 2026-11-14, factory plan section 9): grill-with-docs, domain-modeling, to-spec, to-tickets, tdd, codebase-design, code-review, pr, diagnosing-bugs, improve-codebase-architecture. Skipped: implement (auto-commits), implement-spec, research, triage, wayfinder, misc/*, in-progress/*.
 
 ## Vendor rules (verbatim)
 No routing text for AGENTS.md. The only block the vendor writes is from `setup-matt-pocock-skills` (opt-in projects only): "## Agent skills / ### Issue tracker / [one-line summary of where issues are tracked]. See `docs/agents/issue-tracker.md`. / ### Triage labels ... / ### Domain docs / [one-line summary of layout: "single-context" or "multi-context"]. See `docs/agents/domain.md`."
@@ -12,7 +12,9 @@ writing-for-agents: "The pointer's wording, not its target, decides when the age
 - grilling (model-invoked): the owner wants a plan stress-tested ("grill me"). Numbered question rounds, a recommended answer each, no action until confirmed. Not for "explain this code", not for "deep interview with ambiguity score" (OMC deep-interview).
 - grill-me (typed only): runs grilling. wait-what (typed only): "that did not land, re-pitch" in STE with GLOSSARY.md terms. retro (typed only): after a coding session, environment fixes.
 - writing-for-agents (model-invoked): any edit of a skill, AGENTS.md or CLAUDE.md. Not for README, app docs, settings.json (that is update-config).
-- Opt-in group: to-spec, to-tickets, triage, wayfinder, implement (auto-commits: conflicts with commit-only-when-asked), implement-spec, grill-with-docs, domain-modeling, prototype, handoff, teach, and more (SPEC section 5). A pick pulls in its callees. Do not enable the ones that duplicate OMC or built-ins without an owner decision: research, code-review, tdd, diagnosing-bugs, pr. misc/* is frozen and in-progress/* is beta.
+- Opt-in per project: the `skills:` line in `.ai/enabled` (`ai-adopt --skills a,b|none`). Tier defaults: mvp and long grill-with-docs, domain-modeling, to-spec, to-tickets, tdd; try none (plain grilling). A pick pulls in its callees (grill-with-docs, to-spec, to-tickets: domain-modeling; tdd: codebase-design, code-review). code-review, pr, diagnosing-bugs, improve-codebase-architecture overlap OMC or built-ins: only on the owner's word.
+- Feature flow (row `feature-grill` where grill-with-docs is linked): grill-with-docs (questions, then GLOSSARY.md and docs/adr), for a feature touching 3+ files to-spec then to-tickets (slices with acceptance criteria and the verify-<app> feature each slice must pass), then slice by slice in the Done order (check-fast, verify evidence, e2e).
+- Tracker: local only. `ai-adopt` writes `docs/agents/issue-tracker.md` (tickets in `docs/tickets/<feature>/`, specs in `docs/specs/`) and `docs/agents/domain.md` when missing; never `gh issue create` or labels without the owner. The exact format the skills read from these files: UNVERIFIED against the skill text; the files follow the vendor block above.
 
 ## Enforcement
 - grill-me, wait-what and retro CANNOT be fired by the model, a hook or another skill. "Used every time" means the model suggests the command and the owner types it. Only grilling and writing-for-agents can be forced.
@@ -31,5 +33,6 @@ Eval cases: `ai/evals/mattpocock-and-llmwiki.md`. Typed commands: the pass condi
 3. Keys: none. Settings: none. Updating means a new reviewed checkout, never an auto-update.
 4. Per project (opt-in only): `/setup-matt-pocock-skills` once. It writes `docs/agents/*.md`, an `## Agent skills` block, and may run `git init`, `git remote add origin` and `gh label create`. Trap: "If CLAUDE.md exists, edit it" lands the block in CLAUDE.md. Tell it to edit AGENTS.md.
 5. Verify: `ls ~/.agents/skills/{grilling,grill-me,wait-what,retro,writing-for-agents}/SKILL.md`. `/skills` lists them. Typed `/wait-what` expands. "grill me on X" calls Skill `grilling`.
-6. Cleanup: delete exactly those five folders under `~/.claude/skills`, `~/.agents/skills`, `~/.hermes/skills`. Per project: `docs/agents/`, the block, labels.
+6. Per project (opt-in names): the installer copies and audits them with the five (`MATTPOCOCK_OPTIN_PICKS`, found under any category but misc/ and in-progress/; a missing one is skipped with a warning; the pick list is in the `.picks` marker). `ai-adopt` links them into `<repo>/.claude/skills/<name>` (Claude) and `<repo>/.agents/skills/<name>` (Codex) pointing at this machine's copy; the links are gitignored by name and made again on each machine by `ai-adopt`. Verify: `ls -l <repo>/.agents/skills/`.
+7. Cleanup: delete exactly those five folders under `~/.claude/skills`, `~/.agents/skills`, `~/.hermes/skills`. Per project: `docs/agents/`, the block, labels.
 See also `ai/skills/README.md`.

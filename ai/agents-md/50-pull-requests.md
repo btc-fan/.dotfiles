@@ -5,7 +5,7 @@ A PR body has four parts:
 2. A Mermaid diagram of the change.
 3. "One-way or two-way door?" with a reason.
 4. Blast radius: what else can break.
-5. Verify: the check command and the tail of its output. Risk: one line.
+5. Verify: the check command and the tail of its output; with a project verify-<app> skill also its evidence path and the e2e test. Risk: one line.
 Long tier (`tier: long` in .ai/enabled) also: Docs (files, or "none, because ..."), Changed guards (each edited or removed test and why, or "none"), and on a fix PR Ledger: R-NNN. A fix PR has a test file in its diff.
 The author-sessions block goes at the end (next section). The pr-rules gate blocks a PR without these parts (placeholder text counts as missing).
 

@@ -606,3 +606,25 @@ restore where something existing is removed; dry-run safe.
 - `.gitignore` block shares `.ai/ratchet.json` and `.ai/destructive.txt` next to `.ai/enabled`.
 - Not built in this round: Codex `prefix_rule` second layer for no-destroy, a Code Review Rules section, CI
   workflow files, the SessionStart status fields (HANDOFF, quarantine count, last check).
+
+## 25. Feature flow and verification skills (owner decisions 2026-11-14)
+- mattpocock opt-in skills per project: `MATTPOCOCK_OPTIN_PICKS` (10 names) copied and audited with the five global
+  picks; `skills: a, b | none` in `.ai/enabled` (`ai-adopt --skills`; mvp and long default grill-with-docs,
+  domain-modeling, to-spec, to-tickets, tdd; try none); `ai-adopt` links the names and their callees into
+  `.claude/skills/` (Claude) and `.agents/skills/` (Codex), local and gitignored by name. Skipped: implement,
+  implement-spec, research, triage, wayfinder, misc/*, in-progress/*. Tracker: local `docs/tickets/` through
+  `docs/agents/issue-tracker.md`; no GitHub issues without the owner.
+- Feature flow (row `feature-grill`, placeholder `{feature_flow}`): grill-with-docs, for 3+ files to-spec then
+  to-tickets (slices with acceptance criteria and their verify feature), then per slice the Done order. Without the
+  links: plain grilling. Tie-breaks: new app/kickoff -> grilling (grill-with-docs where linked); deep interview -> OMC.
+- Verification skills: pstack `create-verification-skill` and `maintain-verification-skill` (MIT, Lauren Tan),
+  vendor copy in `ai/rules/vendor/pstack-verification/`, our copy in `ai/skills/` made by `ai/lib/pstack_adapt.py`
+  (only the project path `.cursor/skills` -> `.agents/skills`, an attribution note, RO/RU triggers, no em dash).
+  `PSTACK_SOURCE` follows the newest upstream commit (audited, same transform, `pstack_link` prefers it).
+- Project verify skill `.agents/skills/verify-<app>/` with a committed link `.claude/skills/verify-<app>`. Done order
+  (tier mvp, long; optional in try): check-fast green, then verify-<app> on the changed feature (launch, doctor,
+  every entry point of its feature file, evidence kept), only then e2e tests for the proven journey, then the PR
+  Verify field cites the evidence path and the e2e test (pr-rules checks it when app code changed).
+- Status and upkeep: the session status names the verify skill and its feature count; "stale" after 25 code
+  commits or 30 days with code commits since the feature map changed (then /maintain-verification-skill, once per
+  session); ai-doctor warns on missing, stale, or no Claude link. Row `verify-before-done` after the first code edit.

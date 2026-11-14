@@ -267,6 +267,16 @@ Good tools that are not part of daily work live in `ai/TOOLBOX.md`. They are not
 - **Done and Lessons.** A managed 6-line Done block and a Lessons section (15 lines) in the repo AGENTS.md. Contract: `ai/rules/agents-md-done.md`.
 - **Example.** `ai-adopt --tier long` in a uv + pytest repo writes the Makefile block, the Done block, `docs/REGRESSIONS.md` and `.ai/ratchet.json`, then commits them after one y/N.
 
+### Verification skills (pstack, per project verify-<app>)
+
+- **What.** `create-verification-skill` and `maintain-verification-skill` (pstack, MIT, Lauren Tan; github.com/cursor/plugins). The first writes a project skill `.agents/skills/verify-<app>/` that launches the real app, checks it (doctor), drives features the way a user does, keeps evidence and cleans up; plus a feature map (one file per feature). The second keeps the map honest.
+- **How it works here.** Our copy in `ai/skills/` is made from the vendor copy by `ai/lib/pstack_adapt.py` (path `.cursor/skills` becomes `.agents/skills`; Codex reads project skills there, `ai-adopt` adds the committed link `.claude/skills/verify-<app>` for Claude). The installer follows the newest upstream commit (audited, same transform). The session status shows the verify skill, its feature count, and "stale" after 25 code commits or 30 days since the map changed. Done order in tier mvp and long: check-fast, verify-<app> on the changed feature with evidence, only then e2e tests; the PR Verify field cites both. Contract: `ai/rules/verification-skill.md`.
+
+### mattpocock opt-in skills (per project)
+
+- **What.** grill-with-docs, domain-modeling, to-spec, to-tickets, tdd, codebase-design, code-review, pr, diagnosing-bugs, improve-codebase-architecture: copied and audited with the five global picks, linked only into projects that list them (`skills:` in `.ai/enabled`; default mvp and long: grill-with-docs, domain-modeling, to-spec, to-tickets, tdd).
+- **How it works here.** `ai-adopt` links them into `<repo>/.claude/skills/` and `<repo>/.agents/skills/` (local links, gitignored); tickets stay in `docs/tickets/` (`docs/agents/issue-tracker.md`). Contract: `ai/rules/mattpocock-skills.md`.
+
 ## 5. Overlaps and how we decide
 
 Some tools can do the same job. The table in `ai/routing.yaml` (`tiebreaks`) names a winner for each case. The router names the winner first and the loser never. This section explains each in words.
@@ -280,7 +290,9 @@ Some tools can do the same job. The table in `ai/routing.yaml` (`tiebreaks`) nam
 | Topic cluster to write posts | `blog-cluster` | `seo-cluster` | Goal decides. |
 | Topic cluster as site architecture | `seo-cluster` | `blog-cluster` | Goal decides. |
 | Search Console, PageSpeed, CrUX | `seo-google` | `blog-google` | One Google login, shared. |
-| Feature prompt (add, implement, build ... a feature, endpoint, page) | `grilling` (one round of questions first) | writing code at once | Row `feature-grill` (L2); a trivial change answers "none needed". |
+| Feature prompt (add, implement, build ... a feature, endpoint, page) | `grill-with-docs` then `to-spec` and `to-tickets` where the project links them, else `grilling` | writing code at once | Row `feature-grill` (L2); a trivial change answers "none needed". |
+| Proving a change works | the project's `verify-<app>` skill, then e2e tests | "CI is green" alone | Evidence from the running app first, then a test that encodes it. |
+| Tickets for a feature | `to-tickets` into `docs/tickets/` | GitHub issues | Never without the owner. |
 | New app or project (kickoff) | `grilling` (typed: `/grill-me`) | OMC `deep-interview` | Kickoff uses grilling; deep-interview only when grilling is not installed. |
 | "Grill me", stress-test a plan | matt `grilling` | OMC `deep-interview` | Numbered rounds, no score. |
 | "Deep interview", "ambiguity score" | OMC `deep-interview` | matt `grilling` | The score is OMC's feature. |

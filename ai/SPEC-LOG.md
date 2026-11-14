@@ -549,3 +549,19 @@ Seen on the owner's M3 Mac (macOS 15.5), read only:
   needs a reason so the field is not filled by reflex.
 - Feature grill: grilling before code for features is the Pocock flow; the regex needs a verb plus a feature
   noun, so questions, typo fixes and renames do not get the forced-eval text.
+
+## 2026-11-14: feature flow and verification skills (SPEC 25)
+- Owner: every project needs a scripted way to prove behavior before "done"; end-to-end tests come only after the
+  proof, so they encode a journey that was seen working, not a guess. pstack's generator writes that as a project
+  skill with a feature map (one file per feature, user point of view), and its maintain skill keeps the map honest.
+  kody's control-kody showed the same idea as one CLI ("CI green is not enough", local verification first).
+- Why `.agents/skills/`: Codex reads project skills there; one committed folder plus a relative `.claude` link
+  serves Claude too. Why a transform script, not a hand copy: the installer applies the same change to a newer
+  upstream commit after its audit, and a test fails on a hand edit.
+- Stale rule (25 code commits or 30 days with code commits since the map changed): simple, from git only, and
+  shown once per session; a monthly upkeep without new code is not needed.
+- PR Verify evidence only when app code changed: a docs-only PR has nothing to drive.
+- Pocock opt-ins per project, not global: about 300 tokens per session per model-invoked pick, and they only make
+  sense in projects that run the flow. Links, not copies, so an installer update reaches every project; links are
+  machine paths, so they stay out of git and ai-adopt makes them per machine. Local tickets: the owner decides
+  what reaches GitHub.
