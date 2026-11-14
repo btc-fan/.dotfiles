@@ -335,7 +335,13 @@ audit_ok() {
     rc=$(cat "$out.rc" 2>/dev/null || echo 3)
     if [ "$rc" = 4 ]; then
         # skill-scanner HIGH/CRITICAL (owner rule 2026-11-14, every profile): final, the accept list is not read.
-        warn "skill-scanner REJECTED $name${ver:+ $ver} (HIGH or CRITICAL finding): not installed or updated (an installed copy stays), no override: $(sed -n 's/^REJECT skill-scanner //p' "$out" | head -n 8 | paste -sd';' - | sed 's/;/; /g')"
+        # Recorded in resolved.json ("rejected") so ai-doctor reports a missing default as rejected, not broken.
+        local found rver=$ver
+        found=$(sed -n 's/^REJECT skill-scanner //p' "$out" | head -n 8 | paste -sd';' - | sed 's/;/; /g')
+        [ "${R_TOOL:-}" = "$name" ] && [ -n "${R_VERSION:-}" ] && rver=$R_VERSION
+        warn "skill-scanner REJECTED $name${ver:+ $ver} (HIGH or CRITICAL finding): not installed or updated (an installed copy stays), no override: $found"
+        AI_STATE_DIR="$AI_STATE_DIR" python3 "$AI_HOME/ai/lib/resolve.py" reject "$name" --version "${rver:--}" \
+            --sha "$ver" --findings "$found" >/dev/null 2>&1 || true
         rm -f "$out" "$out.rc"; return 1
     fi
     rm -f "$out" "$out.rc"

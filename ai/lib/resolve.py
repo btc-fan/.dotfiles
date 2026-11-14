@@ -27,6 +27,9 @@ Offline or a registry error: the last resolved value from resolved.json (status 
                                             the installed package has that version (and integrity, from the
                                             lockfile where npm writes one)
   resolve.py status [--network]             JSON for ai-doctor: per tool installed and newest
+  resolve.py reject <tool> --version V [--sha S] [--findings TEXT]
+                                            skill-scanner rejected that version (HIGH or CRITICAL): kept in
+                                            resolved.json ("rejected") for ai-doctor; a later install clears it
 
 State: $AI_STATE_DIR (default ~/.local/state/ai)/resolved.json and audit.log. Tests: AI_PINS (pins file),
 AI_RESOLVE_FIXTURES (a JSON file {"http": {url: body}, "git": {url: ls-remote text}}; a URL not in it is
@@ -416,12 +419,28 @@ def record(tool, version, sha="", integrity="", specs=None):
     entry = data["tools"].setdefault(tool, {})
     entry["source"] = source
     entry["installed"] = {"version": version, "sha": sha, "integrity": integrity, "time": now()}
+    entry.pop("rejected", None)
     save_state(data)
     # Same line shape as agent-audit (<time> <kind> <name> <version> <result>), kind "install": the audit
     # gate's 24 h PASS lookup reads only npm, pypi and dir lines, so these never count as an audit result.
     with open(os.path.join(state_dir(), "audit.log"), "a") as fh:
         fh.write("%s install %s %s INSTALLED %s %s\n" % (now(), tool, version or "-", sha or integrity or "-",
                                                         source.replace(" ", ":")))
+
+
+def reject(tool, version, sha="", findings=""):
+    """skill-scanner HIGH or CRITICAL (owner rule 2026-11-14): this version is never installed; ai-doctor reads it."""
+    data = load_state()
+    entry = data["tools"].setdefault(tool, {})
+    entry["rejected"] = {"version": version, "sha": sha, "findings": findings[:500], "time": now(),
+                         "by": "skill-scanner"}
+    save_state(data)
+
+
+def rejected():
+    """{tool: rejected entry} from resolved.json."""
+    return {t: v["rejected"] for t, v in (load_state().get("tools") or {}).items()
+            if isinstance(v, dict) and v.get("rejected")}
 
 
 # ---------------------------------------------------------------- checksums, npm verify
@@ -660,6 +679,17 @@ def main(argv):
             else:
                 i += 1
         record(rest[0], opts["--version"], opts["--sha"], opts["--integrity"])
+        return 0
+    if cmd == "reject" and rest:
+        opts = {"--version": "", "--sha": "", "--findings": ""}
+        i = 1
+        while i < len(rest):
+            if rest[i] in opts and i + 1 < len(rest):
+                opts[rest[i]] = rest[i + 1]
+                i += 2
+            else:
+                i += 1
+        reject(rest[0], opts["--version"], opts["--sha"], opts["--findings"])
         return 0
     if cmd == "checksum" and len(rest) >= 3:
         target = rest[rest.index("--target") + 1] if "--target" in rest and rest.index("--target") + 1 < len(rest) else ""

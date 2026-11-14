@@ -40,6 +40,16 @@ PLUGIN = os.path.join(AI_DIR, "marketplace", "plugins", "ai-core")
 sys.path.insert(0, os.path.join(AI_DIR, "lib"))
 import ai_profile  # noqa: E402
 PROFILE, PROFILE_FROM = ai_profile.resolve()
+try:
+    PROFILE_KEYS = ai_profile.load(PROFILE)
+except ValueError:
+    PROFILE_KEYS = {}
+
+
+def rejected_tools():
+    """skill-scanner rejections recorded in resolved.json (agent-audit exit 4, owner rule 2026-11-14)."""
+    tools = (load_json_file(os.path.join(STATE, "resolved.json")) or {}).get("tools") or {}
+    return {t: v["rejected"] for t, v in tools.items() if isinstance(v, dict) and v.get("rejected")}
 STATE = os.environ.get("AI_STATE_DIR") or os.path.expanduser("~/.local/state/ai")
 CAP = 30 * 1024
 SECTIONS = ["vendor rules", "when", "enforcement", "proof", "setup checklist"]
@@ -1003,11 +1013,20 @@ def check_drops_and_defaults():
             "%s; %s (points them to <brew prefix>/opt/node/bin/node)" % (cellar[0][:120], fix))
     elif "oh-my-codex" in json.dumps(hj):
         say("PASS", "OMX Codex hooks do not use a versioned Cellar node")
-    if shutil.which("claude"):
+    rej = rejected_tools()
+    if shutil.which("claude") and PROFILE_KEYS.get("PROFILE_LAST30DAYS", "1") == "1":
         pk = "last30days@last30days-skill"
         ok = pk in installed and enabled.get(pk) is True
-        say("PASS" if ok else "FAIL", "Claude plugin last30days installed and on (default)",
-            "" if ok else ("installed but off" if pk in installed else "not installed") + "; " + fix)
+        if not ok and pk not in installed and "last30days" in rej:
+            say("WARN", "rejected by skill-scanner: last30days %s" % rej["last30days"].get("version", "?"),
+                "not installed (owner rule: HIGH or CRITICAL is never installed); the next release is scanned again")
+        else:
+            say("PASS" if ok else "FAIL", "Claude plugin last30days installed and on (default)",
+                "" if ok else ("installed but off" if pk in installed else "not installed") + "; " + fix)
+    for tool, r in sorted(rej.items()):
+        if tool != "last30days":
+            say("WARN", "rejected by skill-scanner: %s %s" % (tool, r.get("version", "?")),
+                "not installed or updated (an installed older copy stays); %s" % (r.get("findings") or "")[:200])
     for rel in ("rules/last30days.md", "evals/last30days.md"):
         ok = os.path.isfile(os.path.join(AI_DIR, rel))
         say("PASS" if ok else "FAIL", "last30days strict intake: ai/%s present" % rel, "" if ok else "write it (docs/EXTENDING.md)")
