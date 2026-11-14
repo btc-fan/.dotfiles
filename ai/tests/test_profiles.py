@@ -274,7 +274,38 @@ def t_doctor_devmac(work):
         assert "rejected by skill-scanner: ponytail 5.3.4" in text, text
 
 
-TESTS_LIST = [t_doctor_devmac, t_render_profiles, t_server_plan_unchanged, t_devmac_plan, t_profile_choice]
+def t_devmac_last30days(work):
+    """dev-mac: last30days is never installed; an installed copy is uninstalled (owner removed it from the Macs).
+    Codex: a box entry this setup registered earlier is removed (recorded undo)."""
+    env, home, bindir = fake_env(work, "l30", ())
+    log = os.path.join(work, "l30.log")
+    stub(bindir, "claude", "#!/bin/sh\necho \"claude $*\" >> %s\nexit 0\n" % log)
+    libs = ('. "%s/ai/lib/common.sh"; for f in base tools claude codex hermes; do . "%s/ai/adapters/$f.sh"; done; '
+            'load_pins; AI_OS=macos; ai_profile_resolve "%s/ai" macos dev-mac; ' % (REPO, REPO, REPO))
+    for installed, want in (("0", "plugin uninstall last30days@last30days-skill"), ("1", None)):
+        script = libs + 'claude_has_plugin() { return %s; }; claude_last30days' % installed
+        res = subprocess.run(["bash", "-c", "set -euo pipefail; " + script], env=dict(env, AI_HOME=REPO),
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        out = res.stdout.decode()
+        calls = open(log).read() if os.path.exists(log) else ""
+        assert res.returncode == 0, out
+        if want:
+            assert want in calls and "removed (profile dev-mac" in out, (calls, out)
+            assert "marketplace add" not in calls and "plugin install" not in calls, calls
+        else:
+            assert "last30days: not installed (profile dev-mac)" in out, out
+        if os.path.exists(log):
+            os.remove(log)
+    seed_records(home, ["codex-mcp:box"])
+    stub(bindir, "codex", "#!/bin/sh\nexit 0\n")
+    script = libs + 'AI_DRY_RUN=1; codex_mcp'
+    res = subprocess.run(["bash", "-c", "set -euo pipefail; " + script], env=dict(env, AI_HOME=REPO),
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out = res.stdout.decode()
+    assert "undo --only ^cmd:codex-mcp:box$: 1 entr" in out and "mcp add box" not in out, out
+
+
+TESTS_LIST = [t_devmac_last30days, t_doctor_devmac, t_render_profiles, t_server_plan_unchanged, t_devmac_plan, t_profile_choice]
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -178,6 +178,7 @@ FAKE_SKILL_SCANNER = """#!/bin/sh
 # Fake skill-scanner: JSON with one finding of severity $FAKE_SS_SEV (none when empty); logs its arguments.
 echo "skill-scanner $*" >> "$FAKE_SS_LOG"
 [ "${FAKE_SS_BROKEN:-}" = 1 ] && { echo 'boom' >&2; exit 2; }
+[ "${FAKE_SS_EMPTY_FAIL:-}" = 1 ] && { printf '{"findings": []}'; exit 1; }
 if [ -n "${FAKE_SS_SEV:-}" ]; then
   printf '{"skill_name": "x", "is_safe": false, "max_severity": "%s", "findings": [{"rule_id": "R1", "severity": "%s", "file_path": "SKILL.md", "title": "bad thing"}]}' "$FAKE_SS_SEV" "$FAKE_SS_SEV"
 else
@@ -188,7 +189,8 @@ fi
 
 def t_skill_scanner_reject(work):
     """Owner rule 2026-11-14 (every profile): skill-scanner HIGH/CRITICAL = exit 4 REJECT, final (no accept line);
-    INFO/LOW/MEDIUM pass; a folder without SKILL.md is scanned with --lenient."""
+    INFO/LOW/MEDIUM pass; a plugin without SKILL.md is scanned with --lenient; a plain tool source tree is not a skill
+    (skill-scanner skipped, said); required but no result = exit 5, final too."""
     stub = os.path.join(work, "ss-bin")
     os.makedirs(stub)
     write_exec(os.path.join(stub, "skill-scanner"), FAKE_SKILL_SCANNER)
@@ -197,9 +199,12 @@ def t_skill_scanner_reject(work):
     src = os.path.join(work, "ss-src")
     os.makedirs(os.path.join(src, "skills", "a"))
     open(os.path.join(src, "skills", "a", "SKILL.md"), "w").write("---\nname: a\n---\n")
-    bare = os.path.join(work, "ss-bare")
+    bare = os.path.join(work, "ss-bare")             # a plain tool source tree (Rust, Go): not a skill
     os.makedirs(bare)
-    open(os.path.join(bare, "README.md"), "w").write("tool\n")
+    open(os.path.join(bare, "main.rs"), "w").write("fn main() {}\n")
+    plug = os.path.join(work, "ss-plug")             # a plugin without SKILL.md: still scanned (--lenient)
+    os.makedirs(os.path.join(plug, ".claude-plugin"))
+    open(os.path.join(plug, "README.md"), "w").write("plugin\n")
     state = os.path.join(work, "ss-state")
     log = os.path.join(work, "ss.log")
     env = {"HOME": work, "AI_STATE_DIR": state, "FAKE_SS_LOG": log, "PATH": stub + ":" + os.environ["PATH"],
@@ -214,11 +219,17 @@ def t_skill_scanner_reject(work):
     assert "--format json" in open(log).read(), open(log).read()
     res = run(["bash", audit, "skill", src], env=dict(env, FAKE_SS_SEV="CRITICAL"))
     assert res.returncode == 4, res.stdout
-    res = run(["bash", audit, "dir", bare], env=dict(env, FAKE_SS_SEV="HIGH"))
+    res = run(["bash", audit, "dir", plug], env=dict(env, FAKE_SS_SEV="HIGH"))
     assert res.returncode == 4, res.stdout
-    assert "skill-scanner scan %s --format json --lenient" % os.path.realpath(bare) in open(log).read()
-    res = run(["bash", audit, "dir", src], env=dict(env, FAKE_SS_BROKEN="1"))
-    assert res.returncode == 3 and "skill-scanner could not scan" in res.stdout, res.stdout
+    assert "skill-scanner scan %s --format json --lenient" % os.path.realpath(plug) in open(log).read()
+    res = run(["bash", audit, "dir", bare], env=dict(env, FAKE_SS_SEV="HIGH"))
+    assert res.returncode == 0 and "skill-scanner: not applicable" in res.stdout, res.stdout
+    assert os.path.realpath(bare) not in open(log).read(), "skill-scanner must not run on a plain source tree"
+    for broken in ({"FAKE_SS_BROKEN": "1"}, {"FAKE_SS_EMPTY_FAIL": "1"}):
+        res = run(["bash", audit, "dir", src], env=dict(env, **broken))
+        assert res.returncode == 5 and "skill-scanner could not scan" in res.stdout, (broken, res.stdout)
+    res = run(["bash", audit, "dir", src], env=dict(env, PATH=os.path.join(work, "nobin") + ":/usr/bin:/bin"))
+    assert res.returncode == 5 and "skill-scanner not installed" in res.stdout, res.stdout
     # audit_ok: exit 4 is final even for an exact version on the accept list; exit 1 still honours it.
     home = os.path.join(work, "ss-aihome")
     os.makedirs(os.path.join(home, "ai"))
@@ -233,6 +244,10 @@ def t_skill_scanner_reject(work):
     assert "HIGH: R1 SKILL.md" in res.stdout and "ACCEPTED" not in res.stdout, res.stdout
     rej = json.load(open(os.path.join(work, ".local", "state", "ai", "resolved.json")))["tools"]["tool"]["rejected"]
     assert rej["sha"] == sha and rej["by"] == "skill-scanner" and "HIGH: R1" in rej["findings"], rej
+    # exit 5 (skill-scanner required, no result) is final too: never the accept list.
+    res = run(["bash", "-c", script], env=dict(env, AI_HOME=home, FAKE_SS_BROKEN="1"))
+    assert "RESULT=fail" in res.stdout and "skill-scanner could not scan tool" in res.stdout, res.stdout
+    assert "ACCEPTED" not in res.stdout, res.stdout
     write_exec(os.path.join(stub, "osv-scanner"), "#!/bin/sh\nexit 1\n")      # an osv finding: accept list applies
     res = run(["bash", "-c", script], env=dict(env, AI_HOME=home, FAKE_SS_SEV="MEDIUM"))
     assert "RESULT=pass" in res.stdout and "ACCEPTED owner-reviewed" in res.stdout, res.stdout
@@ -245,6 +260,10 @@ def t_skill_scanner_reject(work):
     assert res.returncode == 4 and "CALLED" not in res.stdout and "not used by profile dev-mac" in res.stdout, res.stdout
     res = run(["bash", audit, "dir", src], env=dict(dev, FAKE_SS_SEV="LOW"))
     assert res.returncode == 0 and "CALLED" not in res.stdout, res.stdout
+    # skill-scanner only is never a full PASS (the server gate needs PASS): PASS-SKILL in audit.log.
+    assert open(os.path.join(state, "audit.log")).read().splitlines()[-1].split()[-1] == "PASS-SKILL"
+    res = run(["bash", audit, "dir", bare], env=dev)
+    assert res.returncode == 0 and "not applicable" in res.stdout and "CALLED" not in res.stdout, res.stdout
     res = run(["bash", audit, "npm", "left-pad", "1.3.0"], env=dev)
     assert res.returncode == 0 and "audit skipped: profile dev-mac" in res.stdout and "CALLED" not in res.stdout, res.stdout
     assert open(os.path.join(state, "audit.log")).read().splitlines()[-1].split()[-1] == "SKIPPED"

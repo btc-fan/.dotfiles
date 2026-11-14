@@ -42,7 +42,11 @@ codex_mcp() {
     box_present || skip=(--skip box)
     aiconf mcp-register codex --mcp-json "$(PLUGIN_DIR)/.mcp.json" --plugin-root "$(PLUGIN_DIR)"
     # box (plugin ai-box): profile server only; dev-mac never registers it (box_present is false there too).
-    [ "${PROFILE_BOX:-1}" = 1 ] && aiconf mcp-register codex --mcp-json "$box/.mcp.json" --plugin-root "$box" ${skip[@]+"${skip[@]}"}
+    if [ "${PROFILE_BOX:-1}" = 1 ]; then
+        aiconf mcp-register codex --mcp-json "$box/.mcp.json" --plugin-root "$box" ${skip[@]+"${skip[@]}"}
+    else
+        aiconf undo --only '^cmd:codex-mcp:box$'      # a box entry this setup registered earlier goes
+    fi
     # Serena for every project (owner 2026-11-12): context codex, --project-from-cwd. Language servers start
     # slowly on a big repo: 60 s to start, a tool call may take 300 s (Serena's own tool_timeout is 240).
     if has serena; then

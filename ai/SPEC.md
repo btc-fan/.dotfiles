@@ -642,6 +642,13 @@ restore where something existing is removed; dry-run safe.
   (`--format json`; a folder without SKILL.md with `--lenient`). A HIGH or CRITICAL finding is REJECT: agent-audit
   exit 4, `REJECT` in audit.log, not installed or updated (an installed older copy stays), a WARN with the
   findings. No override: `ai/audit-accepted.txt` is not read for it. INFO, LOW and MEDIUM are shown only.
+  skill-scanner is required for a skill or plugin (a tree with a SKILL.md, a `.claude-plugin/` or `.codex-plugin/`
+  folder, or a `skills/` folder); when it is missing, crashes, gives no readable JSON, or exits non-zero with no
+  finding, agent-audit exits 5, final the same way (an unscanned skill never passes on an accept line). A plain
+  tool source tree (the RTK Rust tree) is not a skill: skill-scanner is skipped there with an info line (the
+  server still runs guarddog and osv-scanner on it). On dev-mac a dir audit with skill-scanner only logs
+  `PASS-SKILL`, never `PASS`, so the server's install gate (which needs PASS) never counts it.
+  The omc-plugin v5.8.6 accept line (its reason cited skill-scanner HIGH x2) was deleted: it can no longer apply.
   Root rules (40, every profile): a skill or plugin with a skill-scanner HIGH or CRITICAL finding is never installed.
 - Profiles: `server` (today's behaviour) and `dev-mac` (both Macs), one file each, `ai/profiles/<name>.env`
   (KEY=VALUE, bash 3.2: PROFILE_SCANNERS, PROFILE_PACKAGE_AUDIT, PROFILE_AUDIT_GATE, PROFILE_OPENCODE,

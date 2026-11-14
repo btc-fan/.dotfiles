@@ -3,10 +3,14 @@
 # Exit 0 = nothing found (PASS), 1 = findings (FAIL, read them before use), 2 = usage error,
 # 3 = a scanner could not run (ERROR: not a finding, but no PASS either; fix the scanner, run again),
 # 4 = skill-scanner found a HIGH or CRITICAL problem (REJECT, owner rule 2026-11-14, every profile): the
-# source is never installed or updated, and no line in ai/audit-accepted.txt lets it through.
+# source is never installed or updated, and no line in ai/audit-accepted.txt lets it through,
+# 5 = skill-scanner was required (a skill or plugin: SKILL.md, .claude-plugin/, .codex-plugin/ or skills/) but
+# could not run or gave no readable result (final too: no accept line lets an unscanned skill through).
+# A plain tool source tree (none of those) is not a skill: skill-scanner is skipped there, with an info line.
 # Package forms: `agent-audit pypi httpx 0.28.1`, `agent-audit pypi httpx==0.28.1`, `agent-audit npm left-pad@1.3.0`.
 # Every run appends one line to ~/.local/state/ai/audit.log:
-#   <iso-time> <ecosystem> <name> <version|-> PASS|FAIL|ERROR|REJECT|SKIPPED (SKIPPED: profile dev-mac, npm/pypi)
+#   <iso-time> <ecosystem> <name> <version|-> PASS|PASS-SKILL|FAIL|ERROR|REJECT|SKIPPED
+#   (PASS-SKILL: skill-scanner only, profile dev-mac; SKIPPED: profile dev-mac, npm/pypi). The gate needs PASS.
 # The audit-before-install gate (ai-core router) allows an install only with a PASS for that
 # package in the last 24 h.
 # Network: downloads the package from npm/PyPI, and osv-scanner looks up package names + versions
@@ -42,7 +46,8 @@ usage:
   agent-audit pypi  <name> [version]   guarddog: same for a PyPI package (also name==version)
   agent-audit dir   <path>             osv-scanner (known CVEs) + guarddog + skill-scanner on a folder
   agent-audit skill <path>             cisco skill-scanner on every SKILL.md under <path>
-skill-scanner HIGH or CRITICAL = exit 4 (REJECT, no override); INFO, LOW and MEDIUM are shown only.
+skill-scanner HIGH or CRITICAL = exit 4 (REJECT, no override); skill-scanner required but not run = exit 5
+(no override); INFO, LOW and MEDIUM are shown only.
 EOF
     exit 2
 }
@@ -67,6 +72,8 @@ main() {
     err=0
     reject=0
     skipped=0
+    sserr=0
+    partial=0
     case "${1:-}" in
         npm|pypi)
             [ $# -ge 2 ] || usage
@@ -86,6 +93,7 @@ main() {
             [ -d "${2:-}" ] || usage
             target=$(cd "$2" && pwd -P)
             if ! profile_has_scanner osv-scanner; then
+                partial=1
                 echo "-- osv-scanner and guarddog: not used by profile $AI_PROFILE (skill-scanner only)"
             elif command -v osv-scanner >/dev/null 2>&1; then
                 osv-scanner scan source -r "$target"; s=$?
@@ -94,11 +102,16 @@ main() {
             else
                 echo "ERROR: osv-scanner not installed"; err=1
             fi
+            profile_has_scanner guarddog || partial=1
             if profile_has_scanner guarddog; then
                 if [ -f "$target/package.json" ]; then guard npm scan "$target"; fi
                 if [ -f "$target/pyproject.toml" ] || [ -f "$target/setup.py" ]; then guard pypi scan "$target"; fi
             fi
-            scan_skills "$target"
+            if skill_tree "$target"; then
+                scan_skills "$target"
+            else
+                echo "-- skill-scanner: not applicable (no SKILL.md, .claude-plugin/, .codex-plugin/ or skills/ under $target)"
+            fi
             record dir "$target" "$(git -C "$target" rev-parse --short HEAD 2>/dev/null || echo -)"
             ;;
         skill)
@@ -114,6 +127,11 @@ main() {
         echo "agent-audit: REJECTED: skill-scanner found a HIGH or CRITICAL problem (REJECT lines above)." \
              "Never installed or updated; no accept line can let it through."
         exit 4
+    fi
+    if [ "$sserr" -ne 0 ]; then
+        echo "agent-audit: ERROR: skill-scanner was required (a skill or plugin) but gave no result (ERROR lines" \
+             "above). Never installed until it scans; no accept line can let it through."
+        exit 5
     fi
     if [ "$err" -ne 0 ]; then
         echo "agent-audit: ERROR: a scanner could not run (see ERROR lines above). This is not a finding," \
@@ -161,9 +179,15 @@ SS_FINDINGS='[.. | objects | select((.severity? | type) == "string")
        where: ((.file_path // .file // .location // "") | tostring),
        msg: ((.title // .description // .message // "") | tostring | .[0:160])}]'
 
+# skill_tree <dir>: true when the tree is a skill or plugin (skill-scanner required there).
+skill_tree() {
+    [ -n "$(find "$1" \( -name SKILL.md -o -name .claude-plugin -o -name .codex-plugin -o \( -type d -name skills \) \) \
+        -not -path '*/node_modules/*' -not -path '*/.git/*' -print -quit 2>/dev/null)" ]
+}
+
 scan_skills() {
     local f found=0
-    if ! command -v skill-scanner >/dev/null 2>&1; then echo "ERROR: skill-scanner not installed"; err=1; return; fi
+    if ! command -v skill-scanner >/dev/null 2>&1; then echo "ERROR: skill-scanner not installed"; err=1; sserr=1; return; fi
     while IFS= read -r f; do
         found=1
         skill_scan "$(dirname "$f")"
@@ -172,13 +196,16 @@ scan_skills() {
 }
 
 skill_scan() {
-    local d=$1 out errf high; shift
+    local d=$1 out errf high n src=0; shift
     errf=$(mktemp "${TMPDIR:-/tmp}/agent-audit.XXXXXX")
-    out=$(skill-scanner scan "$d" --format json "$@" 2>"$errf") || true
-    if ! printf '%s' "$out" | jq -e 'type == "object" or type == "array"' >/dev/null 2>&1; then
-        echo "ERROR: skill-scanner could not scan: $d"
+    out=$(skill-scanner scan "$d" --format json "$@" 2>"$errf") || src=$?
+    n=$(printf '%s' "$out" | jq "$SS_FINDINGS | length" 2>/dev/null) || n=""
+    # Fail closed: no readable JSON, or a non-zero exit with no finding in it, is a scanner error.
+    case "$n" in ''|*[!0-9]*) n="" ;; esac
+    if [ -z "$n" ] || { [ "$src" -ne 0 ] && [ "$n" -eq 0 ]; }; then
+        echo "ERROR: skill-scanner could not scan: $d (exit $src)"
         tail -n 15 "$errf" | sed 's/^/   skill-scanner: /'
-        rm -f "$errf"; err=1; return
+        rm -f "$errf"; err=1; sserr=1; return
     fi
     rm -f "$errf"
     echo "-- skill-scanner $d"
@@ -186,7 +213,8 @@ skill_scan() {
     high=$(printf '%s' "$out" | jq "($SS_FINDINGS | map(select(.sev == \"HIGH\" or .sev == \"CRITICAL\")) | length) as \$n
         | if \$n > 0 then \$n
           elif [.. | objects | .max_severity? // empty | tostring | ascii_upcase | select(test(\"HIGH|CRITICAL\"))] | length > 0 then 1
-          else 0 end")
+          else 0 end" 2>/dev/null) || high=""
+    case "$high" in ''|*[!0-9]*) echo "ERROR: skill-scanner result not readable: $d"; err=1; sserr=1; return ;; esac
     echo "   HIGH/CRITICAL: $high"
     if [ "$high" -gt 0 ]; then
         reject=1
@@ -202,6 +230,8 @@ record() {
     [ "$err" -eq 0 ] || result=ERROR
     [ "$reject" -eq 0 ] || result=REJECT
     [ "$skipped" -eq 0 ] || result=SKIPPED
+    # Profile dev-mac ran skill-scanner only: never a full PASS (the server gate accepts only PASS).
+    [ "$result" != PASS ] || [ "$partial" -eq 0 ] || result=PASS-SKILL
     dir="${AI_STATE_DIR:-$HOME/.local/state/ai}"
     mkdir -p "$dir"
     printf '%s %s %s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$eco" "${name// /_}" "${ver:--}" "$result" >> "$dir/audit.log"

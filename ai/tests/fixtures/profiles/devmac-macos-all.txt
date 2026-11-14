@@ -135,6 +135,7 @@ undo --only ^cmd:npm:opencode$|^(json|json-item|json-add):/etc/opencode/: 1 entr
   [dry-run] codex mcp remove context7
   [dry-run] codex mcp add context7 -- $REPO/ai/marketplace/plugins/ai-core/mcp/context7.sh
   [dry-run] mcp     codex replaced context7
+undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
   planned: Codex MCP: context7 (github and grounded-docs were dropped)
 
 [8/14] plugins (marketplace ai, ai-core, Ponytail, i-have-adhd, claude-seo, claude-blog)

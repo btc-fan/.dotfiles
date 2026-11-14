@@ -344,6 +344,11 @@ audit_ok() {
             --sha "$ver" --findings "$found" >/dev/null 2>&1 || true
         rm -f "$out" "$out.rc"; return 1
     fi
+    if [ "$rc" = 5 ]; then
+        # skill-scanner required (a skill or plugin) but it gave no result: final as well, never the accept list.
+        warn "skill-scanner could not scan $name${ver:+ $ver} (a skill or plugin): not installed or updated, no override; fix skill-scanner and re-run"
+        rm -f "$out" "$out.rc"; return 1
+    fi
     rm -f "$out" "$out.rc"
     [ "$rc" = 0 ] && return 0
     # Findings. Go on only for an owner-reviewed EXACT version (SPEC 22, ai/audit-accepted.txt).

@@ -452,9 +452,29 @@ claude_plugins() {
 
 # The box MCP server is its own plugin, ai-box@ai (owner decision 2026-11-14): profile server installs it (its
 # tools list nothing where no proj-agent runs); profile dev-mac never installs it, and removes an earlier one.
+# Refreshed like ai-core: a changed tree (tree-hash) is updated in place and copied over a stale cache.
 claude_box_plugin() {
+    local p="$AI_HOME/ai/marketplace/plugins/ai-box" hf="$AI_STATE_DIR/ai-box.claude.hash" hash old="" cache
     if [ "${PROFILE_BOX:-1}" = 1 ]; then
-        claude_plugin ai "$AI_HOME/ai/marketplace" ai-box@ai || true
+        hash=$(aiconf tree-hash "$p")
+        [ -f "$hf" ] && old=$(cat "$hf")
+        if claude_has_plugin ai-box@ai && [ "$hash" != "$old" ]; then
+            run claude plugin marketplace update ai || warn "claude plugin marketplace update ai failed"
+            run claude plugin update ai-box@ai || warn "claude plugin update ai-box@ai failed"
+            cache=$(ls -td "$CLAUDE_PLUGINS_DIR"/cache/ai/ai-box/* 2>/dev/null | head -n1 || true)
+            if [ "$AI_DRY_RUN" != 1 ] && [ -n "$cache" ] && [ "$(aiconf tree-hash "$cache")" != "$hash" ]; then
+                aiconf tree-sync "$p" "$cache" >/dev/null
+            fi
+            if [ "$AI_DRY_RUN" = 1 ] || { [ -n "$cache" ] && [ "$(aiconf tree-hash "$cache")" = "$hash" ]; }; then
+                ok "Claude plugin ai-box@ai updated (cache matches the repo)"
+            else
+                warn "ai-box cache does not match the repo after update and copy: ${cache:-no cache folder}"
+                hash=$old
+            fi
+        else
+            claude_plugin ai "$AI_HOME/ai/marketplace" ai-box@ai || true
+        fi
+        [ "$AI_DRY_RUN" = 1 ] || { mkdir -p "$AI_STATE_DIR"; printf '%s\n' "$hash" > "$hf"; }
     elif claude_has_plugin ai-box@ai; then
         run claude plugin uninstall ai-box@ai || { warn "claude plugin uninstall ai-box@ai failed"; return 0; }
         ok "Claude plugin ai-box@ai removed (profile $AI_PROFILE has no box)"

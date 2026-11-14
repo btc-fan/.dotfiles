@@ -19,7 +19,8 @@ Gates are lint, not a sandbox: a script file or an unusual command can pass them
 
 - Every profile: every skill and plugin source is scanned with skill-scanner before install. A HIGH or CRITICAL
   finding means it is never installed or updated (agent-audit exit 4); `ai/audit-accepted.txt` cannot let it
-  through. INFO, LOW and MEDIUM are shown only.
+  through. INFO, LOW and MEDIUM are shown only. A skill or plugin that skill-scanner could not scan is not
+  installed either (exit 5, no override). OMC 5.8.6 has two skill-scanner HIGH findings: it is rejected everywhere.
 - `server` (Ubuntu servers): everything on this page.
 - `dev-mac` (the owner's Macs) is weaker on purpose. No install audit: npm, PyPI and GitHub installs are not
   scanned (each prints `audit skipped: profile dev-mac`), only skills and plugin sources (skill-scanner). No OS
