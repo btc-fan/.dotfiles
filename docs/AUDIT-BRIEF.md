@@ -148,7 +148,7 @@ Read: `README.md`, `ai/SPEC.md`, `docs/INSTALL.md`, `docs/SECURITY.md`, `docs/TO
   `sudo proj-agent` too; box work = the box tool (MCP server `box`: list, new, exec, logs, status, restart, ports, url, snapshot, doctor, help); outside a sandbox also plain `proj-agent <subcommand>`; never sudo). The only way past a gate is the owner's
   `sudo ai-gate-skip <gate> <minutes max 60> <why>` (root-owned file); a variable in the command
   text does nothing.
-- **Supply chain**: every tool is pinned in `ai/pins.env` and audited by `ai/bin/agent-audit`
+- **Supply chain**: every tool follows its newest stable release (sources in `ai/pins.env`, SPEC 23) and each new version is audited by `ai/bin/agent-audit`
   (osv-scanner, guarddog, skill-scanner). Findings stop the install unless the exact version is in
   `ai/audit-accepted.txt` with a dated reason (8 entries, each reviewed line by line by the owner's
   agent; all were false positives such as test fixtures or SSRF guards).

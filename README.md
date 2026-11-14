@@ -1,12 +1,12 @@
 # dotfiles, branch `ai`
 
-One AI setup for every machine. Agents, tools, rules, hooks and gates. Pinned, audited, with proof that each tool fires.
+One AI setup for every machine. Agents, tools, rules, hooks and gates. Audited, always the newest stable release, with proof that each tool fires.
 
 - Branch `ai` holds only the AI layer. The OS base (shell, git, packages, server hardening) lives in the other branches: `main` (macOS), `windows`, `ubuntu-server`.
 - One source of rules. Every agent (Claude Code, Codex, Hermes, opencode) gets the same text.
-- One set of tools. Each tool was audited and is pinned to the audited version.
+- One set of tools. Each tool follows its newest stable release; every new version is audited before it is installed.
 - One usage contract per tool. It says when to use it, when not, how we enforce it and how we prove it fired.
-- Telemetry and auto-update are off. Everything can be removed with one command.
+- Telemetry and the tools' own auto-update are off: updates come only from `install.sh`. Everything can be removed with one command.
 
 Status: server first. macOS later. Windows planned, not supported yet. Items marked **coming** are designed but not in the code yet.
 
@@ -39,15 +39,16 @@ Audit reports (local, not in git) live next to the checkouts in `ai-audit/`.
    only `@AGENTS.md`, so Codex reads the same rules).
    **Server: deployed 2026-11-13** (`23b482c`): tests 219 cases + all suites green as the main user,
    `ai-doctor --live` 97 pass, 0 fail (sandboxed Bash, box tool, 3 live gate canaries). Left: an attack
-   test of every gate by hand; oh-my-codex 0.22.6 after its cooldown (re-run the install after 2026-11-17).
+   test of every gate by hand; oh-my-codex: the next install takes the newest stable (no cooldown since 2026-11-14).
    Fixed on the way: ai-sync dropped Codex env keys added after the trust block (aiconf toml-set);
    root-guard test failed for a user without sudo.
    2026-11-13: `ai-libs` keeps only imported packages when a full pip freeze has more than 40 pins;
    house rules gained 3 lines (no `.env` edits, no prod deploy without OK, a failing test is a blocker).
-2. **RTK latest stable compatible: DONE in code.** `rtk_resolve_tag` takes the newest plain `vX.Y.Z`
-   release (no pre-release, no draft) at least `RTK_COOLDOWN_DAYS` (7) old; the audited `RTK_TAG` wins
-   when it is newer; offline means the pin. Always built from source (one path for every OS and arch,
-   no AVX2 question), source audited first, tag and commit written to the audit log.
+2. **Newest stable for every tool: DONE in code (owner decision 2026-11-14).** No exact pins and no
+   cooldown: `ai/lib/resolve.py` finds the newest stable release of each tool from `ai/pins.env` (now a
+   sources file), every `install.sh` run moves a tool when it differs, after `agent-audit`. RTK is built from
+   source at the newest release tag (one path for every OS and arch), source audited first, tag and commit in
+   the audit log. Section 7 says how to hold a tool back.
 3. **Claude live checks on the server** could not run today (the server's Claude account was out
    of quota): rerun `ai-doctor --live` as the main user and the end-to-end test (a small web page in
    a try box through the box tool, test, commit). Codex already passed context7 + box creation.
@@ -83,7 +84,7 @@ flowchart TD
         ROUTE["ai/routing.yaml<br/>one routing table"]
         RULES["ai/rules/*.md<br/>one contract per tool"]
         PLUGIN["ai/marketplace<br/>plugin ai-core"]
-        PINS["ai/pins.env<br/>every version"]
+        PINS["ai/pins.env<br/>where each tool comes from"]
     end
     PARTS --> RENDER{{"ai-render"}}
     ROUTE --> RENDER
@@ -131,7 +132,7 @@ Read it from the top.
 | Agents | Claude Code (main), Codex + OMX (main), Hermes. OMC: on on macOS, per project on servers (`ai-adopt --tools omc`). herdr: everywhere. opencode: macOS; on servers only with `AI_EXTRA_AGENTS=opencode`. omo: optional | [docs/TOOLS.md](docs/TOOLS.md) |
 | Plugin `ai-core` | our skills, hooks and MCP list, one folder, installed by Claude and Codex | `ai/marketplace/plugins/ai-core/` |
 | MCP servers | global: context7 (the one docs tool), box (project boxes on a server) and Serena (on by default in every project; a line `no-serena` in `.ai/enabled` opts out). Per project only: Playwright | [docs/TOOLS.md](docs/TOOLS.md) |
-| Other tools | RTK, Ponytail, i-have-adhd, pinned mattpocock skills, `gh`, graphify (CLI, on by default; `no-graph` opts out). Per project only: claude-seo, claude-blog (`ai-adopt --tools seo,blog`) | [docs/TOOLS.md](docs/TOOLS.md) |
+| Other tools | RTK, Ponytail, i-have-adhd, five mattpocock skills, `gh`, graphify (CLI, on by default; `no-graph` opts out). Per project only: claude-seo, claude-blog (`ai-adopt --tools seo,blog`) | [docs/TOOLS.md](docs/TOOLS.md) |
 | Root rules | the one AGENTS.md all agents read | [docs/AGENTS-MD.md](docs/AGENTS-MD.md) |
 | Usage contracts | `ai/rules/<tool>.md`, five sections each | [docs/EXTENDING.md](docs/EXTENDING.md) |
 | Router + gates | session-start status, a few prompt rows, four gates | section 3 below |
@@ -330,7 +331,7 @@ Run `ai-info` on any machine with this setup (every user, Hermes too) to see wha
 ```
 ai-doctor
 ```
-It checks: plugin list and validation, MCP servers connected, pinned versions, telemetry and update switches, root file size, every enabled tool has a contract, copied rule blocks equal the source (`ai-sync --check`), evals, the miss log, stale Serena entries. Inside an adopted repo (cwd or `--project PATH`) also: the Map section present and at most 60 lines, the Libraries section against the lockfiles (`ai-libs --check`), a secret scan of both sections, and only where turned on: the Serena entry and graph freshness. A fast check runs at the end of `install.sh`: `ai-doctor --quick`.
+It checks: plugin list and validation, MCP servers connected, each tool against its newest stable release ("update available" lines), telemetry and update switches, root file size, every enabled tool has a contract, copied rule blocks equal the source (`ai-sync --check`), evals, the miss log, stale Serena entries. Inside an adopted repo (cwd or `--project PATH`) also: the Map section present and at most 60 lines, the Libraries section against the lockfiles (`ai-libs --check`), a secret scan of both sections, and only where turned on: the Serena entry and graph freshness. A fast check runs at the end of `install.sh`: `ai-doctor --quick`.
 
 Spot checks:
 - A new Claude session says "ADHD MODE ACTIVE (always-on)".
@@ -342,13 +343,22 @@ To see that a tool really fires, read the logs in `~/.local/state/ai/` ([docs/CO
 
 ## 7. Update
 
-Updates are never automatic.
+Tools update on every `install.sh` run (owner decision 2026-11-14). No tool updates itself.
 
-1. Server: as admin, `sudo /opt/ai-setup/install.sh --update --for-user <user>`. It fast-forwards the root-owned clone and refreshes everything, including the Hermes copies and the `/etc` rules, which only this admin command can refresh.
-2. macOS: `git -C ~/.dotfiles-ai pull`. A git hook runs `ai-sync`, which re-renders the rules and refreshes your own files (Claude, Codex, opencode). If a pin or an adapter changed, run `~/.dotfiles-ai/install.sh`.
-3. On a server, `ai-sync` from a user's `~/.dotfiles-ai` refreshes only that user's own files.
-4. A new tool version needs a new audit and a new pin. See [docs/EXTENDING.md](docs/EXTENDING.md), "Bump a pin".
-5. Run `ai-doctor`.
+1. What moves: every tool of the setup (Codex, OMC, OMX, opencode, herdr, Serena, graphify, context7, RTK, the
+   audit scanners, the plugin sources and the Claude and Codex plugins made from them) goes to its newest
+   stable release when the installed one differs. Stable = not a pre-release, not a draft, not yanked. There is
+   no waiting period. This is the same on macOS and on servers.
+2. Each new version is audited first (`agent-audit`). A new version with findings is NOT installed: the old one
+   stays and the run prints a warning. `ai/audit-accepted.txt` lines are per exact version, so the owner reviews
+   the findings and adds a line for the new version before it goes in.
+3. Offline, or a registry error: the installed version stays and the run says so. The install does not fail.
+4. Server: as admin, `sudo /opt/ai-setup/install.sh --update --for-user <user>`. It fast-forwards the root-owned clone, moves every tool to its newest stable release and refreshes everything else, including the Hermes copies and the `/etc` rules, which only this admin command can refresh. Run it on a schedule you choose: nothing updates between runs.
+5. macOS: `~/.dotfiles-ai/install.sh`. A `git -C ~/.dotfiles-ai pull` alone runs `ai-sync` (rules and your own files), not the tool updates.
+6. On a server, `ai-sync` from a user's `~/.dotfiles-ai` refreshes only that user's own files.
+7. See what changed: `~/.local/state/ai/resolved.json` (per tool: source, newest seen, installed, times; on a server the system tools are in `/var/lib/ai/resolved.json`) and the `install` lines in `~/.local/state/ai/audit.log`. `ai-doctor` prints `update available: <tool> <installed> -> <newest>`.
+8. Hold a tool back: add `<TOOL>_HOLD=<version>` to `ai/pins.env` (for example `CODEX_HOLD=0.167.0`, or a tag or commit for a git source). The next run installs exactly that version and leaves it there. Remove the line to follow the newest stable again. See [docs/EXTENDING.md](docs/EXTENDING.md), "Updates and holding a tool back".
+9. Run `ai-doctor`.
 
 ## 8. Remove or revert
 
@@ -413,7 +423,7 @@ Commands in `ai/bin/`: `ai-info`, `ai-doctor`, `ai-render`, `ai-sync`, `agent-au
 - [docs/AGENTS-MD.md](docs/AGENTS-MD.md): what a standardized AGENTS.md means and how to change a rule.
 - [docs/INSTALL.md](docs/INSTALL.md): every install step and option.
 - [docs/CONTEXT.md](docs/CONTEXT.md): lists of rules, hooks, routing, logs.
-- [docs/EXTENDING.md](docs/EXTENDING.md): add a skill, MCP server, plugin, rule. Bump a pin. Retire a tool.
+- [docs/EXTENDING.md](docs/EXTENDING.md): add a skill, MCP server, plugin, rule. Hold a tool back. Retire a tool.
 - [docs/SECURITY.md](docs/SECURITY.md): the security model: boxes, the agent sandbox, no sudo, no planted config, gates.
 - [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md): tests to run after an install on a server.
 - `ai/SPEC.md`: the design. `ai/SPEC-LOG.md`: why.

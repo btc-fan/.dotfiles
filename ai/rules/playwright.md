@@ -1,6 +1,6 @@
 # Playwright MCP (microsoft/playwright-mcp)
 
-Pin: `@playwright/mcp` 0.0.85 (Apache-2.0). Intake done 2026-11-11 (SPEC section 21). Never `@latest`. Source: https://github.com/microsoft/playwright-mcp
+Version: newest stable release (SPEC 23). Read and audited at intake: `@playwright/mcp` 0.0.85 (Apache-2.0). Intake done 2026-11-11 (SPEC section 21). Never `@latest`. Source: https://github.com/microsoft/playwright-mcp
 
 ## Vendor rules
 No rule text. README: "coding agents increasingly favor CLI-based workflows exposed as SKILLs over MCP because CLI invocations are more token-efficient". The vendor itself points away from an always-on MCP. Flags: `--headless`, `--isolated`, `--caps`.
@@ -26,7 +26,7 @@ No rule text. README: "coding agents increasingly favor CLI-based workflows expo
 - Signal: tool_use `mcp__playwright__*` in an enabled project. The nudge text in a project without it.
 
 ## Setup checklist
-1. Per machine: nothing global. Browser download happens at first use per project: pre-install with the pinned package and note the size (UNVERIFIED).
+1. Per machine: nothing global. Browser download happens at first use per project: pre-install with the installed package and note the size (UNVERIFIED). `ai-start` installs the newest stable `@playwright/mcp` (SPEC 23) in `~/.local/share/ai/npm/playwright-mcp-<version>/`.
 2. Per project: `ai-adopt --tools browser` (plugin key for Claude, `.codex/config.toml` entry for Codex).
 3. Telemetry: not checked in the intake (0 threat hits, no install scripts). Keep it per project and read its README flags at install.
 4. Verify: `claude mcp list` in the project shows it. In another project it is absent.

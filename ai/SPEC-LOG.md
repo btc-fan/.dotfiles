@@ -472,3 +472,20 @@ ai-doctor fails if any enabled tool lacks a contract or its evals fail.
   AGENTS.md cap 30 KB. Server backups moved after 07:30, pg-backup skips md999 and keeps 3 days.
 - Server changes today: 1 TB Seagate removed; Hitachi = /backup (mirror 08:30), WD 320 = spare; address now
   from DHCP (reservation pending); sshd/fail2ban/Docker/sysctl hardening.
+
+## 2026-11-14: tool versions follow the newest stable (owner decision)
+- Before: every tool of the setup was an exact pin in `ai/pins.env` (version, sha512 integrity, commit sha,
+  sha256), bumped by hand after a re-audit; RTK took the newest release at least 7 days old; OMX waited for a
+  "not before" date.
+- Owner decision: the setup's own tools follow the newest stable release, with no cooldown, on every OS. Reason:
+  hand bumps lagged behind upstream fixes (security fixes included) and cost a review round per tool; the
+  agent-audit gate per exact version already stops a bad release, so a pin adds delay but no extra check.
+- Kept: the audit before every install (a new version with findings is not installed), the exact-version accept
+  list, checksums and integrity from the source, no self-update in any tool, and the project-package rule for
+  agents (exact versions, no @latest).
+- Added: `ai/lib/resolve.py`, `<TOOL>_HOLD` in `ai/pins.env` to keep one tool back, `resolved.json`, the
+  ai-doctor "update available" lines, plugin source clones and Claude/Codex plugins that move to the new tag.
+- Dropped from `ai/pins.env`: every tool version, integrity, commit and checksum line, RTK_COOLDOWN_DAYS,
+  OMX_NOT_BEFORE, HERDR_INSTALLER_* (the herdr installer script is no longer run: the release binary is checked
+  against herdr's own release manifest), UV_VERSION (uv comes from the ubuntu-server branch, not read here).
+

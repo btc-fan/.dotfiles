@@ -34,15 +34,15 @@ sudo /opt/ai-setup/install.sh --update --for-user <user>
 
 ## What `install.sh` does
 
-Each step prints `[n/N] what`. A step that is already done is skipped. Run it twice: the second run changes nothing.
+Each step prints `[n/N] what`. A step that is already done is skipped. Run it twice: the second run changes nothing, unless a tool had a new stable release in between (then that tool moves, after its audit).
 
 1. Prerequisites: git, stow, jq, uv, node LTS, python3.
-2. Pins: reads `ai/pins.env`. Every version and commit sha lives in that one file.
+2. Sources: reads `ai/pins.env` (where each tool comes from) and prints the newest stable release of every tool (`ai/lib/resolve.py`: npm, PyPI, GitHub releases, git tags; no pre-release, draft or yanked version; no cooldown). A `<TOOL>_HOLD=<version>` line wins for that tool. Offline: each tool keeps what is installed, and the run says so. The install steps below install exactly the resolved versions, each after `agent-audit`; a version with findings is not installed (the old one stays, a warning says so). What was installed goes to `~/.local/state/ai/resolved.json` and `audit.log`. Owner decision 2026-11-14, every OS.
 3. Worktree links: `~/.dotfiles/bin/claude-notify` and every `ai/bin/*` command linked into `~/.local/bin/`. The link names go into `~/.dotfiles/.git/info/exclude`.
 4. `ai-render`: turns `ai/routing.yaml` into `ai/build/routing.json` and the L0 table. It joins `ai/agents-md/*.md` and the L0 table into the root file. It fails above 30 KB.
 5. Agents: only those found or asked for with `--agents`. Registers the marketplace `ai` and the plugin `ai-core` with Claude and Codex. Hermes, opencode and herdr get their own registrations.
 6. MCP servers: Serena, context7, GitHub, Grounded Docs through the plugin `.mcp.json`. Codex: `codex mcp add`. Playwright is not installed here: it is per project.
-7. Skills: our own skill, the five pinned mattpocock skills.
+7. Skills: our own skill, the five mattpocock skills (at the newest stable tag of mattpocock/skills).
 8. Hooks: inside the plugin. Our own merge code only writes managed blocks (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, Hermes `SOUL.md`) and single keys for telemetry and update switches. Everything it adds is recorded in `~/.local/state/ai/managed-keys.json`.
 9. Env: telemetry off and auto-update off for every tool.
 10. Verify: `ai-doctor --quick`.
@@ -83,7 +83,7 @@ Options:
 - SEO and blog skills from Hermes and Codex: Hermes never hands off to Claude; it follows the skill files in `/opt/agent-plugins/claude-seo` and `/opt/agent-plugins/claude-blog` itself (no Claude login for hermes). Codex hands off only when Claude is logged in for that user and you approved a network run for it; otherwise it follows the same skill files.
 - GitHub: replace the broad gh token with a fine-grained per-repo token (only the repos agents work on, the least scopes), and enable branch protection and push protection on GitHub. Agents use the `gh` CLI (the GitHub MCP was dropped).
 - claude.ai connectors (Gmail, Calendar, Drive) are off on Linux installs (`"disableClaudeAiConnectors": true` in `/etc/claude-code/managed-settings.json`), so unattended agents cannot reach your mail. To keep them: `install.sh --for-user <user> --keep-claudeai-connectors`.
-- oh-my-claudecode is the pinned Claude plugin `oh-my-claudecode@omc` (as on the Mac), exa MCP off. Run `/oh-my-claudecode:omc-setup` once in Claude.
+- oh-my-claudecode is the Claude plugin `oh-my-claudecode@omc` at its newest stable tag (as on the Mac), exa MCP off. Run `/oh-my-claudecode:omc-setup` once in Claude.
 - claude-seo and claude-blog are installed but off (about 12k tokens per session each). Turn one on for one project: `ai-adopt --tools seo` (or `blog`), or put `"enabledPlugins": {"claude-seo@agricidaniel-claude-seo": true}` in that project's `.claude/settings.json`.
 - Claude: `/seo setup` then `/seo doctor`, once, in a project with claude-seo on.
 - `~/.config/ai/secrets.env`: GitHub token, provider keys, `DISCORD_ALLOWED_USERS` for Hermes, webhook copy for notifications.
@@ -92,6 +92,10 @@ Options:
 - Per project: `ai-adopt` for an existing repo, `ai-start` for a new one.
 - Claude Bash sandbox (Linux): commands run in bubblewrap with no access to `~/.ssh`, `~/.config/gh`, the Claude/Codex logins and `secrets.env`; git over SSH does not work inside it (use HTTPS remotes). If Claude refuses to start with a sandbox error, run `sudo ai-doctor --for-user <user>`: it checks bubblewrap and the AppArmor profile.
 - Skip a gate for a real exception (owner only): `sudo ai-gate-skip <gate> <minutes, max 60> <why>`.
+
+## Updates
+
+Every `install.sh` run is also the update (README section 7): each tool moves to its newest stable release when the installed one differs, after its audit. A Claude plugin from a git source follows the tag: its marketplace is replaced when it points to another source (uninstall restores the old one when this setup did not add it), then `claude plugin marketplace update` and `claude plugin update`, or uninstall and install, and the installed commit is checked. Hold a tool back with `<TOOL>_HOLD=<version>` in `ai/pins.env` ([EXTENDING.md](EXTENDING.md), section 8). `ai-doctor` lists `update available: <tool> <installed> -> <newest>`.
 
 ## Verify
 

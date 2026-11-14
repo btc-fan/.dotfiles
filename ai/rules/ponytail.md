@@ -1,6 +1,6 @@
 # Ponytail
 
-Pin: commit 96608e078b2d5ea607c5c3b8b5a54d1c1fba6846 (version 5.3.3). Source: https://github.com/DietrichGebert/ponytail
+Version: newest stable release (SPEC 23). Read and audited at intake: commit 96608e078b2d5ea607c5c3b8b5a54d1c1fba6846 (version 5.3.3). Source: https://github.com/DietrichGebert/ponytail
 
 ## Vendor rules
 The verbatim main skill is the file `ai/rules/vendor/ponytail-96608e0-SKILL.md` (copy of the main `SKILL.md` at the audited pin 96608e0, version 5.3.3). Deviation: U+2014 characters replaced by "-" (repo rule: no em dash), as for OMC and OMX. No other change.
@@ -38,6 +38,6 @@ Collision with owner rules: Ponytail ends each reply with a "what I skipped" lin
 5. Config `~/.config/ponytail/config.json` equals `{"defaultMode": "full"}`.
 6. Never install by `/plugin marketplace add DietrichGebert/ponytail` (unpinned).
 7. Telemetry: none documented. Auto-update: none.
-8. Verify: `claude plugin list` shows ponytail 5.3.3. Config file equals the block. `git -C <path> rev-parse HEAD` equals the pin.
+8. Verify: `claude plugin list` shows the version of the newest stable tag. Config file equals the block. `git -C <path> rev-parse HEAD` equals the commit in `~/.local/state/ai/resolved.json` (ponytail).
 9. Cleanup: `claude plugin uninstall ponytail@ponytail`, `claude plugin marketplace remove ponytail`, Codex remove (subcommand UNVERIFIED), delete `~/.config/ponytail/` and `~/.claude/.ponytail-active`.
 Collision: OMC `minimal-code-discipline` does the same job. Ponytail owns the global rule.

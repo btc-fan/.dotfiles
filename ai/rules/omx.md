@@ -1,6 +1,6 @@
 # oh-my-codex (OMX)
 
-Pin: 0.22.6. sha512 `sha512-ZpMHipwnaiHV/T8rp/czmF5U+ugqVdUOb28obL5U61q9WQwvfKAmzP4k1V82EnUXYMvsBgZIzFl0I3HADBbFEQ==` (compare with `npm view oh-my-codex@0.22.6 dist.integrity` at install). Published 2026-11-10. Install NOT before 2026-11-17. Source: https://github.com/Yeachan-Heo/oh-my-codex
+Version: newest stable release (SPEC 23). Read and audited at intake: 0.22.6. sha512 `sha512-ZpMHipwnaiHV/T8rp/czmF5U+ugqVdUOb28obL5U61q9WQwvfKAmzP4k1V82EnUXYMvsBgZIzFl0I3HADBbFEQ==` (compare with `npm view oh-my-codex@0.22.6 dist.integrity` at install). Published 2026-11-10. Install NOT before 2026-11-17. Source: https://github.com/Yeachan-Heo/oh-my-codex
 
 ## Vendor rules (verbatim)
 The verbatim template is the file `ai/rules/vendor/omx-0.22.6-AGENTS.md` (from `package/templates/AGENTS.md` of the sha512-verified package, 23,904 bytes). Markers: OMX:RUNTIME, OMX:TEAM:WORKER, OMX:GUIDANCE:OPERATING, OMX:GUIDANCE:SPECIALIST-ROUTING, OMX:MODELS (each `<!-- X:START --> ... <!-- X:END -->`).
@@ -26,10 +26,10 @@ Deviation: 4 U+2014 characters replaced by "-". No other change.WARNING: the tem
 - Signal: OMX state under `.omx/` (path UNVERIFIED), `omx doctor`, smoke string `OMX-EXEC-OK`.
 
 ## Setup checklist
-1. `npm i -g --ignore-scripts oh-my-codex@0.22.6`. Verify integrity. After 2026-11-17.
+1. install.sh: `npm i -g --ignore-scripts oh-my-codex@<newest stable>` (SPEC 23, no cooldown), audited first, integrity from the registry.
 2. Env in shell and every unit file: `OMX_AUTO_UPDATE=0`, `OMX_NATIVE_AUTO_FETCH=0`. `OMX_REPLY_ENABLED` unset. No native binaries.
 3. Codex first (device-code login). Then `omx setup` in a throwaway HOME. Read the diff. Then real. Set `project_doc_max_bytes = 65536`. File list touched by setup: UNVERIFIED.
 4. Per project: gitignore `.omx/` (path UNVERIFIED). No block by us if OMX added its own.
 5. herdr transport of OMX: keep off. Never follow its `curl ... | sh` error text.
-6. Verify: `omx --version` says 0.22.6. `omx doctor` clean. `omx exec --skip-git-repo-check -C . "Reply with exactly OMX-EXEC-OK"` prints it.
+6. Verify: `omx --version` says the installed version in `~/.local/state/ai/resolved.json`. `omx doctor` clean. `omx exec --skip-git-repo-check -C . "Reply with exactly OMX-EXEC-OK"` prints it.
 7. Cleanup: `npm rm -g oh-my-codex`. Remove the OMX block and its `config.toml` part (command UNVERIFIED). Delete `~/.cache/oh-my-codex/` and `.omx/`.

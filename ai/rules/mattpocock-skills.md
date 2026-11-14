@@ -1,6 +1,6 @@
-# mattpocock/skills (pinned copies)
+# mattpocock/skills (copies at the newest stable tag)
 
-Pin: commit 4ae2317ddb22b046e26455e4f9c9b3aaaf62212d (dated 2026-10-31). Source: https://github.com/mattpocock/skills/blob/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d/
+Version: newest stable release (SPEC 23). Read and audited at intake: commit 4ae2317ddb22b046e26455e4f9c9b3aaaf62212d (dated 2026-10-31). Source: https://github.com/mattpocock/skills/blob/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d/
 GLOBAL (5): grilling, grill-me, wait-what, retro, writing-for-agents. Everything else is opt-in per project.
 
 ## Vendor rules (verbatim)
@@ -27,7 +27,7 @@ Eval cases: `ai/evals/mattpocock-and-llmwiki.md`. Typed commands: the pass condi
 
 ## Setup checklist
 1. Do NOT use `claude plugin install mattpocock-skills@claude-plugins-official` (all 27 skills, auto-update on) or `npx skills@latest add` (unpinned). Never run its `scripts/link-skills.sh` (it runs `rm -rf`).
-2. Pinned copies, done by the installer: clone, `git checkout 4ae2317ddb22b046e26455e4f9c9b3aaaf62212d`, read the five folders, copy whole folders (keep `agents/openai.yaml`): productivity/{grilling,grill-me,wait-what,writing-for-agents} and engineering/retro into `~/.agents/skills/` (shared: Codex, opencode, Hermes project convention) and a link for Claude (`~/.claude/skills/`). One route per agent: two routes give every skill twice. Hermes also `~/.hermes/skills/`.
+2. Copies at the newest stable tag (SPEC 23), done by the installer on every run: clone, `git checkout <commit of the newest vX.Y.Z tag>`, audit, read the five folders, copy whole folders (keep `agents/openai.yaml`): productivity/{grilling,grill-me,wait-what,writing-for-agents} and engineering/retro into `~/.agents/skills/` (shared: Codex, opencode, Hermes project convention) and a link for Claude (`~/.claude/skills/`). One route per agent: two routes give every skill twice. Hermes also `~/.hermes/skills/`.
 3. Keys: none. Settings: none. Updating means a new reviewed checkout, never an auto-update.
 4. Per project (opt-in only): `/setup-matt-pocock-skills` once. It writes `docs/agents/*.md`, an `## Agent skills` block, and may run `git init`, `git remote add origin` and `gh label create`. Trap: "If CLAUDE.md exists, edit it" lands the block in CLAUDE.md. Tell it to edit AGENTS.md.
 5. Verify: `ls ~/.agents/skills/{grilling,grill-me,wait-what,retro,writing-for-agents}/SKILL.md`. `/skills` lists them. Typed `/wait-what` expands. "grill me on X" calls Skill `grilling`.

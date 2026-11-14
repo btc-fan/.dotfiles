@@ -1,6 +1,6 @@
 # herdr
 
-Pin: 0.9.5. License Apache-2.0. Sources: https://herdr.dev/tui/docs, https://github.com/herdrdev/herdr
+Version: newest stable release (SPEC 23). Read and audited at intake: 0.9.5. License Apache-2.0. Sources: https://herdr.dev/tui/docs, https://github.com/herdrdev/herdr
 Installed by default on Linux servers (owner decision 2026-11-12 evening: "should be installed, leave it alone"). macOS: installed where present.
 
 ## Vendor rules
@@ -25,7 +25,7 @@ Our own rule is the owner block A.5 (PR author-sessions note). It sits in `ai/ag
 - Signal: Bash `herdr agent get`. The block in the PR body. `pr-resume` parses it.
 
 ## Setup checklist
-1. Install (no checksum or signature exists for any route): download the install script, record its sha, read it, then run it with `HERDR_INSTALL_DIR=/usr/local/bin`. `curl ... | sh` is blocked by the gate. Or `brew install herdr` (macOS). Or `mise use -g herdr` (pin form UNVERIFIED). Run `agent-audit` first.
+1. Install (install.sh, every run, SPEC 23): the newest stable GitHub release of herdrdev/herdr, the binary `herdr-<os>-<arch>` from that release, checked against the sha256 that herdr publishes in its release manifest (https://herdr.dev/latest.json, `releases.<version>.sha256`; the GitHub release has no checksum file), installed to `/usr/local/bin` (Linux) or `~/.local/bin` (macOS). The install script is not run. `curl ... | sh` is blocked by the gate. A herdr from brew is left as it is.
 2. Config (merge only) `~/.config/herdr/config.toml`: `[update]` `version_check = false`, `manifest_check = false`. Telemetry key: not found (say "not found", not "none"). Never run `herdr update`.
 3. Integrations (throwaway HOME first, read the diff): `herdr integration install claude`, `herdr integration install codex`. The Codex one sets `[features] hooks = true` in `config.toml` (OMX manages that file too).
 4. Verify: `herdr --version`. `herdr integration status claude` and `codex`. In a pane: `herdr agent get "$HERDR_PANE_ID" | jq -r '.result.agent.agent_session.value'` is not empty.

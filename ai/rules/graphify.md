@@ -1,6 +1,6 @@
 # graphify
 
-Pin: PyPI `graphifyy` 0.9.105. Source: https://github.com/Graphify-Labs/graphify
+Version: newest stable release (SPEC 23). Read and audited at intake: PyPI `graphifyy` 0.9.105. Source: https://github.com/Graphify-Labs/graphify
 On by default in every project (owner decision 2026-11-12 evening). A project opts out with a line `no-graph` in `.ai/enabled`. CLI only, no MCP server.
 
 ## Vendor rules (verbatim, AGENTS.md variant)
@@ -33,9 +33,9 @@ README at v0.9.105 (verbatim): "A code-only corpus requires no API key: `graphif
 - Signal: a new line in `~/.cache/graphify-queries.log`.
 
 ## Setup checklist
-1. Install (per machine): `uv tool install graphifyy==0.9.105`.
+1. Install (per machine, install.sh): `uv tool install graphifyy==<newest stable>` (SPEC 23; audited first).
 2. Env (agent env and `~/.config/ai/env`): `GRAPHIFY_BACKEND=none`, `GRAPHIFY_HOOK_STRICT=0`. The build command also sets `GRAPHIFY_BACKEND=none` inline.
 3. No optional extras (`mcp`, `watch`, `video`, cloud). Telemetry: none documented.
 4. Per project: `ai-adopt` (build + git hooks), unless `no-graph`.
-5. Verify: `graphify --version` prints 0.9.105. In a project with no LLM key set, `GRAPHIFY_BACKEND=none graphify extract . --code-only` prints a node count; `graphify hook status` shows the hooks.
+5. Verify: `graphify --version` prints the installed version in `~/.local/state/ai/resolved.json`. In a project with no LLM key set, `GRAPHIFY_BACKEND=none graphify extract . --code-only` prints a node count; `graphify hook status` shows the hooks.
 6. Cleanup: `graphify hook uninstall` per repo, `uv tool uninstall graphifyy`, delete `graphify-out/` and the query log.

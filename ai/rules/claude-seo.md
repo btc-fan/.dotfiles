@@ -1,6 +1,6 @@
 # claude-seo
 
-Pin: v2.5.0 = 219ff485bb016314bb4c15bfc7978df61c668a4f. Installed on every machine, enabled per project only. Source: https://github.com/AgriciDaniel/claude-seo/blob/219ff485bb016314bb4c15bfc7978df61c668a4f/
+Version: newest stable release (SPEC 23). Read and audited at intake: v2.5.0 = 219ff485bb016314bb4c15bfc7978df61c668a4f. Installed on every machine, enabled per project only. Source: https://github.com/AgriciDaniel/claude-seo/blob/219ff485bb016314bb4c15bfc7978df61c668a4f/
 
 ## Vendor rules (verbatim)
 No user-facing CLAUDE.md or AGENTS.md block exists. Closest routing text:
@@ -44,7 +44,7 @@ Eval cases: `ai/evals/claude-seo.md` (3 should-fire including RO and RU, 2 shoul
 
 ## Setup checklist
 1. Prerequisites: Python 3.11 to 3.14, git, Claude Code 1.0.33 or newer, node on PATH. Ubuntu 22.04 has Python 3.10: install 3.11 or newer and set `CLAUDE_SEO_PYTHON`.
-2. Install (pinned tag): `claude plugin marketplace add AgriciDaniel/claude-seo#v2.5.0`, then `claude plugin install claude-seo@agricidaniel-claude-seo` (user scope), then disable it at user scope (`enabledPlugins` false). The audited copy for other agents goes to `/opt/agent-plugins/claude-seo` (Linux) or `~/.local/share/ai/plugins/claude-seo` (macOS). Record the sha in `ai/pins.env` and compare after install. Do NOT also run its `install.sh`. Extension installers stay off.
+2. Install (newest stable tag, SPEC 23; install.sh does it on every run): `claude plugin marketplace add AgriciDaniel/claude-seo#<tag>`, then `claude plugin install claude-seo@agricidaniel-claude-seo` (user scope), then disable it at user scope (`enabledPlugins` false). The audited copy for other agents goes to `/opt/agent-plugins/claude-seo` (Linux) or `~/.local/share/ai/plugins/claude-seo` (macOS). install.sh checks the marketplace clone against the commit of the tag and records it in `~/.local/state/ai/resolved.json`. Do NOT also run its `install.sh`. Extension installers stay off.
 3. Marketplace auto-update stays off (default for third-party marketplaces). Check it in `/plugin`.
 4. Keys: none for the free core. Optional keys go in `~/.config/ai/secrets.env`, never through installers.
 5. Per machine: `/seo setup` once (creates a venv, installs requirements, Chromium). Then `/seo doctor`. A Chromium failure is not fatal.

@@ -1,6 +1,6 @@
 # i-have-adhd
 
-Pin: commit 1ecea1993b7fce257ffbd686c070948b5e07eda6 (package.json 0.4.1). Source: https://github.com/ayghri/i-have-adhd
+Version: newest stable release (SPEC 23). Read and audited at intake: commit 1ecea1993b7fce257ffbd686c070948b5e07eda6 (package.json 0.4.1). Source: https://github.com/ayghri/i-have-adhd
 
 ## Vendor rules (verbatim)
 The verbatim skill text is the file `ai/rules/vendor/i-have-adhd-1ecea19-SKILL.md` (byte copy of `skills/i-have-adhd/SKILL.md` at the pin). The repo has no CLAUDE.md snippet. Its AGENTS.md is a contributor map.

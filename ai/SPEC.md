@@ -6,10 +6,12 @@ Order (owner 2026-11-11): minimal `ubuntu-server` branch first, then the `ai` bu
 
 ## 0. Purpose and principles
 - One AI setup for every machine (macOS, Ubuntu; Windows later) and every future project.
-- Every tool is audited before use, pinned to the audited version, and wired globally so no project can forget it.
+- Every tool is audited before use, installed as an exact version, and wired globally so no project can forget it.
+  The setup's own tools follow the newest stable release (section 23); each new version is audited first.
 - Every MCP and skill has a usage contract (section 8): we know how to use it, it is used every time it
   applies, and we can prove it fired.
-- Telemetry off and auto-updates off in every tool. Updates happen only after a new audit.
+- Telemetry off and auto-updates off in every tool. Updates come only from install.sh (newest stable, section 23),
+  each after a new audit; a tool never updates itself.
 - The repo is PUBLIC: no secrets, no host names, no personal data (one owner-approved exception: section 13).
 - Keep it simple where it does not cost reliability.
 
@@ -51,7 +53,7 @@ Order (owner 2026-11-11): minimal `ubuntu-server` branch first, then the `ai` bu
   where things live on disk; troubleshooting.
 - docs/EXTENDING.md (owner: "we will work a lot there"): step-by-step to add a skill, MCP server, plugin,
   routing rule or toolbox entry: intake + audit -> usage contract (ai/rules/<tool>.md) -> routing.yaml row
-  -> evals -> re-run install -> ai-doctor; how to bump a pinned version (re-audit); how to retire a tool.
+  -> evals -> re-run install -> ai-doctor; how updates work and how to hold a tool back (section 23); how to retire a tool.
 
 ## 2. Root rules: ai/AGENTS.md
 Composed from, in this order:
@@ -119,7 +121,8 @@ Composed from, in this order:
 - Pre-warm language servers per project with `serena project index` (first-use downloads can fail).
 
 ### Serena + context7 setup facts (research 6, section 9; full checklists go into ai/rules/serena.md, context7.md)
-- Pins: `uv tool install -p 3.13 serena-agent==2.1.0` (release, not main 2.1.1.dev0); `@upstash/context7-mcp@4.6.0` (never @latest).
+- Versions: `uv tool install -p 3.13 serena-agent==<newest stable>` (a release, never a dev build such as
+  2.1.1.dev0); `@upstash/context7-mcp@<newest stable>` in its own version folder (never @latest at run time). Section 23.
 - Env vars go into each MCP server entry's `env` (SERENA_USAGE_REPORTING=false, CONTEXT7_API_KEY), not only the
   shell, because the client starts the server. Never pass the key as `--api-key` (visible in the process list).
 - Register with `serena setup claude-code` / `serena setup codex` (exit 1 if the client is missing); Hermes by hand
@@ -139,7 +142,8 @@ Composed from, in this order:
 
 ## 5. Plugins and skills
 Global (every project, always on):
-| Tool | Pin | Notes |
+Versions: the newest stable release of each (section 23); the commits below are the intake audits.
+| Tool | Audited at intake | Notes |
 |---|---|---|
 | Ponytail | 96608e078b2d5ea607c5c3b8b5a54d1c1fba6846 | Claude + Codex; ~/.config/ponytail/config.json = A.3; Codex trusts its 2 hooks once in /hooks |
 | i-have-adhd | 1ecea1993b7fce257ffbd686c070948b5e07eda6 | always-on flag files (Claude, opencode; Codex flag path to verify); Hermes: rules appended to SOUL.md; install check: "ADHD MODE ACTIVE (always-on)" |
@@ -147,8 +151,8 @@ Global (every project, always on):
 | RTK | v1.2.0 | built from source on CPUs without AVX2; rtk init for Claude, Codex, Hermes |
 | claude-seo | v2.5.0 = 219ff485bb016314bb4c15bfc7978df61c668a4f | all skills on; `/seo setup` once per machine; extensions installers OFF |
 | claude-blog | v2.3.2 = 4f9c2cb8fd17f594e868d6c2ce0e8fb2c971f987 | all skills on; notebooklm, image-MCP script, blog-studio, brain OFF |
-| mattpocock/skills (copies, pinned commit) | 4ae2317ddb22b046e26455e4f9c9b3aaaf62212d | grilling, grill-me, wait-what, retro, writing-for-agents; no plugin, no `npx skills@latest`; shared ~/.agents/skills + link for Claude |
-| oh-my-claudecode, oh-my-codex | pinned at build | main harnesses |
+| mattpocock/skills (copies at the newest tag) | 4ae2317ddb22b046e26455e4f9c9b3aaaf62212d | grilling, grill-me, wait-what, retro, writing-for-agents; no plugin, no `npx skills@latest`; shared ~/.agents/skills + link for Claude |
+| oh-my-claudecode, oh-my-codex | newest stable | main harnesses |
 | prompting-claude-and-codex (own skill) | dated snapshot | condensed from official docs, source links |
 - caveman: dropped (overlaps i-have-adhd + Reporting style). context7 plugin: dropped (duplicate of the MCP).
 - SEO/blog split: one post file = blog-*; site or URL = seo-*. Codex/opencode/Hermes hand SEO and blog work
@@ -479,3 +483,31 @@ Catalog: `omc ask <provider> --prompt` (markdown only); `omx exec` passes to `co
   for exactly: OMC 5.8.4, opencode 1.19.5, docs-mcp-server 3.4.1, context7-mcp 4.6.0, graphifyy 0.9.105,
   github-mcp-server v2.1.0. The full audit still runs every time; only an exact listed version passes on findings;
   any new version needs a new review and a new line. Every acceptance is logged as `ACCEPTED owner-reviewed`.
+
+## 23. Tool versions: newest stable, no cooldown (owner decision 2026-11-14)
+- The setup's OWN tools no longer use exact version pins. Each install.sh run moves every tool to its newest
+  stable release when the installed one differs, on every OS (servers too). Stable = not a pre-release, not a
+  draft, not yanked. No cooldown (RTK's 7 days and OMX's "not before" date are gone).
+- `ai/pins.env` is a sources file: `<TOOL>_SOURCE="<type> <name> stable"` (npm, pypi, github releases, git tags)
+  and an optional `<TOOL>_HOLD=<version>` that installs exactly that version. Build settings that are not tool
+  versions stay (NODE_MAJOR_MIN, SERENA_PYTHON, SCANNER_PYTHON, RTK_CARGO_UPDATE, the skill-scanner macOS < 13
+  limit, PyYAML for ai-render).
+- One resolver, `ai/lib/resolve.py` (python 3.9 stdlib, short timeouts): npm `dist-tags.latest` with its
+  `dist.integrity`; PyPI newest non-pre-release, non-yanked; GitHub newest non-draft, non-prerelease release
+  with its commit and checksum file; git sources newest `vX.Y.Z` tag and its commit (no such tag: HEAD of the
+  default branch). Offline or a registry error: the installed version stays (or the last resolved value in
+  `~/.local/state/ai/resolved.json`), and the run says so; the install never fails for that.
+- The audit gate does not change: every new version passes `agent-audit` before it is installed;
+  `ai/audit-accepted.txt` lines are per exact version, so a new version with findings is not installed (the old
+  one stays, with a warning) until the owner reviews it and adds a line.
+- Downloads are checked against what the source publishes: npm integrity (registry), the osv-scanner release
+  `SHA256SUMS`, the herdr release manifest sha256 (herdr's GitHub release has no checksum file), the commit of the
+  tag for git sources and RTK.
+- Claude plugins from git sources follow the tag: a marketplace that points to another source is replaced
+  (restore record for uninstall when this setup did not add it), then marketplace update + plugin update,
+  uninstall + install as the fallback, and the installed commit or version is checked. Codex plugins from the
+  local source clones are refreshed in place.
+- Records: `~/.local/state/ai/resolved.json` (per tool: source, newest seen, installed, times) and one
+  `install <tool> <version> INSTALLED <commit|integrity> <source>` line per install in `audit.log`.
+  `ai-doctor` shows per tool "update available: <tool> <installed> -> <newest>" (cached with --quick).
+- Not changed: the agent rule for packages that agents add to projects (exact versions only, no @latest).

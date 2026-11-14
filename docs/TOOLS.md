@@ -6,7 +6,7 @@ Each entry ends with the link to its usage contract in `ai/rules/`. The contract
 Words used below:
 - **Global**: installed on every machine, active in every project.
 - **Opt-in**: only in a project that asked for it (`ai-start` or `ai-adopt` writes the project layer).
-- **Pin**: the exact version or commit that was audited. All pins are in `ai/pins.env`.
+- **Pin**: the version or commit that was audited at intake. Since 2026-11-14 the installed version is the newest stable release (SPEC 23): `ai/pins.env` says where each tool comes from, `~/.local/state/ai/resolved.json` says what is installed.
 - **Contract**: `ai/rules/<tool>.md`. Sections: vendor rules, when and when not, enforcement, proof, setup.
 
 ## Contents
@@ -31,7 +31,7 @@ An agent is the program that talks to a model and runs tools. A harness is an ag
 - **How it works here.** The plugin `ai-core` is installed from our local marketplace `ai`. Claude reads the root rules through an `@import` line in a managed block of `~/.claude/CLAUDE.md`. Example: you type "autopilot: build a CSV to JSON tool". OMC's own keyword hook starts its autopilot skill and writes state to `.omc/state/`. Our rules still win on a clash: the 60-word reply limit and the confirm-first rules beat OMC defaults.
 - **OMC scope.** macOS: on everywhere. Servers: installed but off by default (owner decision 2026-11-12); on for one project with `ai-adopt --tools omc`. Where it is off, its skills, agents, hooks and MCP server do not load.
 - **Scope.** Global, main.
-- **Pin.** OMC 5.8.4 (`OMC_VERSION`, sha512 in `pins.env`). Claude Code comes from the signed apt repository on Ubuntu.
+- **Pin.** Intake: OMC 5.8.4. Installed: the newest stable tag of the plugin (`OMC_PLUGIN_SOURCE`) or npm release (`OMC_SOURCE`). Claude Code comes from the signed apt repository on Ubuntu.
 - **claude.ai connectors off on servers.** The account connectors (Gmail, Calendar, Drive and the like) do not load in Claude Code on Linux installs (`disableClaudeAiConnectors` and `ENABLE_CLAUDEAI_MCP_SERVERS=false`), so an unattended agent cannot reach your mail. macOS keeps Claude's default. To keep them on a server: `install.sh --keep-claudeai-connectors` (see [INSTALL.md](INSTALL.md)).
 - **Telemetry and updates off.** Managed settings (`/etc/claude-code/managed-settings.json` on Ubuntu): telemetry, error reports and auto-updater off. OMC: `{"security":{"disableAutoUpdate":true}}` and the exa web-search MCP off (`mcpServers.exa.enabled: false`) in its config, and `OMC_UPDATE_REGISTRY_BASE` pointed at a dead local address (its daily npm ping ignores the setting). `OMC_REPLY_ENABLED` is never set.
 - **Contract.** `ai/rules/omc.md`.
@@ -41,8 +41,8 @@ An agent is the program that talks to a model and runs tools. A harness is an ag
 - **What.** OpenAI's coding agent. oh-my-codex (OMX) is the OMC-like layer for Codex.
 - **Why.** A second main agent: a second model family, and a way to cross-check Claude.
 - **How it works here.** Codex cannot `@import`. It gets a managed block `AI:core` copied into `~/.codex/AGENTS.md`. `ai-sync` refreshes the copy after each `git pull`. The same `ai-core` plugin installs into Codex from the same folder, so the router and gates run there too. Codex asks once to trust the plugin hooks (`/hooks`). Example: `omx exec "<prompt>"` runs a non-interactive Codex task.
-- **Scope.** Global, main. OMX is held until 2026-11-17 (`OMX_NOT_BEFORE`), because the audited release was under one day old at intake.
-- **Pin.** Codex 0.167.0, OMX 0.22.6.
+- **Scope.** Global, main. No cooldown since 2026-11-14: install.sh takes the newest stable OMX after its audit.
+- **Pin.** Intake: Codex 0.167.0, OMX 0.22.6. Installed: the newest stable npm release of each (a Codex from another installer is left as it is).
 - **Telemetry and updates off.** Codex analytics, feedback and update checks off in `config.toml`. `OMX_AUTO_UPDATE=0`, `OMX_NATIVE_AUTO_FETCH=0`. No native binaries.
 - **Warning.** The OMX template says "do not stop to ask, proceed". The root rules say the owner's confirm-first rules win. Never run OMX in a Claude session.
 - **Contract.** `ai/rules/omx.md`.

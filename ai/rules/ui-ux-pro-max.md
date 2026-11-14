@@ -1,6 +1,6 @@
 # ui-ux-pro-max
 
-Pin: v2.15.0 = a38d04c3d5c298c851dbe5e6ee1965ee3de42cb5 (the manifests inside still say 2.13.0: do not use them as a version check). OPT-IN per project (7 skills). Source: https://github.com/nextlevelbuilder/ui-ux-pro-max-skill/blob/a38d04c3d5c298c851dbe5e6ee1965ee3de42cb5/
+Version: newest stable release (SPEC 23). Read and audited at intake: v2.15.0 = a38d04c3d5c298c851dbe5e6ee1965ee3de42cb5 (the manifests inside still say 2.13.0: do not use them as a version check). OPT-IN per project (7 skills). Source: https://github.com/nextlevelbuilder/ui-ux-pro-max-skill/blob/a38d04c3d5c298c851dbe5e6ee1965ee3de42cb5/
 
 ## Vendor rules (verbatim)
 No CLAUDE.md block for users. Activation text:
@@ -32,7 +32,7 @@ Eval cases: `ai/evals/ui-ux-pro-max.md`. Run them only in a project that enabled
 
 ## Setup checklist
 1. Prerequisite: Python 3, stdlib only.
-2. Plugin route: `claude plugin marketplace add nextlevelbuilder/ui-ux-pro-max-skill#v2.15.0`, `claude plugin install ui-ux-pro-max@ui-ux-pro-max-skill`. Choose project or local scope, not user. CLI route for other harnesses: `uipro init --ai claude|codex|opencode|universal` (project scope; never `--global`). npm package `ui-ux-pro-max-cli`: pin the exact version after reading it (UNVERIFIED). Do not use the stale `uipro-cli`.
+2. Plugin route: `claude plugin marketplace add nextlevelbuilder/ui-ux-pro-max-skill#<newest stable tag>` (`python3 ai/lib/resolve.py json ui-ux-pro-max`), `claude plugin install ui-ux-pro-max@ui-ux-pro-max-skill`. Choose project or local scope, not user. CLI route for other harnesses: `uipro init --ai claude|codex|opencode|universal` (project scope; never `--global`). npm package `ui-ux-pro-max-cli`: pin the exact version after reading it (UNVERIFIED). Do not use the stale `uipro-cli`.
 3. Auto-update: off by default for this third-party marketplace.
 4. Keys: none for search. Optional GEMINI_API_KEY (image, logo, icon), GOOGLE_FONTS_API_KEY.
 5. Per project: enable as above. Add the L0 line to the project AGENTS.md. Decide whether `design-system/` is committed.

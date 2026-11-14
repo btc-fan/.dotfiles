@@ -1,6 +1,6 @@
 # context7
 
-Pin: `@upstash/context7-mcp@4.6.0` (never @latest). Source: https://github.com/upstash/context7
+Version: newest stable release (SPEC 23). Read and audited at intake: `@upstash/context7-mcp@4.6.0` (never @latest). Source: https://github.com/upstash/context7
 The one docs tool (owner decision 2026-11-12: Grounded Docs dropped).
 
 ## Vendor rules (verbatim)
@@ -39,7 +39,7 @@ Quotes read at the repo head on 2026-11-10 and 2026-11-11, not at the 4.6.0 tag:
 - Signal: tool_use `mcp__plugin_ai-core_context7__query-docs`, a row in `docs-ids.jsonl`.
 
 ## Setup checklist
-1. Pin: install.sh installs `@upstash/context7-mcp@4.6.0` once under `~/.local/share/ai/npm/` (integrity checked, audited, `--ignore-scripts`). The plugin runs it through `mcp/context7.sh`. No npx at runtime.
+1. Version: install.sh installs the newest stable `@upstash/context7-mcp` (SPEC 23) in its own folder `~/.local/share/ai/npm/context7-mcp-<version>/` (registry integrity checked, audited, `--ignore-scripts`) and removes the older folder. The plugin runs it through `mcp/context7.sh`, which starts the highest installed version. No npx at runtime.
 2. Key: `CONTEXT7_API_KEY` from the environment or `~/.config/ai/secrets.env`, else the free key in `mcp/context7.sh` (owner exception, SPEC 13). Never as `--api-key` (visible in the process list). Worst case is quota abuse: rotate in one place. `ai-libs` uses the same key order for its HTTP lookups (`https://context7.com/api/v2/libs/search`).
 3. Do NOT run `npx ctx7 setup` (duplicates MCP config, rules and a skill). Do not use the Claude context7 plugin (dropped, duplicate).
 4. Codex: `codex mcp add` with `env`. Test that the key reaches the process (`env_vars` semantics UNVERIFIED). Hermes: `hermes mcp add`.

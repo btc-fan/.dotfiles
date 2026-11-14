@@ -1,6 +1,6 @@
 # Serena
 
-Pin: `serena-agent==2.1.0` (release v2.1.0). License GPL-3.0-or-later. Source: https://github.com/oraios/serena/tree/v2.1.0/src/serena/resources/config
+Version: newest stable release (SPEC 23). Read and audited at intake: `serena-agent==2.1.0` (release v2.1.0). License GPL-3.0-or-later. Source: https://github.com/oraios/serena/tree/v2.1.0/src/serena/resources/config
 On by default in every project (owner decision 2026-11-12 evening). A project opts out with a line `no-serena` in `.ai/enabled`.
 
 ## Vendor rules (verbatim, key lines of `contexts/claude-code.yml`)
@@ -39,7 +39,7 @@ The claude-code.yml quotes were read at main on 2026-11-10 (UNVERIFIED for 2.1.0
 - Signal: tool_use of the Serena MCP tools (Claude: the `ai-serena` plugin server; check the exact prefix in `/mcp`).
 
 ## Setup checklist
-1. Install (per machine, by install.sh): `uv tool install -p 3.13 serena-agent==2.1.0`. Global registration: Claude through the plugin `ai-serena@ai`, on at user scope (`--context=claude-code`); Codex `codex mcp add` (`--context=codex`); Hermes `hermes mcp add` (`--context=ide`). All with `--project-from-cwd` and mode `no-memories`.
+1. Install (per machine, by install.sh): `uv tool install -p 3.13 serena-agent==<newest stable>` (SPEC 23; audited first). Global registration: Claude through the plugin `ai-serena@ai`, on at user scope (`--context=claude-code`); Codex `codex mcp add` (`--context=codex`); Hermes `hermes mcp add` (`--context=ide`). All with `--project-from-cwd` and mode `no-memories`.
 2. `~/.serena/serena_config.yml`: `agent_interface: tools`, `excluded_tools: [execute_shell_command]`, `web_dashboard: false`, `language_backend: LSP`, answer limit 40k characters. Leave `trusted_project_path_patterns` empty.
 3. Telemetry: `SERENA_USAGE_REPORTING=false` in each server entry `env`.
 4. Per machine: `serena download-ls-dependencies <ls>` for the languages used.

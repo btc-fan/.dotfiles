@@ -1,6 +1,6 @@
 # llm-wiki-compiler (llmwiki)
 
-Pin: v1.5.0 = c9c8734be8a0b854c1547cfa3ee97f0b8c6bfa5f. OPT-IN per project. Node.js 24 or newer. Source: https://github.com/atomicstrata/llm-wiki-compiler (text read at main 0f8ff86ef0a28f4c15627a2ea5e94a96cadd834e, tag not diffed: UNVERIFIED for the tag)
+Version: newest stable release (SPEC 23). Read and audited at intake: v1.5.0 = c9c8734be8a0b854c1547cfa3ee97f0b8c6bfa5f. OPT-IN per project. Node.js 24 or newer. Source: https://github.com/atomicstrata/llm-wiki-compiler (text read at main 0f8ff86ef0a28f4c15627a2ea5e94a96cadd834e, tag not diffed: UNVERIFIED for the tag)
 
 ## Vendor rules (verbatim, skill `llmwiki`)
 - description: "Build and use a persistent, citation-traceable knowledge wiki from documents, research papers, notes, or project documentation. Use for llmwiki projects, retrieving reusable evidence for an agent task, or compiling a corpus for repeated questions. A one-off file read or live web search does not need a wiki."

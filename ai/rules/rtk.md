@@ -1,6 +1,6 @@
 # RTK (Rust Token Killer)
 
-Pin: tag v1.2.0, built from source on CPUs without AVX2. Source: https://github.com/rtk-ai/rtk
+Version: newest stable release (SPEC 23). Read and audited at intake: tag v1.2.0, built from source on CPUs without AVX2. Source: https://github.com/rtk-ai/rtk
 
 ## Vendor rules (verbatim)
 The owner block A.4 is the source text. It sits in `ai/agents-md/20-rtk.md`. Vendor facts, verbatim:
@@ -31,7 +31,7 @@ The owner block A.4 is the source text. It sits in `ai/agents-md/20-rtk.md`. Ven
 - Signal: new row in `rtk gain --history` with non-zero reduction. Whether the transcript shows the rewritten command: UNVERIFIED.
 
 ## Setup checklist
-1. Ubuntu without AVX2: `apt install cargo rustc pkg-config libssl-dev`, `git clone --depth 1 --branch v1.2.0 https://github.com/rtk-ai/rtk`, `agent-audit dir`, `cargo build --release --locked`, `install -m 755 target/release/rtk /usr/local/bin/rtk` (about 8 min). Same route on other machines for one uniform pin. No `brew install rtk`. No curl installer.
+1. Ubuntu without AVX2: `apt install cargo rustc pkg-config libssl-dev`, `git clone --depth 1 --branch <newest stable release tag> https://github.com/rtk-ai/rtk`, `agent-audit dir`, `cargo build --release --locked`, `install -m 755 target/release/rtk /usr/local/bin/rtk` (about 8 min). Same route on other machines (install.sh, every run, newest stable release, SPEC 23). No `brew install rtk`. No curl installer.
 2. Edition (full or oss) and the BUSL-1.1 license of the full edition: owner confirms. UNVERIFIED.
 3. Always `rtk init ... --dry-run` first and read the diff. Decline the proxy daemon. Skip the CLAUDE.md edit (AGENTS.md has the block).
 4. Per agent, after the dry run: `rtk init -g` (Claude), `rtk init -g --codex` (Codex), `rtk init --agent hermes` (Hermes). Restart the agent. Hermes global scope: UNVERIFIED.

@@ -64,7 +64,7 @@ Worked example: `README.md`, section 3, example D.
 | llm-wiki-compiler 1.5.0 | per project | c9c8734be8a0b854c1547cfa3ee97f0b8c6bfa5f | `llm-wiki-compiler.md` |
 
 Dropped: caveman (overlaps i-have-adhd), the context7 plugin (duplicate of the MCP). Not adopted: superpowers, Docker Dynamic MCP, Smithery, MetaMCP, Nix tools, sfw, context7 On-Premise, an LLM classifier router.
-Every pin lives in `ai/pins.env`. The table above must match it.
+The versions and commits above are the intake audits. Installed today: the newest stable release of each (SPEC 23); `ai/pins.env` names the sources, `~/.local/state/ai/resolved.json` the installed versions, `ai-doctor` the updates available.
 
 ## Hooks (global, inside plugin ai-core)
 
