@@ -28,6 +28,13 @@ hermes_mcp() {
         c7="$hh/.local/share/ai/npm/context7-mcp-$R_VERSION"
         if ! sudo -n -u "$HERMES_USER" test -x "$c7/node_modules/.bin/context7-mcp" 2>/dev/null; then
             if npm_local @upstash/context7-mcp "$R_VERSION" "$R_INTEGRITY" "$c7" hermes; then
+                # Version and lockfile integrity checked as hermes (its home may be closed to us): a staged copy
+                # of the resolver runs there.
+                if [ "$AI_DRY_RUN" != 1 ]; then
+                    local rv; rv=$(hermes_stage "$AI_HOME/ai/lib/resolve.py" resolve.py)
+                    as_hermes_ro "python3 -I $(quote "$rv") verify-npm $(quote "$c7") @upstash/context7-mcp $(quote "$R_VERSION") $(quote "$R_INTEGRITY")" >/dev/null \
+                        || warn "Hermes context7-mcp in $c7 is not $R_VERSION with the registry integrity: check it"
+                fi
                 aiconf_hermes record-cmd npm-local:context7 -- sh -c 'rm -rf "$1"/context7-mcp-*' _ "$hh/.local/share/ai/npm"
                 as_hermes "for d in ~/.local/share/ai/npm/context7-mcp-*; do [ \"\$d\" = $(quote "$c7") ] || rm -rf \"\$d\"; done"
             fi

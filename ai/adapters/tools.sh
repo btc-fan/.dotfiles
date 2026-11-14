@@ -28,10 +28,15 @@ resolve_tool() {
     esac
 }
 
+# ver_eq <a> <b>: the same version, trailing ".0" parts ignored (1.0 = 1.0.0; uv and some tools print the short form).
+ver_eq() {
+    [ -n "$1" ] && [ "$(printf '%s' "$1" | sed -E 's/(\.0+)+$//')" = "$(printf '%s' "$2" | sed -E 's/(\.0+)+$//')" ]
+}
+
 # r_keep <installed version>: true when nothing should change: the installed version is the resolved one, or
 # the resolver had no answer (status cached) and something is installed (kept, and said so).
 r_keep() {
-    [ -n "$1" ] && [ "$1" = "$R_VERSION" ] && return 0
+    ver_eq "$1" "$R_VERSION" && return 0
     if [ -n "$1" ] && [ "$R_STATUS" = cached ]; then info "$R_TOOL $1 kept (offline: not moved to $R_VERSION)"; return 0; fi
     return 1
 }
@@ -77,7 +82,7 @@ npm_global() {
     if [ -n "$have" ] && ! npm_owns "$bin"; then
         info "$bin $have is not from npm ($(command -v "$bin")): left as it is (newest stable: $R_VERSION)"; return 1
     fi
-    if r_keep "$have"; then [ "$have" = "$R_VERSION" ] && info "$bin $have present (newest stable)"; return 1; fi
+    if r_keep "$have"; then ver_eq "$have" "$R_VERSION" && info "$bin $have present (newest stable)"; return 1; fi
     if [ "$AI_DRY_RUN" != 1 ]; then
         got=$(npm view "$pkg@$R_VERSION" dist.integrity 2>/dev/null || true)
         if [ "$got" != "$R_INTEGRITY" ]; then
@@ -141,7 +146,7 @@ uv_tool() {
     resolve_tool "$tool" || return 0
     have=$(tool_version "$bin")
     if ! uv_tool_linked "$name" && r_keep "$have"; then
-        [ "$have" = "$R_VERSION" ] && info "$bin $have present (newest stable)"; return 0
+        ver_eq "$have" "$R_VERSION" && info "$bin $have present (newest stable)"; return 0
     fi
     if uv_pinned "$name" "$R_VERSION" "$py"; then
         aiconf record-cmd "uv:$bin" -- uv tool uninstall "$name"
@@ -208,6 +213,42 @@ src_head() {
     return 0
 }
 
+# src_swap <new tree> <dest> <state key>: put a new tree at <dest>. The new tree is moved next to <dest> first,
+# then the two are swapped by rename, so the source is never missing while the slow copy runs. Linux: root-owned,
+# read-only for others (S8: the caller checked the tree has no links).
+src_swap() {
+    local new=$1 dest=$2 key=$3 tag=".new.$$" old=".old.$$"
+    if [ "$AI_OS" = linux ]; then
+        run_root mkdir -p "$(dirname "$dest")"
+        run_root rm -rf "$dest$tag" "$dest$old"
+        run_root mv "$new" "$dest$tag"
+        run_root chown -R root:root "$dest$tag"
+        run_root chmod -R a+rX,go-w "$dest$tag"
+        if [ -e "$dest" ]; then run_root mv "$dest" "$dest$old"; fi
+        run_root mv "$dest$tag" "$dest"
+        run_root rm -rf "$dest$old"
+        aiconf record-cmd "$key" -- $SUDO_UNDO rm -rf "$dest"
+    else
+        mkdir -p "$(dirname "$dest")"
+        rm -rf "$dest$tag" "$dest$old"
+        mv "$new" "$dest$tag"
+        if [ -e "$dest" ]; then mv "$dest" "$dest$old"; fi
+        mv "$dest$tag" "$dest"
+        rm -rf "$dest$old"
+        aiconf record-cmd "$key" -- rm -rf "$dest"
+    fi
+}
+
+# src_sha_for <name>: the commit the plugin source clone is at; in a dry run the commit it would move to (the
+# clone step only printed its plan), so the plugin steps show the real plan.
+src_sha_for() {
+    if [ "$AI_DRY_RUN" = 1 ]; then
+        ( resolve_tool "$1" >/dev/null 2>&1 && printf '%s\n' "$R_SHA" ) || true
+    else
+        src_head "$(plugin_src_dir "$1")"
+    fi
+}
+
 plugin_clone() {
     # plugin_clone <name> <tool id>: the source of a plugin at the resolved tag (newest stable, or the HOLD),
     # audited before it replaces an older clone. Each run moves it when a newer tag exists.
@@ -234,26 +275,16 @@ plugin_clone() {
     git -C "$tmp/$name" -c advice.detachedHead=false checkout -q "$R_SHA" \
         || { warn "$name: commit $R_SHA not found"; rm -rf "$tmp"; return 1; }
     [ "$(git -C "$tmp/$name" rev-parse HEAD)" = "$R_SHA" ] || { warn "$name not at $R_SHA"; rm -rf "$tmp"; return 1; }
-    # Accept-list key: the tag, or the first 12 characters of the commit when there is no tag.
-    if ! audit_ok dir "$tmp/$name" "${R_REF:-${R_SHA:0:12}}" "$name"; then
+    # Accept-list key: the full commit (a tag can move; SPEC 22).
+    if ! audit_ok dir "$tmp/$name" "$R_SHA" "$name"; then
         rm -rf "$tmp"; [ -z "$have" ] || warn "$name ${have:0:7} kept"; return 1
     fi
     # S8: a recursive chown/chmod as root must never follow a link out of the tree.
     if [ -n "$(find "$tmp/$name" -type l -print -quit)" ]; then
-        warn "$name tree contains symlinks: not installed as root (review: find $tmp/$name -type l)"
-        return 1
+        warn "$name tree contains symlinks: not installed${have:+, ${have:0:7} kept} (review the upstream tree for links)"
+        rm -rf "$tmp"; return 1
     fi
-    if [ "$AI_OS" = linux ]; then
-        run_root rm -rf "$dest"
-        run_root mkdir -p /opt/agent-plugins
-        run_root mv "$tmp/$name" "$dest"
-        run_root chown -R root:root "$dest"
-        run_root chmod -R a+rX,go-w "$dest"
-        aiconf record-cmd "plugin-src:$name" -- $SUDO_UNDO rm -rf "$dest"
-    else
-        rm -rf "$dest"; mkdir -p "$(dirname "$dest")" && mv "$tmp/$name" "$dest"
-        aiconf record-cmd "plugin-src:$name" -- rm -rf "$dest"
-    fi
+    src_swap "$tmp/$name" "$dest" "plugin-src:$name"
     rm -rf "$tmp"
     r_record
     ok "$name source ${have:+${have:0:7} -> }${R_REF:-${R_SHA:0:7}} (${R_SHA:0:7}) in $dest (audited)"
@@ -292,18 +323,8 @@ mattpocock_src() {
         cp -R "$tmp/src/skills/$p" "$tmp/out/$(basename "$p")"
     done
     printf '%s\n' "$R_SHA" > "$tmp/out/.commit"
-    audit_ok dir "$tmp/out" "${R_REF:-${R_SHA:0:12}}" mattpocock-skills || { rm -rf "$tmp"; return 1; }
-    if [ "$AI_OS" = linux ]; then
-        run_root rm -rf "$dest"
-        run_root mkdir -p "$(dirname "$dest")"
-        run_root mv "$tmp/out" "$dest"
-        run_root chown -R root:root "$dest"
-        run_root chmod -R a+rX,go-w "$dest"
-        aiconf record-cmd "plugin-src:mattpocock-skills" -- $SUDO_UNDO rm -rf "$dest"
-    else
-        rm -rf "$dest"; mkdir -p "$(dirname "$dest")" && mv "$tmp/out" "$dest"
-        aiconf record-cmd "plugin-src:mattpocock-skills" -- rm -rf "$dest"
-    fi
+    audit_ok dir "$tmp/out" "$R_SHA" mattpocock-skills || { rm -rf "$tmp"; return 1; }
+    src_swap "$tmp/out" "$dest" "plugin-src:mattpocock-skills"
     rm -rf "$tmp"
     r_record
     ok "mattpocock skills ($MATTPOCOCK_PICKS) ${have:+${have:0:7} -> }${R_REF:-${R_SHA:0:7}} in $dest (audited)"
@@ -429,6 +450,40 @@ tools_opencode() {
     fi
 }
 
+# Release binaries (herdr, osv-scanner) are NOT agent-audited: agent-audit cannot scan a closed binary. Each
+# download is checked against the sha256 the project publishes (same release, so it proves the download, not
+# the build). An independent check runs only where the verifier exists on this machine; otherwise every change
+# of version prints "unaudited binary update" (SPEC 23 lists this exception).
+#
+# binary_provenance <tool> <file> <repo> <tag> <provenance asset url or ->: 0 = verified, 1 = a verifier ran and
+# FAILED (do not install), 2 = no independent check possible here (said so by the caller).
+binary_provenance() {
+    local tool=$1 file=$2 repo=$3 tag=$4 prov=$5 tmp rc
+    # SLSA provenance (osv-scanner publishes multiple.intoto.jsonl): slsa-verifier checks the build came from
+    # that repo and tag.
+    if [ "$prov" != - ] && has slsa-verifier; then
+        tmp=$(mktemp "${TMPDIR:-/tmp}/ai-prov.XXXXXX")
+        if ! curl -fsSL --max-time 120 -o "$tmp" "$prov"; then rm -f "$tmp"; return 2; fi
+        slsa-verifier verify-artifact "$file" --provenance-path "$tmp" --source-uri "github.com/$repo" --source-tag "$tag" \
+            >/dev/null 2>&1; rc=$?
+        rm -f "$tmp"
+        [ $rc = 0 ] && { info "$tool $tag: SLSA provenance verified (slsa-verifier)"; return 0; }
+        warn "$tool $tag: slsa-verifier rejected the binary against its SLSA provenance"; return 1
+    fi
+    # GitHub artifact attestation (herdr publishes them): only when the API lists one for this digest, and only
+    # with an authenticated gh, which does the signature check.
+    if has gh && gh auth status >/dev/null 2>&1; then
+        local digest; digest=$( (sha256sum "$file" 2>/dev/null || shasum -a 256 "$file") | cut -d' ' -f1)
+        if curl -fsS --max-time 20 -o /dev/null "https://api.github.com/repos/$repo/attestations/sha256:$digest" 2>/dev/null; then
+            if gh attestation verify "$file" --repo "$repo" >/dev/null 2>&1; then
+                info "$tool $tag: GitHub artifact attestation verified (gh attestation verify)"; return 0
+            fi
+            warn "$tool $tag: gh attestation verify rejected the binary"; return 1
+        fi
+    fi
+    return 2
+}
+
 # herdr: the release binary from GitHub, checked against the sha256 herdr publishes in its own release manifest
 # (HERDR_CHECKSUMS; the GitHub release has no checksum file). Its installer script is not used.
 tools_herdr() {
@@ -436,12 +491,12 @@ tools_herdr() {
     resolve_tool herdr || return 0
     bin_foreign herdr && return 0
     have=$(tool_version herdr)
-    if r_keep "$have"; then [ "$have" = "$R_VERSION" ] && info "herdr $have present (newest stable)"; return 0; fi
+    if r_keep "$have"; then ver_eq "$have" "$R_VERSION" && info "herdr $have present (newest stable)"; return 0; fi
     case "$AI_OS" in linux) os=linux ;; macos) os=macos ;; esac
     case "$AI_ARCH" in x86_64|amd64) arch=x86_64 ;; arm64|aarch64) arch=aarch64 ;; *) warn "herdr: no build for $AI_ARCH"; return 0 ;; esac
     asset="herdr-$os-$arch"
     if [ "$AI_DRY_RUN" = 1 ]; then
-        info "[dry-run] download $asset of herdr $R_REF, check the published sha256, install to $(bin_dir)/herdr"
+        info "[dry-run] download $asset of herdr $R_REF, check the published sha256 ($(has gh && echo 'and the GitHub attestation when gh is logged in' || echo 'no gh: unaudited binary update')), install to $(bin_dir)/herdr"
         return 0
     fi
     want=$(resolver checksum herdr "$R_VERSION" "$asset" --target "$os-$arch" 2>/dev/null) \
@@ -449,6 +504,10 @@ tools_herdr() {
     tmp=$(mktemp "${TMPDIR:-/tmp}/ai-herdr.XXXXXX")
     download_checked "https://github.com/${R_SOURCE#github }/releases/download/$R_REF/$asset" "$want" "$tmp" \
         || { rm -f "$tmp"; return 0; }
+    local prc=0
+    binary_provenance herdr "$tmp" "${R_SOURCE#github }" "$R_REF" - || prc=$?
+    [ $prc = 1 ] && { rm -f "$tmp"; [ -z "$have" ] || warn "herdr $have kept"; return 0; }
+    [ $prc = 2 ] && warn "unaudited binary update: herdr ${have:-none} -> $R_VERSION (sha256 from the herdr release manifest only; no gh attestation check on this machine)"
     install_bin "$tmp" herdr; rm -f "$tmp"
     aiconf record-cmd bin:herdr -- $SUDO_UNDO rm -f "$(bin_dir)/herdr"
     hb="$(bin_dir)/herdr"
@@ -456,7 +515,7 @@ tools_herdr() {
         warn "herdr installed reports $("$hb" --version 2>/dev/null | head -n1), resolved was $R_VERSION: check before use"
     else
         r_record
-        ok "herdr ${have:+$have -> }$R_VERSION (release binary, published sha256 checked, version verified)"
+        ok "herdr ${have:+$have -> }$R_VERSION (release binary, not agent-audited; published sha256 checked, version verified)"
     fi
 }
 
@@ -510,12 +569,14 @@ tools_system() {
 }
 
 # Audit scanners for agent-audit (guarddog, skill-scanner, osv-scanner). Every other install is audited with
-# them, so they come first. They cannot audit themselves: newest stable like every tool (owner decision
-# 2026-11-14), wheels only, the osv-scanner binary checked against the release's published sha256 file.
+# them, so they come first. Newest stable like every tool (owner decision 2026-11-14), wheels only. A new
+# guarddog or skill-scanner is audited (agent-audit pypi) by the scanners already installed before it replaces
+# them; only the very first bootstrap (no guarddog yet: nothing can audit) installs unaudited, with a warning.
+# osv-scanner is a binary: see binary_provenance.
 # Linux: system-wide (/opt/uv-tools, links in /usr/local/bin, root-owned). macOS: the user's uv tools and ~/.local/bin.
 tools_scanners() {
     if [ "$AI_SKIP_PACKAGES" = 1 ]; then skip "audit scanners (--skip-packages)"; return 0; fi
-    local triple tool name bin have
+    local triple tool name bin have aud gd_ready=0
     for triple in "guarddog:guarddog:guarddog" "skill-scanner:cisco-ai-skill-scanner:skill-scanner"; do
         tool=${triple%%:*}; name=${triple#*:}; name=${name%%:*}; bin=${triple##*:}
         # skill-scanner 2.1+ ships macOS 13+ binaries only; older macOS gets the last pure-Python release.
@@ -527,7 +588,14 @@ tools_scanners() {
             resolve_tool "$tool" || continue
         fi
         have=$(tool_version "$bin")
-        if r_keep "$have"; then [ "$have" = "$R_VERSION" ] && info "$bin $have present (newest stable)"; continue; fi
+        if r_keep "$have"; then ver_eq "$have" "$R_VERSION" && info "$bin $have present (newest stable)"; continue; fi
+        aud=", audited"
+        if has guarddog || [ $gd_ready = 1 ]; then      # (gd_ready: a dry run only planned the guarddog install)
+            audit_ok pypi "$name" "$R_VERSION" || { warn "$bin $R_VERSION not installed${have:+: $have kept}"; continue; }
+        else
+            aud=", NOT audited (bootstrap)"
+            warn "bootstrap: $bin $R_VERSION installed WITHOUT audit (no guarddog on this machine yet to audit it)"
+        fi
         if [ "$AI_OS" = linux ]; then
             run_root env UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin UV_LINK_MODE=copy \
                 uv tool install --force --no-build -p "$SCANNER_PYTHON" "$name==$R_VERSION" \
@@ -539,7 +607,8 @@ tools_scanners() {
             aiconf record-cmd "uv:$bin" -- uv tool uninstall "$name"
         fi
         r_record
-        ok "$bin ${have:+$have -> }$R_VERSION (newest stable, wheels only)"
+        [ "$tool" = guarddog ] && gd_ready=1
+        ok "$bin ${have:+$have -> }$R_VERSION (newest stable, wheels only$aud)"
     done
     tools_osv_scanner
 }
@@ -549,20 +618,25 @@ tools_osv_scanner() {
     resolve_tool osv-scanner || return 0
     bin_foreign osv-scanner && return 0
     have=$(tool_version osv-scanner)
-    if r_keep "$have"; then [ "$have" = "$R_VERSION" ] && info "osv-scanner $have present (newest stable)"; return 0; fi
+    if r_keep "$have"; then ver_eq "$have" "$R_VERSION" && info "osv-scanner $have present (newest stable)"; return 0; fi
     case "$AI_OS" in linux) os=linux ;; macos) os=darwin ;; esac
     case "$AI_ARCH" in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) warn "osv-scanner: no build for $AI_ARCH"; return 0 ;; esac
     asset="osv-scanner_${os}_${arch}"
-    if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] download $asset of osv-scanner $R_REF, check it against the release's SHA256SUMS, install"; return 0; fi
+    if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] download $asset of osv-scanner $R_REF, check it against the release's SHA256SUMS ($(has slsa-verifier && echo 'and SLSA provenance' || echo 'no slsa-verifier: unaudited binary update')), install"; return 0; fi
     want=$(resolver checksum osv-scanner "$R_VERSION" "$asset" 2>/dev/null) \
         || { warn "osv-scanner $R_VERSION: no published checksum for $asset: not installed${have:+, $have kept}"; return 0; }
     tmp=$(mktemp "${TMPDIR:-/tmp}/osv.XXXXXX")
     download_checked "https://github.com/${R_SOURCE#github }/releases/download/$R_REF/$asset" "$want" "$tmp" \
         || { rm -f "$tmp"; return 0; }
+    local prc=0 prov=-
+    prov="https://github.com/${R_SOURCE#github }/releases/download/$R_REF/multiple.intoto.jsonl"
+    binary_provenance osv-scanner "$tmp" "${R_SOURCE#github }" "$R_REF" "$prov" || prc=$?
+    [ $prc = 1 ] && { rm -f "$tmp"; [ -z "$have" ] || warn "osv-scanner $have kept"; return 0; }
+    [ $prc = 2 ] && warn "unaudited binary update: osv-scanner ${have:-none} -> $R_VERSION (sha256 from the same release only; slsa-verifier not installed)"
     install_bin "$tmp" osv-scanner; rm -f "$tmp"
     aiconf record-cmd bin:osv-scanner -- $SUDO_UNDO rm -f "$(bin_dir)/osv-scanner"
     r_record
-    ok "osv-scanner ${have:+$have -> }$R_VERSION (published sha256 checked)"
+    ok "osv-scanner ${have:+$have -> }$R_VERSION (release binary, not agent-audited; published sha256 checked)"
 }
 
 # context7 MCP: one install per user and version (~/.local/share/ai/npm/context7-mcp-<version>), run by
@@ -574,7 +648,7 @@ tools_context7() {
     resolve_tool context7-mcp || return 0
     have=$(npm_dir_version "$AI_NPM_DIR" context7-mcp)
     [ -n "$have" ] && [ ! -x "$AI_NPM_DIR/context7-mcp-$have/node_modules/.bin/context7-mcp" ] && have=""
-    if r_keep "$have"; then [ "$have" = "$R_VERSION" ] && info "context7-mcp $have present (newest stable)"; return 0; fi
+    if r_keep "$have"; then ver_eq "$have" "$R_VERSION" && info "context7-mcp $have present (newest stable)"; return 0; fi
     dir="$AI_NPM_DIR/context7-mcp-$R_VERSION"
     npm_local @upstash/context7-mcp "$R_VERSION" "$R_INTEGRITY" "$dir" || { [ -z "$have" ] || warn "context7-mcp $have kept"; return 0; }
     aiconf record-cmd "npm-local:context7" -- sh -c 'rm -rf "$1"/context7-mcp-*' _ "$AI_NPM_DIR"
@@ -598,7 +672,7 @@ tools_rtk() {
     have=$(tool_version rtk)
     # The build stamp says how the installed binary was built; a changed build mode (cargo update on/off) rebuilds.
     local stamp="$AI_STATE_DIR/rtk.build" want_stamp="$tag cargo-update=${RTK_CARGO_UPDATE:-0}"
-    if [ "$have" = "$ver" ] && [ "$(cat "$stamp" 2>/dev/null)" = "$want_stamp" ]; then
+    if ver_eq "$have" "$ver" && [ "$(cat "$stamp" 2>/dev/null)" = "$want_stamp" ]; then
         info "rtk $ver present (newest stable)"; return 0
     fi
     if [ -n "$have" ] && [ "$R_STATUS" = cached ]; then info "rtk $have kept (offline: not rebuilt)"; return 0; fi
@@ -634,7 +708,7 @@ tools_rtk() {
     if [ "${RTK_CARGO_UPDATE:-0}" = 1 ]; then
         as_target sh -c "cd '$src' && cargo update -q" || { warn "rtk cargo update failed"; return 0; }
     fi
-    audit_ok dir "$src" "$tag" rtk || { [ -z "$have" ] || warn "rtk $have kept"; return 0; }
+    audit_ok dir "$src" "$rtkhead" rtk || { [ -z "$have" ] || warn "rtk $have kept"; return 0; }
     as_target sh -c "cd '$src' && cargo build --release --locked" || { warn "rtk build failed"; return 0; }
     install_bin "$src/target/release/rtk" rtk
     aiconf record-cmd bin:rtk -- $SUDO_UNDO rm -f "$(bin_dir)/rtk"

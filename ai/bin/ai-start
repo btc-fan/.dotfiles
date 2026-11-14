@@ -705,13 +705,26 @@ def playwright_dir(ver):
     return os.path.expanduser("~/.local/share/ai/npm/playwright-mcp-%s" % ver)
 
 
+def playwright_ok(ver):
+    return os.access(os.path.join(playwright_dir(ver), "node_modules", ".bin", "mcp-server-playwright"), os.X_OK)
+
+
 def playwright_installed():
     """Highest installed playwright-mcp-<version> folder with its binary, or None."""
     base = os.path.expanduser("~/.local/share/ai/npm")
     for ver in reversed(resolver().npm_dir_versions(base, "playwright-mcp")):
-        if os.access(os.path.join(playwright_dir(ver), "node_modules", ".bin", "mcp-server-playwright"), os.X_OK):
+        if playwright_ok(ver):
             return ver
     return None
+
+
+def playwright_keep_only(ver):
+    """Remove every other playwright-mcp-<version> folder: ai-playwright-mcp starts the highest one, so a HOLD
+    to an older version works only when no newer folder is left."""
+    base = os.path.expanduser("~/.local/share/ai/npm")
+    for other in resolver().npm_dir_versions(base, "playwright-mcp"):
+        if other != ver:
+            shutil.rmtree(playwright_dir(other), ignore_errors=True)
 
 
 def ensure_playwright(dry_run=False):
@@ -731,8 +744,18 @@ def ensure_playwright(dry_run=False):
         print("skip Playwright MCP: newest stable unknown (%s)" % (r.get("note") or "resolver failed"))
         return bool(have)
     if ver == have:
+        if not dry_run:
+            playwright_keep_only(ver)
         return True
     prefix = playwright_dir(ver)
+    if playwright_ok(ver):           # e.g. a HOLD back to a version that is still on disk
+        if dry_run:
+            print("would keep Playwright MCP %s and remove the other version folders" % ver)
+        else:
+            playwright_keep_only(ver)
+            res.record("playwright-mcp", ver, integrity=want or "")
+            print("Playwright MCP %s (already in %s; other versions removed)" % (ver, prefix))
+        return True
     pkg = "@playwright/mcp@%s" % ver
     if dry_run:
         print("would install %s into %s (integrity + agent-audit checked first)" % (pkg, prefix))
@@ -755,8 +778,7 @@ def ensure_playwright(dry_run=False):
         shutil.rmtree(prefix, ignore_errors=True)
         return bool(have)
     res.record("playwright-mcp", ver, integrity=want)
-    if have:
-        shutil.rmtree(playwright_dir(have), ignore_errors=True)
+    playwright_keep_only(ver)
     print("Playwright MCP %s installed in %s%s. Browsers are not downloaded (--ignore-scripts): run once\n"
           "  %s/node_modules/.bin/playwright install chromium" % (ver, prefix, (" (was %s)" % have) if have else "",
                                                                    prefix))

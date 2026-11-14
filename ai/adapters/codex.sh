@@ -76,10 +76,10 @@ codex_plugins() {
     [ "$AI_DRY_RUN" = 1 ] || { mkdir -p "$AI_STATE_DIR"; printf '%s\n' "$hash" > "$hash_file"; }
 
     if [ -d "$(plugin_src_dir ponytail)" ] || [ "$AI_DRY_RUN" = 1 ]; then
-        codex_marketplace_plugin "$(plugin_src_dir ponytail)" ponytail ponytail@ponytail "$(src_head "$(plugin_src_dir ponytail)")" || true
+        codex_marketplace_plugin "$(plugin_src_dir ponytail)" ponytail ponytail@ponytail "$(src_sha_for ponytail)" || true
     fi
     if [ -d "$(plugin_src_dir i-have-adhd)/.codex-plugin" ] || [ "$AI_DRY_RUN" = 1 ]; then
-        codex_marketplace_plugin "$(plugin_src_dir i-have-adhd)" i-have-adhd i-have-adhd@i-have-adhd "$(src_head "$(plugin_src_dir i-have-adhd)")" || true
+        codex_marketplace_plugin "$(plugin_src_dir i-have-adhd)" i-have-adhd i-have-adhd@i-have-adhd "$(src_sha_for i-have-adhd)" || true
     fi
     if [ "$AI_OS" != linux ] || ! grep -qs 'agent-plugins/ponytail' /etc/codex/hooks.json; then
         manual "Codex: open /hooks once and trust the hooks of ponytail and i-have-adhd (ai-core, rtk, graphify are trusted by install)"
