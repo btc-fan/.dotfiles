@@ -3,6 +3,7 @@
 
   ai-doctor           all checks (plugin validate, router tests, evals when present)
   ai-doctor --quick   fast checks only (install.sh runs this at the end)
+  ai-doctor --offline full checks, but tool versions only against resolved.json (no registry calls)
   ai-doctor --live    also one headless claude -p call that runs a sandboxed Bash command (costs one small call)
   ai-doctor --project PATH   also the project knowledge checks for PATH (default: the cwd when it is a
                       git repo with code): Serena memories, sizes, staleness, secrets, graph, .ai/libs.md
@@ -57,6 +58,7 @@ def main(argv):
     check_plugin_files()
     check_router_smoke()
     check_installed()
+    check_versions(network=not quick and "--offline" not in argv)
     check_contracts()
     check_copies()
     check_secrets()
@@ -179,6 +181,33 @@ def check_installed():
         code, out = run(["codex", "plugin", "list"])
         say("PASS" if "ai-core" in out else "WARN", "Codex: plugin ai-core installed",
             "" if code == 0 else "codex plugin list failed")
+
+
+def check_versions(network=False):
+    """Owner decision 2026-11-14: each tool follows the newest stable release. Per tool found on this machine:
+    installed version (or commit) against the newest stable. --quick uses the last resolved value in
+    resolved.json (no network); the full run asks the registries (short timeouts). Unknown = SKIP."""
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, os.path.join(AI_DIR, "lib"))
+    try:
+        import resolve
+        rows = resolve.status(network=network)
+    except Exception as exc:          # a broken resolver must not stop the other checks
+        say("WARN", "tool versions not checked: resolver failed", str(exc))
+        return
+    for r in rows:
+        have = r["installed"] or r["installed_sha"][:12]
+        new = r["newest"] if r["installed"] else (r["newest_sha"][:12] or r["newest"])
+        if r["state"] == "unknown":
+            say("SKIP", "%s %s: newest stable unknown (%s)" % (r["tool"], have,
+                "offline" if network else "not resolved yet: run install.sh or ai-doctor without --quick"))
+        elif r["state"] == "update":
+            say("WARN", "update available: %s %s -> %s" % (r["tool"], have, new),
+                "re-run install.sh (it moves the tool after agent-audit)%s" % (
+                    "; held by %s_HOLD in ai/pins.env" % r["tool"].upper().replace("-", "_") if r["hold"] else ""))
+        else:
+            say("PASS", "%s %s is the %s" % (r["tool"], have,
+                "held version (ai/pins.env)" if r["state"] == "hold" else "newest stable"))
 
 
 def check_contracts():
