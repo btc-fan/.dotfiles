@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # agent-audit: check a package, folder, skill or plugin BEFORE use. Port of the server wrapper.
 # Exit 0 = nothing found (PASS), 1 = findings (FAIL, read them before use), 2 = usage error,
-# 3 = a scanner could not run (ERROR: not a finding, but no PASS either; fix the scanner, run again).
+# 3 = a scanner could not run (ERROR: not a finding, but no PASS either; fix the scanner, run again),
+# 4 = skill-scanner found a HIGH or CRITICAL problem (REJECT, owner rule 2026-11-14, every profile): the
+# source is never installed or updated, and no line in ai/audit-accepted.txt lets it through.
 # Package forms: `agent-audit pypi httpx 0.28.1`, `agent-audit pypi httpx==0.28.1`, `agent-audit npm left-pad@1.3.0`.
 # Every run appends one line to ~/.local/state/ai/audit.log:
-#   <iso-time> <ecosystem> <name> <version|-> PASS|FAIL
+#   <iso-time> <ecosystem> <name> <version|-> PASS|FAIL|ERROR|REJECT
 # The audit-before-install gate (ai-core router) allows an install only with a PASS for that
 # package in the last 24 h.
 # Network: downloads the package from npm/PyPI, and osv-scanner looks up package names + versions
@@ -22,6 +24,7 @@ usage:
   agent-audit pypi  <name> [version]   guarddog: same for a PyPI package (also name==version)
   agent-audit dir   <path>             osv-scanner (known CVEs) + guarddog + skill-scanner on a folder
   agent-audit skill <path>             cisco skill-scanner on every SKILL.md under <path>
+skill-scanner HIGH or CRITICAL = exit 4 (REJECT, no override); INFO, LOW and MEDIUM are shown only.
 EOF
     exit 2
 }
@@ -44,6 +47,7 @@ split_spec() {
 main() {
     rc=0
     err=0
+    reject=0
     case "${1:-}" in
         npm|pypi)
             [ $# -ge 2 ] || usage
@@ -79,6 +83,11 @@ main() {
         *) usage ;;
     esac
 
+    if [ "$reject" -ne 0 ]; then
+        echo "agent-audit: REJECTED: skill-scanner found a HIGH or CRITICAL problem (REJECT lines above)." \
+             "Never installed or updated; no accept line can let it through."
+        exit 4
+    fi
     if [ "$err" -ne 0 ]; then
         echo "agent-audit: ERROR: a scanner could not run (see ERROR lines above). This is not a finding," \
              "but nothing was passed either: fix the scanner or the arguments, then run again."
@@ -116,18 +125,47 @@ guard() {
     [ "$threats" -eq 0 ] || rc=1
 }
 
+# skill-scanner, machine-readable (--format json). Every object with a "severity" is a finding; HIGH or
+# CRITICAL sets reject (exit 4), the rest is printed only. A folder without SKILL.md (a plugin's hooks, a
+# tool's source tree) is still scanned: --lenient reads its .md files.
+SS_FINDINGS='[.. | objects | select((.severity? | type) == "string")
+    | {sev: (.severity | ascii_upcase | sub("^SEVERITY\\."; "")),
+       rule: ((.rule_id // .rule // .id // .category // "-") | tostring),
+       where: ((.file_path // .file // .location // "") | tostring),
+       msg: ((.title // .description // .message // "") | tostring | .[0:160])}]'
+
 scan_skills() {
     local f found=0
+    if ! command -v skill-scanner >/dev/null 2>&1; then echo "ERROR: skill-scanner not installed"; err=1; return; fi
     while IFS= read -r f; do
         found=1
-        echo "-- skill $(dirname "$f")"
-        if command -v skill-scanner >/dev/null 2>&1; then
-            skill-scanner scan "$(dirname "$f")" --fail-on-severity high || rc=1
-        else
-            echo "ERROR: skill-scanner not installed"; err=1
-        fi
+        skill_scan "$(dirname "$f")"
     done < <(find "$1" -name SKILL.md -not -path '*/node_modules/*' -not -path '*/.git/*')
-    [ "$found" -eq 1 ] || echo "-- no SKILL.md under $1"
+    [ "$found" -eq 1 ] || skill_scan "$1" --lenient
+}
+
+skill_scan() {
+    local d=$1 out errf high; shift
+    errf=$(mktemp "${TMPDIR:-/tmp}/agent-audit.XXXXXX")
+    out=$(skill-scanner scan "$d" --format json "$@" 2>"$errf") || true
+    if ! printf '%s' "$out" | jq -e 'type == "object" or type == "array"' >/dev/null 2>&1; then
+        echo "ERROR: skill-scanner could not scan: $d"
+        tail -n 15 "$errf" | sed 's/^/   skill-scanner: /'
+        rm -f "$errf"; err=1; return
+    fi
+    rm -f "$errf"
+    echo "-- skill-scanner $d"
+    printf '%s' "$out" | jq -r "$SS_FINDINGS | .[] | \"  \\(.sev): \\(.rule) \\(.where) \\(.msg)\""
+    high=$(printf '%s' "$out" | jq "($SS_FINDINGS | map(select(.sev == \"HIGH\" or .sev == \"CRITICAL\")) | length) as \$n
+        | if \$n > 0 then \$n
+          elif [.. | objects | .max_severity? // empty | tostring | ascii_upcase | select(test(\"HIGH|CRITICAL\"))] | length > 0 then 1
+          else 0 end")
+    echo "   HIGH/CRITICAL: $high"
+    if [ "$high" -gt 0 ]; then
+        reject=1
+        printf '%s' "$out" | jq -r "$SS_FINDINGS | .[] | select(.sev == \"HIGH\" or .sev == \"CRITICAL\")
+            | \"REJECT skill-scanner \\(.sev): \\(.rule) \\(.where)\""
+    fi
 }
 
 # One line per run; names never contain spaces (paths with spaces are refused by the gate anyway).
@@ -135,6 +173,7 @@ record() {
     local eco="$1" name="$2" ver="$3" result=PASS dir
     [ "$rc" -eq 0 ] || result=FAIL
     [ "$err" -eq 0 ] || result=ERROR
+    [ "$reject" -eq 0 ] || result=REJECT
     dir="${AI_STATE_DIR:-$HOME/.local/state/ai}"
     mkdir -p "$dir"
     printf '%s %s %s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$eco" "${name// /_}" "${ver:--}" "$result" >> "$dir/audit.log"

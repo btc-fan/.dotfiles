@@ -318,11 +318,20 @@ audit_ok() {
     # audit_ok <ecosystem> <target> [version] [name]
     # name: for `dir` audits of a temp folder, the tool name to look up in ai/audit-accepted.txt.
     # version: for `dir` audits the full commit of the source (the accept list keys git sources by commit).
-    local eco=$1 target=$2 ver=${3:-} name=${4:-$2} reason
+    local eco=$1 target=$2 ver=${3:-} name=${4:-$2} reason out rc
     if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] agent-audit $eco $target${ver:+ $ver}"; return 0; fi
     if ! has agent-audit; then warn "agent-audit not found: cannot audit $target, not installing it"; return 1; fi
-    if [ "$eco" = dir ]; then agent-audit dir "$target" && return 0
-    else agent-audit "$eco" "$target" ${ver:+"$ver"} && return 0; fi
+    out=$(mktemp "${TMPDIR:-/tmp}/ai-audit.XXXXXX")
+    if [ "$eco" = dir ]; then { agent-audit dir "$target"; echo "$?" > "$out.rc"; } | tee "$out"
+    else { agent-audit "$eco" "$target" ${ver:+"$ver"}; echo "$?" > "$out.rc"; } | tee "$out"; fi
+    rc=$(cat "$out.rc" 2>/dev/null || echo 3)
+    if [ "$rc" = 4 ]; then
+        # skill-scanner HIGH/CRITICAL (owner rule 2026-11-14, every profile): final, the accept list is not read.
+        warn "skill-scanner REJECTED $name${ver:+ $ver} (HIGH or CRITICAL finding): not installed or updated (an installed copy stays), no override: $(sed -n 's/^REJECT skill-scanner //p' "$out" | head -n 8 | paste -sd';' - | sed 's/;/; /g')"
+        rm -f "$out" "$out.rc"; return 1
+    fi
+    rm -f "$out" "$out.rc"
+    [ "$rc" = 0 ] && return 0
     # Findings. Go on only for an owner-reviewed EXACT version (SPEC 22, ai/audit-accepted.txt).
     reason=$(audit_accepted "$eco" "$name" "$ver")
     if [ -n "$reason" ]; then

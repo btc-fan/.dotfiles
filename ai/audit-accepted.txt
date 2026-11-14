@@ -5,6 +5,7 @@
 # The full agent-audit scan always runs. Only when it reports findings AND the line below matches
 # ecosystem + name + exact version does the installer go on, logging "ACCEPTED owner-reviewed".
 # A new version is never covered: review its findings again, then add a new line (docs/EXTENDING.md).
+# Never for skill-scanner: a HIGH or CRITICAL skill-scanner finding (agent-audit exit 4) is final, whatever is listed here.
 npm oh-my-claude-sisyphus 5.8.4 2026-11-11 intake-triage (SPEC 19): telegram reply listener stays off; base64 hit is zod JWT parsing
 npm opencode-ai 1.19.5 2026-11-11 intake-triage (SPEC 19): closed binary; never run "opencode upgrade"
 npm @upstash/context7-mcp 4.6.0 2026-11-11 env reads are URL settings; subscription telemetry wraps its own handler, no outside endpoint

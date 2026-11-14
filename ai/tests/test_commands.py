@@ -24,7 +24,7 @@ def main():
     try:
         for test in (t_hook_files, t_no_em_dash, t_render_cap, t_pr_resume, t_notify, t_agent_audit,
                      t_ai_start, t_router_speed, t_ai_sync, t_sync_hooks, t_hermes_plugin, t_playwright,
-                     t_state_mode):
+                     t_state_mode, t_skill_scanner_reject):
             try:
                 test(work)
                 print("ok   " + test.__name__)
@@ -169,6 +169,66 @@ def t_agent_audit(work):
     assert res.returncode == 3 and "ERROR" in res.stdout and "bad arguments" in res.stdout, res.stdout
     assert "FINDINGS" not in res.stdout, res.stdout
     assert open(os.path.join(state, "audit.log")).read().splitlines()[-1].split()[-1] == "ERROR"
+
+
+FAKE_SKILL_SCANNER = """#!/bin/sh
+# Fake skill-scanner: JSON with one finding of severity $FAKE_SS_SEV (none when empty); logs its arguments.
+echo "skill-scanner $*" >> "$FAKE_SS_LOG"
+[ "${FAKE_SS_BROKEN:-}" = 1 ] && { echo 'boom' >&2; exit 2; }
+if [ -n "${FAKE_SS_SEV:-}" ]; then
+  printf '{"skill_name": "x", "is_safe": false, "max_severity": "%s", "findings": [{"rule_id": "R1", "severity": "%s", "file_path": "SKILL.md", "title": "bad thing"}]}' "$FAKE_SS_SEV" "$FAKE_SS_SEV"
+else
+  printf '{"skill_name": "x", "is_safe": true, "max_severity": "NONE", "findings": []}'
+fi
+"""
+
+
+def t_skill_scanner_reject(work):
+    """Owner rule 2026-11-14 (every profile): skill-scanner HIGH/CRITICAL = exit 4 REJECT, final (no accept line);
+    INFO/LOW/MEDIUM pass; a folder without SKILL.md is scanned with --lenient."""
+    stub = os.path.join(work, "ss-bin")
+    os.makedirs(stub)
+    write_exec(os.path.join(stub, "skill-scanner"), FAKE_SKILL_SCANNER)
+    write_exec(os.path.join(stub, "osv-scanner"), "#!/bin/sh\nexit 128\n")
+    write_exec(os.path.join(stub, "guarddog"), "#!/bin/sh\necho '{\"results\": {}}'\n")
+    src = os.path.join(work, "ss-src")
+    os.makedirs(os.path.join(src, "skills", "a"))
+    open(os.path.join(src, "skills", "a", "SKILL.md"), "w").write("---\nname: a\n---\n")
+    bare = os.path.join(work, "ss-bare")
+    os.makedirs(bare)
+    open(os.path.join(bare, "README.md"), "w").write("tool\n")
+    state = os.path.join(work, "ss-state")
+    log = os.path.join(work, "ss.log")
+    env = {"HOME": work, "AI_STATE_DIR": state, "FAKE_SS_LOG": log, "PATH": stub + ":" + os.environ["PATH"]}
+    audit = os.path.join(BIN, "agent-audit")
+    for sev, code in (("", 0), ("INFO", 0), ("LOW", 0), ("MEDIUM", 0), ("HIGH", 4), ("CRITICAL", 4), ("high", 4)):
+        res = run(["bash", audit, "dir", src], env=dict(env, FAKE_SS_SEV=sev))
+        assert res.returncode == code, (sev, res.returncode, res.stdout)
+        if code == 4:
+            assert "REJECT skill-scanner %s: R1" % sev.upper() in res.stdout, res.stdout
+            assert open(os.path.join(state, "audit.log")).read().splitlines()[-1].split()[-1] == "REJECT"
+    assert "--format json" in open(log).read(), open(log).read()
+    res = run(["bash", audit, "skill", src], env=dict(env, FAKE_SS_SEV="CRITICAL"))
+    assert res.returncode == 4, res.stdout
+    res = run(["bash", audit, "dir", bare], env=dict(env, FAKE_SS_SEV="HIGH"))
+    assert res.returncode == 4, res.stdout
+    assert "skill-scanner scan %s --format json --lenient" % os.path.realpath(bare) in open(log).read()
+    res = run(["bash", audit, "dir", src], env=dict(env, FAKE_SS_BROKEN="1"))
+    assert res.returncode == 3 and "skill-scanner could not scan" in res.stdout, res.stdout
+    # audit_ok: exit 4 is final even for an exact version on the accept list; exit 1 still honours it.
+    home = os.path.join(work, "ss-aihome")
+    os.makedirs(os.path.join(home, "ai"))
+    sha = "a" * 40
+    open(os.path.join(home, "ai", "audit-accepted.txt"), "w").write("dir tool %s 2026-11-14 reviewed\n" % sha)
+    os.symlink(audit, os.path.join(stub, "agent-audit"))
+    lib = os.path.join(AI_DIR, "lib", "common.sh")
+    script = 'set -euo pipefail; . "%s"; if audit_ok dir "%s" %s tool; then echo RESULT=pass; else echo RESULT=fail; fi' % (lib, src, sha)
+    res = run(["bash", "-c", script], env=dict(env, AI_HOME=home, FAKE_SS_SEV="HIGH"))
+    assert "RESULT=fail" in res.stdout and "skill-scanner REJECTED tool" in res.stdout, res.stdout
+    assert "HIGH: R1 SKILL.md" in res.stdout and "ACCEPTED" not in res.stdout, res.stdout
+    write_exec(os.path.join(stub, "osv-scanner"), "#!/bin/sh\nexit 1\n")      # an osv finding: accept list applies
+    res = run(["bash", "-c", script], env=dict(env, AI_HOME=home, FAKE_SS_SEV="MEDIUM"))
+    assert "RESULT=pass" in res.stdout and "ACCEPTED owner-reviewed" in res.stdout, res.stdout
 
 
 def t_ai_start(work):
