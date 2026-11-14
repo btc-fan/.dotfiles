@@ -16,7 +16,9 @@ AGENTS.md, Hermes SOUL.md, Hermes plugin) equal the current ai/AGENTS.md (ai-syn
 gate skips and misses of the last 7 days; setup checks (each catches a bug seen on a real server):
 Codex hook trust, Claude permissions, claude.ai connectors off on Linux, Grounded Docs service active,
 rule files per user, Hermes MCP state, OMC exa off, env switches for non-login processes, the
-secret-scan of commit messages, Claude hand-off readiness; full mode: claude plugin validate, router tests,
+secret-scan of commit messages, Claude hand-off readiness, the owner's drop and off lists (ai/pins.env: no caveman
+or byterover left, off-by-default plugins off, one Serena, one rtk on PATH, OMX hooks not on a Cellar node,
+last30days installed and on with contract and evals); full mode: claude plugin validate, router tests,
 manual-eval report for ai/evals (markdown prompt lists, run by hand), omx doctor, mise ls.
 ai/rules/vendor/ holds byte copies of vendor templates and is not checked as contracts.
 """
@@ -68,6 +70,7 @@ def main(argv):
     check_claudeai_connectors()
     check_env_delivery()
     check_dropped()
+    check_drops_and_defaults()
     check_claude_policy()
     check_hooks_absolute()
     check_serena_config()
@@ -837,12 +840,10 @@ def check_hermes():
 
 
 def check_omc():
-    """OMC is a pinned Claude plugin (owner decision 2026-11-12) with the exa MCP off; claude-seo and
-    claude-blog are installed but off at user scope (opt-in per project)."""
+    """OMC is a pinned Claude plugin (owner decision 2026-11-12) with the exa MCP off. claude-seo, claude-blog
+    and the other off-by-default plugins: check_drops_and_defaults (AI_OFF_CLAUDE_PLUGINS in ai/pins.env)."""
     if not shutil.which("claude"):
         return
-    st = claude_settings()
-    enabled = st.get("enabledPlugins") or {}
     installed = read_text_file(os.path.join(CLAUDE_DIR, "plugins", "installed_plugins.json")) or ""
     omc = "oh-my-claudecode@" in installed
     say("PASS" if omc else "WARN", "Claude plugin oh-my-claudecode installed",
@@ -858,11 +859,85 @@ def check_omc():
         exa = (((data or {}).get("mcpServers") or {}).get("exa") or {}).get("enabled") if data is not None else None
         say("PASS" if exa is False else "FAIL", "OMC exa MCP off (%s)" % path,
             "" if exa is False else "exa sends search queries to an outside service; re-run install.sh")
-    for pk in ("claude-seo@agricidaniel-claude-seo", "claude-blog@agricidaniel-blog"):
-        if pk.split("@")[0] + "@" in installed:
+
+
+def pins_words(key):
+    """The words of one list in ai/pins.env (AI_DROP_*, AI_OFF_*), or []."""
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, os.path.join(AI_DIR, "lib"))
+    try:
+        import resolve
+        return resolve.read_pins().get(key, "").split()
+    except Exception:          # a broken pins file must not stop the other checks
+        return []
+
+
+def on_path(name):
+    """Every executable NAME on PATH, one per real file, in PATH order."""
+    out, seen = [], set()
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        p = os.path.join(d, name)
+        if d and os.path.isfile(p) and os.access(p, os.X_OK) and os.path.realpath(p) not in seen:
+            seen.add(os.path.realpath(p))
+            out.append(p)
+    return out
+
+
+def check_drops_and_defaults():
+    """Owner decisions 2026-11-14 (lists in ai/pins.env): dropped plugins, hooks and MCP servers are gone; the
+    off-by-default plugins are off at user scope; one Serena; one rtk on PATH; OMX hooks not on a versioned
+    Cellar node; last30days installed, on, with its contract and evals."""
+    fix = "re-run install.sh"
+    plugins = load_json_file(os.path.join(CLAUDE_DIR, "plugins", "installed_plugins.json")) or {}
+    installed = set((plugins.get("plugins") or {}).keys())
+    enabled = claude_settings().get("enabledPlugins") or {}
+    left = [p for p in pins_words("AI_DROP_CLAUDE_PLUGINS") if p in installed]
+    say("PASS" if not left else "FAIL", "dropped Claude plugins gone (%s)" % " ".join(pins_words("AI_DROP_CLAUDE_PLUGINS")),
+        ("still installed: %s. %s" % (", ".join(left), fix)) if left else "")
+    hooks = json.dumps(claude_settings().get("hooks") or {})
+    left = [w for w in pins_words("AI_DROP_CLAUDE_HOOKS") if w in hooks]
+    say("PASS" if not left else "FAIL", "dropped hooks gone from ~/.claude/settings.json",
+        ("still there: %s. %s" % (", ".join(left), fix)) if left else "")
+    drop_mcp = pins_words("AI_DROP_MCP")
+    cj = load_json_file(os.path.join(os.environ["CLAUDE_CONFIG_DIR"], ".claude.json")
+                        if os.environ.get("CLAUDE_CONFIG_DIR") else os.path.join(HOME, ".claude.json")) or {}
+    user_mcp = cj.get("mcpServers") or {}
+    cfg = read_text_file(os.path.join(CODEX_HOME, "config.toml")) or ""
+    left = ["claude:" + n for n in drop_mcp if n in user_mcp]
+    left += ["codex:" + n for n in drop_mcp
+             if re.search(r'^\s*\[mcp_servers\.(%s|"%s")\]' % (re.escape(n), re.escape(n)), cfg, re.M)]
+    say("PASS" if not left else "FAIL", "dropped MCP servers gone from Claude and Codex (%s)" % " ".join(drop_mcp),
+        ("still registered: %s. %s" % (", ".join(left), fix)) if left else "")
+    for pk in pins_words("AI_OFF_CLAUDE_PLUGINS"):
+        if pk in installed:
             off = enabled.get(pk) is False
             say("PASS" if off else "WARN", "%s off at user scope (opt-in per project)" % pk.split("@")[0],
-                "" if off else "about 12k tokens per session in every project; re-run install.sh")
+                "" if off else "costs skill-listing tokens in every session; %s" % fix)
+    if "ai-serena@ai" in installed and enabled.get("ai-serena@ai") is True:
+        dup = "serena" in user_mcp
+        say("PASS" if not dup else "FAIL", "one Serena for Claude (plugin ai-serena; no user-scope serena in ~/.claude.json)",
+            "user-scope serena still there: %s" % fix if dup else "")
+    rtks = on_path("rtk")
+    if rtks:
+        say("PASS" if len(rtks) == 1 else "FAIL", "one rtk on PATH (%s)" % ", ".join(rtks),
+            "" if len(rtks) == 1 else "the first one shadows the others and the version check never matches; %s" % fix)
+    hj = load_json_file(os.path.join(CODEX_HOME, "hooks.json")) or {}
+    cellar = sorted({h.get("command", "") for gs in (hj.get("hooks") or {}).values() for g in gs or []
+                     for h in g.get("hooks") or [] if "oh-my-codex" in h.get("command", "")
+                     and re.search(r"/Cellar/node/[^/]+/bin/node", h.get("command", ""))})
+    if cellar:
+        say("FAIL", "OMX Codex hooks start node from a versioned Homebrew Cellar folder (breaks on brew upgrade node)",
+            "%s; %s (points them to <brew prefix>/opt/node/bin/node)" % (cellar[0][:120], fix))
+    elif "oh-my-codex" in json.dumps(hj):
+        say("PASS", "OMX Codex hooks do not use a versioned Cellar node")
+    if shutil.which("claude"):
+        pk = "last30days@last30days-skill"
+        ok = pk in installed and enabled.get(pk) is True
+        say("PASS" if ok else "FAIL", "Claude plugin last30days installed and on (default)",
+            "" if ok else ("installed but off" if pk in installed else "not installed") + "; " + fix)
+    for rel in ("rules/last30days.md", "evals/last30days.md"):
+        ok = os.path.isfile(os.path.join(AI_DIR, rel))
+        say("PASS" if ok else "FAIL", "last30days strict intake: ai/%s present" % rel, "" if ok else "write it (docs/EXTENDING.md)")
 
 
 def check_handoff():
