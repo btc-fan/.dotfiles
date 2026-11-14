@@ -569,7 +569,7 @@ Seen on the owner's M3 Mac (macOS 15.5), read only:
   machine paths, so they stay out of git and ai-adopt makes them per machine. Local tickets: the owner decides
   what reaches GitHub.
 
-## 2026-11-14: profiles and the skill-scanner rule (SPEC 26)
+## 2026-11-14: profiles and the skill-scanner rule (SPEC 27)
 - Owner: skills and plugins carry instructions an agent follows, so a skill-scanner HIGH or CRITICAL finding must
   stop them on every machine, with no accept line: a reviewed exception for a scanner hit in a test fixture makes
   sense for guarddog, not for a prompt that tells the agent to do harm. Exit 4 keeps it apart from findings

@@ -62,7 +62,7 @@ Options:
 
 ## Profiles
 
-Owner decision 2026-11-14 (`ai/SPEC.md`, section 26). Each profile is one file, `ai/profiles/<name>.env`.
+Owner decision 2026-11-14 (`ai/SPEC.md`, section 27). Each profile is one file, `ai/profiles/<name>.env`.
 Choice: `--profile NAME`, else `~/.config/ai/profile`, else the OS default (Linux `server`, macOS `dev-mac`).
 The install header, `ai-doctor` and `ai-info` show the profile and where it came from.
 
@@ -75,6 +75,10 @@ The install header, `ai-doctor` and `ai-info` show the profile and where it came
 | `audit-before-install` gate | on | off (no routing row) |
 | opencode | macOS always, Linux with `AI_EXTRA_AGENTS=opencode` | never (an earlier install is undone) |
 | box MCP server (plugin `ai-box@ai`, Codex and Hermes `box`) | on | never installed or registered |
+| last30days (Claude plugin) | on by default (skill-scanner decides) | never installed (an installed copy is removed) |
+
+A default item that skill-scanner rejected (HIGH or CRITICAL) is recorded in `~/.local/state/ai/resolved.json`
+(`rejected`); `ai-doctor` then shows `WARN rejected by skill-scanner: <id> <version>` instead of a FAIL for it.
 
 Switch a Mac to the server behaviour: `~/.dotfiles-ai/install.sh --profile server` (and back with
 `--profile dev-mac`).

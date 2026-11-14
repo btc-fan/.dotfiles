@@ -487,7 +487,7 @@ Catalog: `omc ask <provider> --prompt` (markdown only); `omx exec` passes to `co
   any new version needs a new review and a new line. Every acceptance is logged as `ACCEPTED owner-reviewed`.
   Since 2026-11-14 `dir` lines (git sources) name the full 40-character commit, never a tag: a tag can be moved
   to other code, so a tag-keyed line could accept code nobody reviewed.
-  Never for skill-scanner (owner decision 2026-11-14, SPEC 26): a HIGH or CRITICAL skill-scanner finding is final
+  Never for skill-scanner (owner decision 2026-11-14, SPEC 27): a HIGH or CRITICAL skill-scanner finding is final
   (agent-audit exit 4); accept lines cover guarddog and osv-scanner findings only.
 
 ## 23. Tool versions: newest stable, no cooldown (owner decision 2026-11-14)
@@ -635,7 +635,7 @@ restore where something existing is removed; dry-run safe.
   commits or 30 days with code commits since the feature map changed (then /maintain-verification-skill, once per
   session); ai-doctor warns on missing, stale, or no Claude link. Row `verify-before-done` after the first code edit.
 
-## 26. Profiles and the skill-scanner rule (owner decisions 2026-11-14)
+## 27. Profiles and the skill-scanner rule (owner decisions 2026-11-14)
 - Global rule, every profile and machine: every skill and plugin source (every `dir` and `skill` audit: git
   plugin sources, mattpocock and pstack skills, our skills, last30days, Ponytail, i-have-adhd, claude-seo and
   claude-blog, the OMC plugin, the RTK source tree) is scanned with skill-scanner before install
@@ -660,6 +660,11 @@ restore where something existing is removed; dry-run safe.
   (marker dropped). dev-mac drops the agent-audit bullet, says "the owner runs it himself" for a blocked gate,
   and drops the box line (45) and the opencode and Hermes lines (80, 90). The server AGENTS.md is byte-identical
   to before except the skill-scanner line (fixture `ai/tests/fixtures/profiles/agents-server.md`).
+- A skill-scanner rejection is recorded in resolved.json (`rejected`: version, commit, findings; a later install
+  clears it). ai-doctor reports a rejected default that is not installed (last30days) as WARN "rejected by
+  skill-scanner: <id> <version>", not FAIL, and lists every other recorded rejection as WARN.
+- dev-mac has no last30days (owner removed it from the M3 by hand): never installed there, an installed copy is
+  removed; it stays a server default, where the skill-scanner rule decides. The rules line about it is server-only.
 - ai-doctor on dev-mac FAILs when guarddog or osv-scanner from this setup is installed, the audit gate row is
   rendered, or box is registered (Claude ai-box plugin, Codex `mcp_servers.box`); their absence never fails.
 - Tests: `ai/tests/test_profiles.py` (server dry-run plans against fixtures, dev-mac dry run, profile choice);

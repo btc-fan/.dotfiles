@@ -37,9 +37,9 @@ fields, Done/Lessons, regression ledger (`ai-ledger`), `ai-ratchet`, the `featur
 scriptube pilot (`ai-adopt --tier long`), a real plugin install and a real Codex run of the Stop hook.
 
 **Profiles: DONE in code (2026-11-14), not deployed.** `server` (today) and `dev-mac`
-(both Macs: skill-scanner only, no package audit, no audit gate, no opencode, no box); `install.sh --profile NAME`,
+(both Macs: skill-scanner only, no package audit, no audit gate, no opencode, no box, no last30days); `install.sh --profile NAME`,
 saved in `~/.config/ai/profile`. Every profile: a skill-scanner HIGH or CRITICAL finding is never installed, no
-override. Details: docs/INSTALL.md (Profiles), docs/SECURITY.md, `ai/SPEC.md` section 26.
+override. Details: docs/INSTALL.md (Profiles), docs/SECURITY.md, `ai/SPEC.md` section 27.
 
 **Open, in order:**
 1. **macOS installer: DONE and proven on an old Intel Mac (macOS 12).** `ai-doctor`: 59 pass, 1 warn
