@@ -1130,7 +1130,8 @@ CODE_EXT = {
     ".zsh", ".lua", ".vue", ".svelte", ".ex", ".exs", ".dart", ".m", ".mm", ".sql", ".r", ".jl", ".zig",
     ".erl", ".clj", ".fs", ".ml", ".hs", ".pl", ".ps1", ".tf",
 }
-MAP_RX = re.compile(r"<!-- AI:map START -->\n?(.*?)<!-- AI:map END -->", re.S)
+# ai-adopt writes "<!-- AI:map START (ai-adopt; edit freely inside, ...) -->": accept any text after START.
+MAP_RX = re.compile(r"<!-- AI:map START[^>]*-->\n?(.*?)<!-- AI:map END -->", re.S)
 LIBS_RX = re.compile(r"<!-- AI:libraries START([^>]*)-->\n?(.*?)<!-- AI:libraries END -->", re.S)
 MAP_CAP_LINES = 60
 # Same list as ai/bin/ai-libs (its lock line records these, sha256 first 12 hex).

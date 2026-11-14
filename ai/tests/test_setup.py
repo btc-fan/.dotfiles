@@ -586,6 +586,12 @@ def t_knowledge_status(work):
     assert "run ai-libs --sync" in hooklib.knowledge_index(proj)
     hits = hooklib.libs_hits(proj, ["httpx"])
     assert "context7=/encode/httpx" in hits, hits
+    # The marker ai-adopt really writes (with a note after START) must count as a Map too.
+    text = open(os.path.join(proj, "AGENTS.md")).read().replace(
+        "<!-- AI:map START -->", "<!-- AI:map START (ai-adopt; edit freely inside, keep it under 60 lines) -->")
+    write(os.path.join(proj, "AGENTS.md"), text)
+    assert "Map: present (2 lines)" in hooklib.knowledge_index(proj), hooklib.knowledge_index(proj)
+    assert hooklib.map_block(proj) is not None
 
 
 def t_session_start_order(work):
