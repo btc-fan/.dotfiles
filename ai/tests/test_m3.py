@@ -36,7 +36,8 @@ def main():
     saved = {k: os.environ.get(k) for k in ENV_KEYS}
     try:
         for test in (t_drop_claude, t_drop_keeps_shared_marketplace, t_drop_codex_and_serena, t_off_plugins,
-                     t_serena_take, t_rtk_brew, t_rtk_no_brew, t_omx_node_fix, t_last30days, t_doctor):
+                     t_serena_take, t_rtk_brew, t_rtk_no_brew, t_omx_node_fix, t_last30days, t_doctor,
+                     t_omc_companion):
             for k, v in saved.items():
                 if v is None:
                     os.environ.pop(k, None)
@@ -566,6 +567,78 @@ def t_doctor(work):
     bad = [ln for ln in out.splitlines() if ln.startswith(("FAIL", "WARN"))]
     assert not bad, out
     assert "PASS OMX Codex hooks do not use a versioned Cellar node" in out and "PASS one rtk on PATH" in out, out
+
+
+OMC_COMPANION = "# OMC\n<!-- OMC:START -->\nomc rules here\n<!-- OMC:END -->\n"
+
+
+def load_doctor(env):
+    from importlib.machinery import SourceFileLoader
+    import importlib.util
+    old = dict(os.environ)
+    os.environ.update(env)
+    try:
+        loader = SourceFileLoader("ai_doctor_omc", os.path.join(AI_DIR, "bin", "ai-doctor"))
+        spec = importlib.util.spec_from_loader("ai_doctor_omc", loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+    finally:
+        os.environ.clear()
+        os.environ.update(old)
+    mod.LINUX = False                      # the check is for macOS; this runs on every OS
+    return mod
+
+
+def companion_out(mod):
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        mod.check_omc_companion()
+    return buf.getvalue()
+
+
+def t_omc_companion(work):
+    """`omc launch` reads only ~/.claude/CLAUDE-omc.md: install puts the same AI:core import block there, after
+    <!-- OMC:END --> (OMC text untouched, recorded, idempotent, undo removes it); no file: nothing is created; a
+    file with OMC:START but no OMC:END is left alone; ai-doctor FAILs without the block and PASSes with it; ai-sync
+    adds the block when OMC created the file after install (macOS; Linux uses /etc/claude-code/CLAUDE.md)."""
+    env, home, bindir = claude_env(work)
+    want = 'want() { [ "$1" = claude ]; }; '
+    comp = os.path.join(home, ".claude", "CLAUDE-omc.md")
+    code, out = bash(LIBS + want + "base_rules_user", env)
+    assert code == 0 and not os.path.exists(comp), out
+    write(comp, "<!-- OMC:START -->\nbroken\n")
+    code, out = bash(LIBS + want + "base_rules_user", env)
+    assert code == 0 and read(comp) == "<!-- OMC:START -->\nbroken\n" and "without <!-- OMC:END -->" in out, out
+    write(comp, OMC_COMPANION)
+    mod = load_doctor(env)
+    assert companion_out(mod).startswith("FAIL"), companion_out(mod)
+    code, out = bash(LIBS + want + "base_rules_user", env)
+    assert code == 0, out
+    text = read(comp)
+    assert text.startswith(OMC_COMPANION), "OMC text untouched: " + text
+    tail = text[len(OMC_COMPANION):]
+    assert "<!-- AI:core v1 START -->\n@~/.config/ai/AGENTS.md\n<!-- AI:core v1 END -->" in tail, text
+    assert "@~/.config/ai/AGENTS.md" in read(os.path.join(home, ".claude", "CLAUDE.md"))
+    assert "block:%s:core" % comp in [e["key"] for e in entries(home)]
+    assert companion_out(mod).startswith("PASS"), companion_out(mod)
+    code, out = bash(LIBS + want + "claude_omc_companion_block", env)
+    assert code == 0 and read(comp) == text and "same" in out, out
+    code, out = run_undo(env, home)
+    assert code == 0 and read(comp) == OMC_COMPANION, (out, read(comp))
+    # ai-sync (after a pull): OMC made the file after install.
+    write(comp, OMC_COMPANION)
+    uv = shutil.which("uv")                # ai-sync runs ai-render, which needs uv (or PyYAML)
+    sync_env = dict(env, PATH=env["PATH"] + (":" + os.path.dirname(uv) if uv else ""))
+    res = subprocess.run(["bash", os.path.join(AI_DIR, "bin", "ai-sync")], stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, env=sync_env)
+    out = res.stdout.decode()
+    assert res.returncode == 0, out
+    if sys.platform.startswith("linux"):
+        assert read(comp) == OMC_COMPANION, "Linux: /etc/claude-code/CLAUDE.md carries the rules: " + out
+    else:
+        assert "<!-- AI:core v1 START -->" in read(comp)[len(OMC_COMPANION):], out
+    dtext = read(os.path.join(AI_DIR, "bin", "ai-doctor"))
+    assert "check_omc_companion()" in dtext
 
 
 if __name__ == "__main__":

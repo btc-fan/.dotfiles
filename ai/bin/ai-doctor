@@ -859,6 +859,22 @@ def check_omc():
         exa = (((data or {}).get("mcpServers") or {}).get("exa") or {}).get("enabled") if data is not None else None
         say("PASS" if exa is False else "FAIL", "OMC exa MCP off (%s)" % path,
             "" if exa is False else "exa sends search queries to an outside service; re-run install.sh")
+    check_omc_companion()
+
+
+def check_omc_companion():
+    """`omc launch` loads <claude dir>/CLAUDE-omc.md as the ONLY CLAUDE.md (OMC 5.8.x launch.js
+    prepareOmcLaunchConfigDir): it must carry our AI:core import block, after OMC's markers. macOS only (Linux: the
+    house rules come from /etc/claude-code/CLAUDE.md)."""
+    path = os.path.join(CLAUDE_DIR, "CLAUDE-omc.md")
+    if LINUX or not os.path.isfile(path):
+        return
+    text = read_text_file(path) or ""
+    m = re.search(r"<!-- AI:core v\d+ START -->(.*?)<!-- AI:core v\d+ END -->", text, re.S)
+    end = text.find("<!-- OMC:END -->")
+    ok = m is not None and "@~/.config/ai/AGENTS.md" in m.group(1) and (end < 0 or m.start() > end)
+    say("PASS" if ok else "FAIL", "%s carries the AI:core rules import (omc launch reads only this file)" % path,
+        "" if ok else "omc-launched sessions run without the house rules; run ai-sync or re-run install.sh")
 
 
 def pins_words(key):

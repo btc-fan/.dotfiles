@@ -15,7 +15,9 @@
 #           ~hermes/.hermes/plugins/ai-core (hermes_hooks: routing.json, router code). Needs sudo -n.
 #   Linux   /etc/claude-code/CLAUDE.md (+ /etc/opencode) admin layer: base_admin_layer after sudo_ready
 #           (repo gate: clean tree, HEAD == origin/ai, or AI_ALLOW_DIRTY=1; passwordless sudo).
-# Claude and opencode read ~/.config/ai/AGENTS.md (a link), so ai-render alone updates them.
+# Claude and opencode read ~/.config/ai/AGENTS.md (a link), so ai-render alone updates them. One Claude case:
+#   macOS   ~/.claude/CLAUDE-omc.md (omc launch reads only that file): the AI:core import block is added
+#           when OMC created the file after install (claude_omc_companion_block, base.sh).
 set -euo pipefail
 
 SELF=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$0")
@@ -37,6 +39,7 @@ main() {
     python3 "$AI_HOME/ai/bin/ai-render" >/dev/null || die "ai-render failed: copies not refreshed"
     [ -f "$AI_HOME/ai/AGENTS.md" ] || die "ai/AGENTS.md missing after ai-render"
 
+    claude_omc_companion_block
     if [ -d "$CODEX_DIR" ]; then
         local tmp; tmp=$(rules_text_file)
         aiconf block-upsert "$CODEX_DIR/AGENTS.md" core 1 "$tmp"

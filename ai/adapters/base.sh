@@ -251,6 +251,33 @@ rules_text_file() {
 
 base_rules() { base_rules_user; }   # old name, used by ai-sync
 
+# The body of the Claude AI:core block: the import of the root rules (and the server hosting doc).
+claude_core_block_file() {
+    local tmp; tmp=$(mktemp "${TMPDIR:-/tmp}/ai-claude.XXXXXX")
+    printf '@~/.config/ai/AGENTS.md\n' > "$tmp"
+    [ -f "$HOSTING_DOC" ] && printf '@~/.dotfiles/docs/AGENTS-hosting.md\n' >> "$tmp"
+    printf '%s' "$tmp"
+}
+
+# OMC companion file (owner decision 2026-11-14). `omc launch` (oh-my-claude-sisyphus 5.8.x, dist/cli/launch.js
+# prepareOmcLaunchConfigDir) builds <claude dir>/.omc-launch/ when <claude dir>/CLAUDE-omc.md has the OMC
+# markers; its CLAUDE.md is a COPY of CLAUDE-omc.md only, so ~/.claude/CLAUDE.md and our AI:core import are not
+# loaded in omc-launched sessions. When that file exists, the same AI:core block goes into it too, appended
+# after <!-- OMC:END --> (never inside OMC's markers; recorded, uninstall removes it). macOS only: on Linux the
+# house rules come from /etc/claude-code/CLAUDE.md, which every Claude session loads. ai-sync runs this too.
+claude_omc_companion_block() {
+    local f="$CLAUDE_DIR/CLAUDE-omc.md" tmp
+    [ "$AI_OS" != linux ] && [ -f "$f" ] || return 0
+    if grep -qF '<!-- OMC:START -->' "$f" && ! grep -qF '<!-- OMC:END -->' "$f"; then
+        warn "$f has <!-- OMC:START --> without <!-- OMC:END -->: AI:core block not added (fix the file, re-run)"
+        return 0
+    fi
+    tmp=$(claude_core_block_file)
+    aiconf block-upsert "$f" core 1 "$tmp"
+    rm -f "$tmp"
+    ok "Claude: managed block also in $f (omc launch reads only that file)"
+}
+
 base_rules_user() {
     local tmp
     if [ ! -f "$AI_HOME/ai/AGENTS.md" ]; then
@@ -264,12 +291,11 @@ base_rules_user() {
         aiconf block-remove "$CLAUDE_DIR/CLAUDE.md" core
         ok "Claude: house rules from /etc/claude-code/CLAUDE.md (no per-user import on Linux)"
     elif want claude; then
-        tmp=$(mktemp "${TMPDIR:-/tmp}/ai-claude.XXXXXX")
-        printf '@~/.config/ai/AGENTS.md\n' > "$tmp"
-        [ -f "$HOSTING_DOC" ] && printf '@~/.dotfiles/docs/AGENTS-hosting.md\n' >> "$tmp"
+        tmp=$(claude_core_block_file)
         aiconf block-upsert "$CLAUDE_DIR/CLAUDE.md" core 1 "$tmp"
         rm -f "$tmp"
         ok "Claude: managed block in $CLAUDE_DIR/CLAUDE.md (other blocks kept)"
+        claude_omc_companion_block
     fi
 
     if want codex; then
