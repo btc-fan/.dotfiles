@@ -849,6 +849,13 @@ elif a[:2] == ["plugin", "uninstall"]:
     drop(a[2])
 elif a[:2] == ["plugin", "list"]:
     print("\\n".join(i["plugins"]))
+elif a[:2] == ["mcp", "remove"]:          # claude mcp remove --scope user NAME: the user scope of .claude.json
+    cj = os.path.join(cfg, ".claude.json")
+    d = load(cj, {})
+    if a[-1] not in (d.get("mcpServers") or {}):
+        sys.exit(1)
+    d["mcpServers"].pop(a[-1])
+    save(cj, d)
 save(km, k); save(ip, i); save(st, sett)
 '''
 
