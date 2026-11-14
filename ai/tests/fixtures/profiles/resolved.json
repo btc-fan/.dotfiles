@@ -1,0 +1,347 @@
+{
+  "tools": {
+    "claude-blog": {
+      "installed": {
+        "integrity": "",
+        "sha": "4f9c2cb8fd17f594e868d6c2ce0e8fb2c971f987",
+        "time": "2026-11-14T18:24:25Z",
+        "version": "2.3.2"
+      },
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "",
+        "ref": "v2.3.2",
+        "sha": "4f9c2cb8fd17f594e868d6c2ce0e8fb2c971f987",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "2.3.2"
+      },
+      "source": "git https://github.com/AgriciDaniel/claude-blog"
+    },
+    "claude-seo": {
+      "installed": {
+        "integrity": "",
+        "sha": "2e40a5fa6220fc846fcc56d666831fd1315bedc7",
+        "time": "2026-11-14T18:24:14Z",
+        "version": "2.6.1"
+      },
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "",
+        "ref": "v2.6.1",
+        "sha": "2e40a5fa6220fc846fcc56d666831fd1315bedc7",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "2.6.1"
+      },
+      "source": "git https://github.com/AgriciDaniel/claude-seo"
+    },
+    "codex": {
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "sha512-KhzYlkKPxoNssR8CEm45IjqnFWn7UtlF4CiD3tOJPea51xBs7MaHy0UQG9GSbCqk6Lrjn5QdJDV0QD1/FgWlGw==",
+        "ref": "",
+        "sha": "",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "0.169.0"
+      },
+      "source": "npm @openai/codex"
+    },
+    "context7-mcp": {
+      "installed": {
+        "integrity": "sha512-t3Jqm0hGQtkZvx5mwrBZMEiedqhmltVwhOiFKgnzDBcOXUZNqtVSQShaBLmUNVjsIRoV202THb/BEYlJF5Dajg==",
+        "sha": "",
+        "time": "2026-11-14T18:23:46Z",
+        "version": "4.7.0"
+      },
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "sha512-t3Jqm0hGQtkZvx5mwrBZMEiedqhmltVwhOiFKgnzDBcOXUZNqtVSQShaBLmUNVjsIRoV202THb/BEYlJF5Dajg==",
+        "ref": "",
+        "sha": "",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "4.7.0"
+      },
+      "source": "npm @upstash/context7-mcp"
+    },
+    "gitleaks": {
+      "newest": {
+        "checksums": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_checksums.txt",
+        "hold": false,
+        "integrity": "",
+        "ref": "v8.30.1",
+        "sha": "83d9cd684c87d95d656c1458ef04895a7f1cbd8e",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "8.30.1"
+      },
+      "source": "github gitleaks/gitleaks"
+    },
+    "graphify": {
+      "installed": {
+        "integrity": "",
+        "sha": "",
+        "time": "2026-11-14T18:23:41Z",
+        "version": "0.9.108"
+      },
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "",
+        "ref": "",
+        "sha": "",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "0.9.108"
+      },
+      "source": "pypi graphifyy"
+    },
+    "guarddog": {
+      "installed": {
+        "integrity": "",
+        "sha": "",
+        "time": "2026-11-14T18:22:24Z",
+        "version": "3.2.0"
+      },
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "",
+        "ref": "",
+        "sha": "",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "3.2.0"
+      },
+      "source": "pypi guarddog"
+    },
+    "herdr": {
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "",
+        "ref": "v0.9.5",
+        "sha": "2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "0.9.5"
+      },
+      "source": "github herdrdev/herdr"
+    },
+    "i-have-adhd": {
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "",
+        "ref": "v0.4.1",
+        "sha": "1ecea1993b7fce257ffbd686c070948b5e07eda6",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "0.4.1"
+      },
+      "source": "git https://github.com/ayghri/i-have-adhd"
+    },
+    "last30days": {
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "",
+        "ref": "v3.39.0",
+        "sha": "f918b496b021fbc4db270ff3442fabf373a4a5f4",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "3.39.0"
+      },
+      "source": "git https://github.com/mvanhorn/last30days-skill"
+    },
+    "llm-wiki": {
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "",
+        "ref": "v1.5.0",
+        "sha": "c9c8734be8a0b854c1547cfa3ee97f0b8c6bfa5f",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "1.5.0"
+      },
+      "source": "git https://github.com/atomicstrata/llm-wiki-compiler"
+    },
+    "mattpocock-skills": {
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "",
+        "ref": "v1.3.2",
+        "sha": "d1478fcb140db0b93c0c8df17bcfd311844749d0",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "1.3.2"
+      },
+      "source": "git https://github.com/mattpocock/skills"
+    },
+    "omc": {
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "sha512-6J2v4YomI8vK4mmhDTMV8SqS2Bj4dUvPz3ApapKsYVN6P04rGs0/L78p3/Rda0mq1UuHOYII8ubj+ehlgmxxwA==",
+        "ref": "",
+        "sha": "",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "5.8.4"
+      },
+      "source": "npm oh-my-claude-sisyphus"
+    },
+    "omc-plugin": {
+      "installed": {
+        "integrity": "",
+        "sha": "453d3dedf3e1634156195c8aa09a901c802ba542",
+        "time": "2026-11-14T18:25:55Z",
+        "version": "5.8.6"
+      },
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "",
+        "ref": "v5.8.6",
+        "sha": "453d3dedf3e1634156195c8aa09a901c802ba542",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "5.8.6"
+      },
+      "source": "git https://github.com/Yeachan-Heo/oh-my-claudecode"
+    },
+    "omx": {
+      "installed": {
+        "integrity": "sha512-ZpMHipwnaiHV/T8rp/czmF5U+ugqVdUOb28obL5U61q9WQwvfKAmzP4k1V82EnUXYMvsBgZIzFl0I3HADBbFEQ==",
+        "sha": "",
+        "time": "2026-11-14T18:22:49Z",
+        "version": "0.22.6"
+      },
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "sha512-ZpMHipwnaiHV/T8rp/czmF5U+ugqVdUOb28obL5U61q9WQwvfKAmzP4k1V82EnUXYMvsBgZIzFl0I3HADBbFEQ==",
+        "ref": "",
+        "sha": "",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "0.22.6"
+      },
+      "source": "npm oh-my-codex"
+    },
+    "opencode": {
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "sha512-tEqMvQahfhdDj8vceYpXtoIrvjPXm5XRfetWnPN5YISueU7adNx9JcUA3zZ+2GKuDVgDpGdQe1ZLtCZDjqodvA==",
+        "ref": "",
+        "sha": "",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "1.19.5"
+      },
+      "source": "npm opencode-ai"
+    },
+    "osv-scanner": {
+      "installed": {
+        "integrity": "",
+        "sha": "02f96a40691c2d155fdda799af436e111231e365",
+        "time": "2026-11-14T18:22:39Z",
+        "version": "2.7.1"
+      },
+      "newest": {
+        "checksums": "https://github.com/google/osv-scanner/releases/download/v2.7.1/osv-scanner_SHA256SUMS",
+        "hold": false,
+        "integrity": "",
+        "ref": "v2.7.1",
+        "sha": "02f96a40691c2d155fdda799af436e111231e365",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "2.7.1"
+      },
+      "source": "github google/osv-scanner"
+    },
+    "playwright-mcp": {
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "sha512-bSfECMbLXhJdWkGhLzNMxTZuazG+9IDJ679gflji3yyD94e7ARnGdqmJmG6lTPB+gYX+OiFLmX5myBl62+wZEw==",
+        "ref": "",
+        "sha": "",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "0.0.85"
+      },
+      "source": "npm @playwright/mcp"
+    },
+    "ponytail": {
+      "installed": {
+        "integrity": "",
+        "sha": "7801d061243d7b753bad0e0b3c057cd250b11755",
+        "time": "2026-11-14T18:23:13Z",
+        "version": "5.3.3"
+      },
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "",
+        "ref": "v5.3.3",
+        "sha": "7801d061243d7b753bad0e0b3c057cd250b11755",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "5.3.3"
+      },
+      "source": "git https://github.com/DietrichGebert/ponytail"
+    },
+    "rtk": {
+      "installed": {
+        "integrity": "",
+        "sha": "e288a18c04452fd26192f59132e5324a8bb6924d",
+        "time": "2026-11-14T18:23:05Z",
+        "version": "1.2.0"
+      },
+      "newest": {
+        "checksums": "https://github.com/rtk-ai/rtk/releases/download/v1.2.0/checksums.txt",
+        "hold": false,
+        "integrity": "",
+        "ref": "v1.2.0",
+        "sha": "e288a18c04452fd26192f59132e5324a8bb6924d",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "1.2.0"
+      },
+      "source": "github rtk-ai/rtk"
+    },
+    "serena": {
+      "installed": {
+        "integrity": "",
+        "sha": "",
+        "time": "2026-11-14T18:23:37Z",
+        "version": "2.1.0"
+      },
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "",
+        "ref": "",
+        "sha": "",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "2.1.0"
+      },
+      "source": "pypi serena-agent"
+    },
+    "skill-scanner": {
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "",
+        "ref": "",
+        "sha": "",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "2.3.2"
+      },
+      "source": "pypi cisco-ai-skill-scanner"
+    },
+    "ui-ux-pro-max": {
+      "newest": {
+        "checksums": "",
+        "hold": false,
+        "integrity": "",
+        "ref": "v2.15.0",
+        "sha": "a38d04c3d5c298c851dbe5e6ee1965ee3de42cb5",
+        "time": "2026-11-14T18:22:14Z",
+        "version": "2.15.0"
+      },
+      "source": "git https://github.com/nextlevelbuilder/ui-ux-pro-max-skill"
+    }
+  },
+  "version": 1
+}
