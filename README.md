@@ -232,6 +232,11 @@ The server must run 24/7 and come back by itself.
 
 ### 30-disks
 
+Spinning disks get `read_ahead_kb` 512 and the `mq-deadline` scheduler (udev rule
+`60-hdd-io.rules`; the kernel default read-ahead was 8 MB, so one bulk read made every small
+read wait). With the database on an HDD (`PG_DISK=hdd`): `vm.swappiness` 10 and write-back
+limits of 64 MB / 512 MB (`62-db-on-hdd.conf`).
+
 Disks are found by **serial number**, not by `/dev/sdX` (those names change).
 For each line in `DISKS` (`SERIAL|LABEL|MOUNT|ROLE`):
 

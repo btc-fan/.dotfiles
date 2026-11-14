@@ -9,6 +9,7 @@ ROOT_DISK=$(lsblk -rsno NAME,TYPE "$(findmnt -no SOURCE /)" | awk '$2=="disk" {p
 
 main() {
     apt_install parted e2fsprogs smartmontools
+    hdd_io_tuning
     local entry serial label mnt role
     if [ -z "${DISKS[*]:-}" ]; then
         log "no DISKS in host.env: nothing to do"
@@ -173,6 +174,31 @@ write_disk_roles() {
     fi
     put "$f" 644 < "$tmp"
     rm -f "$tmp"
+}
+
+# Spinning disks: a small read-ahead and the deadline scheduler, so one big sequential read
+# (vacuum, a backup) does not make every small random read wait. The kernel default read-ahead
+# here was 8 MB (about 70 ms of one HDD per request). With the database on an HDD (PG_DISK=hdd):
+# less swapping and smaller write-back bursts. SSDs are not touched (ATTR rotational==1).
+hdd_io_tuning() {
+    log "HDD I/O: read_ahead_kb 512 + mq-deadline on rotational disks$([ "${PG_DISK:-hdd}" = hdd ] && echo "; swappiness 10, dirty 64 MB / 512 MB")"
+    put /etc/udev/rules.d/60-hdd-io.rules 644 <<'EOF'
+# Managed by ~/.dotfiles setup.sh (step 30-disks): rotational disks only.
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd[a-z]", ATTR{queue/rotational}=="1", ATTR{queue/read_ahead_kb}="512", ATTR{queue/scheduler}="mq-deadline"
+EOF
+    if changed && ! dry; then
+        udevadm control --reload
+        udevadm trigger --subsystem-match=block --action=change
+    fi
+    if [ "${PG_DISK:-hdd}" = hdd ] && is_yes "${INSTALL_POSTGRES:-yes}"; then
+        put /etc/sysctl.d/62-db-on-hdd.conf 644 <<'EOF'
+# Managed by ~/.dotfiles setup.sh (step 30-disks, PG_DISK=hdd).
+vm.swappiness = 10
+vm.dirty_background_bytes = 67108864
+vm.dirty_bytes = 536870912
+EOF
+        if changed && ! dry; then sysctl -q -p /etc/sysctl.d/62-db-on-hdd.conf; fi
+    fi
 }
 
 smart_health() {
