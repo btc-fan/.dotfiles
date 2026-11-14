@@ -30,6 +30,7 @@ Deviation: 4 U+2014 characters replaced by "-". No other change.WARNING: the tem
 2. Env in shell and every unit file: `OMX_AUTO_UPDATE=0`, `OMX_NATIVE_AUTO_FETCH=0`. `OMX_REPLY_ENABLED` unset. No native binaries.
 3. Codex first (device-code login). Then `omx setup` in a throwaway HOME. Read the diff. Then real. Set `project_doc_max_bytes = 65536`. File list touched by setup: UNVERIFIED.
 4. Per project: gitignore `.omx/` (path UNVERIFIED). No block by us if OMX added its own.
-5. herdr transport of OMX: keep off. Never follow its `curl ... | sh` error text.
-6. Verify: `omx --version` says the installed version in `~/.local/state/ai/resolved.json`. `omx doctor` clean. `omx exec --skip-git-repo-check -C . "Reply with exactly OMX-EXEC-OK"` prints it.
-7. Cleanup: `npm rm -g oh-my-codex`. Remove the OMX block and its `config.toml` part (command UNVERIFIED). Delete `~/.cache/oh-my-codex/` and `.omx/`.
+5. Hook node path (owner decision 2026-11-14): `omx setup` writes `~/.codex/hooks.json` commands with the node it ran under. With Homebrew node that is `<brew prefix>/Cellar/node/<version>/bin/node`, gone after `brew upgrade node`. install.sh (Codex hooks step, every run) points the oh-my-codex commands to `<brew prefix>/opt/node/bin/node` when that link exists; a `trusted_hash` in `config.toml` that matched the old command moves to the new one. Recorded (`hook-cmd:` in managed-keys.json); uninstall puts both back. Nothing else of OMX is changed. ai-doctor fails while an oh-my-codex hook still has a Cellar node.
+6. herdr transport of OMX: keep off. Never follow its `curl ... | sh` error text.
+7. Verify: `omx --version` says the installed version in `~/.local/state/ai/resolved.json`. `omx doctor` clean. `omx exec --skip-git-repo-check -C . "Reply with exactly OMX-EXEC-OK"` prints it.
+8. Cleanup: `npm rm -g oh-my-codex`. Remove the OMX block and its `config.toml` part (command UNVERIFIED). Delete `~/.cache/oh-my-codex/` and `.omx/`.

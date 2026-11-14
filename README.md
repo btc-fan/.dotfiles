@@ -49,6 +49,12 @@ Audit reports (local, not in git) live next to the checkouts in `ai-audit/`.
    sources file), every `install.sh` run moves a tool when it differs, after `agent-audit`. RTK is built from
    source at the newest release tag (one path for every OS and arch), source audited first, tag and commit in
    the audit log. Section 7 says how to hold a tool back.
+2b. **Owner decisions 2026-11-14 (M3 Mac): DONE in code, not yet installed on the Mac.** caveman and
+   `byterover-mcp` removed from Claude and Codex (saved, uninstall restores them); claude-seo, claude-blog,
+   ui-ux-pro-max and typesafe off at user scope (`ai-adopt --tools ui` for ui-ux-pro-max); one Serena (a
+   user-scope copy is moved out); macOS rtk from the Homebrew formula with `brew upgrade rtk` (one rtk on PATH);
+   OMX hooks on Homebrew's stable `opt/node` link; last30days on by default in Claude. The lists are in
+   `ai/pins.env` (`AI_DROP_*`, `AI_OFF_CLAUDE_PLUGINS`). Next: dry run, then the real install on the M3.
 3. **Claude live checks on the server** could not run today (the server's Claude account was out
    of quota): rerun `ai-doctor --live` as the main user and the end-to-end test (a small web page in
    a try box through the box tool, test, commit). Codex already passed context7 + box creation.
@@ -132,7 +138,7 @@ Read it from the top.
 | Agents | Claude Code (main), Codex + OMX (main), Hermes. OMC: on on macOS, per project on servers (`ai-adopt --tools omc`). herdr: everywhere. opencode: macOS; on servers only with `AI_EXTRA_AGENTS=opencode`. omo: optional | [docs/TOOLS.md](docs/TOOLS.md) |
 | Plugin `ai-core` | our skills, hooks and MCP list, one folder, installed by Claude and Codex | `ai/marketplace/plugins/ai-core/` |
 | MCP servers | global: context7 (the one docs tool), box (project boxes on a server) and Serena (on by default in every project; a line `no-serena` in `.ai/enabled` opts out). Per project only: Playwright | [docs/TOOLS.md](docs/TOOLS.md) |
-| Other tools | RTK, Ponytail, i-have-adhd, five mattpocock skills, `gh`, graphify (CLI, on by default; `no-graph` opts out). Per project only: claude-seo, claude-blog (`ai-adopt --tools seo,blog`) | [docs/TOOLS.md](docs/TOOLS.md) |
+| Other tools | RTK, Ponytail, i-have-adhd, five mattpocock skills, `gh`, graphify (CLI, on by default; `no-graph` opts out), last30days (Claude, on by default). Per project only: claude-seo, claude-blog, ui-ux-pro-max (`ai-adopt --tools seo,blog,ui`). Dropped and removed by install: caveman, `byterover-mcp` | [docs/TOOLS.md](docs/TOOLS.md) |
 | Root rules | the one AGENTS.md all agents read | [docs/AGENTS-MD.md](docs/AGENTS-MD.md) |
 | Usage contracts | `ai/rules/<tool>.md`, five sections each | [docs/EXTENDING.md](docs/EXTENDING.md) |
 | Router + gates | session-start status, a few prompt rows, four gates | section 3 below |
@@ -205,7 +211,7 @@ Out of scope until the server test and the owner review are done. Then (one user
 git -C ~/.dotfiles worktree add ~/.dotfiles-ai ai
 ~/.dotfiles-ai/install.sh --dry-run
 ```
-Rules for every machine: the install only changes agent configuration. It never touches your projects, databases or services. On macOS it never writes managed settings (an employer may manage them). RTK is on by default; the exact switch for one machine is still being finalized, see `install.sh --help`.
+Rules for every machine: the install only changes agent configuration. It never touches your projects, databases or services. On macOS it never writes managed settings (an employer may manage them). RTK is on by default; the exact switch for one machine is still being finalized, see `install.sh --help`. With the Homebrew formula `rtk` installed, the Mac keeps that copy and moves it with `brew upgrade rtk` (no Rust needed).
 
 ### Windows
 
@@ -354,7 +360,8 @@ Tools update on every `install.sh` run (owner decision 2026-11-14). No tool upda
    full commit, never a tag), so the owner reviews the findings and adds a line for the new version before it goes in.
    - Audited: the npm packages (Codex, OMC npm route, OMX, opencode, context7, Playwright MCP), the PyPI packages
      (Serena, graphify, guarddog, skill-scanner) and the git sources (Ponytail, i-have-adhd, claude-seo,
-     claude-blog, mattpocock skills, the OMC plugin, the RTK source). For npm, guarddog checks the package
+     claude-blog, last30days, mattpocock skills, the OMC plugin, the RTK source). On macOS with the Homebrew
+     formula `rtk`, the release tag is audited and then `brew upgrade rtk` runs (no source build). For npm, guarddog checks the package
      itself, not its dependencies.
    - NOT audited: the herdr and osv-scanner release binaries (checked only against the sha256 their project
      publishes; SLSA provenance or a GitHub attestation is checked only when `slsa-verifier` or a logged-in `gh`

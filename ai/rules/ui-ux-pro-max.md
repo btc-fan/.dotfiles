@@ -18,7 +18,7 @@ Its skill files hold 34 U+2014 characters in total. Lint every output.
 - Figma URL: use the Figma skills. Any chart or dashboard styling: dataviz. A .pptx file: the pptx skill. OG or hero image for SEO or a post: seo-image-gen or blog-image.
 
 ## Enforcement
-- Opt-in means project scope. Enable it in `.claude/settings.local.json` or the project `.claude/settings.json`. It must be OFF in `~/.claude/settings.json`. Plugin skills ignore `skillOverrides`, so the switch is the whole plugin.
+- Opt-in means project scope. Enable it in `.claude/settings.local.json` or the project `.claude/settings.json` (`ai-adopt --tools ui` writes `"ui-ux-pro-max@ui-ux-pro-max-skill": true` there). It must be OFF in `~/.claude/settings.json`: where it is installed, install.sh sets it false at user scope (`AI_OFF_CLAUDE_PLUGINS` in `ai/pins.env`, owner decision 2026-11-14). Plugin skills ignore `skillOverrides`, so the switch is the whole plugin.
 - L0: one line in the project AGENTS.md only: `UI work (pages, components, layout, color, type, a11y) -> use ui-ux-pro-max first; assets: design / banner-design / slides / brand`. RO and RU: "interfata, design, pagina, componente", "интерфейс, дизайн, страница, компонент".
 - L1: only through a project SessionStart hook when the project opted in (marker: `design-system/` or `.claude/skills/ui-ux-pro-max`).
 - L2 and L3 (routing row `ui`): only in opt-in projects. Edit or Write of tsx, jsx, vue, svelte, css, html files gives a nudge to run its `search.py`.

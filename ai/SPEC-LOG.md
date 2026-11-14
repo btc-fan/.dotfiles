@@ -492,3 +492,30 @@ ai-doctor fails if any enabled tool lacks a contract or its evals fail.
   not); herdr and osv-scanner stay unaudited binaries with a WARN on every change (an independent check only where
   slsa-verifier or a logged-in gh exists); `dir` acceptances keyed by commit; a failed marketplace replace puts
   the old source back; enabledPlugins survives reinstalls; local-folder plugins compare the source commit.
+
+## 2026-11-14 (M3): drops, off by default, Homebrew rtk, OMX node path, last30days (owner decisions)
+Seen on the owner's M3 Mac (macOS 15.5), read only:
+- caveman was still installed and enabled, with two settings.json hooks that start node from a versioned
+  Homebrew Cellar path, and its `caveman-shrink` MCP server in Claude and Codex. Reported for weeks, never
+  removed by hand. Owner: remove it, with a restore. Reason: one reply style (i-have-adhd), and its hooks and
+  MCP cost context in every session.
+- `byterover-mcp` failed in every session (endpoint not found). Owner: remove from Claude and Codex.
+- Drops were hard-coded in one `case` line. Now one list per kind in `ai/pins.env`, so a later drop is one word.
+- ui-ux-pro-max and typesafe were on at user scope (skill listings in every session). Owner: off, keep installed;
+  ui-ux-pro-max per project through the existing opt-in id `ui` (ai-adopt had no plugin mapping for it: added).
+- A user-scope `serena` (uvx from git) ran next to the plugin route: two Serena servers. Owner: move it out
+  like context7. Codex already replaced its entry (code read; test added).
+- rtk: Homebrew rtk 0.49.0 was first on PATH, a source build in `~/.local/bin` would be shadowed and the version
+  check never matched, so every run rebuilt it. Owner: on macOS use `brew upgrade rtk` when the formula is
+  installed (the source tag is still audited first); keep only one rtk.
+- OMX hooks used `/opt/homebrew/Cellar/node/<version>/bin/node`, which breaks on `brew upgrade node`. Owner: keep
+  OMX, point those commands to Homebrew's stable `opt/node` link. The trusted_hash of a changed hook moves with
+  it, else Codex would skip the hooks as untrusted.
+- last30days: owner wants it on by default for Claude everywhere. Newest stable tag is v3.39.0 (f918b49,
+  2026-11-13; v3.9.4 only sorts last by text). MIT. Code read: v3.9.4 had a SessionStart hook
+  (`check-config.sh`) that printed a status in every session (about 100 tokens until set up, never silent; no
+  network); v3.39.0 removed the hook, so the per-session cost is the skill description. The engine sends the
+  topic to the sources it queries (vendor "Security & Permissions" list); cookie reads and publishing need
+  consent in chat. agent-audit was not run at intake on this Mac (scanners not installed here); install.sh
+  audits the tag tree before every install, as for claude-seo.
+

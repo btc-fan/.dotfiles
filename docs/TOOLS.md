@@ -44,6 +44,7 @@ An agent is the program that talks to a model and runs tools. A harness is an ag
 - **Scope.** Global, main. No cooldown since 2026-11-14: install.sh takes the newest stable OMX after its audit.
 - **Pin.** Intake: Codex 0.167.0, OMX 0.22.6. Installed: the newest stable npm release of each (a Codex from another installer is left as it is).
 - **Telemetry and updates off.** Codex analytics, feedback and update checks off in `config.toml`. `OMX_AUTO_UPDATE=0`, `OMX_NATIVE_AUTO_FETCH=0`. No native binaries.
+- **Hook node path (owner decision 2026-11-14).** OMX writes its Codex hooks with the node it ran under. With Homebrew node that is a versioned Cellar path (`/opt/homebrew/Cellar/node/<version>/bin/node`), which is gone after the next `brew upgrade node`. After each install `install.sh` points those oh-my-codex commands to Homebrew's stable link `<brew prefix>/opt/node/bin/node` when it exists (recorded; a trust hash you gave the old command moves along). Nothing else of OMX changes.
 - **Warning.** The OMX template says "do not stop to ask, proceed". The root rules say the owner's confirm-first rules win. Never run OMX in a Claude session.
 - **Contract.** `ai/rules/omx.md`.
 
@@ -106,7 +107,7 @@ MCP servers give agents extra tools, and each one costs context in every session
 
 - **What.** A code-intelligence server. It reads and edits code by symbol through language servers.
 - **Why.** A symbol lookup costs far fewer tokens than reading files, and edits by symbol are exact. On by default (owner decision 2026-11-12 evening); a project opts out with `no-serena` in `.ai/enabled`.
-- **How it works here.** Global for Claude (plugin `ai-serena@ai`, on at user scope, `--context=claude-code`), Codex (`--context=codex`) and Hermes (`--context=ide`), all with `--project-from-cwd` and mode `no-memories`: no memories and no onboarding, the AGENTS.md Map is the one knowledge place. `ai-adopt` indexes each project. Tools: `get_symbols_overview`, `find_symbol`, `find_referencing_symbols`, `replace_symbol_body`. Answers are cut at 40k characters; no dashboard. Section 7 has every setting.
+- **How it works here.** Global for Claude (plugin `ai-serena@ai`, on at user scope, `--context=claude-code`), Codex (`--context=codex`) and Hermes (`--context=ide`), all with `--project-from-cwd` and mode `no-memories`: no memories and no onboarding, the AGENTS.md Map is the one knowledge place. `ai-adopt` indexes each project. One Serena per agent: a user-scope `serena` in `~/.claude.json` is moved out once `ai-serena@ai` is on (saved, restored by uninstall); Codex replaces a foreign `serena` entry the same way. Tools: `get_symbols_overview`, `find_symbol`, `find_referencing_symbols`, `replace_symbol_body`. Answers are cut at 40k characters; no dashboard. Section 7 has every setting.
 - **Pin.** `serena-agent==2.1.0`. **Telemetry off.** `SERENA_USAGE_REPORTING=false` in the server entry's `env`.
 - **Contract.** `ai/rules/serena.md`.
 
@@ -147,7 +148,7 @@ MCP servers give agents extra tools, and each one costs context in every session
 - **Why.** Output is the biggest token cost in a coding session. Savings are up to 90%.
 - **How it works here.** A hook rewrites `git status` to `rtk git status`. The agent does not call it by hand. `git push` and `gh` are never rewritten (`exclude_commands`), so their output and our gates see the plain command. Exception: `uv run` is not rewritten, so in a Python project the agent types `uv run rtk pytest`. For security tools and debugging use `rtk bypass <cmd>` so findings are not cut. Check with `rtk gain --history`.
 - **Scope.** Global, on by default.
-- **Pin.** v1.2.0, built from source (`cargo --locked`).
+- **Pin.** Intake v1.2.0. Installed: the newest stable release, built from source (`cargo --locked`). On macOS with the Homebrew formula `rtk` (same project): `brew upgrade rtk` after the audit of the release tag, no Rust and no build; an older copy this setup built in `~/.local/bin` is moved to the backup folder, so one rtk stays on PATH (owner decision 2026-11-14).
 - **Telemetry.** Never run `rtk telemetry enable`.
 - **Contract.** `ai/rules/rtk.md`.
 
@@ -208,7 +209,7 @@ MCP servers give agents extra tools, and each one costs context in every session
 
 - **What.** Seven design skills: UI rules, palettes, fonts, design system, banners, slides.
 - **Why.** Only for projects that build a visual interface.
-- **How it works here.** Enabled per project, never in the user settings. Logo, icon and image generation call a paid API: ask first. Never copy its `stack/` folder.
+- **How it works here.** Enabled per project, never in the user settings. Where it is installed, `install.sh` sets it off at user scope (`AI_OFF_CLAUDE_PLUGINS` in `ai/pins.env`, owner decision 2026-11-14); `ai-adopt --tools ui` turns it on for one project. Logo, icon and image generation call a paid API: ask first. Never copy its `stack/` folder.
 - **Scope.** Opt-in per project.
 - **Pin.** v2.15.0 (`a38d04c`).
 - **Contract.** `ai/rules/ui-ux-pro-max.md`.
@@ -221,6 +222,15 @@ MCP servers give agents extra tools, and each one costs context in every session
 - **Scope.** Opt-in per project.
 - **Pin.** v1.5.0.
 - **Contract.** `ai/rules/llm-wiki-compiler.md`.
+
+### last30days
+
+- **What.** One skill: what people say about a topic in the last 30 days, from Reddit, X, YouTube, Hacker News, Polymarket, GitHub and the web, ranked by engagement.
+- **Why.** Current opinion and trends that docs and web search miss (owner decision 2026-11-14).
+- **How it works here.** `/last30days <topic>`. Reddit, Hacker News and Polymarket work without keys. Its setup wizard (in chat, it asks first) can read browser cookies for X, install free CLIs (yt-dlp and others) and add paid keys. The topic text goes to those services. No hook since v3.39.0: the only per-session cost is the skill description (older releases had a SessionStart status hook; the update removes it). Optional one-time setup: `/last30days`, then finish or skip the wizard (skip writes `SETUP_COMPLETE=true`, `BROWSER_CONSENT=false` to `~/.config/last30days/.env`).
+- **Scope.** Global for Claude, on by default (Claude plugin `last30days@last30days-skill`, newest stable tag, audited). Not installed for Codex, opencode or Hermes.
+- **Pin.** Intake: v3.39.0 (`f918b49`).
+- **Contract.** `ai/rules/last30days.md`.
 
 ### Toolbox (not installed)
 
@@ -271,6 +281,7 @@ Some tools can do the same job. The table in `ai/routing.yaml` (`tiebreaks`) nam
 | "Wiki" | llmwiki where the project enabled it, else OMC wiki | the other | The project marker decides. |
 | Code lookup | the Map in AGENTS.md, then `graphify query`, then Serena symbols, then a narrow rg | OMC `lsp_*`, ast-grep (fallback) | One order everywhere; `no-serena` / `no-graph` skip a step. |
 | Library API docs | context7 with the ID from the Libraries section | web search | Cached ID first, web last. |
+| What people say about a topic now | `last30days` | OMC `research`, web search | Recent opinion and engagement: last30days. Facts and docs: the others. |
 
 ### Finding code: Map, graph, Serena, then rg
 
@@ -320,11 +331,11 @@ OMC has a skill, `minimal-code-discipline`, with the same job as Ponytail. Ponyt
 
 ### i-have-adhd vs caveman (dropped)
 
-Both shorten replies. We dropped caveman: it overlaps i-have-adhd and the "Reporting style" of the root rules. One reply style only.
+Both shorten replies. We dropped caveman: it overlaps i-have-adhd and the "Reporting style" of the root rules. One reply style only. Since 2026-11-14 `install.sh` removes it (plugin, its marketplace, its two settings.json hooks, the `caveman-shrink` MCP server in Claude and Codex), saves each entry and records a restore. Its hook scripts in `~/.claude/hooks/` stay and are reported.
 
 ### Other dropped or not adopted
 
-The context7 plugin is dropped (the MCP does the same). Not adopted: superpowers (a second kickoff, clashes with OMC), Docker Dynamic MCP, Smithery, MetaMCP, Nix tools, sfw (forced telemetry), context7 On-Premise, an LLM classifier router.
+The context7 plugin is dropped (the MCP does the same). `byterover-mcp` is dropped (its endpoint is gone): removed from Claude and Codex. `typesafe@typesafe-ai` stays installed but off at user scope. The lists are in `ai/pins.env` (`AI_DROP_*`, `AI_OFF_CLAUDE_PLUGINS`): a later drop is one word there. Not adopted: superpowers (a second kickoff, clashes with OMC), Docker Dynamic MCP, Smithery, MetaMCP, Nix tools, sfw (forced telemetry), context7 On-Premise, an LLM classifier router.
 
 ## 6. How they interact
 
@@ -359,6 +370,8 @@ One row per tool: is it on, where we configure it, the exact settings, why, and 
 | herdr 0.9.5 | on, server and where present on macOS | audited installer to `/usr/local/bin/herdr`; `~/.config/herdr/config.toml` | `[update] version_check = false`, `manifest_check = false`; `herdr integration install` per agent | Owner tool for watching agent sessions ("leave it alone") | none in the model context | https://herdr.dev (installer pinned by sha256 in `ai/pins.env`) |
 | oh-my-claudecode 5.8.4 | server: installed, OFF at user scope (the owner turns it on per project with `ai-adopt --tools omc`); macOS: on | Claude plugin `oh-my-claudecode@omc`; `~/.config/claude-omc/config.jsonc` | `security.disableAutoUpdate = true`, `mcpServers.exa.enabled = false` | Multi-agent workflows when wanted. Inside an OMC session our managed policy still applies: the sandbox, the managed deny rules and the managed router hooks run for every tool call, also in its subagents (hooks receive subagent calls; settings are per process). Nothing extra is injected | about 6.7k when on | https://github.com/Yeachan-Heo/oh-my-claudecode |
 | claude-seo 2.5.0, claude-blog 2.3.2 | opt-in per project | Claude plugins, off at user scope; `ai-adopt --tools seo,blog` | none | Large skill sets for SEO and blog work | about 12k each when on | https://github.com/AgriciDaniel/claude-seo, https://github.com/AgriciDaniel/claude-blog |
+| ui-ux-pro-max, typesafe | off at user scope where installed (not installed by this setup) | `AI_OFF_CLAUDE_PLUGINS` in `ai/pins.env`; ui-ux-pro-max per project: `ai-adopt --tools ui` | enabledPlugins false | Skill listings cost tokens in every session | zero when off | owner decision 2026-11-14 |
+| last30days 3.39.0 | on (Claude) | Claude plugin `last30days@last30days-skill`, newest stable tag; `~/.config/last30days/.env` (optional keys) | enabledPlugins true; no key needed | Recent opinion and trends from social and market sources | skill description about 70; no hook since v3.39.0 | https://github.com/mvanhorn/last30days-skill |
 | Playwright MCP 0.0.85 | opt-in per project | plugin `ai-playwright@ai` (off at user scope); `ai-adopt --tools browser` | `ai-playwright-mcp --headless --isolated`, pinned, no npx | Browser checks only where a project needs them | deferred when on | https://github.com/microsoft/playwright-mcp |
 
 Navigation order for agents (rules): AGENTS.md Map, then `graphify query` for structure, then Serena symbol tools for definitions, references and edits, then a narrow `rg` and reading only the lines found.

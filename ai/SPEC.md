@@ -153,8 +153,10 @@ Versions: the newest stable release of each (section 23); the commits below are 
 | claude-blog | v2.3.2 = 4f9c2cb8fd17f594e868d6c2ce0e8fb2c971f987 | all skills on; notebooklm, image-MCP script, blog-studio, brain OFF |
 | mattpocock/skills (copies at the newest tag) | 4ae2317ddb22b046e26455e4f9c9b3aaaf62212d | grilling, grill-me, wait-what, retro, writing-for-agents; no plugin, no `npx skills@latest`; shared ~/.agents/skills + link for Claude |
 | oh-my-claudecode, oh-my-codex | newest stable | main harnesses |
+| last30days (Claude plugin) | v3.39.0 = f918b496b021fbc4db270ff3442fabf373a4a5f4 | on by default (owner 2026-11-14); one skill, no hook since v3.39.0; sends the topic to Reddit, X, HN, YouTube, Polymarket, GitHub, web |
 | prompting-claude-and-codex (own skill) | dated snapshot | condensed from official docs, source links |
-- caveman: dropped (overlaps i-have-adhd + Reporting style). context7 plugin: dropped (duplicate of the MCP).
+- caveman: dropped (overlaps i-have-adhd + Reporting style); install.sh removes it (section 24). context7 plugin:
+  dropped (duplicate of the MCP), reported only.
 - SEO/blog split: one post file = blog-*; site or URL = seo-*. Codex/opencode/Hermes hand SEO and blog work
   to Claude Code (`omc ask claude` / `claude -p`). Context cost accepted: about 9k tokens per session.
 
@@ -511,8 +513,9 @@ Catalog: `omc ask <provider> --prompt` (markdown only); `omx exec` passes to `co
   - PyPI packages (`agent-audit pypi`): serena-agent, graphifyy, and guarddog and cisco-ai-skill-scanner
     (audited by the scanners already installed before they replace them).
   - git sources (`agent-audit dir` of the exact commit; accept lines keyed by the full commit, never a tag):
-    Ponytail, i-have-adhd, claude-seo, claude-blog, mattpocock skills, the OMC plugin source, the RTK source
-    (after the cargo update, before the build).
+    Ponytail, i-have-adhd, claude-seo, claude-blog, last30days, mattpocock skills, the OMC plugin source, the RTK
+    source (after the cargo update, before the build; on macOS with the Homebrew formula: the release tag tree
+    before `brew upgrade rtk`, section 24).
 - What is NOT audited (exceptions, said in the install output every time):
   - herdr and osv-scanner release binaries (agent-audit cannot scan a closed binary). Each download is checked
     against the sha256 the project publishes (osv-scanner: `SHA256SUMS` of the same release; herdr: its
@@ -538,3 +541,30 @@ Catalog: `omc ask <provider> --prompt` (markdown only); `omx exec` passes to `co
   `install <tool> <version> INSTALLED <commit|integrity> <source>` line per install in `audit.log`.
   `ai-doctor` shows per tool "update available: <tool> <installed> -> <newest>" (cached with --quick).
 - Not changed: the agent rule for packages that agents add to projects (exact versions only, no @latest).
+
+## 24. Drops, off-by-default plugins, Homebrew rtk, OMX node path, last30days (owner decisions 2026-11-14)
+Reason: ai/SPEC-LOG.md, 2026-11-14 (M3). Every OS unless stated; every change recorded for uninstall, with a
+restore where something existing is removed; dry-run safe.
+- One place for the lists: `ai/pins.env` `AI_DROP_CLAUDE_PLUGINS`, `AI_DROP_CLAUDE_HOOKS`, `AI_DROP_MCP`,
+  `AI_OFF_CLAUDE_PLUGINS`. install.sh acts on them, ai-doctor checks them. A later drop is one word.
+- caveman removed: `claude plugin uninstall caveman@caveman --keep-data`, its marketplace when no other plugin uses
+  it, the settings.json hooks whose command has `caveman-activate.js` or `caveman-mode-tracker.js` (the script
+  files in `~/.claude/hooks/` stay, reported), the user MCP `caveman-shrink` in Claude and Codex.
+- `byterover-mcp` (endpoint gone) removed from Claude and Codex the same way. Each removed entry is saved in
+  `~/.local/state/ai/undo/` (0600) and restored by uninstall.
+- Off at user scope where installed (enabledPlugins false, never uninstalled): claude-seo, claude-blog,
+  ui-ux-pro-max (per project: `ai-adopt --tools ui`), typesafe (no per-project id).
+- Serena: once `ai-serena@ai` is installed and enabled, a user-scope `serena` in `~/.claude.json` is moved out
+  (saved, restore recorded). Codex already saves and replaces a foreign `serena` entry.
+- RTK on macOS: when the Homebrew formula `rtk` is installed, `brew upgrade rtk` moves it when it is older than
+  the newest stable release, after `agent-audit dir` of the release tag; no source build, no Rust. An older copy
+  this setup built in `~/.local/bin` is moved to the backup folder (restore recorded): one rtk on PATH. No brew
+  formula: the source build as before.
+- OMX: kept and updated (newest stable, audited). oh-my-codex hook commands in `~/.codex/hooks.json` on a
+  versioned Homebrew Cellar node point to `<brew prefix>/opt/node/bin/node` when that link exists; a matching
+  Codex trusted_hash moves along. Recorded. Nothing else of OMX changes.
+- last30days: Claude plugin `last30days@last30days-skill`, newest stable tag of mvanhorn/last30days-skill,
+  audited, through the claude-seo path (a foreign marketplace is replaced, data kept), ON at user scope on every
+  machine. Contract `ai/rules/last30days.md`, evals `ai/evals/last30days.md`, one passive line in
+  `ai/agents-md/90-toolbox-and-vendor-rules.md`, no routing row.
+- ai-doctor checks all of the above.

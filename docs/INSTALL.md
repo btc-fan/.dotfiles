@@ -41,9 +41,10 @@ Each step prints `[n/N] what`. A step that is already done is skipped. Run it tw
 3. Worktree links: `~/.dotfiles/bin/claude-notify` and every `ai/bin/*` command linked into `~/.local/bin/`. The link names go into `~/.dotfiles/.git/info/exclude`.
 4. `ai-render`: turns `ai/routing.yaml` into `ai/build/routing.json` and the L0 table. It joins `ai/agents-md/*.md` and the L0 table into the root file. It fails above 30 KB.
 5. Agents: only those found or asked for with `--agents`. Registers the marketplace `ai` and the plugin `ai-core` with Claude and Codex. Hermes, opencode and herdr get their own registrations.
-6. MCP servers: Serena, context7, GitHub, Grounded Docs through the plugin `.mcp.json`. Codex: `codex mcp add`. Playwright is not installed here: it is per project.
-7. Skills: our own skill, the five mattpocock skills (at the newest stable tag of mattpocock/skills).
-8. Hooks: inside the plugin. Our own merge code only writes managed blocks (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, Hermes `SOUL.md`) and single keys for telemetry and update switches. Everything it adds is recorded in `~/.local/state/ai/managed-keys.json`.
+6. MCP servers: Serena, context7, GitHub, Grounded Docs through the plugin `.mcp.json`. Codex: `codex mcp add`. Playwright is not installed here: it is per project. Dropped servers (`AI_DROP_MCP` in `ai/pins.env`: `caveman-shrink`, `byterover-mcp`) are removed from Claude user scope and from Codex; each entry is saved in `~/.local/state/ai/undo/` and uninstall puts it back.
+7. Plugins: ai-core, Ponytail, i-have-adhd, claude-seo and claude-blog (off at user scope), OMC, ai-serena (a user-scope `serena` in `~/.claude.json` is then moved out), last30days (on). Plugins on `AI_OFF_CLAUDE_PLUGINS` are set off at user scope where installed (claude-seo, claude-blog, ui-ux-pro-max, typesafe). Plugins on `AI_DROP_CLAUDE_PLUGINS` (caveman) are uninstalled (data kept; their marketplace too when no other plugin uses it); uninstall restores them. Owner decisions 2026-11-14.
+   Skills: our own skill, the five mattpocock skills (at the newest stable tag of mattpocock/skills).
+8. Hooks: inside the plugin. Hook entries on `AI_DROP_CLAUDE_HOOKS` (the two caveman hooks) are removed from `~/.claude/settings.json` (saved, restored by uninstall; the script files stay and are reported). oh-my-codex hooks in `~/.codex/hooks.json` that start node from a versioned Homebrew Cellar folder are pointed to `<brew prefix>/opt/node/bin/node`. Our own merge code only writes managed blocks (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, Hermes `SOUL.md`) and single keys for telemetry and update switches. Everything it adds is recorded in `~/.local/state/ai/managed-keys.json`.
 9. Env: telemetry off and auto-update off for every tool.
 10. Verify: `ai-doctor --quick`.
 It ends with a summary: done, skipped, manual steps left.
@@ -71,10 +72,10 @@ Options:
 
 ## macOS (later)
 
-- brew only for missing CLIs. Never `brew upgrade`.
+- brew only for missing CLIs. Never `brew upgrade`, with one exception: when the Homebrew formula `rtk` is installed, install.sh runs `brew upgrade rtk` (after the audit of the release tag) when it is older than the newest stable release, instead of a source build (no Rust needed). An older copy this setup built in `~/.local/bin/rtk` is moved to the backup folder so one rtk stays on PATH (owner decision 2026-11-14).
 - Never writes macOS managed settings (an employer may manage them). Environment keys go into `~/.claude/settings.json` `env`.
 - RTK hook: on by default everywhere is the goal (see `install.sh --help` for the current switch). Install only changes agent configuration, never projects, databases or services.
-- Plugins that the design dropped (caveman, the context7 plugin) are reported, not removed. The installer prints the remove command.
+- Dropped plugins on `AI_DROP_CLAUDE_PLUGINS` in `ai/pins.env` (caveman, owner decision 2026-11-14) are removed and recorded; a later drop is one word there. The context7 plugin is only reported: the installer prints the remove command.
 
 ## Manual steps per machine
 
@@ -84,6 +85,9 @@ Options:
 - GitHub: replace the broad gh token with a fine-grained per-repo token (only the repos agents work on, the least scopes), and enable branch protection and push protection on GitHub. Agents use the `gh` CLI (the GitHub MCP was dropped).
 - claude.ai connectors (Gmail, Calendar, Drive) are off on Linux installs (`"disableClaudeAiConnectors": true` in `/etc/claude-code/managed-settings.json`), so unattended agents cannot reach your mail. To keep them: `install.sh --for-user <user> --keep-claudeai-connectors`.
 - oh-my-claudecode is the Claude plugin `oh-my-claudecode@omc` at its newest stable tag (as on the Mac), exa MCP off. Run `/oh-my-claudecode:omc-setup` once in Claude.
+- last30days is on in Claude everywhere. Keys are optional. Once per machine, if you want: run `/last30days` in Claude and finish or skip its setup wizard (it asks before each step; skip writes `SETUP_COMPLETE=true` and `BROWSER_CONSENT=false` to `~/.config/last30days/.env`). Releases before v3.39.0 printed a status at every session start; the update removes that hook. See `ai/rules/last30days.md`.
+- ui-ux-pro-max and typesafe, where installed, are off at user scope. ui-ux-pro-max for one project: `ai-adopt --tools ui`.
+- caveman hook scripts (`~/.claude/hooks/caveman-*.js`) stay on disk after the removal: delete them if you agree.
 - claude-seo and claude-blog are installed but off (about 12k tokens per session each). Turn one on for one project: `ai-adopt --tools seo` (or `blog`), or put `"enabledPlugins": {"claude-seo@agricidaniel-claude-seo": true}` in that project's `.claude/settings.json`.
 - Claude: `/seo setup` then `/seo doctor`, once, in a project with claude-seo on.
 - `~/.config/ai/secrets.env`: GitHub token, provider keys, `DISCORD_ALLOWED_USERS` for Hermes, webhook copy for notifications.
