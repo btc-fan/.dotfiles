@@ -37,7 +37,7 @@ sudo /opt/ai-setup/install.sh --update --for-user <user>
 Each step prints `[n/N] what`. A step that is already done is skipped. Run it twice: the second run changes nothing, unless a tool had a new stable release in between (then that tool moves, after its audit).
 
 1. Prerequisites: git, stow, jq, uv, node LTS, python3.
-2. Sources: reads `ai/pins.env` (where each tool comes from) and prints the newest stable release of every tool (`ai/lib/resolve.py`: npm, PyPI, GitHub releases, git tags; no pre-release, draft or yanked version; no cooldown). A `<TOOL>_HOLD=<version>` line wins for that tool. Offline: each tool keeps what is installed, and the run says so. The install steps below install exactly the resolved versions, each after `agent-audit`; a version with findings is not installed (the old one stays, a warning says so). Exceptions, not audited: the herdr and osv-scanner release binaries (sha256 from their project; `WARN unaudited binary update` on every change unless `slsa-verifier` or a logged-in `gh` verifies them) and the very first guarddog (bootstrap). The full list is in `ai/SPEC.md`, section 23. What was installed goes to `~/.local/state/ai/resolved.json` and `audit.log`. Owner decision 2026-11-14, every OS.
+2. Sources (profile dev-mac: see Profiles below for what is not audited there): reads `ai/pins.env` (where each tool comes from) and prints the newest stable release of every tool (`ai/lib/resolve.py`: npm, PyPI, GitHub releases, git tags; no pre-release, draft or yanked version; no cooldown). A `<TOOL>_HOLD=<version>` line wins for that tool. Offline: each tool keeps what is installed, and the run says so. The install steps below install exactly the resolved versions, each after `agent-audit`; a version with findings is not installed (the old one stays, a warning says so). Exceptions, not audited: the herdr and osv-scanner release binaries (sha256 from their project; `WARN unaudited binary update` on every change unless `slsa-verifier` or a logged-in `gh` verifies them) and the very first guarddog (bootstrap). The full list is in `ai/SPEC.md`, section 23. What was installed goes to `~/.local/state/ai/resolved.json` and `audit.log`. Owner decision 2026-11-14, every OS.
 3. Worktree links: `~/.dotfiles/bin/claude-notify` and every `ai/bin/*` command linked into `~/.local/bin/`. The link names go into `~/.dotfiles/.git/info/exclude`.
 4. `ai-render`: turns `ai/routing.yaml` into `ai/build/routing.json` and the L0 table. It joins `ai/agents-md/*.md` and the L0 table into the root file. It fails above 30 KB.
 5. Agents: only those found or asked for with `--agents`. Registers the marketplace `ai` and the plugin `ai-core` with Claude and Codex. Hermes, opencode and herdr get their own registrations.
@@ -58,6 +58,26 @@ Options:
 | `--skip-packages` | Do not install system packages. |
 | `--docs-server` | Gone: Grounded Docs was dropped. Install removes an existing Grounded Docs server (recorded). |
 | `--yes` | Answer yes to the confirm questions. Not to the server question. |
+| `--profile NAME` | `server` or `dev-mac` (below). Saved in `~/.config/ai/profile` for the next run. |
+
+## Profiles
+
+Owner decision 2026-11-14 (`ai/SPEC.md`, section 26). Each profile is one file, `ai/profiles/<name>.env`.
+Choice: `--profile NAME`, else `~/.config/ai/profile`, else the OS default (Linux `server`, macOS `dev-mac`).
+The install header, `ai-doctor` and `ai-info` show the profile and where it came from.
+
+| | server | dev-mac |
+|---|---|---|
+| Scanners installed | guarddog, skill-scanner, osv-scanner | skill-scanner only (guarddog and osv-scanner from this setup are removed) |
+| npm, PyPI, GitHub installs | agent-audit first | not audited; each one prints `audit skipped: profile dev-mac` |
+| Skills and plugin sources | agent-audit `dir` (all scanners) | skill-scanner only |
+| skill-scanner HIGH or CRITICAL | never installed | never installed |
+| `audit-before-install` gate | on | off (no routing row) |
+| opencode | macOS always, Linux with `AI_EXTRA_AGENTS=opencode` | never (an earlier install is undone) |
+| box MCP server (plugin `ai-box@ai`, Codex and Hermes `box`) | on | never installed or registered |
+
+Switch a Mac to the server behaviour: `~/.dotfiles-ai/install.sh --profile server` (and back with
+`--profile dev-mac`).
 
 ## Ubuntu
 

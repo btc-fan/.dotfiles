@@ -15,6 +15,18 @@ What protects you when an agent makes a mistake or reads a hostile web page, iss
 
 Gates are lint, not a sandbox: a script file or an unusual command can pass them. The sandbox and the box are the real boundary. Gates see through `rtk`, `rtk proxy`, `env`, `nice`, `timeout`, `stdbuf` and `command`; RTK does not rewrite `git push` or `gh`. On servers Claude runs the ai-core router from the root-owned copy (managed hooks); the plugin copy in `~/.claude/plugins` steps aside, so a user cannot change the gates.
 
+## Profiles (owner decision 2026-11-14)
+
+- Every profile: every skill and plugin source is scanned with skill-scanner before install. A HIGH or CRITICAL
+  finding means it is never installed or updated (agent-audit exit 4); `ai/audit-accepted.txt` cannot let it
+  through. INFO, LOW and MEDIUM are shown only.
+- `server` (Ubuntu servers): everything on this page.
+- `dev-mac` (the owner's Macs) is weaker on purpose. No install audit: npm, PyPI and GitHub installs are not
+  scanned (each prints `audit skipped: profile dev-mac`), only skills and plugin sources (skill-scanner). No OS
+  sandbox: the Claude sandbox and the Codex requirements below are Linux managed settings; a Mac has no managed
+  layer of ours. The gates are lint there too, and the `audit-before-install` gate is off; there is no
+  `ai-gate-skip` (the owner runs a blocked command himself). No box and no box MCP server.
+
 ## Claude sandbox (Linux, managed settings)
 
 - On for every session; `failIfUnavailable`, no unsandboxed retry.

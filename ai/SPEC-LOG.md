@@ -568,3 +568,20 @@ Seen on the owner's M3 Mac (macOS 15.5), read only:
   sense in projects that run the flow. Links, not copies, so an installer update reaches every project; links are
   machine paths, so they stay out of git and ai-adopt makes them per machine. Local tickets: the owner decides
   what reaches GitHub.
+
+## 2026-11-14: profiles and the skill-scanner rule (SPEC 26)
+- Owner: skills and plugins carry instructions an agent follows, so a skill-scanner HIGH or CRITICAL finding must
+  stop them on every machine, with no accept line: a reviewed exception for a scanner hit in a test fixture makes
+  sense for guarddog, not for a prompt that tells the agent to do harm. Exit 4 keeps it apart from findings
+  (exit 1, which the accept list may cover) and from a broken scanner (exit 3).
+- Machine-readable output (`--format json`) instead of `--fail-on-severity`: the exit code of that flag mixes
+  "found" and "failed", and the severity list is needed for the WARN text.
+- Two profiles, not flags per feature: the Macs are the owner's own dev machines (no box, no second user, no
+  managed settings), the servers run agents for others. A Mac pays for the package audit (guarddog, osv-scanner)
+  with slow installs and false hits and gets little from it; the skill-scanner rule stays because skills are
+  the part that steers the agent.
+- dev-mac skips are said on every package ("audit skipped: profile dev-mac") so a log never looks audited.
+- box as its own plugin `ai-box@ai`: a plugin MCP server cannot be turned off per machine inside ai-core, and the
+  box server must not start on a Mac at all. The tool names change once (`mcp__plugin_ai-box_box__*`).
+- Rendered rules per profile with a line marker: the server text stays byte-identical, which a fixture proves.
+

@@ -487,6 +487,8 @@ Catalog: `omc ask <provider> --prompt` (markdown only); `omx exec` passes to `co
   any new version needs a new review and a new line. Every acceptance is logged as `ACCEPTED owner-reviewed`.
   Since 2026-11-14 `dir` lines (git sources) name the full 40-character commit, never a tag: a tag can be moved
   to other code, so a tag-keyed line could accept code nobody reviewed.
+  Never for skill-scanner (owner decision 2026-11-14, SPEC 26): a HIGH or CRITICAL skill-scanner finding is final
+  (agent-audit exit 4); accept lines cover guarddog and osv-scanner findings only.
 
 ## 23. Tool versions: newest stable, no cooldown (owner decision 2026-11-14)
 - The setup's OWN tools no longer use exact version pins. Each install.sh run moves every tool to its newest
@@ -632,3 +634,34 @@ restore where something existing is removed; dry-run safe.
 - Status and upkeep: the session status names the verify skill and its feature count; "stale" after 25 code
   commits or 30 days with code commits since the feature map changed (then /maintain-verification-skill, once per
   session); ai-doctor warns on missing, stale, or no Claude link. Row `verify-before-done` after the first code edit.
+
+## 26. Profiles and the skill-scanner rule (owner decisions 2026-11-14)
+- Global rule, every profile and machine: every skill and plugin source (every `dir` and `skill` audit: git
+  plugin sources, mattpocock and pstack skills, our skills, last30days, Ponytail, i-have-adhd, claude-seo and
+  claude-blog, the OMC plugin, the RTK source tree) is scanned with skill-scanner before install
+  (`--format json`; a folder without SKILL.md with `--lenient`). A HIGH or CRITICAL finding is REJECT: agent-audit
+  exit 4, `REJECT` in audit.log, not installed or updated (an installed older copy stays), a WARN with the
+  findings. No override: `ai/audit-accepted.txt` is not read for it. INFO, LOW and MEDIUM are shown only.
+  Root rules (40, every profile): a skill or plugin with a skill-scanner HIGH or CRITICAL finding is never installed.
+- Profiles: `server` (today's behaviour) and `dev-mac` (both Macs), one file each, `ai/profiles/<name>.env`
+  (KEY=VALUE, bash 3.2: PROFILE_SCANNERS, PROFILE_PACKAGE_AUDIT, PROFILE_AUDIT_GATE, PROFILE_OPENCODE,
+  PROFILE_BOX). Choice: `install.sh --profile NAME` > `~/.config/ai/profile` > OS default (Linux server, macOS
+  dev-mac); the choice is saved there (recorded) and shown in the install header, `ai-doctor` and `ai-info`.
+  install.sh exports `AI_PROFILE` for what it runs; the system part passes `--profile` to the user part.
+- dev-mac: skill-scanner is the only scanner (newest stable, `uv tool install --managed-python`; the first install
+  is not audited, one info line). No guarddog, no osv-scanner: an earlier install of this setup is removed
+  (recorded undo, else a copy resolved.json says this setup installed). npm, PyPI and GitHub sources are not
+  audited: `audit_ok` prints `audit skipped: profile dev-mac` for each (never silent; never on server); dir and
+  skill audits run skill-scanner only, with the rule above. No `audit-before-install` gate: ai-render drops the
+  routing row (`profiles: [server]`), and the router enforces gates only from routing rows. No opencode (an
+  earlier recorded install is undone). No box: the box MCP server is its own plugin `ai-box@ai` (tools
+  `mcp__plugin_ai-box_box__*`), installed only on profile server; Codex and Hermes register `box` only there.
+- Rendered rules per profile: a part line ending in ` <!-- profiles: server -->` is kept only for those profiles
+  (marker dropped). dev-mac drops the agent-audit bullet, says "the owner runs it himself" for a blocked gate,
+  and drops the box line (45) and the opencode and Hermes lines (80, 90). The server AGENTS.md is byte-identical
+  to before except the skill-scanner line (fixture `ai/tests/fixtures/profiles/agents-server.md`).
+- ai-doctor on dev-mac FAILs when guarddog or osv-scanner from this setup is installed, the audit gate row is
+  rendered, or box is registered (Claude ai-box plugin, Codex `mcp_servers.box`); their absence never fails.
+- Tests: `ai/tests/test_profiles.py` (server dry-run plans against fixtures, dev-mac dry run, profile choice);
+  `AI_OS_FORCE=linux|macos` (tests only) runs the other OS's dry run.
+
