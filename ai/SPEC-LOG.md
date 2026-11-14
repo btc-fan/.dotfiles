@@ -488,4 +488,7 @@ ai-doctor fails if any enabled tool lacks a contract or its evals fail.
 - Dropped from `ai/pins.env`: every tool version, integrity, commit and checksum line, RTK_COOLDOWN_DAYS,
   OMX_NOT_BEFORE, HERDR_INSTALLER_* (the herdr installer script is no longer run: the release binary is checked
   against herdr's own release manifest), UV_VERSION (uv comes from the ubuntu-server branch, not read here).
-
+- Review round (same day): scanner updates are audited by the installed scanners (only the first bootstrap is
+  not); herdr and osv-scanner stay unaudited binaries with a WARN on every change (an independent check only where
+  slsa-verifier or a logged-in gh exists); `dir` acceptances keyed by commit; a failed marketplace replace puts
+  the old source back; enabledPlugins survives reinstalls; local-folder plugins compare the source commit.

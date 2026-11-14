@@ -350,8 +350,16 @@ Tools update on every `install.sh` run (owner decision 2026-11-14). No tool upda
    stable release when the installed one differs. Stable = not a pre-release, not a draft, not yanked. There is
    no waiting period. This is the same on macOS and on servers.
 2. Each new version is audited first (`agent-audit`). A new version with findings is NOT installed: the old one
-   stays and the run prints a warning. `ai/audit-accepted.txt` lines are per exact version, so the owner reviews
-   the findings and adds a line for the new version before it goes in.
+   stays and the run prints a warning. `ai/audit-accepted.txt` lines are per exact version (git sources: per
+   full commit, never a tag), so the owner reviews the findings and adds a line for the new version before it goes in.
+   - Audited: the npm packages (Codex, OMC npm route, OMX, opencode, context7, Playwright MCP), the PyPI packages
+     (Serena, graphify, guarddog, skill-scanner) and the git sources (Ponytail, i-have-adhd, claude-seo,
+     claude-blog, mattpocock skills, the OMC plugin, the RTK source). For npm, guarddog checks the package
+     itself, not its dependencies.
+   - NOT audited: the herdr and osv-scanner release binaries (checked only against the sha256 their project
+     publishes; SLSA provenance or a GitHub attestation is checked only when `slsa-verifier` or a logged-in `gh`
+     is on the machine). Each change prints `WARN unaudited binary update: <tool> <old> -> <new>`. Also not
+     audited: the very first guarddog on a machine (bootstrap, with a warning) and Claude Code itself.
 3. Offline, or a registry error: the installed version stays and the run says so. The install does not fail.
 4. Server: as admin, `sudo /opt/ai-setup/install.sh --update --for-user <user>`. It fast-forwards the root-owned clone, moves every tool to its newest stable release and refreshes everything else, including the Hermes copies and the `/etc` rules, which only this admin command can refresh. Run it on a schedule you choose: nothing updates between runs.
 5. macOS: `~/.dotfiles-ai/install.sh`. A `git -C ~/.dotfiles-ai pull` alone runs `ai-sync` (rules and your own files), not the tool updates.

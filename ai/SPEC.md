@@ -483,6 +483,8 @@ Catalog: `omc ask <provider> --prompt` (markdown only); `omx exec` passes to `co
   for exactly: OMC 5.8.4, opencode 1.19.5, docs-mcp-server 3.4.1, context7-mcp 4.6.0, graphifyy 0.9.105,
   github-mcp-server v2.1.0. The full audit still runs every time; only an exact listed version passes on findings;
   any new version needs a new review and a new line. Every acceptance is logged as `ACCEPTED owner-reviewed`.
+  Since 2026-11-14 `dir` lines (git sources) name the full 40-character commit, never a tag: a tag can be moved
+  to other code, so a tag-keyed line could accept code nobody reviewed.
 
 ## 23. Tool versions: newest stable, no cooldown (owner decision 2026-11-14)
 - The setup's OWN tools no longer use exact version pins. Each install.sh run moves every tool to its newest
@@ -497,16 +499,41 @@ Catalog: `omc ask <provider> --prompt` (markdown only); `omx exec` passes to `co
   with its commit and checksum file; git sources newest `vX.Y.Z` tag and its commit (no such tag: HEAD of the
   default branch). Offline or a registry error: the installed version stays (or the last resolved value in
   `~/.local/state/ai/resolved.json`), and the run says so; the install never fails for that.
-- The audit gate does not change: every new version passes `agent-audit` before it is installed;
-  `ai/audit-accepted.txt` lines are per exact version, so a new version with findings is not installed (the old
-  one stays, with a warning) until the owner reviews it and adds a line.
-- Downloads are checked against what the source publishes: npm integrity (registry), the osv-scanner release
-  `SHA256SUMS`, the herdr release manifest sha256 (herdr's GitHub release has no checksum file), the commit of the
-  tag for git sources and RTK.
-- Claude plugins from git sources follow the tag: a marketplace that points to another source is replaced
-  (restore record for uninstall when this setup did not add it), then marketplace update + plugin update,
-  uninstall + install as the fallback, and the installed commit or version is checked. Codex plugins from the
-  local source clones are refreshed in place.
+- The audit gate does not change: a new version with findings is not installed (the old one stays, with a
+  warning) until the owner reviews it and adds a line to `ai/audit-accepted.txt` (per exact version; git sources
+  per full commit).
+- What is audited (`agent-audit`, before each new version is installed; findings stop it unless the exact
+  version is in `ai/audit-accepted.txt`):
+  - npm packages (`agent-audit npm`): codex, oh-my-claude-sisyphus (npm route), oh-my-codex, opencode-ai,
+    @upstash/context7-mcp, @playwright/mcp (ai-start: a PASS in the last 24 h). guarddog checks the top-level
+    package only; its dependencies resolve fresh at each install (npm checks their registry integrity, nothing
+    audits them).
+  - PyPI packages (`agent-audit pypi`): serena-agent, graphifyy, and guarddog and cisco-ai-skill-scanner
+    (audited by the scanners already installed before they replace them).
+  - git sources (`agent-audit dir` of the exact commit; accept lines keyed by the full commit, never a tag):
+    Ponytail, i-have-adhd, claude-seo, claude-blog, mattpocock skills, the OMC plugin source, the RTK source
+    (after the cargo update, before the build).
+- What is NOT audited (exceptions, said in the install output every time):
+  - herdr and osv-scanner release binaries (agent-audit cannot scan a closed binary). Each download is checked
+    against the sha256 the project publishes (osv-scanner: `SHA256SUMS` of the same release; herdr: its
+    release manifest at herdr.dev): this proves the download, not the build. An independent check runs only when
+    its verifier is on the machine: osv-scanner SLSA provenance with `slsa-verifier`, herdr GitHub artifact
+    attestation with a logged-in `gh`. A verifier that rejects the binary stops the install. Without one, every
+    version change prints `WARN unaudited binary update: <tool> <old> -> <new>`.
+  - The very first guarddog on a machine (bootstrap: nothing can audit it yet), with a WARN.
+  - Claude Code itself (signed apt repository or official installer; not managed by this setup).
+- Downloads are checked against what the source publishes: npm integrity (registry, also compared with the
+  installed lockfile where npm writes one), the osv-scanner release `SHA256SUMS`, the herdr release manifest
+  sha256 (herdr's GitHub release has no checksum file), the commit of the tag for git sources and RTK.
+- Claude plugins from git sources follow the tag. The claude CLI stores the ref of a github marketplace and
+  `marketplace update` never changes it, so a new tag needs remove + add, also for a marketplace this setup added.
+  Before that the plugin is uninstalled with `--keep-data` (its data folder stays). A marketplace this setup did
+  not add gets a restore record for uninstall. If the add or the install fails, the old source and the plugin
+  come back at once. Same source: marketplace update + plugin update, uninstall `--keep-data` + install as the
+  fallback. Every install and update is checked (Claude's gitCommitSha, else the version); local folder
+  marketplaces (Ponytail, i-have-adhd) also compare a stamp of the source commit, so a new tag with the same
+  plugin.json version is still installed. The user's enabledPlugins value (claude-seo and claude-blog: off) is
+  kept across every reinstall. Codex plugins from the local source clones are refreshed in place.
 - Records: `~/.local/state/ai/resolved.json` (per tool: source, newest seen, installed, times) and one
   `install <tool> <version> INSTALLED <commit|integrity> <source>` line per install in `audit.log`.
   `ai-doctor` shows per tool "update available: <tool> <installed> -> <newest>" (cached with --quick).
