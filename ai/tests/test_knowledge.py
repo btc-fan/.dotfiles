@@ -78,7 +78,7 @@ def main():
     work = tempfile.mkdtemp(prefix="ai-knowledge-tests-")
     server = FakeServer()
     try:
-        for test in (t_libs_offline, t_libs_cache_and_notes, t_libs_online_fake, t_libs_check_stale,
+        for test in (t_minitoml, t_libs_offline, t_libs_cache_and_notes, t_libs_online_fake, t_libs_check_stale,
                      t_libs_private_sources, t_libs_check_refuses_sync, t_libs_old_file_migrates, t_adopt_knowledge,
                      t_adopt_optin_serena_graph, t_adopt_gitignore_block, t_adopt_secret_in_map, t_optin_claude_plugins,
                      t_map_tools_read_only, t_libs_freeze_keeps_imported):
@@ -96,6 +96,25 @@ def main():
 
 
 # ---------------------------------------------------------------- ai-libs
+
+def t_minitoml(work, server):
+    """python 3.9 has no tomllib: ai/lib/minitoml.py reads the same files the same way."""
+    sys.path.insert(0, os.path.join(AI_DIR, "lib"))
+    import minitoml
+    extra = '[tool.uv]\nindex = [{name = "corp", url = "https://pypi.corp.example/simple"}]\n[project.scripts]\napp = "a:b"\n'
+    texts = (PYPROJECT + extra, UV_LOCK, CARGO_TOML, CARGO_LOCK)
+    got = [minitoml.loads(t) for t in texts]
+    assert got[0]["project"]["dependencies"][1] == "FastAPI[standard]>=0.115", got[0]
+    assert got[0]["tool"]["uv"]["index"][0]["url"] == "https://pypi.corp.example/simple", got[0]
+    assert got[1]["package"][2]["source"] == {"editable": "libs/my_local_pkg"}, got[1]
+    assert got[2]["dependencies"]["helper"] == {"path": "../helper"}, got[2]
+    try:
+        import tomllib
+    except ImportError:
+        return
+    for t, g in zip(texts, got):
+        assert tomllib.loads(t) == g, "minitoml differs from tomllib: %s" % g
+
 
 def t_libs_offline(work, server):
     repo = make_repo(work, "offline")

@@ -41,8 +41,10 @@ import urllib.request
 
 try:
     import tomllib
-except ImportError:          # python < 3.11
-    tomllib = None
+except ImportError:          # python < 3.11 (/usr/bin/python3 3.9 on macOS): our small reader
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
+    import minitoml as tomllib
 
 BIN = os.path.dirname(os.path.realpath(__file__))
 AI_DIR = os.path.dirname(BIN)
@@ -756,7 +758,9 @@ def load_toml(path):
 def toml_fallback(text):
     """Enough of TOML for [project] dependencies and [dependencies] keys when tomllib is missing."""
     out = {}
-    m = re.search(r"^\[project\].*?^dependencies\s*=\s*\[(.*?)\]", text, re.M | re.S)
+    # The list ends at the first "]" outside a quoted string ("FastAPI[standard]>=0.115" holds brackets).
+    m = re.search(r"^\[project\].*?^dependencies\s*=\s*\[((?:\s*(?:\"[^\"]*\"|'[^']*'|#[^\n]*)\s*,?)*)\s*\]", text,
+                  re.M | re.S)
     if m:
         out["project"] = {"dependencies": re.findall(r"[\"']([^\"']+)[\"']", m.group(1))}
     m = re.search(r"^\[dependencies\]\s*\n(.*?)(?=^\[|\Z)", text, re.M | re.S)

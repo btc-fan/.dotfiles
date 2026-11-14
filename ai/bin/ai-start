@@ -723,9 +723,14 @@ def load_toml(path):
     if not text:
         return None
     try:
-        import tomllib
+        try:
+            import tomllib
+        except ImportError:      # python 3.9: our small reader
+            sys.dont_write_bytecode = True
+            sys.path.insert(0, os.path.join(AI_DIR, "lib"))
+            import minitoml as tomllib
         return tomllib.loads(text)
-    except (ImportError, ValueError):
+    except ValueError:
         return None
 
 
