@@ -152,7 +152,8 @@ def t_codex_trust(work):
         assert ours["trusted_hash"] != "sha256:old" and ours["trusted_content_hash"].startswith("sha256:"), \
             "stale ai-core entry not updated in place"
         keys = [k for k in st if k.startswith("ai-core@ai:")]
-        assert len(keys) == 8, "expected 8 ai-core hook handlers, got %d" % len(keys)
+        # router (6 events) + serena-hook (2) + stop-check (SessionStart, Stop)
+        assert len(keys) == 10, "expected 10 ai-core hook handlers, got %d" % len(keys)
     assert text.count('"ai-core@ai:hooks/codex-hooks.json:stop:0:0"') == 1, "duplicate table"
     code, out2 = aiconf(state, "codex-trust-hooks", cfg, "--auto")
     assert code == 0 and "same" in out2 and read(cfg) == text, "second run must change nothing: " + out2
