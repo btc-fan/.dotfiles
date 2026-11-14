@@ -1175,6 +1175,7 @@ def check_tier1(root, hl, text):
     miss = [t for t in ("check-fast", "check") if not re.search(r"^@?%s\s*:(?!=)" % re.escape(t), makefiles, re.M)]
     say("PASS" if not miss else "WARN", "project tier %s; check-fast and check targets" % tier,
         "missing: %s (ai-adopt writes them; a monorepo needs them by hand)" % ", ".join(miss) if miss else "")
+    check_verify_skill(root, hl, tier)
     if tier != "long":
         return
     ledger = os.path.join(BIN, "ai-ledger")
@@ -1184,6 +1185,27 @@ def check_tier1(root, hl, text):
     base = os.path.isfile(os.path.join(root, ".ai", "ratchet.json"))
     say("PASS" if base else "WARN", "ratchet baseline .ai/ratchet.json",
         "" if base else "ai-ratchet --init, then commit .ai/ratchet.json")
+
+
+def check_verify_skill(root, hl, tier):
+    """The project verification skill (pstack create-verification-skill): present in tier mvp and long, its feature
+    map not stale (hooklib.verify_stale: 25 code commits or 30 days with code commits since the map changed),
+    and the committed .claude link for Claude."""
+    info = hl.verify_skill(root)
+    if not info:
+        if tier != "try":
+            say("WARN", "verify skill (.agents/skills/verify-<app>/)", "owner step: /create-verification-skill in this "
+                "repo, commit it, then ai-adopt (adds the .claude/skills link)")
+        return
+    stats = hl.verify_staleness(root, info)
+    stale = hl.verify_stale(stats)
+    say("WARN" if stale else "PASS", "verify skill %s (%d features)%s" % (
+        info["name"], info["features"], ", map stale: %d code commits, %d days" % stats if stale else ""),
+        "/maintain-verification-skill" if stale else "")
+    if info["path"].startswith(os.path.join(".agents", "skills")):
+        link = os.path.join(root, ".claude", "skills", info["name"])
+        ok = os.path.islink(link) and os.path.realpath(link) == os.path.realpath(os.path.join(root, info["path"]))
+        say("PASS" if ok else "WARN", "Claude link .claude/skills/%s" % info["name"], "" if ok else "ai-adopt adds it")
 
 
 def check_destroy_smoke():

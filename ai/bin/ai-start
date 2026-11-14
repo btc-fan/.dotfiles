@@ -108,7 +108,7 @@ def main(argv):
         plan.append((os.path.join(root, checks["file"]), checks["text"]))
     if checks:
         agents = upsert_check_line(agents, checks)
-    agents = upsert_done(agents, tier, checks)
+    agents = upsert_done(agents, tier, checks, root)
     plan.append(write_plan(agents_path, agents))
     if tier == "long":
         plan.append(write_plan(os.path.join(root, "docs", "REGRESSIONS.md"),
@@ -122,7 +122,7 @@ def main(argv):
     plan.extend(tracker_docs_plan(root, skill_closure(skills)))
     plan = [p for p in plan if p]
     steps = knowledge_steps(root, opts, with_defaults(enabled)) + check_steps(root, opts, tier, checks, plan) \
-        + ratchet_steps(root, tier) + skill_link_steps(root, skill_closure(skills))
+        + ratchet_steps(root, tier) + skill_link_steps(root, skill_closure(skills)) + verify_link_steps(root)
 
     if not plan and not steps:
         print("ai-%s: nothing to change (base v%s)" % (mode, version))
@@ -147,6 +147,7 @@ def main(argv):
     drop_libs_pointer(root)
     paths = [os.path.relpath(p, root) for p, _ in plan]
     paths += [rel for rel in CHECK_PATHS if os.path.exists(os.path.join(root, rel)) and rel not in paths]
+    paths += [rel for rel in verify_links(root) if os.path.lexists(os.path.join(root, rel)) and rel not in paths]
     paths += [rel for rel in KNOWLEDGE_PATHS if (os.path.exists(os.path.join(root, rel)) or
                                                  git(root, "ls-files", "--", rel)) and rel not in paths]
     paths = committable(root, paths)      # .ai/base-version, .codex/, .serena/.gitignore: local, ignored by the block
@@ -403,7 +404,8 @@ def gitignore_text(text, enabled=None, root=None, skill_links=()):
     files there: then new files in it are shared too."""
     lines = list(GI_LINES)
     tracked = (git(root, "ls-files", "--", ".claude") if root else None) or ""
-    subs = sorted({p.split("/")[1] for p in tracked.splitlines() if p.count("/") >= 2})
+    subs = sorted({p.split("/")[1] for p in tracked.splitlines() if p.count("/") >= 2
+                   and not p.startswith(".claude/skills/verify-")})     # our verify link does not open skills/
     at = lines.index("!.claude/settings.json") + 1
     # A project verify skill is shared through a committed link .claude/skills/verify-<app> (to .agents/skills/);
     # other .claude/skills entries stay local unless the repo already tracks that folder.
@@ -856,6 +858,47 @@ def skill_link_plan(root, names):
     return out
 
 
+def verify_links(root):
+    """Repo-relative .claude/skills/verify-<app> links for every .agents/skills/verify-<app>/ (committed)."""
+    base = os.path.join(root, ".agents", "skills")
+    try:
+        names = sorted(n for n in os.listdir(base) if n.startswith("verify-")
+                       and os.path.isfile(os.path.join(base, n, "SKILL.md")))
+    except OSError:
+        names = []
+    return [os.path.join(".claude", "skills", n) for n in names]
+
+
+def verify_link_steps(root):
+    """The committed link .claude/skills/verify-<app> -> ../../.agents/skills/verify-<app> (Claude reads
+    .claude/skills, Codex reads .agents/skills: one folder, two readers)."""
+    todo = []
+    for rel in verify_links(root):
+        link = os.path.join(root, rel)
+        want = os.path.join("..", "..", ".agents", "skills", os.path.basename(rel))
+        if os.path.islink(link) and os.readlink(link) == want:
+            continue
+        if os.path.exists(link) and not os.path.islink(link):
+            print("skip %s: a real folder is there (move it to .agents/skills/ and run ai-adopt again)" % rel)
+            continue
+        todo.append((link, want))
+    cursor = os.path.join(root, ".cursor", "skills")
+    if os.path.isdir(cursor) and any(n.startswith("verify-") for n in os.listdir(cursor)) and not todo \
+            and not verify_links(root):
+        print("note: a verify skill sits in .cursor/skills/: move it to .agents/skills/ (git mv), then run ai-adopt")
+    if not todo:
+        return []
+
+    def apply():
+        for link, want in todo:
+            if os.path.islink(link):
+                os.remove(link)
+            os.makedirs(os.path.dirname(link), exist_ok=True)
+            os.symlink(want, link)
+    return [("link %s for Claude (to .agents/skills/, committed)" % ", ".join(os.path.relpath(l, root) for l, _w in todo),
+             apply)]
+
+
 def skill_link_steps(root, names):
     todo = skill_link_plan(root, names)
     if not todo:
@@ -937,13 +980,21 @@ def upsert_check_line(agents, checks):
     return agents[:m.start()] + new + agents[m.end():]
 
 
-def render_done(tier, checks):
+def render_done(tier, checks, verify_name="verify-<app>"):
     cmd = "`%s`" % checks["full_cmd"] if checks else "The project check (the Map says which)"
+    fast = "`%s`" % checks["fast_cmd"] if checks else "check-fast"
     ledger = " and a line in docs/REGRESSIONS.md" if tier == "long" else ""
+    if tier == "try":
+        first = "1. %s passes (a %s run is optional in tier try); the PR shows the command and its output tail." % (
+            cmd, verify_name)
+    else:
+        first = ("1. In this order: %s green; then %s on the changed feature (launch, doctor, drive every entry point "
+                 "its feature file lists, evidence kept); only then add e2e tests for the proven journey; %s passes. "
+                 "The PR Verify field cites the output, the evidence path and the e2e test." % (fast, verify_name, cmd))
     return "\n".join([
         "<!-- AI:done START (ai-adopt; 6 lines, a rerun replaces it) -->",
         "## Done",
-        "1. %s passes; the PR shows the command and the tail of its output." % cmd,
+        first,
         "2. New behaviour has a test; a bug fix has a test that failed before the fix%s." % ledger,
         "3. No test is deleted, skipped or weakened unless the owner said so in this session.",
         "4. Docs touched by the change are updated (Map, README), or the PR says \"Docs: none, because ...\".",
@@ -952,13 +1003,14 @@ def render_done(tier, checks):
         "<!-- AI:done END -->"]) + "\n"
 
 
-def upsert_done(agents, tier, checks):
+def upsert_done(agents, tier, checks, root=None):
     """The managed Done block (6 lines) and an empty Lessons section. A hand-written Done section wins."""
     outside = DONE_RX.sub("", agents)
     if OWN_DONE_RX.search(outside):
         print("keep: AGENTS.md has its own Done section (no second one added)")
         return agents
-    block = render_done(tier, checks)
+    vs = verify_links(root) if root else []
+    block = render_done(tier, checks, os.path.basename(vs[0]) if vs else "verify-<app>")
     if DONE_RX.search(agents):
         agents = DONE_RX.sub(lambda _m: block, agents, count=1)
     else:

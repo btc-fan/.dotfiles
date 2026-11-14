@@ -1054,7 +1054,11 @@ def gate_pr(ctx, cmd, stages):
             if why:
                 missing.append(why)
         if sub == "create" and root and tier != "try":
-            missing.extend(pr_diff_checks(ctx, root, args, fix))
+            diff_problems, files = pr_diff_checks(ctx, root, args, fix)
+            missing.extend(diff_problems)
+            why = pr_verify_evidence(root, pr_field(text, "Verify"), files)
+            if why:
+                missing.append(why)
         problems.extend(m for m in missing if m not in problems)
     if not problems:
         return None
@@ -1132,9 +1136,9 @@ def pr_diff_checks(ctx, root, args, fix):
     base_ref = next((c for c in candidates if git_quick(root, ["rev-parse", "-q", "--verify", c + "^{commit}"])), None)
     numstat = git_quick(root, ["diff", "--numstat", "%s...%s" % (base_ref, head)]) if base_ref else None
     if numstat is None:
-        ctx.add_context("[ai gate pr-rules] could not diff against the base branch: the test-file and size checks "
-                        "did not run.")
-        return []
+        ctx.add_context("[ai gate pr-rules] could not diff against the base branch: the test-file, size and "
+                        "verify-evidence checks did not run.")
+        return [], None
     files, lines = [], 0
     for row in numstat.splitlines():
         parts = row.split("\t")
@@ -1150,7 +1154,25 @@ def pr_diff_checks(ctx, root, args, fix):
     if lines > PR_SIZE_WARN:
         ctx.add_context("[ai gate pr-rules] warning: %d changed lines against %s (generated files left out), over %d. "
                         "Split the PR or say in the body why it must stay one." % (lines, base_ref, PR_SIZE_WARN))
-    return out
+    return out, files
+
+
+def pr_verify_evidence(root, verify, files):
+    """A project with a verify-<app> skill (tier mvp, long) and a PR that changes app code: Verify names the skill
+    run, its evidence path and the e2e test (the Done order: check-fast, verify evidence, then e2e)."""
+    if verify is None or files is None:
+        return None
+    info = verify_skill(root)
+    if not info or not any(is_code_file(f) and not PR_TEST_PATH.search(f) and not f.startswith(info["path"] + "/")
+                           for f in files):
+        return None
+    tokens = re.findall(r"[\w.@~-]*/[\w./@~-]+", verify)
+    has_test = any(PR_TEST_PATH.search(t) for t in tokens)
+    has_evidence = any(not PR_TEST_PATH.search(t) for t in tokens)
+    if info["name"] in verify and has_test and has_evidence:
+        return None
+    return ("Verify: the %s run (its evidence path, e.g. artifacts/<feature>/...) and the e2e test it led to "
+            "(a tests/... path): app code changed and this project has a verify skill" % info["name"])
 
 
 def probe_pr(stages, cmd=""):

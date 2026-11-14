@@ -578,6 +578,7 @@ link_skills() {
 claude_skills() {
     link_skills "$CLAUDE_DIR/skills"
     mattpocock_link "$CLAUDE_DIR/skills"
+    pstack_link "$CLAUDE_DIR/skills"
     ok "Claude: shared skills and the 5 mattpocock skills linked into $CLAUDE_DIR/skills"
 }
 

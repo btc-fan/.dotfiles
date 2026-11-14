@@ -434,6 +434,84 @@
     }
    },
    "contains": "Verify:"
+  },
+  {
+   "name": "verify skill project: Verify without the verify run",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/cart.py": "x = 1\n",
+     ".agents/skills/verify-shop/SKILL.md": "---\nname: verify-shop\n---\n",
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 40 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    },
+    "commit": "init",
+    "extra_commits": [
+     {
+      "src/cart.py": "x = 2\n",
+      "tests/e2e/test_cart.py": "def test_c(): pass\n"
+     }
+    ]
+   },
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'feat: cart' --body-file pr.md --base HEAD~1"
+    }
+   },
+   "contains": "Verify: the verify-shop run"
+  },
+  {
+   "name": "verify skill project: Verify cites evidence and the e2e test",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/cart.py": "x = 1\n",
+     ".agents/skills/verify-shop/SKILL.md": "---\nname: verify-shop\n---\n",
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check-fast green; verify-shop cart: artifacts/cart/list.png; e2e tests/e2e/test_cart.py passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    },
+    "commit": "init",
+    "extra_commits": [
+     {
+      "src/cart.py": "x = 2\n",
+      "tests/e2e/test_cart.py": "def test_c(): pass\n"
+     }
+    ]
+   },
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'feat: cart' --body-file pr.md --base HEAD~1"
+    }
+   }
+  },
+  {
+   "name": "verify skill project: docs-only PR needs no verify run",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/cart.py": "x = 1\n",
+     ".agents/skills/verify-shop/SKILL.md": "---\nname: verify-shop\n---\n",
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 40 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    },
+    "commit": "init",
+    "extra_commits": [
+     {
+      "README.md": "more\n"
+     }
+    ]
+   },
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'feat: cart' --body-file pr.md --base HEAD~1"
+    }
+   }
   }
  ]
 }

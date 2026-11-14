@@ -201,6 +201,85 @@ def t_adopt_try_no_skills(work):
     assert not os.path.exists(os.path.join(repo, "docs", "agents")), "no tracker docs without to-spec/to-tickets"
 
 
+# ---------------------------------------------------------------- verification skills (pstack)
+
+def t_verify_skills_copy(work):
+    """ai/skills/{create,maintain}-verification-skill = the fixed transform of the vendor copy (nothing hand-edited),
+    MIT notice kept, project path .agents/skills."""
+    out = os.path.join(work, "pstack-out")
+    vendor = os.path.join(AI_DIR, "rules", "vendor", "pstack-verification")
+    commit = [ln.split(": ", 1)[1] for ln in read(os.path.join(vendor, "SOURCE.md")).splitlines()
+              if ln.startswith("commit: ")][0]
+    res = run([sys.executable, os.path.join(AI_DIR, "lib", "pstack_adapt.py"), vendor, out, commit])
+    assert res.returncode == 0, res.stdout
+    for name in ("create-verification-skill", "maintain-verification-skill"):
+        mine = os.path.join(AI_DIR, "skills", name)
+        for dirpath, _d, files in os.walk(os.path.join(out, name)):
+            for f in files:
+                rel = os.path.relpath(os.path.join(dirpath, f), out)
+                assert read(os.path.join(out, rel)) == read(os.path.join(AI_DIR, "skills", rel)), "%s differs" % rel
+        text = read(os.path.join(mine, "SKILL.md"))
+        assert ".cursor/skills" not in text and "Lauren Tan" in read(os.path.join(mine, "LICENSE")), name
+        assert "disable-model-invocation: true" in text and "RO:" in text and "RU:" in text, name
+    assert ".agents/skills/verify-<app>/" in read(os.path.join(AI_DIR, "skills", "create-verification-skill", "SKILL.md"))
+
+
+def verify_files(app="shop", features=("cart", "checkout")):
+    files = {".agents/skills/verify-%s/SKILL.md" % app: "---\nname: verify-%s\n---\n" % app,
+             ".agents/skills/verify-%s/features/README.md" % app: "index\n"}
+    for f in features:
+        files[".agents/skills/verify-%s/features/%s.md" % (app, f)] = "# %s\n" % f
+    return files
+
+
+def t_adopt_verify_link(work):
+    repo, env = adopt_repo(work, "verify-link", verify_files())
+    res = adopt(repo, env)
+    assert res.returncode == 0, res.stdout
+    link = os.path.join(repo, ".claude", "skills", "verify-shop")
+    assert os.readlink(link) == os.path.join("..", "..", ".agents", "skills", "verify-shop"), os.readlink(link)
+    files = run(["git", "-C", repo, "show", "--name-only", "--format=", "HEAD"]).stdout.split()
+    assert ".claude/skills/verify-shop" in files, "the verify link is committed: %s" % files
+    agents = read(os.path.join(repo, "AGENTS.md"))
+    assert "then verify-shop on the changed feature" in agents and "only then add e2e tests" in agents, agents
+    assert "nothing to change" in adopt(repo, env).stdout
+
+
+def t_verify_status_and_doctor(work):
+    sys.path.insert(0, HOOKS)
+    import hooklib
+    doctor = load(os.path.join(BIN, "ai-doctor"), "aidoc2")
+    repo = tree(work, "verify-status", dict(verify_files(), **{".ai/enabled": "tier: mvp\n", "src/app.py": "x = 1\n"}))
+    env = git_env(work, "verify-status")
+    run(["git", "init", "-q", repo])
+    run(["git", "-C", repo, "add", "-A"], env=env)
+    run(["git", "-C", repo, "commit", "-q", "-m", "init"], env=env)
+    line = hooklib.knowledge_index(repo)
+    assert "Verify skill: verify-shop (2 features)." in line, line
+    for i in range(hooklib.VERIFY_STALE_COMMITS):
+        write(os.path.join(repo, "src", "app.py"), "x = %d\n" % i)
+        run(["git", "-C", repo, "commit", "-qam", "c%d" % i], env=env)
+    line = hooklib.knowledge_index(repo)
+    assert "stale (25 code commits" in line and "/maintain-verification-skill" in line, line
+    out = io.StringIO()
+    with redirect_stdout(out):
+        doctor.check_verify_skill(repo, hooklib, "mvp")
+    assert "WARN verify skill verify-shop (2 features), map stale" in out.getvalue(), out.getvalue()
+    assert "WARN Claude link .claude/skills/verify-shop" in out.getvalue(), out.getvalue()
+    write(os.path.join(repo, ".agents", "skills", "verify-shop", "features", "pay.md"), "# pay\n")
+    run(["git", "-C", repo, "add", "-A"], env=env)
+    run(["git", "-C", repo, "commit", "-qm", "map"], env=env)
+    assert "Verify skill: verify-shop (3 features)." in hooklib.knowledge_index(repo), "a map change resets it"
+    bare = tree(work, "verify-none", {"src/app.py": "x = 1\n", ".ai/enabled": "tier: try\n"})
+    run(["git", "init", "-q", bare])
+    assert "missing, run /create-verification-skill (optional in tier try)" in hooklib.knowledge_index(bare)
+    out = io.StringIO()
+    with redirect_stdout(out):
+        doctor.check_verify_skill(bare, hooklib, "try")
+        doctor.check_verify_skill(bare, hooklib, "long")
+    assert out.getvalue().count("WARN verify skill") == 1, "try tier: optional; long: warn: " + out.getvalue()
+
+
 # ---------------------------------------------------------------- T5: ai-doctor budget
 
 def t_doctor_budget(work):
@@ -634,7 +713,7 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
     return res
 
 
-TESTS_LIST = [t_adopt_project_skills, t_adopt_try_no_skills, t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_go_rust, t_detect_monorepo,
+TESTS_LIST = [t_verify_skills_copy, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_try_no_skills, t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_go_rust, t_detect_monorepo,
               t_plan_keeps_targets, t_adopt_try_tier_own_done, t_adopt_long_tier, t_adopt_monorepo_refused,
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_hook_active_silent,
               t_stop_success_silent_both_agents, t_stop_codex_block_and_timeout, t_stop_floor_zero_tests,

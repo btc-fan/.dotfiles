@@ -37,7 +37,7 @@ def main():
                      t_bash_offline_keep, t_bash_context7, t_context7_discovery, t_bash_plugin_clone,
                      t_claude_plugin_replace, t_claude_plugin_update, t_claude_plugin_fallback,
                      t_claude_dir_same_version, t_claude_fresh_install_checked, t_claude_own_replace_rollback,
-                     t_codex_plugin_refresh, t_bash_mattpocock_optin, t_audit_accept_by_commit, t_uv_tool_normalized, t_scanners,
+                     t_codex_plugin_refresh, t_bash_mattpocock_optin, t_bash_pstack, t_audit_accept_by_commit, t_uv_tool_normalized, t_scanners,
                      t_osv_scanner, t_herdr, t_src_swap_and_dry_sha, t_playwright_keep_only):
             for k in ENV_KEYS:
                 os.environ.pop(k, None)
@@ -357,7 +357,7 @@ def t_pins_file(work):
     specs = resolve.tools(resolve.read_pins(os.path.join(AI_DIR, "pins.env")))
     for t in ("codex", "omc", "omc-plugin", "omx", "opencode", "herdr", "serena", "context7-mcp", "playwright-mcp",
               "ponytail", "i-have-adhd", "graphify", "claude-seo", "claude-blog", "ui-ux-pro-max",
-              "mattpocock-skills", "llm-wiki", "rtk", "guarddog", "skill-scanner", "osv-scanner"):
+              "mattpocock-skills", "pstack", "llm-wiki", "rtk", "guarddog", "skill-scanner", "osv-scanner"):
         assert t in specs and specs[t]["channel"] == "stable" and not specs[t]["hold"], t
     keys = [ln.split("=", 1)[0] for ln in text.splitlines() if "=" in ln and not ln.startswith("#")]
     for k in keys:
@@ -578,6 +578,46 @@ def t_bash_mattpocock_optin(work):
     code, out = bash(LIBS + 'AI_OS=macos; mattpocock_link "%s"' % target, env)
     assert sorted(os.listdir(target)) == sorted(["grilling", "grill-me", "wait-what", "writing-for-agents", "retro"]), \
         "only the five global picks are linked globally: %s" % os.listdir(target)
+
+
+def t_bash_pstack(work):
+    """pstack_src: an upstream commit other than the vendored one is cloned (no tags: HEAD), audited, adapted
+    (.agents/skills paths, LICENSE kept) and pstack_link points the skill links at it; the vendored commit itself
+    installs nothing (the ai/skills copy is current); audit findings keep the repo copy."""
+    up = os.path.join(work, "up", "plugins")
+    os.makedirs(up)
+    git("init", "-q", "-b", "main", up)
+    write(os.path.join(up, "pstack", "LICENSE"), "MIT License\nCopyright (c) 2026 Lauren Tan\n")
+    for n in ("create-verification-skill", "maintain-verification-skill"):
+        write(os.path.join(up, "pstack", "skills", n, "SKILL.md"),
+              '---\nname: %s\ndescription: "Write .cursor/skills/verify-<app>/ files."\n---\n\n# %s\n'
+              'Use `.cursor/skills/verify-<app>/SKILL.md`.\n' % (n, n))
+    git("add", "-A", cwd=up)
+    git("commit", "-q", "-m", "one", cwd=up)
+    sha = git("rev-parse", "HEAD", cwd=up)
+    env, home, _ = bash_env(work, 'PSTACK_SOURCE="git %s stable"\n' % up)
+    dest = os.path.join(home, ".local", "share", "ai", "plugins", "pstack-verification")
+    code, out = bash(LIBS + 'AI_SKIP_PACKAGES=0; audit_ok() { return 1; }; pstack_src || true', env)
+    assert not os.path.exists(dest), "audit findings: nothing installed: " + out
+    code, out = bash(LIBS + 'AI_SKIP_PACKAGES=0; audit_ok() { return 0; }; pstack_src', env)
+    assert code == 0 and "moved upstream" in out, out
+    text = read(os.path.join(dest, "create-verification-skill", "SKILL.md"))
+    assert ".agents/skills/verify-<app>/SKILL.md" in text and ".cursor/skills" not in text, text
+    assert "Lauren Tan" in read(os.path.join(dest, "create-verification-skill", "LICENSE")), "MIT notice kept"
+    assert read(os.path.join(dest, ".commit")).strip() == sha
+    target = os.path.join(home, "skills")
+    os.makedirs(target)
+    code, out = bash(LIBS + 'pstack_link "%s"' % target, env)
+    assert os.readlink(os.path.join(target, "maintain-verification-skill")) == os.path.join(
+        dest, "maintain-verification-skill"), out
+    code, out = bash(LIBS + 'AI_SKIP_PACKAGES=0; pstack_src', env)
+    assert "(newest; repo copy at" in out, out
+    code, out = bash(LIBS + 'AI_SKIP_PACKAGES=0; pstack_vendor_commit() { echo %s; }; pstack_src' % sha, env)
+    assert "the repo copy (ai/skills" in out, out
+    shutil.rmtree(target)
+    os.makedirs(target)
+    code, out = bash(LIBS + 'pstack_vendor_commit() { echo %s; }; pstack_link "%s"' % (sha, target), env)
+    assert os.listdir(target) == [], "vendored commit: the ai/skills links stay"
 
 
 def t_audit_accept_by_commit(work):
