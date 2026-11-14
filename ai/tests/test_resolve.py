@@ -122,7 +122,11 @@ def bash_env(work, pins, extra=None):
     os.makedirs(home, exist_ok=True)
     os.makedirs(bindir, exist_ok=True)
     write(os.path.join(work, "pins.env"), pins)
-    env = {"PATH": bindir + ":" + os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home, "LANG": "C.UTF-8",
+    # No PATH entry under the real HOME: its ~/.local/bin (guarddog, osv-scanner, uv tools) would shadow the fakes.
+    real_home = os.path.realpath(os.path.expanduser("~")) + os.sep
+    path = [p for p in os.environ.get("PATH", "/usr/bin:/bin").split(os.pathsep)
+            if p and not os.path.realpath(p).startswith(real_home)]
+    env = {"PATH": os.pathsep.join([bindir] + path), "HOME": home, "LANG": "C.UTF-8",
            "AI_HOME": REPO, "PYTHONDONTWRITEBYTECODE": "1", "AI_PINS": os.path.join(work, "pins.env"),
            "CLAUDE_CONFIG_DIR": os.path.join(home, ".claude"), "CODEX_HOME": os.path.join(home, ".codex"),
            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
