@@ -107,3 +107,23 @@ A tool is never updated by the tool itself. Auto-update stays off. The agent rul
 5. Follow the cleanup steps in the old contract on each machine.
 6. Record the decision in `ai/SPEC.md` (section "Not adopted").
 7. Reinstall. `ai-doctor`.
+
+## 10. Project checks (Tier 1)
+
+The per-project pieces (SPEC 24) follow the same path: contract in `ai/rules/`, evals in `ai/evals/tier1.md`,
+tests in `ai/tests/test_tier1.py` (and router cases for gates and rows). Common changes:
+
+1. A new stack for `ai-check-detect`: add a detector next to `python`, `node`, `golang`, `rust` (files only, no
+   network, nothing runs), add a `t_detect_*` test. Keep `check-fast` to lint + unit tests.
+2. A new destructive pattern: generic ones go into `gate_destroy` in `hooklib.py` with a block row and an allow
+   row in `ai/tests/cases/no-destroy.json` (target-based, never flag-only). Project-specific ones go into the
+   repo's `.ai/destructive.txt` (`db: <name>`, `cmd: <prefix>`), not into this repo.
+3. A new PR field: add it to `PR_FIELDS` / `PR_FIELD_HELP` in `hooklib.py` for the right tier, add a deny and an
+   allow case in `ai/tests/cases/pr-rules.json`, update `ai/agents-md/50-pull-requests.md` and the Done block text
+   in `ai/bin/ai-start` if it changes what "done" means.
+4. A new counter for `ai-ratchet`: say which way is better (`BETTER_UP`), count without running the tests, add a
+   `t_ratchet*` test. A new counter appears in the baseline on the next run; it never fails on its first run.
+5. Tiers: a piece belongs to the lowest tier where its cost (tokens, time, blocked steps) is worth it. Do not add
+   AGENTS.md text for something a hook or a check can do.
+6. The Stop hook keeps a 60 s timeout (SPEC 24): `check-fast` must stay under 60 s; the router hooks stay well
+   under 30 s.

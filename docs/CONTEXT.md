@@ -83,11 +83,12 @@ Owner hooks come from the owner's hooks.json. Each hook finishes well under the 
 
 ## Routing
 
-Source: `ai/routing.yaml` (version 4, owner decision 2026-11-12: passive context beats nudges). 22 rules (12 global, 10 opt-in, 4 are gates), a tie-break table of 5 rows, and a `layers` block.
+Source: `ai/routing.yaml` (version 4, owner decision 2026-11-12: passive context beats nudges). 25 rules (15 global, 10 opt-in, 5 are gates), a tie-break table of 5 rows, and a `layers` block.
 Rules by group:
 - Session start: `project-knowledge` (status line: Map, Libraries, opt-in tools), `no-ai-base`.
 - After a commit: `knowledge-check` (update the Map, `ai-libs --sync`; silent when nothing applies). The graph refreshes itself: after agent git calls the router starts `graphify update` in the background.
-- Gates: `audit-before-install`, `secret-scan`, `no-sudo`, `pr-rules`.
+- Gates: `audit-before-install`, `secret-scan`, `no-sudo`, `no-destroy`, `pr-rules`.
+- Tier 1 (adopted repos): `ledger-nudge` (long tier, before an edit in a regression area), `feature-grill` (L2: questions first for a feature prompt). The Stop hook `stop-check` is a separate script, not a routing row.
 - Lint and docs: `no-em-dash`, `docs-lookup` (also fires on a library name from the Libraries section).
 - Off in this project, suggest it: `seo-not-enabled`, `blog-not-enabled`, `browser-not-enabled`.
 - Default on (opt out with `no-serena`, `no-graph`): `serena`, `graph`. Opt-in catalog (`ai-adopt --tools <id>`): `omc`, `seo`, `blog`, `browser`, `ui`, `tracker-flow`, `domain-docs`, `knowledge-wiki`.

@@ -573,3 +573,36 @@ restore where something existing is removed; dry-run safe.
   `~/.claude/.omc-launch/`) when it has the OMC markers. install.sh and ai-sync add the AI:core import block to
   it after `<!-- OMC:END -->` when the file exists (macOS; Linux has /etc/claude-code/CLAUDE.md).
 - ai-doctor checks all of the above.
+## 24. Tier 1: project checks per adopted repo (owner decision 2026-11-14)
+- Plan: `ai-audit/factory-plan.md` sections 0.5, 1, 5 (Phase 1). Every piece is a hook, a gate or a script; text
+  in AGENTS.md is limited to the 6-line Done block and the Lessons section (15 lines).
+- Tier per project: `tier: try|mvp|long` in `.ai/enabled` (default `mvp`, also for repos without the line;
+  `ai-adopt --tier`, asked once when interactive). try = check targets, Done, no-destroy. mvp = + Stop hook, PR
+  fields Verify and Risk. long = + regression ledger and edit nudge, PR fields Docs, Changed guards, Ledger on fix
+  PRs, ratchet.
+- T1 `ai-check-detect`: stack from lockfiles and manifests (uv/poetry/pip + pytest/ruff, npm/pnpm/yarn/bun, go,
+  cargo); monorepos refused. `ai-adopt` writes `check-fast` (lint + unit, under 60 s) and `check` (everything) in
+  one marked Makefile or justfile block, never changes an existing target, shows the block (`--dry-run`), times
+  `check-fast` once (`--no-measure` skips it) and writes both commands into the Map line `- Check:`.
+- T2 `hooks/stop-check.py`: a separate script on SessionStart (baseline) and Stop, Claude and Codex. It runs
+  `check-fast` only when the tree fingerprint (HEAD, status, diff, untracked sizes and times) differs from the
+  session baseline and from the last green tree; JSON `decision: block` with the last 40 lines; at most 2 blocks
+  per tree; silent on success; 55 s timeout passes with a note; 0 tests seen fails; long tier also
+  `ai-ratchet --only tests,skips --no-write`. Silent when `stop_hook_active`, in try tier, with `no-stop-check`,
+  and while an oh-my-claudecode persistent mode of the session is active (OMC owns that stop). Its Stop timeout is
+  60 s: the one exception to "hook commands stay well under 30 s" (section 6).
+- T3 regression ledger: `docs/REGRESSIONS.md` (`R-NNN | date | area: prefix | symptom | cause | test | reopened`),
+  tests in `tests/regressions/test_r<NNN>_*`. Router row `ledger-nudge` (placeholder `{ledger_hits}`, long tier,
+  once per area per session), a Stop-time note for areas changed by Bash, `ai-ledger --check` in `make check`.
+- T4 pr-rules: tier fields, placeholders refused, a fix PR needs a test file in its diff, over 400 changed lines
+  warns, `--fill` / `--web` refused.
+- T5 Done (managed block, 6 lines) and Lessons in the repo AGENTS.md; a hand-written Done section is kept.
+  `ai-doctor --project`: repo AGENTS.md 12 KB soft budget, root rules + repo file under 32 KiB (Codex), caps.
+- T6 gate `no-destroy` (target-based, shaped like no-sudo; per repo `.ai/destructive.txt` with `db:` and `cmd:`).
+  dcg is not used (license).
+- T7 `ai-ratchet`: tests up, skips and lint down, baseline `.ai/ratchet.json` (committed, auto-tightens).
+- Feature grill: routing row `feature-grill` (L2, EN/RO/RU strict regex): one round of grilling questions before
+  feature code, unless trivial. The kickoff tie-break stays.
+- `.gitignore` block shares `.ai/ratchet.json` and `.ai/destructive.txt` next to `.ai/enabled`.
+- Not built in this round: Codex `prefix_rule` second layer for no-destroy, a Code Review Rules section, CI
+  workflow files, the SessionStart status fields (HANDOFF, quarantine count, last check).

@@ -31,6 +31,11 @@ Audit reports (local, not in git) live next to the checkouts in `ai-audit/`.
 - Always-on context measured at about 34k tokens per fresh Claude session (was 49k).
 - docs/TOOLS.md sections 7 (every tool's default and configuration) and 8 (overlaps, one job each).
 
+**Tier 1 project checks: DONE in code on branch `ai` (2026-11-14), not deployed.** Tier per repo (`try`, `mvp`,
+`long`), `ai-check-detect` + `check-fast`/`check` targets, the `stop-check` Stop hook, `no-destroy` gate, PR tier
+fields, Done/Lessons, regression ledger (`ai-ledger`), `ai-ratchet`, the `feature-grill` row (SPEC 24). Next: the
+scriptube pilot (`ai-adopt --tier long`), a real plugin install and a real Codex run of the Stop hook.
+
 **Open, in order:**
 1. **macOS installer: DONE and proven on an old Intel Mac (macOS 12).** `ai-doctor`: 59 pass, 1 warn
    (no `secrets.env`). Scanners install there through the source-build fallback and the legacy
@@ -71,7 +76,7 @@ On a Mac: `git -C ~/.dotfiles-ai pull` (ai-sync runs), or rerun `~/.dotfiles-ai/
 
 1. [How the whole thing fits together](#1-how-the-whole-thing-fits-together)
 2. [Install](#2-install)
-3. [How it works, in plain words (4 examples)](#3-how-it-works-in-plain-words)
+3. [How it works, in plain words (5 examples)](#3-how-it-works-in-plain-words)
 4. [What runs where](#4-what-runs-where)
 5. [Manual steps per machine](#5-manual-steps-per-machine)
 6. [Verify](#6-verify)
@@ -106,7 +111,7 @@ flowchart TD
     JSON --> ROUTER["router hook<br/>session-start status,<br/>a few prompt rows"]
     ROUTER --> CLAUDE
     ROUTER --> CODEX
-    CLAUDE --> GATES{{"gates L4<br/>audit, secret scan, no sudo, PR rules"}}
+    CLAUDE --> GATES{{"gates L4<br/>audit, secret scan, no sudo, no destroy, PR rules"}}
     CODEX --> GATES
     GATES --> LOGS["~/.local/state/ai/<br/>audit, gates, fired, misses"]
     ROUTER --> LOGS
@@ -127,7 +132,7 @@ Read it from the top.
 2. `ai-render` joins the parts and the L0 table into one root rules file. It also builds `routing.json` for the hooks.
 3. Each agent receives that one file in the way it supports (see [docs/AGENTS-MD.md](docs/AGENTS-MD.md)).
 4. The plugin `ai-core` gives Claude and Codex our hooks, skills and MCP server list.
-5. The router hook adds a short status line at session start and a few cheap reminders. The gates block four unsafe steps.
+5. The router hook adds a short status line at session start and a few cheap reminders. The gates block five kinds of unsafe steps. A separate Stop hook runs the project's `check-fast` before the agent says it is done (section 3, example E).
 6. Every decision is logged. `ai-doctor` reads the logs and the contracts and tells you what is wrong. `ai-doctor --live` runs a canary `claude -p` session: a token commit, `gh pr create` without the PR blocks, and an unaudited `uv add` must each be denied (new DENY lines in `gates.log`).
 7. On a server, project work happens inside a box, never on the host.
 
@@ -141,13 +146,14 @@ Read it from the top.
 | Other tools | RTK, Ponytail, i-have-adhd, five mattpocock skills, `gh`, graphify (CLI, on by default; `no-graph` opts out), last30days (Claude, on by default). Per project only: claude-seo, claude-blog, ui-ux-pro-max (`ai-adopt --tools seo,blog,ui`). Dropped and removed by install: caveman, `byterover-mcp` | [docs/TOOLS.md](docs/TOOLS.md) |
 | Root rules | the one AGENTS.md all agents read | [docs/AGENTS-MD.md](docs/AGENTS-MD.md) |
 | Usage contracts | `ai/rules/<tool>.md`, five sections each | [docs/EXTENDING.md](docs/EXTENDING.md) |
-| Router + gates | session-start status, a few prompt rows, four gates | section 3 below |
+| Router + gates | session-start status, a few prompt rows, five gates | section 3 below |
+| Project checks (Tier 1) | per adopted repo: a tier (`try`, `mvp`, `long`) in `.ai/enabled`; `check-fast` / `check` targets (`ai-check-detect`); a Stop hook that runs `check-fast`; Done and Lessons in AGENTS.md; long tier: regression ledger (`docs/REGRESSIONS.md`, `ai-ledger`) and `ai-ratchet` | section 3, example E; `ai/rules/check-command.md` |
 | Project knowledge | per repo, inside its AGENTS.md: a "## Map" (where things live, how to run and test, conventions) and a "## Libraries" table (version, context7 ID). Made by `ai-adopt`, kept fresh by `ai-libs --sync` and a post-commit note | section 3, example D |
 | Evals | prompts that must and must not fire a tool (English, Romanian, Russian) | `ai/evals/` |
 
 ### The routing layers
 
-One table (`ai/routing.yaml`) feeds every layer, so they never disagree. Since v4 (owner decision 2026-11-12, after an audit) the table is small: passive context in AGENTS.md beats tool nudges, and the logs showed per-tool nudges ignored. What is left: the four gates, the session-start status, a post-commit freshness note, the em dash lint, the library-docs row, the "not enabled" suggestions and the opt-in catalog.
+One table (`ai/routing.yaml`) feeds every layer, so they never disagree. Since v4 (owner decision 2026-11-12, after an audit) the table is small: passive context in AGENTS.md beats tool nudges, and the logs showed per-tool nudges ignored. What is left: the five gates, the session-start status, a post-commit freshness note, the em dash lint, the library-docs row, the "not enabled" suggestions and the opt-in catalog.
 
 | Layer | What | Catches |
 |---|---|---|
@@ -162,7 +168,7 @@ One table (`ai/routing.yaml`) feeds every layer, so they never disagree. Since v
 
 A miss (a rule fired and the matching tool was not used) is logged. It is never silent.
 
-### The four gates
+### The five gates
 
 A gate blocks a step until its condition holds.
 
@@ -170,7 +176,8 @@ A gate blocks a step until its condition holds.
 |---|---|---|
 | `audit-before-install` | installs: npm, pnpm, yarn, bun, pip, uv (`uv add`, `pip install`, `npm install`/`ci`, ...); curl piped to a shell. Asks the owner for one-off runners (`uvx`, `uv tool run`, `uv run --with`, `npx`, `npm exec`, `pnpm dlx`, `yarn dlx`, `bunx`, `pipx run`) unless the package has a PASS or (npx) is a local bin of the project, and for brew, cargo, go, gem, pipx | `agent-audit` logged a PASS for that package in the last 24 hours (`agent-audit npm left-pad@1.3.0` or the two-word form) |
 | `secret-scan` | `git commit`, `git push` | the diff has no key, token, password or private key |
-| `pr-rules` | `gh pr create`, `gh pr edit` | the body has a Mermaid block and the author-sessions block |
+| `no-destroy` | `rm -r` of the home folder, `/`, the repo root, `.git`, data folders or paths outside the repo; force push or delete of `main`/`master`; `git reset --hard` on main with changes; `git clean -x` at the root; `compose down -v`, `docker volume prune`; per repo (`.ai/destructive.txt`): SQL `DROP`/`TRUNCATE` on a protected database and extra command prefixes | never: the owner runs it. Rebuildable folders (`node_modules`, `.venv`, `dist`, `build` ...) and text that only names a command pass |
+| `pr-rules` | `gh pr create`, `gh pr edit`; `--fill` and `--web` | the body has a Mermaid block, the author-sessions block and the tier fields (mvp: `Verify:`, `Risk:`; long: also `Docs:`, `Changed guards:`, `Ledger: R-NNN` on fix PRs), no placeholder text, and a fix PR has a test file in its diff. Over 400 changed lines: a warning |
 | `no-sudo` | `sudo`, `su`, `doas`, `pkexec`, `sudoedit`, `run0` at a command position (also inside `bash -c`, behind `env`, `nice`, `timeout`) | never: the agent gives the owner the exact command. This includes `sudo proj-agent`. Box work: the box tool (MCP server `box`: list, new, exec, logs, status, restart, ports, url, snapshot, doctor, help); outside a sandbox also plain `proj-agent <subcommand>`; never sudo (`proj-agent` is the root-owned `/usr/local/sbin/proj-agent`) |
 
 Gates catch honest mistakes. They are not a sandbox against a hostile agent: the OS sandbox and the box are (see [docs/SECURITY.md](docs/SECURITY.md)). Escape hatch, owner only: `sudo ai-gate-skip <gate> <minutes max 60> <why>` (root-owned `/usr/local/sbin/ai-gate-skip` on Linux installs). It writes the root-owned `/etc/ai/gate-skip`; the gate lets the step through until it expires, and each pass is logged to `~/.local/state/ai/gates.log`. `AI_GATE_SKIP=...` inside a command does nothing any more (an agent could type it). Details and known limits: `ai/marketplace/plugins/ai-core/hooks/README.md`.
@@ -219,7 +226,7 @@ Planned, not supported yet.
 
 ## 3. How it works, in plain words
 
-Four real cases. Each shows which layer does what.
+Five real cases. Each shows which layer does what.
 
 ### Example A: "Make me a Telegram bot"
 
@@ -295,6 +302,21 @@ You open a new Claude or Codex session and type: "add retries to the price fetch
 What it costs: the two sections are about 1,000 to 2,000 tokens, loaded every session with the rest of AGENTS.md. One narrow search plus a few located lines is about 1,000; one docs call about 2,000. The same task from zero (list folders, grep, read 5 to 10 files, resolve the library) is often 25,000 tokens or more, in every session. ACCEPTANCE T1 measures the always-on budget with `/context`.
 
 Serena and graphify are on in every project (owner decision 2026-11-12 evening), so between steps 2 and 3 the agent can also run `graphify query` for structure and Serena `find_symbol` for the exact definition. A project opts out with `no-serena` / `no-graph` in `.ai/enabled`.
+
+### Example E: a bug fix in a long-tier project
+
+The repo was adopted with `ai-adopt --tier long`. It has `tier: long` in `.ai/enabled`, a Makefile block with `check-fast` (lint + unit, measured 14 s) and `check` (everything, plus `ai-ledger --check` and `ai-ratchet`), a Done block in AGENTS.md, `docs/REGRESSIONS.md` with a row `R-012 | ... | area: src/billing/ | ... | test: tests/regressions/test_r012_refund_once.py | reopened: 0`, and `.ai/ratchet.json`.
+
+You type: "refunds are paid twice when the bank times out, fix it".
+
+1. **Edit.** Before the first Edit in `src/billing/`, the router adds one line: "Regression area src/billing/ has R-012: keep them green, run tests/regressions/test_r012_refund_once.py". Once per area per session.
+2. **Stop.** The agent says it is done. The Stop hook sees that files changed since the session start and runs `make check-fast`. A test fails: the stop is blocked with the last 40 lines, and the agent continues. The same failing files are blocked at most twice; then the owner gets a note.
+3. **No cheating.** The agent deletes the failing test instead. `check-fast` is green, but `ai-ratchet` sees "tests 412 -> 411" and the stop is blocked again. A check that ran 0 tests also fails.
+4. **No damage.** `git reset --hard` on main with changes, `rm -rf data/` or `docker compose down -v` are blocked by `no-destroy`.
+5. **Ledger.** The fix adds `R-013` with a test that failed before the fix. `ai-ledger --check` (in `make check`) checks the test exists and carries the id, no row was removed, `reopened` only went up.
+6. **PR.** `gh pr create --title "fix(billing): one refund per timeout"` needs `Verify:` (command and output), `Risk:`, `Docs:`, `Changed guards:`, `Ledger: R-013`, and a test file in the diff. `TODO` in a field counts as missing.
+
+An `mvp` project gets steps 2, 4 and the PR fields `Verify:` and `Risk:`. A `try` project gets the check targets, the Done block and step 4. With oh-my-claudecode in a persistent mode (ralph, autopilot), OMC owns the stop; the check runs at the first stop after the mode ends, so one stop is never blocked twice.
 
 ## 4. What runs where
 

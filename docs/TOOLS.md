@@ -255,7 +255,17 @@ Good tools that are not part of daily work live in `ai/TOOLBOX.md`. They are not
 ### ai-doctor
 
 - **What.** The health check for the whole setup.
-- **How it works here.** It validates the plugin, tests the router with sample inputs, checks every enabled tool has a contract, compares the copied rule blocks to the source, and reads the miss log. `ai-doctor --quick` runs at the end of the install.
+- **How it works here.** It validates the plugin, tests the router with sample inputs, checks every enabled tool has a contract, compares the copied rule blocks to the source, and reads the miss log. `ai-doctor --quick` runs at the end of the install. `--project <repo>` also checks the repo AGENTS.md budget (12 KB soft, root rules + repo file under the Codex 32 KiB read cap), Done (6 lines) and Lessons (15 lines), the tier and check targets, and in long tier the ledger and the ratchet baseline.
+
+### Project checks (Tier 1, per adopted repo)
+
+- **What.** One check loop per project, sized by a tier in `.ai/enabled` (`tier: try|mvp|long`, default `mvp`; `ai-adopt --tier`). `try` (prototype): check targets, Done block, `no-destroy`. `mvp` (real users soon): also the Stop hook and the PR fields `Verify:` and `Risk:`. `long` (production, money, data): also the regression ledger, the full PR fields and the ratchet.
+- **ai-check-detect.** Finds the stack from lockfiles and manifests (uv, poetry, pip + pytest and ruff; npm, pnpm, yarn, bun; go; cargo) and plans `check-fast` (lint + unit, under 60 s) and `check` (everything) as one marked Makefile or justfile block. It never changes an existing target and refuses monorepos. `ai-adopt` writes the block, times `check-fast` once and puts both commands in the Map (`- Check:`). Contract: `ai/rules/check-command.md`.
+- **stop-check.** A Stop hook (Claude and Codex) beside the router. It runs `check-fast` only when files changed since the session start, blocks with the last 40 lines, at most twice per tree, and is silent on success. It stays silent while an oh-my-claudecode persistent mode of the session owns the stop, and when `stop_hook_active` is set. Opt out per repo: `no-stop-check`. Contract: `ai/rules/stop-check.md`.
+- **Regression ledger.** `docs/REGRESSIONS.md` (one row per bug that reached main, with its test in `tests/regressions/`). The router names the R-IDs before an edit in their area; `ai-ledger --check` keeps the file honest. Contract: `ai/rules/regression-ledger.md`.
+- **ai-ratchet.** Test, skip and lint counts against `.ai/ratchet.json`; they may only improve. Contract: `ai/rules/ratchet.md`.
+- **Done and Lessons.** A managed 6-line Done block and a Lessons section (15 lines) in the repo AGENTS.md. Contract: `ai/rules/agents-md-done.md`.
+- **Example.** `ai-adopt --tier long` in a uv + pytest repo writes the Makefile block, the Done block, `docs/REGRESSIONS.md` and `.ai/ratchet.json`, then commits them after one y/N.
 
 ## 5. Overlaps and how we decide
 
@@ -270,6 +280,7 @@ Some tools can do the same job. The table in `ai/routing.yaml` (`tiebreaks`) nam
 | Topic cluster to write posts | `blog-cluster` | `seo-cluster` | Goal decides. |
 | Topic cluster as site architecture | `seo-cluster` | `blog-cluster` | Goal decides. |
 | Search Console, PageSpeed, CrUX | `seo-google` | `blog-google` | One Google login, shared. |
+| Feature prompt (add, implement, build ... a feature, endpoint, page) | `grilling` (one round of questions first) | writing code at once | Row `feature-grill` (L2); a trivial change answers "none needed". |
 | New app or project (kickoff) | `grilling` (typed: `/grill-me`) | OMC `deep-interview` | Kickoff uses grilling; deep-interview only when grilling is not installed. |
 | "Grill me", stress-test a plan | matt `grilling` | OMC `deep-interview` | Numbered rounds, no score. |
 | "Deep interview", "ambiguity score" | OMC `deep-interview` | matt `grilling` | The score is OMC's feature. |
@@ -384,7 +395,7 @@ Navigation order for agents (rules): AGENTS.md Map, then `graphify query` for st
 | Navigation | 1 AGENTS.md Map (what lives where), 2 `graphify query` (structure, dependencies), 3 Serena symbol tools (definitions, references, symbol edits), 4 built-in Grep/Read on the located lines | Serena's file and shell tools are off (claude-code context; `excluded_tools: execute_shell_command, serena_repl`). OMC `lsp_*` / `ast_grep_*`: OMC is off on servers; where it is on, rules say Serena first. No Claude LSP plugin is installed. graphify MCP not installed (CLI only) |
 | Hooks: SessionStart | router (status lines; L0 table after compact/clear), i-have-adhd, Ponytail, OMC (when on), Serena `activate` for Codex only | Serena `activate` skipped for Claude (single-project context). graphify's global hooks removed |
 | Hooks: PreToolUse Bash | RTK rewrites; router gates and absolute rewrite of excluded commands | No two rewrites of one command: RTK excludes `git push` and `gh`. Deny wins over any rewrite. Serena `remind` and graphify `hook-guard` not installed |
-| Hooks: Stop, SessionEnd, Notification | router, claude-notify, Serena `cleanup` | none |
+| Hooks: Stop, SessionEnd, Notification | router, claude-notify, `stop-check` (check-fast), OMC persistent mode (when on), Serena `cleanup` | stop-check is silent while an OMC persistent mode of the session is active and when `stop_hook_active` is set: one stop never gets two blocks |
 | Git hooks | graphify post-commit/checkout/merge/rewrite (owner's own git) | The server git guard turns them off for agent git calls |
 | Instructions | managed CLAUDE.md and AGENTS.md (one render of `ai/agents-md/`), rules files per tool | Serena's system-prompt override not used; graphify's CLAUDE.md/AGENTS.md section not installed |
 | Memory | facts about the repo: AGENTS.md Map and Libraries; owner preferences: Claude auto memory | Serena memories off (mode `no-memories`); OMC project memory only where the owner turns OMC on |

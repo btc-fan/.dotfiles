@@ -10,7 +10,7 @@ What protects you when an agent makes a mistake or reads a hostile web page, iss
 | OS sandbox for host agents | reading your keys, writing outside the project, talking to unknown hosts | Claude managed settings; Codex `/etc/codex/requirements.toml` |
 | No sudo for agents | root on the host | sudoers (server) and the `no-sudo` gate. Box work: the box tool (MCP server `box`: list, new, exec, logs, status, restart, ports, url, snapshot, doctor, help); outside a sandbox also plain `proj-agent <subcommand>`; never sudo. The box server runs the root-owned `/usr/local/sbin/proj-agent` |
 | No planted config | a workspace file that starts a process (project `.mcp.json`, project or user settings hooks) | Claude managed `strictPluginOnlyCustomization: ["hooks", "mcp"]` |
-| Gates | honest mistakes: unaudited installs, secrets in commits, PRs without the required parts | router hooks |
+| Gates | honest mistakes: unaudited installs, secrets in commits, PRs without the required parts, destructive commands (`no-destroy`: `rm -r` of home, root or data, force push to main, `compose down -v`, SQL on a protected database) | router hooks |
 | GitHub settings | a bad push reaching main | fine-grained per-repo token, branch protection, push protection (owner step) |
 
 Gates are lint, not a sandbox: a script file or an unusual command can pass them. The sandbox and the box are the real boundary. Gates see through `rtk`, `rtk proxy`, `env`, `nice`, `timeout`, `stdbuf` and `command`; RTK does not rewrite `git push` or `gh`. On servers Claude runs the ai-core router from the root-owned copy (managed hooks); the plugin copy in `~/.claude/plugins` steps aside, so a user cannot change the gates.

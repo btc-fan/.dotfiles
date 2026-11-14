@@ -524,3 +524,28 @@ Seen on the owner's M3 Mac (macOS 15.5), read only:
   loaded there. Neither Mac has the file today; OMC setup can create it. Our block now goes into it too (after
   OMC:END); ai-sync adds it after a pull, ai-doctor fails without it.
 
+## 2026-11-14: Tier 1 project checks (SPEC 24)
+- Why: the research (project-evolution B, K) showed the healthy AI-built projects share five things: one runnable
+  check, incidents turned into checks, hooks over text, no destructive commands, evidence before "done". Text
+  rules grow back and get ignored; checks cost 0 tokens when green. So each piece is a hook, gate or script.
+- Tiers (try, mvp, long) keep a prototype light: the audit found the first plan too heavy for small projects.
+- Stop hook as a separate script: the router's contract is "never block a session, exit 0 on error"; a check
+  must block. JSON `decision: block` instead of exit 2 (reported issues with exit 2 on plugin hooks and stderr
+  parsing). Git fingerprint, not Edit events: Bash edits (`sed -i`, formatters) bypass Edit hooks. Baseline at
+  SessionStart: a tree that was dirty before the session is not blamed on the agent.
+- oh-my-claudecode: its persistent-mode Stop hook (5.1.0, `scripts/persistent-mode.mjs`, read 2026-11-14) blocks
+  while ralph/autopilot/ultragoal/team state is active for the session and never when `stop_hook_active` is set.
+  stop-check defers to it (same state files, same 2-hour stale rule) and also honours `stop_hook_active`. Checked
+  with the real OMC 5.1.0 script on the same payloads: ralph active: OMC blocks, stop-check silent; continuation
+  stop: both silent; ralph ended: OMC silent, stop-check blocks the failing check. No stop got two blocks.
+- Retry ceiling 2 per tree: `stop_hook_active` alone does not stop every loop (reported cases where it did not
+  propagate). Minimum-input floor: one team's check went green while it checked nothing.
+- no-destroy: own code; dcg rejected (its license grants no rights to Anthropic, OpenAI or anyone acting for
+  them). Target-based rm rule: a flag-only rule blocks `rm -rf node_modules` and gets switched off. SQL only for
+  protected names, so test databases work.
+- Ratchet counts definitions in test files (no test run): fast enough for the Stop hook and the same for every
+  stack. Lint uses ruff JSON or the project's own eslint, never a global install.
+- PR fields: `Changed guards` because an agent can weaken a guard (hour to day) and no check notices; `Docs: none`
+  needs a reason so the field is not filled by reflex.
+- Feature grill: grilling before code for features is the Pocock flow; the regex needs a verb plus a feature
+  noun, so questions, typo fixes and renames do not get the forced-eval text.
