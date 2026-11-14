@@ -1,4 +1,4 @@
-# ai/adapters/base.sh: prerequisites, pin checks, links, render, root rules, environment.
+# ai/adapters/base.sh: prerequisites, sources (newest stable per tool), links, render, root rules, environment.
 # Sourced by install.sh. Uses ai/lib/common.sh. bash 3.2.
 
 PLUGIN_DIR() { printf '%s' "$AI_HOME/ai/marketplace/plugins/ai-core"; }
@@ -52,23 +52,29 @@ base_prereqs() {
     return 0
 }
 
-# ---------------------------------------------------------------- 2 pins
+# ---------------------------------------------------------------- 2 sources (ai/pins.env)
 
+# ai/pins.env names where each tool comes from; the steps below install the newest stable release (owner
+# decision 2026-11-14). This step resolves every tool once (one network round, kept for this run in
+# AI_RESOLVE_MEMO) and prints what each one resolves to.
 base_pins() {
-    local bad=0 p
+    local bad=0 p nw=""
     p=$(PLUGIN_DIR)
-    grep -qx "v=$CONTEXT7_MCP_VERSION" "$p/mcp/context7.sh" \
-        || { warn "context7 version in $p/mcp/context7.sh differs from pins.env ($CONTEXT7_MCP_VERSION)"; bad=1; }
+    # context7.sh finds the installed version folder itself: a fixed version line there goes stale on the next update.
+    if grep -qE '^[[:space:]]*v=[0-9]' "$p/mcp/context7.sh"; then
+        warn "$p/mcp/context7.sh has a fixed version line: it must find the installed version"; bad=1
+    fi
     # No runtime downloads: no npx, @latest or curl|sh in the plugin or the project MCP template.
     if grep -rnE '@latest|(^|[^[:alnum:]_-])npx([^[:alnum:]_-]|$)|curl[^|]*\|[[:space:]]*(ba)?sh' \
         "$p/.mcp.json" "$p/mcp" "$AI_HOME/ai/mcp/project" 2>/dev/null \
         | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' | grep -q .; then
         warn "runtime npx, @latest or curl|sh in ai-core or ai/mcp/project"; bad=1
     fi
-    if [ "$(today)" \< "$OMX_NOT_BEFORE" ]; then
-        info "oh-my-codex $OMX_VERSION: install waits until $OMX_NOT_BEFORE (release under 1 week old at audit)"
-    fi
-    [ $bad = 0 ] && ok "pins consistent (ai/pins.env)"
+    [ "$AI_DRY_RUN" = 1 ] && nw=--no-write
+    info "newest stable per tool (ai/lib/resolve.py; a <TOOL>_HOLD line in ai/pins.env wins):"
+    AI_STATE_DIR="$AI_STATE_DIR" python3 "$AI_HOME/ai/lib/resolve.py" list $nw 2>&1 | sed 's/^/    /' \
+        || { warn "resolver failed: each tool keeps what is installed"; bad=1; }
+    [ $bad = 0 ] && ok "sources resolved (ai/pins.env)"
     return 0
 }
 
@@ -188,12 +194,12 @@ base_admin_layer() {
     # opencode: managed config dir /etc/opencode/ (file name to confirm with `opencode debug config`).
     if want opencode && has opencode; then
         aiconf_root json-add /etc/opencode/opencode.json instructions '"/etc/claude-code/CLAUDE.md"'
-        manual "check that opencode reads /etc/opencode/opencode.json: opencode debug config (file name UNVERIFIED at $OPENCODE_VERSION)"
+        manual "check that opencode reads /etc/opencode/opencode.json: opencode debug config (file name UNVERIFIED for $(opencode --version 2>/dev/null || echo 'this version'))"
     fi
     rm -f "$tmp"
     # Codex: requirements.toml constrains settings (sandbox, approvals); it has no instructions key,
     # and support at the pinned version is not verified here.
-    skip "Codex /etc/codex/requirements.toml: support at $CODEX_VERSION not verified, not written"
+    skip "Codex /etc/codex/requirements.toml: not written here (codex_system_policy writes it in system mode)"
     ok "admin layer: /etc/claude-code/CLAUDE.md (root 644)$(want opencode && has opencode && printf ', /etc/opencode/opencode.json')"
 }
 

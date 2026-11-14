@@ -14,7 +14,8 @@
 # code only writes managed blocks, single keys and links, and records every change for uninstall.sh
 # (user: ~/.local/state/ai/managed-keys.json, system: /var/lib/ai/managed-keys.json).
 # Root runs only a root-owned copy of the pushed branch (--allow-dirty: development only).
-# Idempotent: a second run changes nothing.
+# Idempotent: a second run changes nothing, except that each tool moves to a newer stable release when one
+# came out (owner decision 2026-11-14; a <TOOL>_HOLD line in ai/pins.env keeps a tool where it is).
 set -euo pipefail
 
 AI_HOME=$(cd "$(dirname "$0")" && pwd -P)
@@ -82,6 +83,12 @@ main() {
     [ "$AI_MODE" = system ] && setup_system_target
     for f in base tools claude codex hermes opencode herdr; do . "$AI_HOME/ai/adapters/$f.sh"; done
     load_pins
+    # Each tool is resolved once per run (the sources step fills this; the install steps read it).
+    if [ -z "${AI_RESOLVE_MEMO:-}" ]; then
+        AI_RESOLVE_MEMO=$(mktemp "${TMPDIR:-/tmp}/ai-resolve.XXXXXX")
+        export AI_RESOLVE_MEMO
+        trap 'rm -f "$AI_RESOLVE_MEMO"' EXIT
+    fi
     [ "$AI_MODE" = user ] || first_question
     pick_agents
 
@@ -130,9 +137,9 @@ setup_system_target() {
 run_system() {
     STEP_TOTAL=9
     step "prerequisites (apt)";                                  base_prereqs
-    step "pins (ai/pins.env is the only source of versions)";    base_pins
+    step "sources: newest stable per tool (ai/pins.env, ai/lib/resolve.py)"; base_pins
     step "render AGENTS.md and routing data in the root-owned copy"; base_render
-    step "agents: pinned harness installs (system-wide)";        tools_harnesses
+    step "agents: harness installs at the newest stable (system-wide)"; tools_harnesses
     step "system tools: RTK (built as $AI_FOR_USER), GitHub MCP, plugin sources"; tools_system
     step "system layer: /etc env, managed settings, admin rules, webhook helper"; do_system_layer
     step "Hermes (user $HERMES_USER)";                           do_hermes
@@ -146,7 +153,7 @@ run_system() {
 run_user() {
     STEP_TOTAL=13
     step "prerequisites (check only)";                           base_prereqs
-    step "pins (ai/pins.env is the only source of versions)";    base_pins
+    step "sources: newest stable per tool (ai/pins.env, ai/lib/resolve.py)"; base_pins
     step "links (~/.dotfiles-ai, ~/.config/ai, ~/.local/bin, claude-notify)"; base_links
     step "render AGENTS.md and routing data (ai-render)";        base_render
     step "user tools: Serena, graphify, context7";               tools_user
@@ -168,10 +175,10 @@ run_all() {
         warn "a Claude session is running: settings are written atomically, restart the session after install"
     fi
     step "prerequisites (git, jq, python3, node, npm, uv, curl)";  base_prereqs
-    step "pins (ai/pins.env is the only source of versions)";    base_pins
+    step "sources: newest stable per tool (ai/pins.env, ai/lib/resolve.py)"; base_pins
     step "links (~/.dotfiles-ai, ~/.config/ai, ~/.local/bin, claude-notify)"; base_links
     step "render AGENTS.md and routing data (ai-render)";        base_render
-    step "agents: pinned harness installs";                     tools_harnesses
+    step "agents: harness installs at the newest stable";       tools_harnesses
     step "tools: RTK, GitHub MCP, plugin sources, Serena, graphify, context7"; tools_system; tools_user
     step "MCP servers";                                         do_mcp
     step "plugins (marketplace ai, ai-core, Ponytail, i-have-adhd, claude-seo, claude-blog)"; do_plugins

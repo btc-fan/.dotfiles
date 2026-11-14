@@ -23,10 +23,15 @@ hermes_mcp() {
     # project now; Hermes has no project). Our earlier registrations are undone (recorded, symmetric).
     aiconf_hermes undo --only "$DROPPED_USER_KEYS"
     # context7 for this user too (its own HOME; no runtime npx).
-    c7="$hh/.local/share/ai/npm/context7-mcp-$CONTEXT7_MCP_VERSION"
-    if ! sudo -n -u "$HERMES_USER" test -x "$c7/node_modules/.bin/context7-mcp" 2>/dev/null && [ "$AI_SKIP_PACKAGES" != 1 ]; then
-        npm_local @upstash/context7-mcp "$CONTEXT7_MCP_VERSION" "$CONTEXT7_MCP_INTEGRITY" "$c7" hermes \
-            && aiconf_hermes record-cmd npm-local:context7 -- rm -rf "$c7"
+    # The newest stable version folder; mcp/context7.sh starts the highest installed one, older folders go.
+    if [ "$AI_SKIP_PACKAGES" != 1 ] && resolve_tool context7-mcp; then
+        c7="$hh/.local/share/ai/npm/context7-mcp-$R_VERSION"
+        if ! sudo -n -u "$HERMES_USER" test -x "$c7/node_modules/.bin/context7-mcp" 2>/dev/null; then
+            if npm_local @upstash/context7-mcp "$R_VERSION" "$R_INTEGRITY" "$c7" hermes; then
+                aiconf_hermes record-cmd npm-local:context7 -- sh -c 'rm -rf "$1"/context7-mcp-*' _ "$hh/.local/share/ai/npm"
+                as_hermes "for d in ~/.local/share/ai/npm/context7-mcp-*; do [ \"\$d\" = $(quote "$c7") ] || rm -rf \"\$d\"; done"
+            fi
+        fi
     fi
     root=$(hermes_stage_dir "$(PLUGIN_DIR)" plugin-ai-core)
     local skip=()

@@ -1,14 +1,20 @@
 #!/bin/sh
-# context7 MCP (upstash), pinned. The key comes from the environment or ~/.config/ai/secrets.env
+# context7 MCP (upstash). The key comes from the environment or ~/.config/ai/secrets.env
 # (CONTEXT7_API_KEY). It goes in the server env, never in argv (argv is visible in ps).
-# No npx at runtime: install.sh installs the pinned package once (integrity checked, audited,
-# --ignore-scripts) under ~/.local/share/ai/npm/. Version must equal CONTEXT7_MCP_VERSION in
-# ai/pins.env (install.sh checks it).
+# No npx at runtime: install.sh installs the newest stable release once per version (integrity checked,
+# audited, --ignore-scripts) under ~/.local/share/ai/npm/context7-mcp-<version>/. This script starts the
+# highest installed version, so it has no version line to keep in step (owner decision 2026-11-14).
 set -eu
-v=4.6.0
-bin="${AI_NPM_DIR:-$HOME/.local/share/ai/npm}/context7-mcp-$v/node_modules/.bin/context7-mcp"
-if [ ! -x "$bin" ]; then
-    echo "context7 MCP: $bin missing. Run install.sh (it installs @upstash/context7-mcp@$v)." >&2
+base="${AI_NPM_DIR:-$HOME/.local/share/ai/npm}"
+bin=""
+for v in $(ls -1 "$base" 2>/dev/null | sed -n 's/^context7-mcp-\([0-9][0-9.]*\)$/\1/p' | sort -t. -k1,1nr -k2,2nr -k3,3nr); do
+    if [ -x "$base/context7-mcp-$v/node_modules/.bin/context7-mcp" ]; then
+        bin="$base/context7-mcp-$v/node_modules/.bin/context7-mcp"
+        break
+    fi
+done
+if [ -z "$bin" ]; then
+    echo "context7 MCP: no installed @upstash/context7-mcp under $base. Run install.sh (it installs the newest stable)." >&2
     exit 1
 fi
 . "$(dirname "$0")/load-secrets.sh"

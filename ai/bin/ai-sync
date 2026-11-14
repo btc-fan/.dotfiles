@@ -90,7 +90,7 @@ load_libs() {
     . "$AI_HOME/ai/lib/common.sh"
     for f in base tools claude codex hermes; do . "$AI_HOME/ai/adapters/$f.sh"; done
     detect_os
-    load_pins       # base_admin_layer reads CODEX_VERSION / OPENCODE_VERSION (set -u)
+    load_pins       # sources and SCANNER_PYTHON etc. for the adapters (set -u)
 }
 
 # ---------------------------------------------------------------- check (ai-doctor)

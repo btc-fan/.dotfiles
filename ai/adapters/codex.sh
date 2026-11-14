@@ -8,15 +8,27 @@ codex_installed_plugins() {
 codex_has_plugin() { codex_installed_plugins | grep -qF "$1"; }
 
 codex_marketplace_plugin() {
-    # codex_marketplace_plugin <marketplace dir> <marketplace name> <plugin@marketplace>
-    local dir=$1 mname=$2 plugin=$3
-    if codex_has_plugin "${plugin%@*}"; then info "Codex plugin $plugin installed: kept as is"; return 0; fi
+    # codex_marketplace_plugin <marketplace dir> <marketplace name> <plugin@marketplace> [source commit]
+    # With a source commit: an installed plugin whose source moved (plugin_clone took a newer tag) is refreshed
+    # in place (`codex plugin add` again; never removed first), like ai-core.
+    local dir=$1 mname=$2 plugin=$3 sha=${4:-} stamp
+    stamp="$AI_STATE_DIR/codex-plugin.${plugin%@*}.src"
+    if codex_has_plugin "${plugin%@*}"; then
+        if [ -z "$sha" ] || [ "$(cat "$stamp" 2>/dev/null)" = "$sha" ]; then
+            info "Codex plugin $plugin installed${sha:+ at ${sha:0:7}}"; return 0
+        fi
+        if run codex plugin add "$plugin"; then ok "Codex plugin $plugin refreshed (source now at ${sha:0:7})"
+        else warn "codex plugin add $plugin failed: old copy kept"; return 1; fi
+        [ "$AI_DRY_RUN" = 1 ] || { mkdir -p "$AI_STATE_DIR"; printf '%s\n' "$sha" > "$stamp"; }
+        return 0
+    fi
     if ! codex plugin marketplace list 2>/dev/null | grep -Eq "(^|[^[:alnum:]_-])$mname([^[:alnum:]_-]|$)"; then
         run codex plugin marketplace add "$dir" || { warn "codex plugin marketplace add $dir failed"; return 1; }
         aiconf record-cmd "codex-marketplace:$mname" -- codex plugin marketplace remove "$mname"
     fi
     run codex plugin add "$plugin" || { warn "codex plugin add $plugin failed"; return 1; }
     aiconf record-cmd "codex-plugin:$plugin" -- codex plugin remove "$plugin"
+    [ -z "$sha" ] || [ "$AI_DRY_RUN" = 1 ] || { mkdir -p "$AI_STATE_DIR"; printf '%s\n' "$sha" > "$stamp"; }
     ok "Codex plugin $plugin"
 }
 
@@ -64,10 +76,10 @@ codex_plugins() {
     [ "$AI_DRY_RUN" = 1 ] || { mkdir -p "$AI_STATE_DIR"; printf '%s\n' "$hash" > "$hash_file"; }
 
     if [ -d "$(plugin_src_dir ponytail)" ] || [ "$AI_DRY_RUN" = 1 ]; then
-        codex_marketplace_plugin "$(plugin_src_dir ponytail)" ponytail ponytail@ponytail || true
+        codex_marketplace_plugin "$(plugin_src_dir ponytail)" ponytail ponytail@ponytail "$(src_head "$(plugin_src_dir ponytail)")" || true
     fi
     if [ -d "$(plugin_src_dir i-have-adhd)/.codex-plugin" ] || [ "$AI_DRY_RUN" = 1 ]; then
-        codex_marketplace_plugin "$(plugin_src_dir i-have-adhd)" i-have-adhd i-have-adhd@i-have-adhd || true
+        codex_marketplace_plugin "$(plugin_src_dir i-have-adhd)" i-have-adhd i-have-adhd@i-have-adhd "$(src_head "$(plugin_src_dir i-have-adhd)")" || true
     fi
     if [ "$AI_OS" != linux ] || ! grep -qs 'agent-plugins/ponytail' /etc/codex/hooks.json; then
         manual "Codex: open /hooks once and trust the hooks of ponytail and i-have-adhd (ai-core, rtk, graphify are trusted by install)"
