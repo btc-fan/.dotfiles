@@ -1,0 +1,375 @@
+  skip: opencode: not used by profile dev-mac
+AI setup (all mode) from $REPO on macos (arm64). Agents: claude,codex.
+Profile: dev-mac (default for macos).
+DRY RUN: commands are printed, nothing is changed.
+  [dry-run] write   ~/.config/ai/profile new file
+
+[1/14] prerequisites (git, jq, python3, node, npm, uv, curl)
+  missing: curl
+  [dry-run] brew install curl
+  planned: brew install curl
+
+[2/14] sources: newest stable per tool (ai/pins.env, ai/lib/resolve.py)
+  newest stable per tool (ai/lib/resolve.py; a <TOOL>_HOLD line in ai/pins.env wins):
+    claude-blog          2.3.2        cached   git https://github.com/AgriciDaniel/claude-blog 4f9c2cb8fd17  (offline; last resolved 2026-11-14T18:22:14Z)
+    claude-seo           2.6.1        cached   git https://github.com/AgriciDaniel/claude-seo 2e40a5fa6220  (offline; last resolved 2026-11-14T18:22:14Z)
+    codex                0.169.0      cached   npm @openai/codex  (offline; last resolved 2026-11-14T18:22:14Z)
+    context7-mcp         4.7.0        cached   npm @upstash/context7-mcp  (offline; last resolved 2026-11-14T18:22:14Z)
+    gitleaks             8.30.1       cached   github gitleaks/gitleaks 83d9cd684c87  (offline; last resolved 2026-11-14T18:22:14Z)
+    graphify             0.9.108      cached   pypi graphifyy  (offline; last resolved 2026-11-14T18:22:14Z)
+    guarddog             3.2.0        cached   pypi guarddog  (offline; last resolved 2026-11-14T18:22:14Z)
+    herdr                0.9.5        cached   github herdrdev/herdr 2ecf19a92fc3  (offline; last resolved 2026-11-14T18:22:14Z)
+    i-have-adhd          0.4.1        cached   git https://github.com/ayghri/i-have-adhd 1ecea1993b7f  (offline; last resolved 2026-11-14T18:22:14Z)
+    last30days           3.39.0       cached   git https://github.com/mvanhorn/last30days-skill f918b496b021  (offline; last resolved 2026-11-14T18:22:14Z)
+    llm-wiki             1.5.0        cached   git https://github.com/atomicstrata/llm-wiki-compiler c9c8734be8a0  (offline; last resolved 2026-11-14T18:22:14Z)
+    mattpocock-skills    1.3.2        cached   git https://github.com/mattpocock/skills d1478fcb140d  (offline; last resolved 2026-11-14T18:22:14Z)
+    omc                  5.8.4        cached   npm oh-my-claude-sisyphus  (offline; last resolved 2026-11-14T18:22:14Z)
+    omc-plugin           5.8.6        cached   git https://github.com/Yeachan-Heo/oh-my-claudecode 453d3dedf3e1  (offline; last resolved 2026-11-14T18:22:14Z)
+    omx                  0.22.6       cached   npm oh-my-codex  (offline; last resolved 2026-11-14T18:22:14Z)
+    opencode             1.19.5       cached   npm opencode-ai  (offline; last resolved 2026-11-14T18:22:14Z)
+    osv-scanner          2.7.1        cached   github google/osv-scanner 02f96a40691c  (offline; last resolved 2026-11-14T18:22:14Z)
+    playwright-mcp       0.0.85       cached   npm @playwright/mcp  (offline; last resolved 2026-11-14T18:22:14Z)
+    ponytail             5.3.3        cached   git https://github.com/DietrichGebert/ponytail 7801d061243d  (offline; last resolved 2026-11-14T18:22:14Z)
+    pstack               ?            none     git https://github.com/cursor/plugins  (offline)
+    rtk                  1.2.0        cached   github rtk-ai/rtk e288a18c0445  (offline; last resolved 2026-11-14T18:22:14Z)
+    serena               2.1.0        cached   pypi serena-agent  (offline; last resolved 2026-11-14T18:22:14Z)
+    skill-scanner        2.3.2        cached   pypi cisco-ai-skill-scanner  (offline; last resolved 2026-11-14T18:22:14Z)
+    ui-ux-pro-max        2.15.0       cached   git https://github.com/nextlevelbuilder/ui-ux-pro-max-skill a38d04c3d5c2  (offline; last resolved 2026-11-14T18:22:14Z)
+  planned: sources resolved (ai/pins.env)
+
+[3/14] links (~/.dotfiles-ai, ~/.config/ai, ~/.local/bin, claude-notify)
+  [dry-run] link    ~/.dotfiles-ai -> $REPO
+  [dry-run] link    ~/.config/ai/AGENTS.md -> $REPO/ai/AGENTS.md
+  [dry-run] link    ~/.config/ai/TOOLBOX.md -> $REPO/ai/TOOLBOX.md
+  [dry-run] link    ~/.config/ai/rules -> $REPO/ai/rules
+  [dry-run] link    ~/.local/bin/agent-audit -> $REPO/ai/bin/agent-audit
+  [dry-run] link    ~/.local/bin/ai-adopt -> $REPO/ai/bin/ai-adopt
+  [dry-run] link    ~/.local/bin/ai-check-detect -> $REPO/ai/bin/ai-check-detect
+  [dry-run] link    ~/.local/bin/ai-doctor -> $REPO/ai/bin/ai-doctor
+  [dry-run] link    ~/.local/bin/ai-info -> $REPO/ai/bin/ai-info
+  [dry-run] link    ~/.local/bin/ai-ledger -> $REPO/ai/bin/ai-ledger
+  [dry-run] link    ~/.local/bin/ai-libs -> $REPO/ai/bin/ai-libs
+  [dry-run] link    ~/.local/bin/ai-playwright-mcp -> $REPO/ai/bin/ai-playwright-mcp
+  [dry-run] link    ~/.local/bin/ai-ratchet -> $REPO/ai/bin/ai-ratchet
+  [dry-run] link    ~/.local/bin/ai-render -> $REPO/ai/bin/ai-render
+  [dry-run] link    ~/.local/bin/ai-start -> $REPO/ai/bin/ai-start
+  [dry-run] link    ~/.local/bin/ai-sync -> $REPO/ai/bin/ai-sync
+  [dry-run] link    ~/.local/bin/claude-notify -> $REPO/ai/bin/claude-notify
+  [dry-run] link    ~/.local/bin/pr-resume -> $REPO/ai/bin/pr-resume
+  no ~/.dotfiles base checkout: claude-notify link skipped (plugin hooks still work)
+  manual: create ~/.config/ai/secrets.env: install -m 600 $REPO/secrets.env.example ~/.config/ai/secrets.env, then fill GITHUB_PERSONAL_ACCESS_TOKEN and CONTEXT7_API_KEY
+  planned: links
+
+[4/14] render AGENTS.md and routing data (ai-render)
+  [dry-run] $REPO/ai/bin/ai-render
+  planned: ai-render: ai/AGENTS.md, ai/build/routing.json, ai/build/L0.md
+
+[5/14] agents: harness installs at the newest stable
+  [dry-run] echo undo uv:guarddog
+  [dry-run] undo    uv:guarddog echo undo uv:guarddog
+undo --only ^cmd:uv(-root)?:guarddog$: 1 entr(y/ies) reversed
+  [dry-run] echo undo bin:osv-scanner
+  [dry-run] undo    bin:osv-scanner echo undo bin:osv-scanner
+undo --only ^cmd:bin:osv-scanner$: 1 entr(y/ies) reversed
+  planned: scanners not used by profile dev-mac removed: guarddog osv-scanner
+  skill-scanner: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 2.3.2
+  skill-scanner 2.3.2: first install, not audited (profile dev-mac audits no packages)
+  [dry-run] env UV_LINK_MODE=copy uv tool install --force --no-build --managed-python -p 3.12 cisco-ai-skill-scanner==2.3.2
+  [dry-run] record  uv:skill-scanner undo: uv tool uninstall cisco-ai-skill-scanner
+  planned: skill-scanner 2.3.2 (newest stable, wheels only, first install not audited (profile dev-mac))
+  oh-my-claudecode: the Mac uses the plugin route; npm route is Ubuntu only (contracts-mcp-c 1.6)
+  codex: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 0.169.0
+  codex 1.0.0 is not from npm ($WORK/devmac/bin/codex): left as it is (newest stable: 0.169.0)
+  omx: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 0.22.6
+  omx 0.22.6 present (newest stable)
+  preview of 'omx setup' in a throwaway HOME ($TMP/ai-preview.XXXXXX):
+  [dry-run] HOME=$TMP/ai-preview.XXXXXX env OMX_AUTO_UPDATE=0 OMX_NATIVE_AUTO_FETCH=0 omx setup
+  [dry-run] env OMX_AUTO_UPDATE=0 OMX_NATIVE_AUTO_FETCH=0 omx setup
+  files unchanged
+  planned: omx setup done
+
+[6/14] tools: RTK, GitHub MCP, plugin sources, Serena, graphify, context7
+  rtk: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 1.2.0
+  rtk 1.2.0 present (Homebrew formula, newest stable)
+  ponytail: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 5.3.3
+  [dry-run] git clone https://github.com/DietrichGebert/ponytail; checkout v5.3.3 (7801d061243d); agent-audit dir; ~/.local/share/ai/plugins/ponytail
+  i-have-adhd: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 0.4.1
+  [dry-run] git clone https://github.com/ayghri/i-have-adhd; checkout v0.4.1 (1ecea1993b7f); agent-audit dir; ~/.local/share/ai/plugins/i-have-adhd
+  claude-seo: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 2.6.1
+  [dry-run] git clone https://github.com/AgriciDaniel/claude-seo; checkout v2.6.1 (2e40a5fa6220); agent-audit dir; ~/.local/share/ai/plugins/claude-seo
+  claude-blog: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 2.3.2
+  [dry-run] git clone https://github.com/AgriciDaniel/claude-blog; checkout v2.3.2 (4f9c2cb8fd17); agent-audit dir; ~/.local/share/ai/plugins/claude-blog
+  mattpocock-skills: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 1.3.2
+  [dry-run] git clone https://github.com/mattpocock/skills; checkout v1.3.2 (d1478fcb140d); agent-audit dir; copy productivity/grilling productivity/grill-me productivity/wait-what productivity/writing-for-agents engineering/retro to ~/.local/share/ai/plugins/mattpocock-skills
+  WARN: pstack: newest stable unknown (offline): kept as it is
+  serena: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 2.1.0
+  audit skipped: profile dev-mac (pypi serena-agent 2.1.0)
+  [dry-run] env UV_LINK_MODE=copy uv tool install --force --no-build -p 3.13 serena-agent==2.1.0
+  [dry-run] record  uv:serena undo: uv tool uninstall serena-agent
+  planned: serena 2.1.0 (newest stable, audit skipped, wheels only)
+  graphify: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 0.9.108
+  audit skipped: profile dev-mac (pypi graphifyy 0.9.108)
+  [dry-run] env UV_LINK_MODE=copy uv tool install --force --no-build graphifyy==0.9.108
+  [dry-run] record  uv:graphify undo: uv tool uninstall graphifyy
+  planned: graphify 0.9.108 (newest stable, audit skipped, wheels only)
+  context7-mcp: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 4.7.0
+  audit skipped: profile dev-mac (npm @upstash/context7-mcp 4.7.0)
+  [dry-run] sh -c npm\ install\ --prefix\ ~/.local/share/ai/npm/context7-mcp-4.7.0\ --ignore-scripts\ --no-audit\ --no-fund\ --save-exact\ @upstash/context7-mcp@4.7.0
+  [dry-run] record  npm-local:context7 undo: sh -c 'rm -rf "$1"/context7-mcp-*' _ ~/.local/share/ai/npm
+  planned: context7-mcp 4.7.0 in ~/.local/share/ai/npm/context7-mcp-4.7.0 (audit skipped, integrity checked, scripts off)
+  [dry-run] set     ~/Library/Application Support/rtk/config.toml [hooks] exclude_commands = ["git push", "gh"]
+
+[7/14] MCP servers
+  skip: Serena config: serena not installed
+undo --only ^(cmd|restore):(codex|hermes)-mcp:(github|grounded-docs)$|^json:.*opencode\.json:mcp/(github|grounded-docs)$: 0 entr(y/ies) reversed
+  planned: dropped MCP registrations removed (github, grounded-docs)
+undo --only ^(json|json-del|json-item):[^:]*/opencode/opencode\.json:|^link:.*/opencode/plugin/|^file:.*/opencode/: 0 entr(y/ies) reversed
+  [dry-run] echo undo npm:opencode
+  [dry-run] undo    npm:opencode echo undo npm:opencode
+undo --only ^cmd:npm:opencode$|^(json|json-item|json-add):/etc/opencode/: 1 entr(y/ies) reversed
+  planned: agents not used by profile dev-mac, undone: opencode 
+  Claude MCP: served by the ai-core plugin (user-scope duplicates are moved after the plugin check)
+  same    ~/.claude.json no dropped user-scope MCP left (caveman-shrink byterover-mcp)
+  same    ~/.codex/config.toml no dropped Codex MCP left (caveman-shrink byterover-mcp)
+  [dry-run] replace codex mcp context7: foreign entry saved to ~/.local/state/ai/undo/YYYYMMDD-HHMMSS.codex-mcp-context7.toml (could not extract it, restore by hand)
+  [dry-run] codex mcp remove context7
+  [dry-run] codex mcp add context7 -- $REPO/ai/marketplace/plugins/ai-core/mcp/context7.sh
+  [dry-run] mcp     codex replaced context7
+  planned: Codex MCP: context7 (github and grounded-docs were dropped)
+
+[8/14] plugins (marketplace ai, ai-core, Ponytail, i-have-adhd, claude-seo, claude-blog)
+  [dry-run] claude plugin marketplace add $REPO/ai/marketplace
+  [dry-run] record  claude-marketplace:ai undo: claude plugin marketplace remove ai
+  [dry-run] claude plugin install ai-core@ai --scope user
+  [dry-run] record  claude-plugin:ai-core@ai undo: claude plugin uninstall ai-core@ai
+  planned: Claude plugin ai-core@ai (user scope)
+  same    ~/.claude.json no user-scope MCP duplicates the plugin
+  same    ~/.claude/settings.json no hook duplicates the plugin
+  planned: Claude: ai-core verified; it now owns the MCP servers and hooks it ships (no duplicates)
+  [dry-run] claude plugin marketplace add ~/.local/share/ai/plugins/ponytail
+  [dry-run] record  claude-marketplace:ponytail undo: claude plugin marketplace remove ponytail
+  [dry-run] claude plugin install ponytail@ponytail --scope user
+  [dry-run] record  claude-plugin:ponytail@ponytail undo: claude plugin uninstall ponytail@ponytail
+  planned: Claude plugin ponytail@ponytail (user scope)
+  [dry-run] claude plugin marketplace add ~/.local/share/ai/plugins/i-have-adhd
+  [dry-run] record  claude-marketplace:i-have-adhd undo: claude plugin marketplace remove i-have-adhd
+  [dry-run] claude plugin install i-have-adhd@i-have-adhd --scope user
+  [dry-run] record  claude-plugin:i-have-adhd@i-have-adhd undo: claude plugin uninstall i-have-adhd@i-have-adhd
+  planned: Claude plugin i-have-adhd@i-have-adhd (user scope)
+  [dry-run] write   ~/.claude/.i-have-adhd-always new file
+  claude-seo: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 2.6.1
+  [dry-run] git clone https://github.com/AgriciDaniel/claude-seo at v2.6.1; agent-audit dir
+  [dry-run] claude plugin marketplace add AgriciDaniel/claude-seo#v2.6.1
+  [dry-run] record  claude-marketplace:agricidaniel-claude-seo undo: claude plugin marketplace remove agricidaniel-claude-seo
+  [dry-run] claude plugin install claude-seo@agricidaniel-claude-seo --scope user
+  [dry-run] record  claude-plugin:claude-seo@agricidaniel-claude-seo undo: claude plugin uninstall claude-seo@agricidaniel-claude-seo
+  planned: Claude plugin claude-seo@agricidaniel-claude-seo (user scope)
+  claude-blog: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 2.3.2
+  [dry-run] git clone https://github.com/AgriciDaniel/claude-blog at v2.3.2; agent-audit dir
+  [dry-run] claude plugin marketplace add AgriciDaniel/claude-blog#v2.3.2
+  [dry-run] record  claude-marketplace:agricidaniel-blog undo: claude plugin marketplace remove agricidaniel-blog
+  [dry-run] claude plugin install claude-blog@agricidaniel-blog --scope user
+  [dry-run] record  claude-plugin:claude-blog@agricidaniel-blog undo: claude plugin uninstall claude-blog@agricidaniel-blog
+  planned: Claude plugin claude-blog@agricidaniel-blog (user scope)
+  omc-plugin: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 5.8.6
+  [dry-run] git clone https://github.com/Yeachan-Heo/oh-my-claudecode at v5.8.6; agent-audit dir
+  [dry-run] claude plugin marketplace add Yeachan-Heo/oh-my-claudecode#v5.8.6
+  [dry-run] record  claude-marketplace:omc undo: claude plugin marketplace remove omc
+  [dry-run] claude plugin install oh-my-claudecode@omc --scope user
+  [dry-run] record  claude-plugin:oh-my-claudecode@omc undo: claude plugin uninstall oh-my-claudecode@omc
+  planned: Claude plugin oh-my-claudecode@omc (user scope)
+  manual: OMC plugin route: run /oh-my-claudecode:omc-setup once in Claude (CLAUDE.md block, HUD)
+  [dry-run] claude plugin marketplace add $REPO/ai/marketplace
+  [dry-run] record  claude-marketplace:ai undo: claude plugin marketplace remove ai
+  [dry-run] claude plugin install ai-serena@ai --scope user
+  [dry-run] record  claude-plugin:ai-serena@ai undo: claude plugin uninstall ai-serena@ai
+  planned: Claude plugin ai-serena@ai (user scope)
+  [dry-run] claude plugin marketplace add $REPO/ai/marketplace
+  [dry-run] record  claude-marketplace:ai undo: claude plugin marketplace remove ai
+  [dry-run] claude plugin install ai-playwright@ai --scope user
+  [dry-run] record  claude-plugin:ai-playwright@ai undo: claude plugin uninstall ai-playwright@ai
+  planned: Claude plugin ai-playwright@ai (user scope)
+  [dry-run] set     ~/.claude/settings.json enabledPlugins/ai-serena@ai = true
+  [dry-run] set     ~/.claude/settings.json enabledPlugins/ai-playwright@ai = false
+  box MCP: not installed (profile dev-mac)
+  same    ~/.claude.json no user-scope MCP duplicates the plugin
+  manual: Claude, once per machine, in a project with claude-seo on: /seo setup, then /seo doctor (venv + Chromium)
+  last30days: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 3.39.0
+  [dry-run] git clone https://github.com/mvanhorn/last30days-skill at v3.39.0; agent-audit dir
+  [dry-run] claude plugin marketplace add mvanhorn/last30days-skill#v3.39.0
+  [dry-run] record  claude-marketplace:last30days-skill undo: claude plugin marketplace remove last30days-skill
+  [dry-run] claude plugin install last30days@last30days-skill --scope user
+  [dry-run] record  claude-plugin:last30days@last30days-skill undo: claude plugin uninstall last30days@last30days-skill
+  planned: Claude plugin last30days@last30days-skill (user scope)
+  [dry-run] set     ~/.claude/settings.json enabledPlugins/last30days@last30days-skill = true
+  [dry-run] codex plugin marketplace add $REPO/ai/marketplace
+  [dry-run] record  codex-marketplace:ai undo: codex plugin marketplace remove ai
+  [dry-run] codex plugin add ai-core@ai
+  [dry-run] record  codex-plugin:ai-core@ai undo: codex plugin remove ai-core@ai
+  planned: Codex plugin ai-core@ai
+  [dry-run] codex plugin marketplace add ~/.local/share/ai/plugins/ponytail
+  [dry-run] record  codex-marketplace:ponytail undo: codex plugin marketplace remove ponytail
+  [dry-run] codex plugin add ponytail@ponytail
+  [dry-run] record  codex-plugin:ponytail@ponytail undo: codex plugin remove ponytail@ponytail
+  planned: Codex plugin ponytail@ponytail
+  [dry-run] codex plugin marketplace add ~/.local/share/ai/plugins/i-have-adhd
+  [dry-run] record  codex-marketplace:i-have-adhd undo: codex plugin marketplace remove i-have-adhd
+  [dry-run] codex plugin add i-have-adhd@i-have-adhd
+  [dry-run] record  codex-plugin:i-have-adhd@i-have-adhd undo: codex plugin remove i-have-adhd@i-have-adhd
+  planned: Codex plugin i-have-adhd@i-have-adhd
+  manual: Codex: open /hooks once and trust the hooks of ponytail and i-have-adhd (ai-core, rtk, graphify are trusted by install)
+
+[9/14] skills
+  [dry-run] link    ~/.claude/skills/create-verification-skill -> $REPO/ai/skills/create-verification-skill
+  [dry-run] link    ~/.claude/skills/maintain-verification-skill -> $REPO/ai/skills/maintain-verification-skill
+  [dry-run] link    ~/.claude/skills/prompting-claude-and-codex -> $REPO/ai/skills/prompting-claude-and-codex
+  planned: Claude: shared skills and the 5 mattpocock skills linked into ~/.claude/skills
+  [dry-run] link    ~/.agents/skills/create-verification-skill -> $REPO/ai/skills/create-verification-skill
+  [dry-run] link    ~/.agents/skills/maintain-verification-skill -> $REPO/ai/skills/maintain-verification-skill
+  [dry-run] link    ~/.agents/skills/prompting-claude-and-codex -> $REPO/ai/skills/prompting-claude-and-codex
+  planned: Codex/opencode: shared skills and the 5 mattpocock skills linked into ~/.agents/skills
+
+[10/14] hooks (plugin owns them; vendor hooks: RTK, herdr, graphify)
+  same    ~/.claude/settings.json missing
+  same    ~/.claude/settings.json missing
+  rtk init -g --hook-only --auto-patch --dry-run:
+    [dry-run] would patch settings.json (PreToolUse, matcher "Bash"): ~/.claude/settings.json
+    
+    [dry-run] Nothing written.
+  [dry-run] rtk init -g --hook-only --auto-patch
+  files unchanged
+  same    ~/.claude/CLAUDE.md no line '@RTK.md'
+  [dry-run] record  rtk:claude undo: rtk init -g --uninstall
+  planned: RTK hook for Claude (proxy declined, no CLAUDE.md import)
+  same    ~/.claude/settings.json no hook duplicates the plugin
+  same    ~/.codex/hooks.json missing
+  [dry-run] rtk init -g --codex
+  files unchanged
+  [dry-run] record  rtk:codex undo: rtk init -g --codex --uninstall
+  planned: RTK for Codex
+  [dry-run] aiconf codex-trust-hooks ~/.codex/config.toml --auto
+
+[11/14] root rules (managed blocks; other blocks kept)
+  [dry-run] block   ~/.claude/CLAUDE.md AI:core v1 (N bytes)
+  planned: Claude: managed block in ~/.claude/CLAUDE.md (other blocks kept)
+  [dry-run] block   ~/.codex/AGENTS.md AI:core v1 (N bytes)
+  planned: Codex: managed block in ~/.codex/AGENTS.md (OMX blocks kept)
+
+[12/14] environment: telemetry and auto-update off
+  [dry-run] write   ~/.config/ai/env.sh new file
+  manual: add to your shell rc: [ -f ~/.config/ai/env.sh ] && . ~/.config/ai/env.sh
+  [dry-run] block   ~/.config/git/ignore AI:git-sandbox-placeholders v1 (150 bytes)
+  planned: git: global excludes ignore the sandbox placeholders in project roots (~/.config/git/ignore)
+  [dry-run] set     ~/.claude/settings.json env/DISABLE_TELEMETRY = "1"
+  [dry-run] set     ~/.claude/settings.json env/DISABLE_ERROR_REPORTING = "1"
+  [dry-run] set     ~/.claude/settings.json env/DISABLE_AUTOUPDATER = "1"
+  [dry-run] set     ~/.claude/settings.json env/SERENA_USAGE_REPORTING = "false"
+  [dry-run] set     ~/.claude/settings.json env/RTK_TELEMETRY_DISABLED = "1"
+  [dry-run] set     ~/.claude/settings.json env/SEMGREP_SEND_METRICS = "off"
+  [dry-run] set     ~/.claude/settings.json env/GRAPHIFY_BACKEND = "none"
+  [dry-run] set     ~/.claude/settings.json env/GRAPHIFY_HOOK_STRICT = "0"
+  [dry-run] set     ~/.claude/settings.json env/OMC_UPDATE_REGISTRY_BASE = "http://127.0.0.1:9"
+  [dry-run] set     ~/.claude/settings.json env/OMX_AUTO_UPDATE = "0"
+  [dry-run] set     ~/.claude/settings.json env/OMX_NATIVE_AUTO_FETCH = "0"
+  [dry-run] set     ~/.claude/settings.json env/UV_LINK_MODE = "copy"
+  [dry-run] set     ~/.claude/settings.json env/OPENCODE_DISABLE_AUTOUPDATE = "1"
+  [dry-run] set     ~/.claude/settings.json env/OPENCODE_DISABLE_MODELS_FETCH = "1"
+  [dry-run] set     ~/.claude/settings.json env/OPENCODE_DISABLE_LSP_DOWNLOAD = "1"
+  planned: Claude: env switches in ~/.claude/settings.json (merge): hooks, MCP servers and -p runs see them
+  planned: Claude permissions merged into ~/.claude/settings.json: allow read-only tools, ask graphify install/hook, deny rule/config edits and secrets.env
+  [dry-run] set     ~/.claude/settings.json env/UV_CACHE_DIR = "~/.cache/ai-sandbox/uv"
+  [dry-run] set     ~/.codex/config.toml [root] check_for_update_on_startup = false
+  [dry-run] set     ~/.codex/config.toml [root] project_doc_max_bytes = 65536
+  [dry-run] set     ~/.codex/config.toml [analytics] enabled = false
+  [dry-run] set     ~/.codex/config.toml [feedback] enabled = false
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] DISABLE_TELEMETRY = "1"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] DISABLE_ERROR_REPORTING = "1"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] DISABLE_AUTOUPDATER = "1"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] SERENA_USAGE_REPORTING = "false"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] RTK_TELEMETRY_DISABLED = "1"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] SEMGREP_SEND_METRICS = "off"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GRAPHIFY_BACKEND = "none"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GRAPHIFY_HOOK_STRICT = "0"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OMC_UPDATE_REGISTRY_BASE = "http://127.0.0.1:9"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OMX_AUTO_UPDATE = "0"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OMX_NATIVE_AUTO_FETCH = "0"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] UV_LINK_MODE = "copy"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OPENCODE_DISABLE_AUTOUPDATE = "1"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OPENCODE_DISABLE_MODELS_FETCH = "1"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OPENCODE_DISABLE_LSP_DOWNLOAD = "1"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GIT_GUARD_AGENT = "1"
+  planned: Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches and GIT_GUARD_AGENT in shell_environment_policy.set
+  [dry-run] set     ~/.config/claude-omc/config.jsonc security/disableAutoUpdate = true
+  [dry-run] set     ~/.config/claude-omc/config.jsonc mcpServers/exa/enabled = false
+  [dry-run] set     ~/.config/ponytail/config.json defaultMode = "full"
+  planned: Claude add-ons: OMC auto-update off, Ponytail defaultMode full
+
+[13/14] git hooks: ai-sync after each pull
+  [dry-run] $REPO/ai/bin/ai-sync --install-hook $REPO
+  [dry-run] record  ai-sync-hook undo: $REPO/ai/bin/ai-sync --uninstall-hook $REPO
+  planned: git hooks post-merge + post-rewrite run ai-sync after a pull
+
+[14/14] verify
+  [dry-run] $REPO/ai/bin/ai-doctor --quick
+  manual: log in once: claude (then /login)
+  manual: log in once: codex login --device-auth
+
+==== summary ====
+
+done (38)
+  - (planned) brew install curl
+  - (planned) sources resolved (ai/pins.env)
+  - (planned) links
+  - (planned) ai-render: ai/AGENTS.md, ai/build/routing.json, ai/build/L0.md
+  - (planned) scanners not used by profile dev-mac removed: guarddog osv-scanner
+  - (planned) skill-scanner 2.3.2 (newest stable, wheels only, first install not audited (profile dev-mac))
+  - (planned) omx setup done
+  - (planned) serena 2.1.0 (newest stable, audit skipped, wheels only)
+  - (planned) graphify 0.9.108 (newest stable, audit skipped, wheels only)
+  - (planned) context7-mcp 4.7.0 in ~/.local/share/ai/npm/context7-mcp-4.7.0 (audit skipped, integrity checked, scripts off)
+  - (planned) dropped MCP registrations removed (github, grounded-docs)
+  - (planned) agents not used by profile dev-mac, undone: opencode 
+  - (planned) Codex MCP: context7 (github and grounded-docs were dropped)
+  - (planned) Claude plugin ai-core@ai (user scope)
+  - (planned) Claude: ai-core verified; it now owns the MCP servers and hooks it ships (no duplicates)
+  - (planned) Claude plugin ponytail@ponytail (user scope)
+  - (planned) Claude plugin i-have-adhd@i-have-adhd (user scope)
+  - (planned) Claude plugin claude-seo@agricidaniel-claude-seo (user scope)
+  - (planned) Claude plugin claude-blog@agricidaniel-blog (user scope)
+  - (planned) Claude plugin oh-my-claudecode@omc (user scope)
+  - (planned) Claude plugin ai-serena@ai (user scope)
+  - (planned) Claude plugin ai-playwright@ai (user scope)
+  - (planned) Claude plugin last30days@last30days-skill (user scope)
+  - (planned) Codex plugin ai-core@ai
+  - (planned) Codex plugin ponytail@ponytail
+  - (planned) Codex plugin i-have-adhd@i-have-adhd
+  - (planned) Claude: shared skills and the 5 mattpocock skills linked into ~/.claude/skills
+  - (planned) Codex/opencode: shared skills and the 5 mattpocock skills linked into ~/.agents/skills
+  - (planned) RTK hook for Claude (proxy declined, no CLAUDE.md import)
+  - (planned) RTK for Codex
+  - (planned) Claude: managed block in ~/.claude/CLAUDE.md (other blocks kept)
+  - (planned) Codex: managed block in ~/.codex/AGENTS.md (OMX blocks kept)
+  - (planned) git: global excludes ignore the sandbox placeholders in project roots (~/.config/git/ignore)
+  - (planned) Claude: env switches in ~/.claude/settings.json (merge): hooks, MCP servers and -p runs see them
+  - (planned) Claude permissions merged into ~/.claude/settings.json: allow read-only tools, ask graphify install/hook, deny rule/config edits and secrets.env
+  - (planned) Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches and GIT_GUARD_AGENT in shell_environment_policy.set
+  - (planned) Claude add-ons: OMC auto-update off, Ponytail defaultMode full
+  - (planned) git hooks post-merge + post-rewrite run ai-sync after a pull
+
+skipped (2)
+  - opencode: not used by profile dev-mac
+  - Serena config: serena not installed
+
+warnings (1)
+  - pstack: newest stable unknown (offline): kept as it is
+
+manual steps left (7)
+  - create ~/.config/ai/secrets.env: install -m 600 $REPO/secrets.env.example ~/.config/ai/secrets.env, then fill GITHUB_PERSONAL_ACCESS_TOKEN and CONTEXT7_API_KEY
+  - OMC plugin route: run /oh-my-claudecode:omc-setup once in Claude (CLAUDE.md block, HUD)
+  - Claude, once per machine, in a project with claude-seo on: /seo setup, then /seo doctor (venv + Chromium)
+  - Codex: open /hooks once and trust the hooks of ponytail and i-have-adhd (ai-core, rtk, graphify are trusted by install)
+  - add to your shell rc: [ -f ~/.config/ai/env.sh ] && . ~/.config/ai/env.sh
+  - log in once: claude (then /login)
+  - log in once: codex login --device-auth
+
+(dry run: nothing was changed)

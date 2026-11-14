@@ -21,6 +21,8 @@ BIN = os.path.dirname(os.path.realpath(__file__))
 AI_DIR = os.path.dirname(BIN)
 AI_HOME = os.path.dirname(AI_DIR)
 HOME = os.path.expanduser("~")
+sys.path.insert(0, os.path.join(AI_DIR, "lib"))
+import ai_profile  # noqa: E402
 
 AGENTS = ["claude", "codex", "opencode", "hermes", "herdr"]
 # Claude plugins of this setup: id -> (short name, default scope)
@@ -37,6 +39,8 @@ PLUGINS = [
 MATT_SKILLS = ["grilling", "grill-me", "wait-what", "retro", "writing-for-agents"]
 SKILL_DIRS = ["~/.agents/skills", "~/.claude/skills", "~/.hermes/skills"]
 GATE_HINT = "Owner only opens a gate: sudo ai-gate-skip <gate> <minutes max 60> <why>"
+GATE_HINT_DEVMAC = "No gate skip on this profile: the owner runs a blocked command himself"
+PROFILE_FROM = {"env": "AI_PROFILE", "file": "~/.config/ai/profile", "default": "OS default"}
 DOCS = ["README.md", "docs/TOOLS.md", "docs/SECURITY.md", "docs/AUDIT-BRIEF.md"]
 
 
@@ -58,7 +62,15 @@ def collect():
     routing = load_routing()
     rules = routing.get("rules", [])
     root = git_root(os.getcwd())
+    profile, source = ai_profile.resolve()
+    try:
+        keys = ai_profile.load(profile)
+    except ValueError:
+        keys = {}
     return {
+        "profile": "%s (%s)" % (profile, PROFILE_FROM.get(source, source)),
+        "box": keys.get("PROFILE_BOX", "1") == "1",
+        "gate_hint": GATE_HINT if profile != "dev-mac" else GATE_HINT_DEVMAC,
         "agents": versions,
         "plugins": plugin_states(root),
         "skills": skill_names(),
@@ -157,12 +169,12 @@ def render_short(f):
     skills = f["skills"]
     matt = [s for s in MATT_SKILLS if s in skills]
     lines = [
-        "AI agents: " + agents,
+        "AI agents: %s (profile %s)" % (agents, f["profile"]),
         "Claude plugins on: %s%s" % (", ".join(on) or "none", ("; per project: " + ", ".join(optional)) if optional else ""),
-        "MCP: context7, box, serena (global); playwright (per project). graphify: CLI, every project",
+        "MCP: context7, %sserena (global); playwright (per project). graphify: CLI, every project" % ("box, " if f["box"] else ""),
         "Skills: %s" % (", ".join(matt) + ((" (+%d more)" % (len(skills) - len(matt))) if len(skills) > len(matt) else "")
                         if matt else "%d installed (ai-info lists them)" % len(skills)),
-        "Gates: %s. %s" % (", ".join(f["gates"]) or "none", GATE_HINT),
+        "Gates: %s. %s" % (", ".join(f["gates"]) or "none", f["gate_hint"]),
         "Every project: serena, graph. Opt-in per project: ai-adopt --tools "
         + "|".join(i for i, _t in f["optin"] if i not in ("serena", "graph")),
     ]
@@ -174,7 +186,8 @@ def render_short(f):
 
 
 def render_full(f):
-    out = ["AI setup on this machine (ai-info). Names and versions only.", "", "Agents:"]
+    out = ["AI setup on this machine (ai-info). Names and versions only.", "",
+           "Profile: %s (ai/profiles; install.sh --profile NAME changes it)" % f["profile"], "", "Agents:"]
     for a, v in f["agents"].items():
         extra = " (Linux servers: off by default, AI_EXTRA_AGENTS=opencode)" if (
             not v and a == "opencode" and sys.platform.startswith("linux")) else ""
@@ -189,12 +202,13 @@ def render_full(f):
         out.append("  %-13s %-22s %s" % (short, state, scope))
     out += ["", "Skills (%d): %s" % (len(f["skills"]), ", ".join(f["skills"]) or "none"),
             "  mattpocock: " + ", ".join("%s%s" % (s, "" if s in f["skills"] else " (missing)") for s in MATT_SKILLS)]
-    out += ["", "MCP servers: context7 (global, library docs; IDs in the Libraries section of a repo AGENTS.md),",
-            "  box (global, server boxes: list, new, exec, logs, status, restart, ports, url, snapshot, doctor, help).",
-            "  serena (global, symbols: context claude-code / codex / ide, --project-from-cwd, no memories).",
+    out += ["", "MCP servers: context7 (global, library docs; IDs in the Libraries section of a repo AGENTS.md),"]
+    if f["box"]:
+        out += ["  box (global, server boxes: list, new, exec, logs, status, restart, ports, url, snapshot, doctor, help)."]
+    out += ["  serena (global, symbols: context claude-code / codex / ide, --project-from-cwd, no memories).",
             "  Per project only: playwright (ai-adopt --tools browser).",
             "  graphify: CLI, on in every project (graphify query; ai-adopt builds the graph and its git hooks)."]
-    out += ["", "Gates: " + (", ".join(f["gates"]) or "none"), "  " + GATE_HINT,
+    out += ["", "Gates: " + (", ".join(f["gates"]) or "none"), "  " + f["gate_hint"],
             "  Agents never use sudo; a blocked gate or a sandbox error is final for them."]
     out += ["", "On by default in every project: serena, graph (a project turns one off: no-serena / no-graph in .ai/enabled).",
             "Opt-in tools (run in the repo):"]
@@ -223,8 +237,9 @@ def project_line(p):
 # ---------------------------------------------------------------- helpers
 
 def load_routing():
-    for p in (os.path.join(AI_DIR, "build", "routing.json"),
-              os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks", "routing.json")):
+    for p in ([os.environ["AI_ROUTING_JSON"]] if os.environ.get("AI_ROUTING_JSON") else []) + [
+              os.path.join(AI_DIR, "build", "routing.json"),
+              os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks", "routing.json")]:
         data = load_json(p)
         if data:
             return data

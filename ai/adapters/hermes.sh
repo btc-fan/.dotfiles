@@ -44,7 +44,11 @@ hermes_mcp() {
     local skip=()
     box_present || skip=(--skip box)
     # box: the box MCP tools for Hermes too (Hermes may also run plain proj-agent; it is in the agents' group).
-    aiconf_hermes mcp-register hermes --mcp-json "$root/.mcp.json" --plugin-root "$root" ${skip[@]+"${skip[@]}"}
+    aiconf_hermes mcp-register hermes --mcp-json "$root/.mcp.json" --plugin-root "$root"
+    if [ "${PROFILE_BOX:-1}" = 1 ]; then
+        root=$(hermes_stage_dir "$AI_HOME/ai/marketplace/plugins/ai-box" plugin-ai-box)
+        aiconf_hermes mcp-register hermes --mcp-json "$root/.mcp.json" --plugin-root "$root" ${skip[@]+"${skip[@]}"}
+    fi
     # Serena for Hermes too (owner 2026-11-12): context ide, --project-from-cwd (no project = no tools active).
     local sroot
     if as_hermes_ro 'command -v serena' >/dev/null; then

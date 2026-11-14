@@ -1,12 +1,12 @@
 # box (our MCP server for project boxes)
 
-Pin: part of the ai-core plugin (this repo). Server `box` in `ai/marketplace/plugins/ai-core/.mcp.json`; tools `mcp__plugin_ai-core_box__<name>`. It runs the root-owned `/usr/local/sbin/proj-agent` for the agent, so no agent needs sudo or a socket.
+Pin: the ai-box plugin (this repo; profile server only, a dev-mac never installs it). Server `box` in `ai/marketplace/plugins/ai-box/.mcp.json`; tools `mcp__plugin_ai-box_box__<name>`. It runs the root-owned `/usr/local/sbin/proj-agent` for the agent, so no agent needs sudo or a socket.
 
 ## Vendor rules
 NOT FOUND: our own server. The rules are in this file and in the hosting rules of the `ubuntu-server` branch.
 
 ## When / when not
-- All box work on a server. Tools (`mcp__plugin_ai-core_box__<name>`; Codex and Hermes: server `box`):
+- All box work on a server. Tools (`mcp__plugin_ai-box_box__<name>`; Codex and Hermes: server `box`):
   - `list`, `status`, `doctor`, `help`: read the state.
   - `new`: `name`, `tier` (`try` or `mvp`), optional `docker`, `pg`.
   - `exec`: `command` (a bash string, run with `bash -lc` in the box: pipes and `&&` work) or `argv` (a list); optional `cwd`, `timeout` (up to 3600 s).
@@ -31,10 +31,10 @@ NOT FOUND: our own server. The rules are in this file and in the hosting rules o
 - Should fire (RO): "porneste o cutie noua pentru botul de Telegram". Expect `new`.
 - Should fire (RU): "покажи логи коробки btc-page". Expect `logs`.
 - Should not fire: "list the files in this folder". On a Mac the server lists no tools.
-- Signal: tool_use `mcp__plugin_ai-core_box__*`; a line in `/var/log/proj-agent.log`; no `sudo proj-agent` in the transcript.
+- Signal: tool_use `mcp__plugin_ai-box_box__*`; a line in `/var/log/proj-agent.log`; no `sudo proj-agent` in the transcript.
 
 ## Setup checklist
-1. Server installs only. Claude: the ai-core plugin, allow rule `mcp__plugin_ai-core_box__*`. Codex: `codex mcp add box` with `tool_timeout_sec = 3720` and `default_tools_approval_mode = "approve"`. Hermes: `hermes mcp add`. `proj-agent` comes from the `ubuntu-server` branch (step 70-hosting) at `/usr/local/sbin/proj-agent` (the only path).
+1. Server installs only. Claude: the ai-box plugin, allow rule `mcp__plugin_ai-box_box__*`. Codex: `codex mcp add box` with `tool_timeout_sec = 3720` and `default_tools_approval_mode = "approve"`. Hermes: `hermes mcp add`. `proj-agent` comes from the `ubuntu-server` branch (step 70-hosting) at `/usr/local/sbin/proj-agent` (the only path).
 2. Keys: none. Telemetry: none (local only).
 3. Verify: `/mcp` in a Claude session on the server lists `box`; the tool's `help` and `list` answer; `ai-doctor` shows the server connected.
-4. Cleanup: removed with the ai-core plugin.
+4. Cleanup: removed with the ai-box plugin (claude plugin uninstall ai-box@ai; install.sh does it on profile dev-mac).

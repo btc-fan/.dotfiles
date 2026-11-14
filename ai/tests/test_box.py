@@ -11,7 +11,7 @@ import tempfile
 import threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-BOX = os.path.join(os.path.dirname(HERE), "marketplace", "plugins", "ai-core", "mcp", "box.py")
+BOX = os.path.join(os.path.dirname(HERE), "marketplace", "plugins", "ai-box", "mcp", "box.py")
 
 
 class FakeService:

@@ -58,6 +58,7 @@ rules:
   # ---------- gates ----------
   - id: audit-before-install
     scope: global
+    profiles: [server]    # dev-mac: no install audit (owner decision 2026-11-14); ai-render drops the row there
     summary: 'before a package install command'
     trigger: {tool_before: 'Bash', command: '\b(npm (i|install|add)|pnpm add|yarn add|bun add|pip3? install|uv (add|pip install|tool install)|pipx install|cargo (add|install)|brew install|gem install|go install)\b|npx [^ ]+@latest|curl [^|]*\|\s*(ba)?sh'}
     action: "agent-audit this package first. No @latest, no curl-to-shell."

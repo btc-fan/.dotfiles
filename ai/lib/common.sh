@@ -92,6 +92,7 @@ has() { command -v "$1" >/dev/null 2>&1; }
 AI_PROJ_AGENT=${AI_PROJ_AGENT_PATH:-/usr/local/sbin/proj-agent}
 AI_PROJ_AGENT_SOCK=${AI_PROJ_AGENT_SOCK:-/run/proj-agent.sock}
 box_present() {
+    [ "${PROFILE_BOX:-1}" = 1 ] || return 1      # profile dev-mac: no box, ever
     [ "$AI_OS" = linux ] || return 1
     [ "${AI_PROJ_AGENT_FORCE:-0}" = 1 ] || [ -S "$AI_PROJ_AGENT_SOCK" ] || [ -x "$AI_PROJ_AGENT" ]
 }
@@ -320,6 +321,12 @@ audit_ok() {
     # name: for `dir` audits of a temp folder, the tool name to look up in ai/audit-accepted.txt.
     # version: for `dir` audits the full commit of the source (the accept list keys git sources by commit).
     local eco=$1 target=$2 ver=${3:-} name=${4:-$2} reason out rc
+    # Profile dev-mac (owner decision 2026-11-14): packages are not audited, and every skip is said. Skills and
+    # plugin sources (dir, skill) are still scanned: skill-scanner only there, HIGH or CRITICAL is final.
+    if [ "${PROFILE_PACKAGE_AUDIT:-1}" = 0 ] && [ "$eco" != dir ] && [ "$eco" != skill ]; then
+        info "audit skipped: profile $AI_PROFILE ($eco $name${ver:+ $ver})"
+        return 0
+    fi
     if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] agent-audit $eco $target${ver:+ $ver}"; return 0; fi
     if ! has agent-audit; then warn "agent-audit not found: cannot audit $target, not installing it"; return 1; fi
     out=$(mktemp "${TMPDIR:-/tmp}/ai-audit.XXXXXX")
@@ -358,3 +365,6 @@ audit_accepted() {
     fi
     awk -v e="$1" -v n="$2" -v v="$3" '!/^#/ && $1==e && $2==n && $3==v { $1=$2=$3=""; sub(/^ +/, ""); print; exit }' "$f"
 }
+
+# Profile helpers (ai_profile_resolve, profile_has_scanner). Unresolved = server behaviour (every scanner).
+if [ -f "$AI_HOME/ai/lib/profile.sh" ]; then . "$AI_HOME/ai/lib/profile.sh"; fi

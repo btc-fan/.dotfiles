@@ -5,6 +5,7 @@ ai/marketplace/plugins/ai-core/hooks/L0.md
 __pycache__/
 *.pyc
 !ai/marketplace/plugins/ai-core/.mcp.json
+!ai/marketplace/plugins/ai-box/.mcp.json
 ai/hooks/hermes/routing.json
 ai/hooks/hermes/L0.md
 ai/hooks/hermes/router.py

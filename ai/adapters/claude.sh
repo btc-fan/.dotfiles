@@ -441,12 +441,27 @@ claude_plugins() {
     done
     aiconf json-set "$CLAUDE_DIR/settings.json" "enabledPlugins/ai-serena@ai" true
     aiconf json-set "$CLAUDE_DIR/settings.json" "enabledPlugins/ai-playwright@ai" false
+    claude_box_plugin
     claude_take_serena
     manual "Claude, once per machine, in a project with claude-seo on: /seo setup, then /seo doctor (venv + Chromium)"
 
     claude_last30days
     claude_plugins_off
     claude_drop_plugins
+}
+
+# The box MCP server is its own plugin, ai-box@ai (owner decision 2026-11-14): profile server installs it (its
+# tools list nothing where no proj-agent runs); profile dev-mac never installs it, and removes an earlier one.
+claude_box_plugin() {
+    if [ "${PROFILE_BOX:-1}" = 1 ]; then
+        claude_plugin ai "$AI_HOME/ai/marketplace" ai-box@ai || true
+    elif claude_has_plugin ai-box@ai; then
+        run claude plugin uninstall ai-box@ai || { warn "claude plugin uninstall ai-box@ai failed"; return 0; }
+        ok "Claude plugin ai-box@ai removed (profile $AI_PROFILE has no box)"
+    else
+        info "box MCP: not installed (profile $AI_PROFILE)"
+    fi
+    return 0
 }
 
 # last30days (owner decision 2026-11-14): ON by default for Claude on every machine. Same path as claude-seo:
@@ -625,6 +640,7 @@ claude_rtk() {
 
 # MCP tools of a plugin server are named mcp__plugin_<plugin>_<server>__<tool> (Claude Code docs, plugins).
 CLAUDE_MCP_PREFIX="mcp__plugin_ai-core_"
+CLAUDE_BOX_PREFIX="mcp__plugin_ai-box_"     # the box server lives in plugin ai-box (profile server)
 
 # Read-only or knowledge tools only. Writes, git push and installs still prompt or meet the gates.
 claude_allow_rules() {
@@ -670,7 +686,7 @@ claude_allow_rules() {
     # Box work runs unattended through the box MCP tools (server installs): proj-agent behind them refuses
     # everything outside its own menu, and exec runs inside the box, never on the host.
     if box_present; then
-        printf '%s\n' "${CLAUDE_MCP_PREFIX}box__*"
+        printf '%s\n' "${CLAUDE_BOX_PREFIX}box__*"
     fi
     return 0
 }

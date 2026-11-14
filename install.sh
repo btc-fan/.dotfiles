@@ -7,8 +7,9 @@
 #   User part alone (testing; never calls sudo):   ~/.dotfiles-ai/install.sh --user [options]
 #   macOS, or a Linux user with sudo (one process): ~/.dotfiles-ai/install.sh [options]
 #
-#   options: [--dry-run] [--agents claude,codex,hermes,opencode,herdr] [--skip-packages]
+#   options: [--dry-run] [--agents claude,codex,hermes,opencode,herdr] [--skip-packages] [--profile server|dev-mac]
 #            [--allow-dirty] [--yes] [--keep-claudeai-connectors]   env: AI_OMC_WIRING=plugin|cli|remove
+#   profile: --profile NAME > ~/.config/ai/profile > OS default (Linux server, macOS dev-mac); saved there.
 #
 # Distribution = each agent's own extension points (plugins, `mcp add`, `config set`). Our own merge
 # code only writes managed blocks, single keys and links, and records every change for uninstall.sh
@@ -22,10 +23,10 @@ AI_HOME=$(cd "$(dirname "$0")" && pwd -P)
 AI_SRC_HOME=${AI_SRC_HOME:-$AI_HOME}   # the user's work tree (set by the system part)
 export AI_HOME AI_SRC_HOME
 
-usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 AI_DRY_RUN=0 AI_YES=0 AI_SKIP_PACKAGES=0 AI_DOCS_SERVER=0 AI_ALLOW_DIRTY=0 AGENTS=""
-AI_MODE=all AI_FOR_USER="" AI_UPDATE=0
+AI_MODE=all AI_FOR_USER="" AI_UPDATE=0 AI_PROFILE_ARG=""
 AI_ARGS=("$@")
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -41,6 +42,8 @@ while [ $# -gt 0 ]; do
         --for-user=*) AI_MODE=system; AI_FOR_USER=${1#--for-user=} ;;
         --agents) [ $# -ge 2 ] || usage 1; AGENTS=$2; shift ;;
         --agents=*) AGENTS=${1#--agents=} ;;
+        --profile) [ $# -ge 2 ] || usage 1; AI_PROFILE_ARG=$2; shift ;;
+        --profile=*) AI_PROFILE_ARG=${1#--profile=} ;;
         -h|--help) usage 0 ;;
         *) printf 'unknown option: %s\n' "$1" >&2; usage 1 ;;
     esac
@@ -81,6 +84,9 @@ main() {
     detect_os
     check_mode
     [ "$AI_MODE" = system ] && setup_system_target
+    # Profile (owner decision 2026-11-14): server or dev-mac, ai/profiles/<name>.env. System mode: the target user's file.
+    AI_PROFILE_FILE="${AI_TARGET_HOME:-$HOME}/.config/ai/profile"
+    ai_profile_resolve "$AI_HOME/ai" "$AI_OS" "$AI_PROFILE_ARG" || exit 1
     for f in base tools claude codex hermes opencode herdr; do . "$AI_HOME/ai/adapters/$f.sh"; done
     load_pins
     # Each tool is resolved once per run (the sources step fills this; the install steps read it).
@@ -93,7 +99,9 @@ main() {
     pick_agents
 
     say "AI setup ($AI_MODE mode${AI_FOR_USER:+ for $AI_FOR_USER}) from $AI_HOME on $AI_OS ($AI_ARCH). Agents: ${AGENTS:-none}."
+    say "Profile: $AI_PROFILE ($(profile_from_text))."
     [ "$AI_DRY_RUN" = 1 ] && say "DRY RUN: commands are printed, nothing is changed."
+    [ "$AI_MODE" = system ] || profile_save
 
     case "$AI_MODE" in
         system) run_system ;;
@@ -201,6 +209,7 @@ run_user_part() {
     [ "$AI_DRY_RUN" = 1 ] && args="$args --dry-run"
     [ "$AI_SKIP_PACKAGES" = 1 ] && args="$args --skip-packages"
     [ "$AI_CLAUDEAI_CONNECTORS" = keep ] && args="$args --keep-claudeai-connectors"
+    args="$args --profile $AI_PROFILE"
     [ -n "$AGENTS" ] && args="$args --agents $(printf '%s' "$AGENTS" | sed 's/,*hermes//; s/^,//')"
     info "running as $AI_FOR_USER: $AI_HOME/install.sh $args"
     # shellcheck disable=SC2086
@@ -242,9 +251,27 @@ confirm_default_no() {
     case "$ans" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
 }
 
+profile_from_text() {
+    case "$AI_PROFILE_FROM" in
+        flag) printf -- '--profile' ;;
+        file) printf '%s' "$AI_PROFILE_FILE" ;;
+        *) printf 'default for %s' "$AI_OS" ;;
+    esac
+}
+
+# The chosen profile is saved (recorded) so the next run, ai-doctor and ai-info use it without the flag.
+profile_save() {
+    local tmp
+    tmp=$(mktemp "${TMPDIR:-/tmp}/ai-profile.XXXXXX")
+    printf '%s\n' "$AI_PROFILE" > "$tmp"
+    aiconf file-put "$AI_PROFILE_FILE" "$tmp" --mode 644
+    rm -f "$tmp"
+}
+
 pick_agents() {
     if [ -n "$AGENTS" ]; then
         [ "$AI_MODE" = user ] && AGENTS=$(printf '%s' "$AGENTS" | sed 's/,*hermes//; s/^,//')
+        profile_agents
         return 0
     fi
     local list=""
@@ -262,6 +289,17 @@ pick_agents() {
         has herdr && list="$list,herdr"
     fi
     AGENTS=${list#,}
+    profile_agents
+}
+
+# Profile dev-mac: no opencode (an earlier install is undone: agents_drop_user).
+profile_agents() {
+    [ "${PROFILE_OPENCODE:-1}" = 0 ] || return 0
+    case ",$AGENTS," in
+        *,opencode,*) AGENTS=$(printf ',%s,' "$AGENTS" | sed 's/,opencode,/,/g; s/^,//; s/,$//')
+                      skip "opencode: not used by profile $AI_PROFILE" ;;
+    esac
+    return 0
 }
 
 do_system_layer() {

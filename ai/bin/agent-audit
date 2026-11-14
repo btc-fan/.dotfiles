@@ -6,7 +6,7 @@
 # source is never installed or updated, and no line in ai/audit-accepted.txt lets it through.
 # Package forms: `agent-audit pypi httpx 0.28.1`, `agent-audit pypi httpx==0.28.1`, `agent-audit npm left-pad@1.3.0`.
 # Every run appends one line to ~/.local/state/ai/audit.log:
-#   <iso-time> <ecosystem> <name> <version|-> PASS|FAIL|ERROR|REJECT
+#   <iso-time> <ecosystem> <name> <version|-> PASS|FAIL|ERROR|REJECT|SKIPPED (SKIPPED: profile dev-mac, npm/pypi)
 # The audit-before-install gate (ai-core router) allows an install only with a PASS for that
 # package in the last 24 h.
 # Network: downloads the package from npm/PyPI, and osv-scanner looks up package names + versions
@@ -16,6 +16,24 @@
 set -uo pipefail
 export SEMGREP_SEND_METRICS=off
 export GUARDDOG_TELEMETRY=0
+
+# Profile (ai/lib/profile.sh): dev-mac runs skill-scanner only (no guarddog, no osv-scanner); npm and pypi
+# audits are skipped there, and said. An unknown or unreadable profile runs every scanner.
+aa_src=$0
+while [ -L "$aa_src" ]; do
+    aa_l=$(readlink "$aa_src"); case "$aa_l" in /*) aa_src=$aa_l ;; *) aa_src=$(dirname "$aa_src")/$aa_l ;; esac
+done
+AA_AI_DIR=$(cd "$(dirname "$aa_src")/.." && pwd -P)
+case "$(uname -s)" in Darwin) aa_os=macos ;; *) aa_os=linux ;; esac
+aa_want=${AI_PROFILE:-}      # install.sh exports AI_PROFILE for what it runs
+PROFILE_SCANNERS="guarddog skill-scanner osv-scanner"; AI_PROFILE=server
+if [ -f "$AA_AI_DIR/lib/profile.sh" ]; then
+    . "$AA_AI_DIR/lib/profile.sh"
+    ai_profile_resolve "$AA_AI_DIR" "${AI_OS_FORCE:-$aa_os}" "$aa_want" 2>/dev/null \
+        || { PROFILE_SCANNERS="guarddog skill-scanner osv-scanner"; AI_PROFILE=unknown; }
+else
+    profile_has_scanner() { return 0; }
+fi
 
 usage() {
     cat <<'EOF'
@@ -48,12 +66,17 @@ main() {
     rc=0
     err=0
     reject=0
+    skipped=0
     case "${1:-}" in
         npm|pypi)
             [ $# -ge 2 ] || usage
             name=$2; ver=${3:-}
             if [ -z "$ver" ]; then read -r name ver < <(split_spec "$1" "$2"); fi
             [ -n "$name" ] || usage
+            if ! profile_has_scanner guarddog; then
+                echo "agent-audit: audit skipped: profile $AI_PROFILE ($1 $name${ver:+ $ver}; no guarddog on this profile)"
+                rc=0; err=0; skipped=1; record "$1" "$name" "${ver:--}"; exit 0
+            fi
             args=("$1" scan "$name")
             if [ -n "$ver" ]; then args+=(--version "$ver"); fi
             guard "${args[@]}"
@@ -62,15 +85,19 @@ main() {
         dir)
             [ -d "${2:-}" ] || usage
             target=$(cd "$2" && pwd -P)
-            if command -v osv-scanner >/dev/null 2>&1; then
+            if ! profile_has_scanner osv-scanner; then
+                echo "-- osv-scanner and guarddog: not used by profile $AI_PROFILE (skill-scanner only)"
+            elif command -v osv-scanner >/dev/null 2>&1; then
                 osv-scanner scan source -r "$target"; s=$?
                 # 128 = no lockfiles or manifests found: nothing to check, not a finding.
                 [ "$s" -eq 0 ] || [ "$s" -eq 128 ] || rc=1
             else
                 echo "ERROR: osv-scanner not installed"; err=1
             fi
-            if [ -f "$target/package.json" ]; then guard npm scan "$target"; fi
-            if [ -f "$target/pyproject.toml" ] || [ -f "$target/setup.py" ]; then guard pypi scan "$target"; fi
+            if profile_has_scanner guarddog; then
+                if [ -f "$target/package.json" ]; then guard npm scan "$target"; fi
+                if [ -f "$target/pyproject.toml" ] || [ -f "$target/setup.py" ]; then guard pypi scan "$target"; fi
+            fi
             scan_skills "$target"
             record dir "$target" "$(git -C "$target" rev-parse --short HEAD 2>/dev/null || echo -)"
             ;;
@@ -174,6 +201,7 @@ record() {
     [ "$rc" -eq 0 ] || result=FAIL
     [ "$err" -eq 0 ] || result=ERROR
     [ "$reject" -eq 0 ] || result=REJECT
+    [ "$skipped" -eq 0 ] || result=SKIPPED
     dir="${AI_STATE_DIR:-$HOME/.local/state/ai}"
     mkdir -p "$dir"
     printf '%s %s %s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$eco" "${name// /_}" "${ver:--}" "$result" >> "$dir/audit.log"

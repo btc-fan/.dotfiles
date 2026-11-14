@@ -4,7 +4,8 @@
 Usage:
   ai-render            render everything (install.sh calls this before linking)
   ai-render --check    exit 1 when a rendered file is missing or out of date (ai-doctor)
-  ai-render --out DIR  write routing.json and L0.md to DIR only (tests)
+  ai-render --out DIR  write routing.json, L0.md and AGENTS.md to DIR only (tests)
+  ai-render --profile NAME   render for that profile (default: AI_PROFILE, ~/.config/ai/profile, OS default)
 
 The router hook reads only routing.json (python3 stdlib, no PyYAML at hook time).
 Copies of routing.json and L0.md also go next to the router in the ai-core plugin, so a cached
@@ -14,6 +15,10 @@ hermes user, who cannot read this checkout.
 
 AGENTS.md = ai/agents-md/*.md in name order. The L0 table goes where a part has the line
 <!-- AI:L0 -->, else at the end. Hard cap 30 KB (SPEC 17); no em dash allowed.
+
+Profiles (owner decision 2026-11-14, ai/profiles/<name>.env): a routing row with `profiles: [server]` is
+rendered only for those profiles (the key itself is dropped), and a part line ending in
+` <!-- profiles: server -->` (comma list) is kept only for those profiles, without the marker.
 """
 import hashlib
 import json
@@ -29,6 +34,9 @@ HERMES = os.path.join(AI_DIR, "hooks", "hermes")
 AGENTS_CAP = 30 * 1024
 EM_DASH = "\u2014"
 L0_MARKER = "<!-- AI:L0 -->"
+PROFILE_LINE = re.compile(r" <!-- profiles: ([a-z0-9, -]+) -->$")
+sys.path.insert(0, os.path.join(AI_DIR, "lib"))
+import ai_profile  # noqa: E402
 
 
 # ---------------------------------------------------------------- entry point
@@ -37,6 +45,11 @@ def main(argv):
     yaml = import_yaml(argv)
     check = "--check" in argv
     out_dir = arg_value(argv, "--out")
+    profile = arg_value(argv, "--profile") or ai_profile.resolve()[0]
+    if profile not in ai_profile.names():
+        print("ai-render: ERROR unknown profile %r (known: %s)" % (profile, ", ".join(ai_profile.names())),
+              file=sys.stderr)
+        return 1
     src = os.path.join(AI_DIR, "routing.yaml")
     with open(src, "rb") as fh:
         raw = fh.read()
@@ -46,7 +59,7 @@ def main(argv):
         for e in errors:
             print("ai-render: ERROR " + e, file=sys.stderr)
         return 1
-    routing = build_routing(data, hashlib.sha256(raw).hexdigest())
+    routing = build_routing(data, hashlib.sha256(raw).hexdigest(), profile)
     routing_text = json.dumps(routing, indent=1, ensure_ascii=True, sort_keys=True) + "\n"
     l0_text = render_l0(routing)
     if EM_DASH in l0_text:
@@ -60,6 +73,9 @@ def main(argv):
     targets = []
     if out_dir:
         targets += [(os.path.join(out_dir, "routing.json"), routing_text), (os.path.join(out_dir, "L0.md"), l0_text)]
+        agents = render_agents(l0_text, profile)
+        if agents is not None:
+            targets.append((os.path.join(out_dir, "AGENTS.md"), agents))
     else:
         build = os.path.join(AI_DIR, "build")
         targets += [(os.path.join(build, "routing.json"), routing_text), (os.path.join(build, "L0.md"), l0_text)]
@@ -69,7 +85,7 @@ def main(argv):
             targets += [(os.path.join(HERMES, "routing.json"), routing_text), (os.path.join(HERMES, "L0.md"), l0_text)]
             for name in ("router.py", "hooklib.py"):
                 targets.append((os.path.join(HERMES, name), read(os.path.join(HOOKS, name))))
-        agents = render_agents(l0_text)
+        agents = render_agents(l0_text, profile)
         if agents is not None:
             size = len(agents.encode("utf-8"))
             if size > AGENTS_CAP:
@@ -177,6 +193,9 @@ def validate(data):
             for name in re.findall(r"\{([a-z_]+)\}", str(r.get("action") or "")):
                 if name not in holders:
                     errors.append("%s: unknown placeholder {%s} (add it to router.PLACEHOLDERS)" % (rid, name))
+        bad = [p for p in (r.get("profiles") or []) if p not in ai_profile.names()]
+        if "profiles" in r and (not isinstance(r["profiles"], list) or not r["profiles"] or bad):
+            errors.append("%s: profiles must be a non-empty list of known profiles (%s)" % (rid, ", ".join(ai_profile.names())))
         if "prompt_libs" in trig and (not isinstance(trig["prompt_libs"], bool) or not trig.get("prompt")):
             errors.append("%s: prompt_libs must be true/false next to a prompt regex" % rid)
     for tb in data.get("tiebreaks", []):
@@ -191,10 +210,13 @@ def validate(data):
     return errors
 
 
-def build_routing(data, sha):
+def build_routing(data, sha, profile):
     rules = []
     for r in data.get("rules", []):
-        rules.append(dict(r))
+        r = dict(r)
+        if profile not in r.pop("profiles", [profile]):
+            continue
+        rules.append(r)
     ties = []
     for tb in data.get("tiebreaks", []):
         ties.append(dict(tb))
@@ -326,14 +348,27 @@ def cell(text):
 
 # ---------------------------------------------------------------- AGENTS.md
 
-def render_agents(l0_text):
+def profile_lines(text, profile):
+    """Keep a line ending in ` <!-- profiles: a, b -->` only for those profiles, without the marker."""
+    out = []
+    for line in text.split("\n"):
+        m = PROFILE_LINE.search(line)
+        if m:
+            if profile not in [p.strip() for p in m.group(1).split(",")]:
+                continue
+            line = line[:m.start()]
+        out.append(line)
+    return "\n".join(out)
+
+
+def render_agents(l0_text, profile):
     parts_dir = os.path.join(AI_DIR, "agents-md")
     if not os.path.isdir(parts_dir):
         return None
     names = sorted(n for n in os.listdir(parts_dir) if n.endswith(".md"))
     if not names:
         return None
-    chunks = [read(os.path.join(parts_dir, n)).rstrip("\n") for n in names]
+    chunks = [profile_lines(read(os.path.join(parts_dir, n)), profile).rstrip("\n") for n in names]
     body = "\n\n".join(chunks)
     if L0_MARKER in body:
         body = body.replace(L0_MARKER, l0_text.rstrip("\n"), 1)

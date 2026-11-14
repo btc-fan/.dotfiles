@@ -28,6 +28,9 @@ resolve_tool() {
     esac
 }
 
+# aud_word: how a package install was checked ("audit skipped" on profile dev-mac, said on every install).
+aud_word() { if [ "${PROFILE_PACKAGE_AUDIT:-1}" = 0 ]; then printf 'audit skipped'; else printf 'audited'; fi; }
+
 # ver_eq <a> <b>: the same version, trailing ".0" parts ignored (1.0 = 1.0.0; uv and some tools print the short form).
 ver_eq() {
     [ -n "$1" ] && [ "$(printf '%s' "$1" | sed -E 's/(\.0+)+$//')" = "$(printf '%s' "$2" | sed -E 's/(\.0+)+$//')" ]
@@ -105,7 +108,7 @@ npm_global() {
     fi
     aiconf record-cmd "npm:$id" -- $SUDO_UNDO npm rm -g "$pkg"
     r_record
-    ok "$bin ${have:+$have -> }$R_VERSION (newest stable, audited, scripts off)"
+    ok "$bin ${have:+$have -> }$R_VERSION (newest stable, $(aud_word), scripts off)"
     return 0
 }
 
@@ -151,7 +154,7 @@ uv_tool() {
     if uv_pinned "$name" "$R_VERSION" "$py"; then
         aiconf record-cmd "uv:$bin" -- uv tool uninstall "$name"
         r_record
-        ok "$bin ${have:+$have -> }$R_VERSION (newest stable, audited, wheels only)"
+        ok "$bin ${have:+$have -> }$R_VERSION (newest stable, $(aud_word), wheels only)"
     else
         warn "$bin $R_VERSION not installed${have:+: $have kept}"
     fi
@@ -658,9 +661,11 @@ tools_system() {
 # Linux: system-wide (/opt/uv-tools, links in /usr/local/bin, root-owned). macOS: the user's uv tools and ~/.local/bin.
 tools_scanners() {
     if [ "$AI_SKIP_PACKAGES" = 1 ]; then skip "audit scanners (--skip-packages)"; return 0; fi
-    local triple tool name bin have aud gd_ready=0
+    scanners_drop
+    local triple tool name bin have aud gd_ready=0 mp=()
     for triple in "guarddog:guarddog:guarddog" "skill-scanner:cisco-ai-skill-scanner:skill-scanner"; do
         tool=${triple%%:*}; name=${triple#*:}; name=${name%%:*}; bin=${triple##*:}
+        profile_has_scanner "$tool" || continue
         # skill-scanner 2.1+ ships macOS 13+ binaries only; older macOS gets the last pure-Python release.
         if [ "$tool" = skill-scanner ] && [ "$AI_OS" = macos ] \
             && [ "$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)" -lt 13 ] 2>/dev/null; then
@@ -672,7 +677,16 @@ tools_scanners() {
         have=$(tool_version "$bin")
         if r_keep "$have"; then ver_eq "$have" "$R_VERSION" && info "$bin $have present (newest stable)"; continue; fi
         aud=", audited"
-        if has guarddog || [ $gd_ready = 1 ]; then      # (gd_ready: a dry run only planned the guarddog install)
+        if [ "${PROFILE_PACKAGE_AUDIT:-1}" = 0 ]; then
+            # Profile dev-mac: skill-scanner is the only scanner and nothing audits packages; uv's own Python.
+            mp=(--managed-python)
+            if [ -z "$have" ]; then
+                aud=", first install not audited (profile $AI_PROFILE)"
+                info "$bin $R_VERSION: first install, not audited (profile $AI_PROFILE audits no packages)"
+            else
+                audit_ok pypi "$name" "$R_VERSION"; aud=", audit skipped (profile $AI_PROFILE)"
+            fi
+        elif has guarddog || [ $gd_ready = 1 ]; then      # (gd_ready: a dry run only planned the guarddog install)
             audit_ok pypi "$name" "$R_VERSION" || { warn "$bin $R_VERSION not installed${have:+: $have kept}"; continue; }
         else
             aud=", NOT audited (bootstrap)"
@@ -684,7 +698,7 @@ tools_scanners() {
                 || { warn "$bin $R_VERSION install failed${have:+: $have kept}"; continue; }
             aiconf record-cmd "uv-root:$bin" -- $SUDO_UNDO env UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin uv tool uninstall "$name"
         else
-            uv_install_wheels_first "$name==$R_VERSION" -p "$SCANNER_PYTHON" \
+            uv_install_wheels_first "$name==$R_VERSION" ${mp[@]+"${mp[@]}"} -p "$SCANNER_PYTHON" \
                 || { warn "$bin $R_VERSION install failed${have:+: $have kept}"; continue; }
             aiconf record-cmd "uv:$bin" -- uv tool uninstall "$name"
         fi
@@ -692,7 +706,43 @@ tools_scanners() {
         [ "$tool" = guarddog ] && gd_ready=1
         ok "$bin ${have:+$have -> }$R_VERSION (newest stable, wheels only$aud)"
     done
-    tools_osv_scanner
+    profile_has_scanner osv-scanner && tools_osv_scanner
+    return 0
+}
+
+# Scanners the profile does not use (dev-mac: guarddog, osv-scanner) are removed when this setup installed them:
+# the recorded undo, else a copy that resolved.json says this setup installed (uv tool, binary in bin_dir).
+scanners_drop() {
+    local s gone=""
+    profile_has_scanner guarddog && profile_has_scanner osv-scanner && return 0      # server: all scanners
+    for s in guarddog osv-scanner; do
+        profile_has_scanner "$s" && continue
+        if [ "$s" = guarddog ]; then
+            if state_has cmd:uv:guarddog || state_has cmd:uv-root:guarddog; then
+                aiconf undo --only '^cmd:uv(-root)?:guarddog$'; gone="$gone guarddog"
+            elif r_installed guarddog && uv tool list 2>/dev/null | grep -q '^guarddog '; then
+                run uv tool uninstall guarddog; gone="$gone guarddog"
+            fi
+        elif state_has cmd:bin:osv-scanner; then
+            aiconf undo --only '^cmd:bin:osv-scanner$'; gone="$gone osv-scanner"
+        elif r_installed osv-scanner && [ -e "$(bin_dir)/osv-scanner" ]; then
+            run rm -f "$(bin_dir)/osv-scanner"; gone="$gone osv-scanner"
+        fi
+    done
+    if [ -n "$gone" ]; then ok "scanners not used by profile $AI_PROFILE removed:$gone"
+    else info "scanners not used by profile $AI_PROFILE (guarddog, osv-scanner): none installed by this setup"; fi
+}
+
+# r_installed <tool id>: true when resolved.json says this setup installed that tool.
+r_installed() {
+    python3 - "$AI_STATE_DIR/resolved.json" "$1" <<'EOS'
+import json, sys
+try:
+    t = (json.load(open(sys.argv[1])).get("tools") or {}).get(sys.argv[2]) or {}
+except (OSError, ValueError):
+    t = {}
+sys.exit(0 if (t.get("installed") or {}).get("version") else 1)
+EOS
 }
 
 tools_osv_scanner() {
@@ -740,7 +790,7 @@ tools_context7() {
         done
     fi
     r_record
-    ok "context7-mcp ${have:+$have -> }$R_VERSION in $dir (audited, integrity checked, scripts off)"
+    ok "context7-mcp ${have:+$have -> }$R_VERSION in $dir ($(aud_word), integrity checked, scripts off)"
 }
 
 # RTK: newest stable release (owner decisions 2026-11-12 and 2026-11-14: no cooldown, no pin), resolved from
@@ -919,17 +969,23 @@ AGENT_USER_KEYS_herdr='^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:'
 AGENT_SYSTEM_KEYS_opencode='^cmd:npm:opencode$|^(json|json-item|json-add):/etc/opencode/'
 AGENT_SYSTEM_KEYS_herdr='^cmd:bin:herdr$'
 agents_dropped() {
-    [ "$AI_OS" = linux ] || return 0
     local a
-    for a in opencode herdr; do want "$a" || printf '%s\n' "$a"; done
+    if [ "$AI_OS" = linux ]; then
+        for a in opencode herdr; do want "$a" || printf '%s\n' "$a"; done
+    elif [ "${PROFILE_OPENCODE:-1}" = 0 ]; then
+        printf 'opencode\n'       # profile dev-mac (owner decision 2026-11-14)
+    fi
 }
 agents_drop_user() {
     local a keys
     for a in $(agents_dropped); do
         keys=AGENT_USER_KEYS_$a
         aiconf undo --only "${!keys}"
+        # macOS: the npm install was recorded in the user state too (no system part there).
+        if [ "$AI_OS" = macos ]; then keys=AGENT_SYSTEM_KEYS_$a; aiconf undo --only "${!keys}"; fi
     done
-    [ -z "$(agents_dropped)" ] || ok "agents not used on this server, their user config undone: $(agents_dropped | tr '\n' ' ')"
+    [ -z "$(agents_dropped)" ] || [ "$AI_OS" != linux ] || ok "agents not used on this server, their user config undone: $(agents_dropped | tr '\n' ' ')"
+    [ -z "$(agents_dropped)" ] || [ "$AI_OS" = linux ] || ok "agents not used by profile $AI_PROFILE, undone: $(agents_dropped | tr '\n' ' ')"
 }
 agents_drop_system() {
     [ "$AI_MODE" = user ] && return 0

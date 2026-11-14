@@ -1,0 +1,6 @@
+{
+  "name": "ai-box",
+  "version": "1.0.0",
+  "description": "The box MCP server (server boxes through the root-owned proj-agent). Profile server only: a dev-mac never installs it.",
+  "author": { "name": "dotfiles ai branch" }
+}

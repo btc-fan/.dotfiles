@@ -22,7 +22,7 @@ def main():
     work = tempfile.mkdtemp(prefix="ai-info-tests-")
     try:
         home, fake, repo = setup(work)
-        for test in (t_full, t_short, t_project_state, t_outside_repo, t_no_secrets_fast):
+        for test in (t_full, t_short, t_project_state, t_outside_repo, t_no_secrets_fast, t_devmac):
             try:
                 test(home, fake, repo)
                 print("ok   " + test.__name__)
@@ -44,6 +44,19 @@ def t_full(home, fake, repo):
                  "sudo ai-gate-skip", "On by default in every project: serena, graph", "ai-adopt --tools browser",
                  "serena (global", "docs/SECURITY.md"):
         assert want in out, "%r not in output:\n%s" % (want, out)
+
+
+def t_devmac(home, fake, repo):
+    """Profile dev-mac: no box, no audit gate, no gate skip; the profile is shown with where it came from."""
+    out = run(home, fake, repo, extra_env={"AI_PROFILE": "dev-mac",
+                                           "AI_ROUTING_JSON": os.path.join(home, "..", "routing-dev-mac.json")}).stdout
+    assert "Profile: dev-mac (AI_PROFILE)" in out, out
+    assert "box (global" not in out and "audit-before-install" not in out and "ai-gate-skip" not in out, out
+    assert "Gates: secret-scan, no-sudo" in out and "the owner runs a blocked command himself" in out, out
+    write(os.path.join(home, ".config", "ai", "profile"), "server\n")
+    out = run(home, fake, repo, "--short", extra_env={"AI_PROFILE": ""}).stdout
+    os.remove(os.path.join(home, ".config", "ai", "profile"))
+    assert "(profile server (~/.config/ai/profile))" in out.splitlines()[0], out
 
 
 def t_short(home, fake, repo):
@@ -95,6 +108,11 @@ def setup(work):
     write(os.path.join(home, ".claude", "settings.json"),
           json.dumps({"enabledPlugins": {"claude-seo@agricidaniel-claude-seo": False}}))
     write(os.path.join(home, ".config", "ai", "secrets.env"), "CONTEXT7_API_KEY=%s\n" % SECRET)
+    for prof in ("server", "dev-mac"):           # the routing table of each profile (ai-render --profile)
+        out = os.path.join(work, "render-" + prof)
+        subprocess.run([sys.executable, os.path.join(AI_DIR, "bin", "ai-render"), "--profile", prof, "--out", out],
+                       stdout=subprocess.DEVNULL, check=True)
+        shutil.copy(os.path.join(out, "routing.json"), os.path.join(work, "routing-%s.json" % prof))
     for skill in ("grilling", "grill-me", "wait-what", "retro", "prompting-claude-and-codex"):
         write(os.path.join(home, ".agents", "skills", skill, "SKILL.md"), "---\nname: %s\n---\n" % skill)
     subprocess.run(["git", "init", "-q", repo], check=True)
@@ -109,7 +127,8 @@ def setup(work):
 
 def run(home, fake, cwd, *args, extra_env=None):
     env = {"HOME": home, "PATH": fake + os.pathsep + "/usr/bin:/bin", "LANG": "C.UTF-8",
-           "HERMES_USER": "ai-test-no-such-user"}      # a server has a real hermes user: never read it here
+           "HERMES_USER": "ai-test-no-such-user",      # a server has a real hermes user: never read it here
+           "AI_PROFILE": "server", "AI_ROUTING_JSON": os.path.join(home, "..", "routing-server.json")}
     env.update(extra_env or {})
     res = subprocess.run([sys.executable, INFO] + list(args), cwd=cwd, env=env, stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, timeout=30)

@@ -9,6 +9,9 @@
                       git repo with code): Serena memories, sizes, staleness, secrets, graph, .ai/libs.md
 
 Exit 1 when any check FAILs. WARN does not fail.
+Profile (ai/profiles, owner decision 2026-11-14): shown first. dev-mac FAILs when guarddog or osv-scanner from
+this setup is still installed, the audit gate row is rendered, or the box server is registered (Claude ai-box
+plugin, Codex box entry); their absence is never a failure there.
 Checks: rendered routing up to date; AGENTS.md size (30 KB cap) and no em dash; plugin files and hooks
 JSON; router smoke run; plugin installed in Claude/Codex; a usage contract (ai/rules/<tool>.md with
 the five sections and a verify command) for every MCP server of ai-core; copied rule blocks (Codex
@@ -34,6 +37,9 @@ import time
 BIN = os.path.dirname(os.path.realpath(__file__))
 AI_DIR = os.path.dirname(BIN)
 PLUGIN = os.path.join(AI_DIR, "marketplace", "plugins", "ai-core")
+sys.path.insert(0, os.path.join(AI_DIR, "lib"))
+import ai_profile  # noqa: E402
+PROFILE, PROFILE_FROM = ai_profile.resolve()
 STATE = os.environ.get("AI_STATE_DIR") or os.path.expanduser("~/.local/state/ai")
 CAP = 30 * 1024
 SECTIONS = ["vendor rules", "when", "enforcement", "proof", "setup checklist"]
@@ -55,6 +61,7 @@ def main(argv):
         check_copies()
         return finish()
     quick = "--quick" in argv
+    check_profile()
     check_render()
     check_agents_md()
     check_plugin_files()
@@ -125,6 +132,44 @@ def admin_run(argv):
 
 
 # ---------------------------------------------------------------- checks
+
+def check_profile():
+    """The profile this machine runs; dev-mac: no scanner but skill-scanner, no audit gate, no box."""
+    where = {"env": "AI_PROFILE", "file": ai_profile.profile_file(), "default": "OS default"}[PROFILE_FROM]
+    if PROFILE not in ai_profile.names():
+        say("FAIL", "profile %r (%s) is not one of %s" % (PROFILE, where, ", ".join(ai_profile.names())),
+            "install.sh --profile server|dev-mac")
+        return
+    say("PASS", "profile %s (%s)" % (PROFILE, where))
+    if PROFILE != "dev-mac":
+        return
+    keys = {e.get("key") for e in (load_json_file(os.path.join(STATE, "managed-keys.json")) or {}).get("entries") or []}
+    installed = {t: (v.get("installed") or {}).get("version")
+                 for t, v in ((load_json_file(os.path.join(STATE, "resolved.json")) or {}).get("tools") or {}).items()}
+    code, out = run(["uv", "tool", "dir"]) if shutil.which("uv") else (1, "")
+    uv_dir = out.strip().splitlines()[-1] if code == 0 and out.strip() else ""
+    ours = {
+        "guarddog": keys & {"cmd:uv:guarddog", "cmd:uv-root:guarddog"}
+                    or (installed.get("guarddog") and uv_dir and os.path.isdir(os.path.join(uv_dir, "guarddog"))),
+        "osv-scanner": "cmd:bin:osv-scanner" in keys
+                       or (installed.get("osv-scanner") and os.path.exists(os.path.expanduser("~/.local/bin/osv-scanner"))),
+    }
+    for tool, here in sorted(ours.items()):
+        say("FAIL" if here else "PASS", "dev-mac: no %s from this setup" % tool,
+            "re-run install.sh (profile dev-mac removes it: recorded undo)" if here else "")
+    rules = (load_json_file(os.environ.get("AI_ROUTING_JSON") or os.path.join(AI_DIR, "build", "routing.json"))
+             or {}).get("rules") or []
+    gate = any(r.get("id") == "audit-before-install" for r in rules)
+    say("FAIL" if gate else "PASS", "dev-mac: no audit-before-install gate row in the rendered routing",
+        "run ai-render (it renders for the profile in ~/.config/ai/profile)" if gate else "")
+    plugins = ((load_json_file(os.path.expanduser("~/.claude/plugins/installed_plugins.json")) or {}).get("plugins") or {})
+    codex_cfg = read_text_file(os.path.join(os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex"), "config.toml")) or ""
+    where_box = [w for w, hit in (("Claude plugin ai-box@ai", "ai-box@ai" in plugins),
+                                  ("Codex mcp_servers.box", re.search(r"^\[mcp_servers\.box\]", codex_cfg, re.M)))
+                 if hit]
+    say("FAIL" if where_box else "PASS", "dev-mac: box MCP server not registered", ", ".join(where_box)
+        + ("; re-run install.sh (claude plugin uninstall ai-box@ai, codex mcp remove box)" if where_box else ""))
+
 
 def check_render():
     code, out = run([os.path.join(BIN, "ai-render"), "--check"])
@@ -535,8 +580,8 @@ def check_dropped():
         say("WARN", "github-mcp-server binary still on PATH (%s)" % shutil.which("github-mcp-server"),
             "admin: sudo /opt/ai-setup/install.sh --update --for-user <user> removes it")
     plugin_mcp = load_json_file(os.path.join(PLUGIN, ".mcp.json")) or {}
-    extra = sorted(set((plugin_mcp.get("mcpServers") or {})) - {"context7", "box"})   # box: server boxes
-    say("PASS" if not extra else "FAIL", "ai-core serves context7 and box only (Serena is the plugin ai-serena)",
+    extra = sorted(set((plugin_mcp.get("mcpServers") or {})) - {"context7"})   # box: plugin ai-box (server)
+    say("PASS" if not extra else "FAIL", "ai-core serves context7 only (box: plugin ai-box, Serena: plugin ai-serena)",
         ("unexpected: " + ", ".join(extra)) if extra else "")
     if shutil.which("codex"):
         code, out = run(["codex", "mcp", "list"], timeout=30)
@@ -612,7 +657,7 @@ def check_claude_policy():
         if box_present():
             # The box tool: the box MCP server (outside the sandbox) talks to the root socket service.
             code, out = run(["claude", "-p", "List the boxes using the box tool (its list tool). Print its full output, "
-                             "starting with the exit code line.", "--allowedTools", "mcp__plugin_ai-core_box__list"],
+                             "starting with the exit code line.", "--allowedTools", "mcp__plugin_ai-box_box__list"],
                             timeout=240, cwd=scratch)
             ok = code == 0 and "exit code 0" in out
             say("PASS" if ok else "FAIL", "live: claude -p lists the boxes through the box MCP tool",
@@ -676,7 +721,7 @@ def check_claude_policy():
             say("PASS" if can else "FAIL", "%s reachable by this user (the box MCP tool runs as this user)" % PROJ_AGENT_SOCK,
                 "" if can else "add the user to the agents' group (ubuntu-server branch), then log in again")
         allow = claude_settings().get("permissions", {}).get("allow") or []
-        ok = "mcp__plugin_ai-core_box__*" in allow
+        ok = "mcp__plugin_ai-box_box__*" in allow
         say("PASS" if ok else "FAIL", "Claude may use the box MCP tools without a prompt", "" if ok else fix)
     work = "/srv/proj/work"
     if os.path.isdir(work):
@@ -703,7 +748,7 @@ def check_hooks_absolute():
                         bare.append("%s: %s" % (name, first))
     say("PASS" if not bare else "FAIL", "ai-core hook commands use absolute programs (/usr/bin/python3, /bin/sh)",
         ", ".join(sorted(set(bare))))
-    mcp = load_json_file(os.path.join(PLUGIN, ".mcp.json")) or {}
+    mcp = load_json_file(os.path.join(AI_DIR, "marketplace", "plugins", "ai-box", ".mcp.json")) or {}
     box = (mcp.get("mcpServers") or {}).get("box") or {}
     ok = box.get("command") == "/usr/bin/python3" and int(box.get("timeout") or 0) >= 3600 * 1000
     say("PASS" if ok else "FAIL", "box MCP server: absolute python, tool timeout covers a 3600 s exec")
@@ -1047,6 +1092,8 @@ def check_live_canary():
     for gate, what in (("secret-scan", "token commit"), ("pr-rules", "gh pr create without the PR blocks"),
                        ("audit-before-install", "uv add of a package with no audit"),
                        ("no-destroy", "force push to main (the scratch repo has no remote)")):
+        if gate == "audit-before-install" and PROFILE == "dev-mac":
+            continue        # no audit gate on dev-mac (owner decision 2026-11-14)
         hit = re.search(r"\bDENY %s\b" % re.escape(gate), new) is not None
         say("PASS" if hit else "FAIL", "live canary: a real claude -p session denies the %s" % what,
             "" if hit else "no DENY %s in %s (gates dead in real sessions?). claude said: %s" % (gate, log, out[-200:]))

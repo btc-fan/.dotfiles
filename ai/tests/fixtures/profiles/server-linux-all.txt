@@ -1,5 +1,7 @@
 AI setup (all mode) from $REPO on linux (arm64). Agents: claude,codex.
+Profile: server (default for linux).
 DRY RUN: commands are printed, nothing is changed.
+  [dry-run] write   ~/.config/ai/profile new file
   [dry-run] repo gate, sudo -v, install /usr/local/lib/ai/aiconf.py (root:root)
 
 [1/16] prerequisites (git, jq, python3, node, npm, uv, curl)
@@ -189,6 +191,11 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
   planned: Claude plugin ai-playwright@ai (user scope)
   [dry-run] set     ~/.claude/settings.json enabledPlugins/ai-serena@ai = true
   [dry-run] set     ~/.claude/settings.json enabledPlugins/ai-playwright@ai = false
+  [dry-run] claude plugin marketplace add $REPO/ai/marketplace
+  [dry-run] record  claude-marketplace:ai undo: claude plugin marketplace remove ai
+  [dry-run] claude plugin install ai-box@ai --scope user
+  [dry-run] record  claude-plugin:ai-box@ai undo: claude plugin uninstall ai-box@ai
+  planned: Claude plugin ai-box@ai (user scope)
   same    ~/.claude.json no user-scope MCP duplicates the plugin
   manual: Claude, once per machine, in a project with claude-seo on: /seo setup, then /seo doctor (venv + Chromium)
   last30days: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 3.39.0
@@ -237,7 +244,7 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
 [11/16] root rules (managed blocks; other blocks kept)
   same    ~/.claude/CLAUDE.md no block AI:core
   planned: Claude: house rules from /etc/claude-code/CLAUDE.md (no per-user import on Linux)
-  [dry-run] block   ~/.codex/AGENTS.md AI:core v1 (14156 bytes)
+  [dry-run] block   ~/.codex/AGENTS.md AI:core v1 (N bytes)
   planned: Codex: managed block in ~/.codex/AGENTS.md (OMX blocks kept)
 
 [12/16] environment: telemetry and auto-update off
@@ -440,7 +447,7 @@ undo --only ^cmd:bin:herdr$: 0 entr(y/ies) reversed
 
 ==== summary ====
 
-done (44)
+done (45)
   - (planned) apt-get install curl
   - (planned) sources resolved (ai/pins.env)
   - (planned) links
@@ -464,6 +471,7 @@ done (44)
   - (planned) Claude: oh-my-claudecode off by default here (per project: ai-adopt --tools omc)
   - (planned) Claude plugin ai-serena@ai (user scope)
   - (planned) Claude plugin ai-playwright@ai (user scope)
+  - (planned) Claude plugin ai-box@ai (user scope)
   - (planned) Claude plugin last30days@last30days-skill (user scope)
   - (planned) Codex plugin ai-core@ai
   - (planned) Codex plugin ponytail@ponytail

@@ -38,9 +38,11 @@ codex_mcp() {
     has codex || { skip "Codex MCP: codex not found"; return 0; }
     # Dropped servers (AI_DROP_MCP in ai/pins.env): codex mcp remove, each entry saved for uninstall.
     [ -z "${AI_DROP_MCP:-}" ] || aiconf codex-drop-mcp "$CODEX_DIR/config.toml" $AI_DROP_MCP
-    local skip=()
+    local skip=() box="$AI_HOME/ai/marketplace/plugins/ai-box"
     box_present || skip=(--skip box)
-    aiconf mcp-register codex --mcp-json "$(PLUGIN_DIR)/.mcp.json" --plugin-root "$(PLUGIN_DIR)" ${skip[@]+"${skip[@]}"}
+    aiconf mcp-register codex --mcp-json "$(PLUGIN_DIR)/.mcp.json" --plugin-root "$(PLUGIN_DIR)"
+    # box (plugin ai-box): profile server only; dev-mac never registers it (box_present is false there too).
+    [ "${PROFILE_BOX:-1}" = 1 ] && aiconf mcp-register codex --mcp-json "$box/.mcp.json" --plugin-root "$box" ${skip[@]+"${skip[@]}"}
     # Serena for every project (owner 2026-11-12): context codex, --project-from-cwd. Language servers start
     # slowly on a big repo: 60 s to start, a tool call may take 300 s (Serena's own tool_timeout is 240).
     if has serena; then

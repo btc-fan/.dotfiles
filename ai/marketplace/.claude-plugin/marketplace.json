@@ -4,13 +4,18 @@
     "name": "dotfiles ai branch"
   },
   "metadata": {
-    "description": "Private marketplace of the dotfiles ai branch: ai-core (always on), ai-serena and ai-playwright (opt-in per project)."
+    "description": "Private marketplace of the dotfiles ai branch: ai-core (always on), ai-box (profile server), ai-serena and ai-playwright (opt-in per project)."
   },
   "plugins": [
     {
       "name": "ai-core",
       "source": "./plugins/ai-core",
       "description": "Always-on base: routing hooks, gates, usage-contract skills and the context7 MCP server."
+    },
+    {
+      "name": "ai-box",
+      "source": "./plugins/ai-box",
+      "description": "The box MCP server (server boxes). Profile server only."
     },
     {
       "name": "ai-serena",

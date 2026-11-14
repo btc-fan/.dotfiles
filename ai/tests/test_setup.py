@@ -437,12 +437,14 @@ def t_dropped(work):
     """Grounded Docs and GitHub MCP are gone from the plugin; their recorded installs are replayed away by
     undo --only, other records stay; ai-serena is a separate opt-in plugin."""
     mcp = json.load(open(os.path.join(PLUGIN, ".mcp.json")))["mcpServers"]
-    assert sorted(mcp) == ["box", "context7"], mcp
+    assert sorted(mcp) == ["context7"], mcp       # box: its own plugin ai-box (profile server)
+    box = json.load(open(os.path.join(AI_DIR, "marketplace", "plugins", "ai-box", ".mcp.json")))["mcpServers"]
+    assert sorted(box) == ["box"], box
     ser = json.load(open(os.path.join(AI_DIR, "marketplace", "plugins", "ai-serena", ".mcp.json")))["mcpServers"]
     assert "serena" in ser
     names = [p["name"] for p in json.load(open(os.path.join(AI_DIR, "marketplace", ".claude-plugin",
                                                           "marketplace.json")))["plugins"]]
-    assert names == ["ai-core", "ai-serena", "ai-playwright"], names
+    assert names == ["ai-core", "ai-box", "ai-serena", "ai-playwright"], names
     assert not os.path.exists(os.path.join(AI_DIR, "mcp", "docs-server"))
     pins = read(os.path.join(AI_DIR, "pins.env"))
     assert "DOCS_MCP" not in pins and "GITHUB_MCP" not in pins
@@ -516,7 +518,9 @@ def t_sandbox_policy(work):
     assert "/run/user" not in sbj["filesystem"]["denyRead"], "no hide list any more"
     assert not any("proj-agent" in e or e.startswith("sudo") for e in sbj["excludedCommands"]), sbj["excludedCommands"]
     code, out = bash(LIBS + "AI_OS=linux; AI_PROJ_AGENT_FORCE=1 claude_allow_rules", env)
-    assert "mcp__plugin_ai-core_box__*" in out and "proj-agent" not in out, out
+    assert "mcp__plugin_ai-box_box__*" in out and "proj-agent" not in out, out
+    code, out = bash(LIBS + "AI_OS=linux; PROFILE_BOX=0 AI_PROJ_AGENT_FORCE=1 claude_allow_rules", env)
+    assert "box__" not in out, "profile dev-mac: never a box rule"
     code, out = bash(LIBS + "AI_OS=linux; claude_allow_rules", env)
     assert "box__" not in out, "no box tool on this machine: no rule"
     code, out = bash(LIBS + "AI_OS=macos; AI_PROJ_AGENT_FORCE=1 claude_allow_rules; claude_sandbox_json_final", env)
@@ -758,7 +762,7 @@ def t_hooks_absolute(work):
     import re as _re
     words = set(_re.findall(r"(?<![/\w$-])(uname|nohup|caffeinate|command)\b", caff))
     assert not words, "bare programs in the caffeinate hook: %s" % words
-    box = json.load(open(os.path.join(PLUGIN, ".mcp.json")))["mcpServers"]["box"]
+    box = json.load(open(os.path.join(AI_DIR, "marketplace", "plugins", "ai-box", ".mcp.json")))["mcpServers"]["box"]
     assert box["command"] == "/usr/bin/python3" and box["args"][0] == "-I" and box["timeout"] >= 3600 * 1000, box
 
 
@@ -920,7 +924,7 @@ def t_owner_2026_11_12(work):
     start = read(os.path.join(AI_DIR, "bin", "ai-start"))
     assert '"omc": "oh-my-claudecode@omc"' in start, "ai-adopt --tools omc turns it on per project"
     # pick_agents: Linux default without opencode and herdr; AI_EXTRA_AGENTS brings them back.
-    pick = ('eval "$(sed -n \'/^pick_agents()/,/^}/p\' %s)"; has() { case "$1" in claude|codex|herdr|opencode) return 0;; '
+    pick = ('eval "$(sed -n \'/^pick_agents()/,/^}/p; /^profile_agents()/,/^}/p\' %s)"; skip() { echo "skip: $*" >&2; }; has() { case "$1" in claude|codex|herdr|opencode) return 0;; '
             'esac; return 1; }; hermes_exists() { return 1; }; AI_MODE=all; AGENTS=; ' % os.path.join(REPO, "install.sh"))
     code, out = bash(pick + "AI_OS=linux; pick_agents; echo $AGENTS", env)
     assert out.strip() == "claude,codex,herdr", out
@@ -928,6 +932,11 @@ def t_owner_2026_11_12(work):
     assert out.strip() == "claude,codex,opencode,herdr", out
     code, out = bash(pick + "AI_OS=macos; pick_agents; echo $AGENTS", env)
     assert out.strip() == "claude,codex,opencode,herdr", out
+    # Profile dev-mac: never opencode, also when asked for with --agents.
+    code, out = bash(pick + "AI_OS=macos; PROFILE_OPENCODE=0; AI_PROFILE=dev-mac; pick_agents 2>/dev/null; echo $AGENTS", env)
+    assert out.strip() == "claude,codex,herdr", out
+    code, out = bash(pick + "AI_OS=macos; PROFILE_OPENCODE=0; AGENTS=opencode,claude; pick_agents 2>/dev/null; echo $AGENTS", env)
+    assert out.strip() == "claude", out
     # Recorded opencode / herdr config is undone on a server that no longer picks them; other records stay.
     log = os.path.join(work, "undo.log")
     state = os.path.join(home, ".local", "state", "ai", "managed-keys.json")

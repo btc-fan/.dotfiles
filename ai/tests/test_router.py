@@ -57,7 +57,7 @@ def main(argv):
     work = tempfile.mkdtemp(prefix="ai-router-tests-")
     try:
         build = os.path.join(work, "build")
-        res = subprocess.run([sys.executable, os.path.join(AI_DIR, "bin", "ai-render"), "--out", build],
+        res = subprocess.run([sys.executable, os.path.join(AI_DIR, "bin", "ai-render"), "--profile", "server", "--out", build],
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         if res.returncode != 0:
             print(res.stdout.decode())

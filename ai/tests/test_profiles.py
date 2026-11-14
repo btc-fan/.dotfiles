@@ -90,6 +90,8 @@ def install(env, *args):
     out = re.sub(r"/tmp/aiprof\w{8}", "$WORK", out)
     out = re.sub(r"\b20\d{6}-\d{6}\b", "YYYYMMDD-HHMMSS", out)
     out = re.sub(r"(\$TMP/[\w-]+\.)\w{6}\b", r"\1XXXXXX", out)
+    # The rendered rules in the repo follow this machine's own profile (a dry run does not render): size only.
+    out = re.sub(r"(AI:core v\d+) \(\d+ bytes\)", r"\1 (N bytes)", out)
     return res.returncode, out
 
 
@@ -120,7 +122,138 @@ def t_server_plan_unchanged(work):
     compare("server-linux-all.txt", out)
 
 
-TESTS_LIST = [t_server_plan_unchanged]
+def seed_records(home, keys):
+    """managed-keys.json entries as an earlier install recorded them (record-cmd: kind cmd, key cmd:<id>)."""
+    entries = [{"kind": "cmd", "id": k, "undo": ["echo", "undo", k], "key": "cmd:" + k} for k in keys]
+    write(os.path.join(home, ".local", "state", "ai", "managed-keys.json"),
+          json.dumps({"version": 1, "entries": entries}))
+
+
+def t_devmac_plan(work):
+    """dev-mac dry run (macOS forced, fake tools): skill-scanner is the only scanner (first install unaudited, one
+    info line); guarddog, osv-scanner and opencode installed earlier are undone; packages say "audit skipped";
+    no box; the profile is shown and saved."""
+    env, home, bindir = fake_env(work, "devmac", ("claude", "codex", "node", "npm", "uv"))
+    seed_records(home, ["uv:guarddog", "bin:osv-scanner", "npm:opencode"])
+    code, out = install(dict(env, AI_OS_FORCE="macos"), "--dry-run", "--yes")
+    assert code == 0, out
+    compare("devmac-macos-all.txt", out)
+    assert "Profile: dev-mac (default for macos)." in out, out
+    assert "[dry-run] write   ~/.config/ai/profile new file" in out, out
+    assert "skill-scanner 2.3.2: first install, not audited (profile dev-mac audits no packages)" in out, out
+    assert "uv tool install --force --no-build --managed-python -p 3.12 cisco-ai-skill-scanner==2.3.2" in out, out
+    assert "audit skipped: profile dev-mac (pypi serena-agent 2.1.0)" in out, out
+    assert "box MCP: not installed (profile dev-mac)" in out and "ai-box" not in out, out
+    for gone in ("cmd:uv:guarddog", "cmd:bin:osv-scanner", "cmd:npm:opencode"):
+        assert "undo %s" % gone.split(":", 1)[1] in out or gone in out, (gone, out)
+    assert "scanners not used by profile dev-mac removed: guarddog osv-scanner" in out, out
+    assert "agents not used by profile dev-mac, undone: opencode" in out, out
+    head = [ln for ln in out.splitlines() if ln.startswith("AI setup")][0]
+    assert "Agents: claude,codex." in head, head
+    assert "(newest stable, audit skipped, wheels only)" in out, out
+    for word in ("guarddog 3.2.0", "osv-scanner_", "opencode-ai@", "codex mcp add box", "agent-audit npm", "agent-audit pypi"):
+        assert word not in out, (word, out)
+
+
+def t_profile_choice(work):
+    """--profile > ~/.config/ai/profile > OS default; an unknown name stops before anything runs."""
+    env, home, _ = fake_env(work, "choice", ("claude", "uv"))
+    base = dict(env, AI_OS_FORCE="macos")
+    write(os.path.join(home, ".config", "ai", "profile"), "server\n")
+    code, out = install(base, "--user", "--dry-run", "--yes", "--agents", "claude")
+    assert "Profile: server (~/.config/ai/profile)." in out, out
+    code, out = install(base, "--user", "--dry-run", "--yes", "--agents", "claude", "--profile", "dev-mac")
+    assert "Profile: dev-mac (--profile)." in out and "~/.config/ai/profile dev-mac" not in out, out
+    assert "[dry-run] write   ~/.config/ai/profile" in out, out
+    os.remove(os.path.join(home, ".config", "ai", "profile"))
+    code, out = install(dict(env, AI_OS_FORCE="linux"), "--user", "--dry-run", "--yes", "--agents", "claude")
+    assert "Profile: server (default for linux)." in out, out
+    code, out = install(base, "--user", "--dry-run", "--yes", "--profile", "laptop")
+    assert code != 0 and 'unknown profile "laptop"' in out and "[1/" not in out, out
+    # bash 3.2 helper on its own
+    script = ('. "%s/ai/lib/profile.sh"; AI_PROFILE_FILE=/nonexistent; ai_profile_resolve "%s/ai" macos; '
+              'echo "$AI_PROFILE $AI_PROFILE_FROM $PROFILE_SCANNERS"; profile_has_scanner guarddog || echo no-guarddog'
+              % (REPO, REPO))
+    res = subprocess.run(["/bin/bash", "-c", script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    assert res.stdout.decode().split("\n")[:2] == ["dev-mac default skill-scanner", "no-guarddog"], res.stdout
+
+
+def t_render_profiles(work):
+    """ai-render per profile: server AGENTS.md is the fixture (today's text plus the skill-scanner line); dev-mac
+    drops the agent-audit bullet, the gate skip, the box line, opencode and Hermes, and the audit gate row; the
+    router then lets a package install through on dev-mac (gates come only from routing rows)."""
+    out = {}
+    for prof in ("server", "dev-mac"):
+        d = os.path.join(work, "render-" + prof)
+        res = subprocess.run([sys.executable, os.path.join(AI_DIR, "bin", "ai-render"), "--profile", prof, "--out", d],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        assert res.returncode == 0, res.stdout
+        out[prof] = (open(os.path.join(d, "AGENTS.md")).read(), json.load(open(os.path.join(d, "routing.json"))))
+    srv, dev = out["server"][0], out["dev-mac"][0]
+    compare("agents-server.md", srv)
+    assert "skill-scanner HIGH or CRITICAL finding is never installed" in srv and "<!-- profiles" not in srv
+    assert "skill-scanner HIGH or CRITICAL finding is never installed" in dev and "<!-- profiles" not in dev
+    for gone in ("agent-audit npm|pypi|dir|skill", "sudo ai-gate-skip", "the box tool (MCP server box: list", "opencode", "Hermes",
+                 "audit-before-install"):
+        assert gone in srv and gone not in dev, gone
+    assert "A blocked gate is final for you: the owner runs it himself." in dev, dev
+    ids = lambda r: [x["id"] for x in r["rules"]]
+    assert "audit-before-install" in ids(out["server"][1]) and "audit-before-install" not in ids(out["dev-mac"][1])
+    assert all("profiles" not in x for x in out["server"][1]["rules"]), "the profiles key is not rendered"
+    res = subprocess.run([sys.executable, os.path.join(AI_DIR, "bin", "ai-render"), "--profile", "laptop", "--out",
+                          os.path.join(work, "render-bad")], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    assert res.returncode == 1 and b"unknown profile" in res.stdout, res.stdout
+    router = os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks", "router.py")
+    proj = os.path.join(work, "router-proj")
+    os.makedirs(proj)
+    payload = json.dumps({"hook_event_name": "PreToolUse", "session_id": "p", "cwd": proj, "tool_name": "Bash",
+                          "tool_input": {"command": "npm install left-pad@1.3.0"}})
+    for prof, denied in (("server", True), ("dev-mac", False)):
+        env = {"HOME": work, "PATH": "/usr/bin:/bin", "AI_STATE_DIR": os.path.join(work, "rs-" + prof),
+               "AI_ROUTING_JSON": os.path.join(work, "render-" + prof, "routing.json")}
+        res = subprocess.run(["/usr/bin/python3", router, "PreToolUse"], input=payload.encode(), env=env,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+        text = res.stdout.decode()
+        assert ('"deny"' in text and "audit-before-install" in text) == denied, (prof, text)
+
+
+def t_doctor_devmac(work):
+    """ai-doctor on dev-mac: FAIL for guarddog/osv-scanner from this setup, the audit gate row, a box registration;
+    PASS when they are absent (absence is never a failure)."""
+    home = os.path.join(work, "doc-home")
+    state = os.path.join(home, ".local", "state", "ai")
+    render = {}
+    for prof in ("server", "dev-mac"):
+        d = os.path.join(work, "doc-render-" + prof)
+        subprocess.run([sys.executable, os.path.join(AI_DIR, "bin", "ai-render"), "--profile", prof, "--out", d],
+                       stdout=subprocess.DEVNULL, check=True)
+        render[prof] = os.path.join(d, "routing.json")
+    code = ("import importlib.machinery, importlib.util, sys; sys.dont_write_bytecode = True; "
+            "l = importlib.machinery.SourceFileLoader('doctor', %r); s = importlib.util.spec_from_loader('doctor', l); "
+            "m = importlib.util.module_from_spec(s); l.exec_module(m); m.check_profile()" % os.path.join(AI_DIR, "bin", "ai-doctor"))
+
+    def doctor(routing):
+        env = {"HOME": home, "PATH": "/usr/bin:/bin", "AI_STATE_DIR": state, "AI_PROFILE": "dev-mac",
+               "AI_ROUTING_JSON": routing, "CODEX_HOME": os.path.join(home, ".codex")}
+        res = subprocess.run([sys.executable, "-c", code], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        return res.stdout.decode()
+
+    os.makedirs(state)
+    out = doctor(render["dev-mac"])
+    assert "profile dev-mac (AI_PROFILE)" in out and "FAIL" not in out, out
+    seed_records(home, ["uv:guarddog", "bin:osv-scanner"])
+    write(os.path.join(home, ".claude", "plugins", "installed_plugins.json"), json.dumps({"plugins": {"ai-box@ai": []}}))
+    write(os.path.join(home, ".codex", "config.toml"), "[mcp_servers.box]\ncommand = \"x\"\n")
+    out = doctor(render["server"])
+    fails = [ln for ln in out.splitlines() if "FAIL" in ln]
+    assert len(fails) == 4, out
+    for want in ("no guarddog from this setup", "no osv-scanner from this setup", "no audit-before-install gate row",
+                 "box MCP server not registered"):
+        assert any(want in ln for ln in fails), (want, out)
+    assert "Claude plugin ai-box@ai" in out and "Codex mcp_servers.box" in out, out
+
+
+TESTS_LIST = [t_doctor_devmac, t_render_profiles, t_server_plan_unchanged, t_devmac_plan, t_profile_choice]
 
 if __name__ == "__main__":
     sys.exit(main())
