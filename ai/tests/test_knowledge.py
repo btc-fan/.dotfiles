@@ -324,6 +324,10 @@ fi
 [ "$1 $2 $3" = "extract . --code-only" ] || exit 4
 mkdir -p graphify-out && echo '{"nodes": []}' > graphify-out/graph.json
 """
+FAKE_UV = """#!/bin/sh
+# uv run pytest ... (the check-fast target ai-adopt times once): no network, no real tests
+echo "1 passed in 0.01s"
+"""
 FAKE_CLAUDE = """#!/bin/sh
 case "$*" in *conventions*) ;; *) exit 5 ;; esac
 case "$*" in *Edit*|*Write*|*"Bash "*|*"Bash,"*) exit 6 ;; esac
@@ -341,12 +345,17 @@ def t_adopt_knowledge(work, server):
     # Serena and graphify are on by default (owner 2026-11-12, evening): planned without any --tools.
     for step in ("would write AGENTS.md", "would run Map conventions", "would run ai-libs --sync",
                  "would run serena project create --index", "would run GRAPHIFY_BACKEND=none graphify extract . --code-only",
-                 "would run graphify hook install", "would write .gitignore"):
+                 "would run graphify hook install", "would write .gitignore", "would write Makefile",
+                 "would run time make check-fast once", "Makefile would get:"):
         assert step in res.stdout, "%s missing: %s" % (step, res.stdout)
     res = run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--yes"], env=env, cwd=repo)
     assert res.returncode == 0, res.stdout
     files = run(["git", "-C", repo, "show", "--name-only", "--format=", "HEAD"]).stdout.split()
-    assert "AGENTS.md" in files and "CLAUDE.md" in files, files
+    assert "AGENTS.md" in files and "CLAUDE.md" in files and "Makefile" in files, files
+    mk = open(os.path.join(repo, "Makefile")).read()
+    assert "check-fast:\n\tuv run pytest -x -q" in mk and "check:\n\tuv run pytest -q" in mk, mk
+    assert "ai-ratchet" not in mk, "mvp tier: no ratchet in check"
+    assert "tier: mvp" in open(os.path.join(repo, ".ai", "enabled")).read().splitlines()
     assert ".serena/project.yml" in files, files
     assert not any(f.startswith(("graphify-out", ".ai/libs.md", ".serena/cache")) for f in files), files
     assert os.path.isfile(os.path.join(repo, ".git", "hooks", "post-commit")), "graphify hooks not installed"
@@ -360,10 +369,15 @@ def t_adopt_knowledge(work, server):
     m = text[text.index("## Map"):text.index("<!-- AI:map END -->")]
     assert len(m.splitlines()) <= 61, "Map over 60 lines"
     for want in ("- What: adopt (Python)", "`src/` (1 code files)", "`app` -> `app.main:run`", "`uv run pytest`",
-                 "- Conventions:", "New HTTP handlers go in src/app/handlers/"):
+                 "- Conventions:", "New HTTP handlers go in src/app/handlers/",
+                 "- Check: `make check-fast` (lint + unit tests; measured "):
         assert want in m, "%s not in Map:\n%s" % (want, m)
     assert "Here are the conventions" not in m, "non-bullet chatter copied into the Map"
     assert "| httpx | 0.28.1 |" in text, "Libraries block missing"
+    done = text[text.index("## Done"):text.index("<!-- AI:done END -->")]
+    assert len([ln for ln in done.splitlines() if ln[:2] in ("1.", "2.", "3.", "4.", "5.", "6.")]) == 6, done
+    assert "`make check` passes" in done and "REGRESSIONS" not in done, done
+    assert "## Lessons" in text, "Lessons section missing"
     res = run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--yes"], env=env, cwd=repo)
     assert "nothing to change" in res.stdout, "rerun must be idempotent: " + res.stdout
     # owner edits inside the Map survive a rerun; --refresh-map rewrites it
@@ -398,7 +412,7 @@ def t_adopt_optin_serena_graph(work, server):
 
 
 GI_BLOCK = [".omc/*", "!.omc/skills/", ".omx/", ".codex/", ".claude/*", "!.claude/settings.json", ".serena/*",
-            "!.serena/project.yml", "graphify-out/", ".ai/*", "!.ai/enabled"]
+            "!.serena/project.yml", "graphify-out/", ".ai/*", "!.ai/enabled", "!.ai/ratchet.json", "!.ai/destructive.txt"]
 
 
 def t_adopt_gitignore_block(work, server):
@@ -415,7 +429,8 @@ def t_adopt_gitignore_block(work, server):
               env=env, cwd=repo)
     assert res.returncode == 0, res.stdout
     files = set(run(["git", "-C", repo, "show", "--name-only", "--format=", "HEAD"]).stdout.split())
-    want = {"AGENTS.md", "CLAUDE.md", ".gitignore", ".claude/settings.json", ".ai/enabled", ".serena/project.yml"}
+    want = {"AGENTS.md", "CLAUDE.md", ".gitignore", ".claude/settings.json", ".ai/enabled", ".serena/project.yml",
+            "Makefile"}
     assert files == want, "committed %s, want %s" % (sorted(files), sorted(want))
     status = run(["git", "-C", repo, "status", "--porcelain", "--untracked-files=all"]).stdout
     assert status.strip() == "", "local tool files not ignored:\n" + status
@@ -528,7 +543,7 @@ def adopt_repo(work, name):
             fh.write(text)
     fake = os.path.join(work, "fakebin-" + name)
     os.makedirs(fake)
-    for tool, text in (("serena", FAKE_SERENA), ("graphify", FAKE_GRAPHIFY), ("claude", FAKE_CLAUDE)):
+    for tool, text in (("serena", FAKE_SERENA), ("graphify", FAKE_GRAPHIFY), ("claude", FAKE_CLAUDE), ("uv", FAKE_UV)):
         with open(os.path.join(fake, tool), "w") as fh:
             fh.write(text)
         os.chmod(os.path.join(fake, tool), 0o755)
@@ -550,8 +565,10 @@ def libs(work, repo, *args, url=DEAD_URL, state=None):
 
 
 def enabled_ids(repo):
+    """Opt-in ids of .ai/enabled (the `tier:` line is checked on its own)."""
     text = open(os.path.join(repo, ".ai", "enabled")).read()
-    return [ln.split("#", 1)[0].strip() for ln in text.splitlines() if ln.split("#", 1)[0].strip()]
+    return [ln.split("#", 1)[0].strip() for ln in text.splitlines()
+            if ln.split("#", 1)[0].strip() and not ln.startswith("tier:")]
 
 
 def table(repo):

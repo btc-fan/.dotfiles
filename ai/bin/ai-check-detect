@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+"""ai-check-detect: find the one check command of a repo from its files (no network, nothing runs).
+
+  ai-check-detect [--dir PATH]               print the stack and the check-fast / check commands
+  ai-check-detect [--dir PATH] --json        the same as JSON
+  ai-check-detect [--dir PATH] --plan [--tier try|mvp|long] --json
+                                             also the Makefile or justfile text with the missing targets
+                                             (ai-adopt writes it; existing targets are never changed)
+
+check-fast: lint + unit tests, no network, no services, target under 60 s (the Stop hook runs it).
+check:      everything (full tests, type check where configured; long tier: ledger and ratchet too).
+
+Detection (stack from lockfiles and manifests, the nixpacks ladder; the test and lint part is ours):
+  Python  pyproject.toml / requirements*.txt / setup.py / Pipfile; runner uv.lock > poetry.lock > pdm.lock >
+          plain python3 -m; pytest only with a tests folder, conftest.py or pytest config; ruff only when
+          configured or listed; mypy (check only) when configured.
+  Node    package.json; package manager pnpm-lock.yaml > yarn.lock > bun.lock(b) > npm; scripts lint,
+          typecheck (or type-check), test (the npm placeholder test script does not count).
+  Go      go.mod: go vet + go test -short (check: go test, golangci-lint when configured).
+  Rust    Cargo.toml: cargo clippy -D warnings + cargo test.
+Refused (exit 2, nothing written): monorepos (pnpm/npm/yarn workspaces, lerna, nx, turbo, rush, go.work, or
+two or more package manifests below the root): write one target per package by hand.
+Exit 1 when no stack is found.
+"""
+import json
+import os
+import re
+import sys
+
+SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "target", "__pycache__", ".tox",
+             "vendor", ".next", "graphify-out", ".serena", ".omc", ".ai", ".claude", ".codex", "site-packages"}
+MANIFESTS = ("pyproject.toml", "package.json", "go.mod", "Cargo.toml")
+WORKSPACE_FILES = ("pnpm-workspace.yaml", "lerna.json", "nx.json", "turbo.json", "rush.json", "go.work")
+NPM_PLACEHOLDER = "no test specified"
+BLOCK_START = "# >>> ai checks (ai-adopt; edit freely inside, a rerun replaces this block) >>>"
+BLOCK_END = "# <<< ai checks <<<"
+RATCHET_LINE = ('@if command -v ai-ratchet >/dev/null 2>&1; then ai-ratchet; '
+                'else echo "ai-ratchet not on PATH: ratchet skipped"; fi')
+LEDGER_LINE = ('@if command -v ai-ledger >/dev/null 2>&1; then ai-ledger --check; '
+               'else echo "ai-ledger not on PATH: ledger check skipped"; fi')
+
+
+def main(argv):
+    root = os.path.abspath(arg(argv, "--dir") or ".")
+    tier = arg(argv, "--tier") or "mvp"
+    if tier not in ("try", "mvp", "long"):
+        sys.exit("ai-check-detect: --tier must be try, mvp or long")
+    info = detect(root)
+    if "--plan" in argv and info.get("ok"):
+        info["plan"] = plan(root, info, tier)
+    if "--json" in argv:
+        print(json.dumps(info, indent=1))
+    elif not info.get("ok"):
+        print("ai-check-detect: %s" % info["refuse"])
+    else:
+        print("stack: %s" % ", ".join(info["stacks"]))
+        print("check-fast: %s" % " && ".join(info["fast"]))
+        print("check:      %s" % " && ".join(info["full"]))
+        for n in info["notes"]:
+            print("note: " + n)
+    if not info.get("ok"):
+        return 2 if info.get("monorepo") else 1
+    return 0
+
+
+def arg(argv, name):
+    if name in argv and argv.index(name) + 1 < len(argv):
+        return argv[argv.index(name) + 1]
+    return None
+
+
+# ---------------------------------------------------------------- detection
+
+def detect(root):
+    mono = monorepo(root)
+    if mono:
+        return {"ok": False, "monorepo": True,
+                "refuse": "monorepo (%s): write check-fast and check per package by hand, then one root target "
+                          "that calls them" % mono}
+    stacks, fast, full, notes = [], [], [], []
+    for fn in (python, node, golang, rust):
+        got = fn(root)
+        if got:
+            name, f, c, n = got
+            stacks.append(name)
+            fast += f
+            full += c
+            notes += n
+    nested = sub_manifests(root)
+    if nested:
+        notes.append("%s below the root is not covered: add its checks by hand" % ", ".join(nested))
+    if not stacks:
+        return {"ok": False, "refuse": "no stack found (no pyproject.toml, package.json, go.mod or Cargo.toml)"}
+    if not fast:
+        return {"ok": False, "refuse": "%s found, but no test or lint command could be told from the files"
+                                       % ", ".join(stacks)}
+    runner = "just" if any(os.path.isfile(os.path.join(root, n)) for n in ("justfile", "Justfile")) \
+        and not os.path.isfile(os.path.join(root, "Makefile")) else "make"
+    return {"ok": True, "stacks": stacks, "fast": fast, "full": full or list(fast), "notes": notes,
+            "runner": runner}
+
+
+def monorepo(root):
+    for name in WORKSPACE_FILES:
+        if os.path.isfile(os.path.join(root, name)):
+            return name
+    pkg = load_json(os.path.join(root, "package.json"))
+    if isinstance(pkg, dict) and pkg.get("workspaces"):
+        return "package.json workspaces"
+    if len(sub_manifests(root)) >= 2:
+        return "%d package manifests below the root" % len(sub_manifests(root))
+    return None
+
+
+def sub_manifests(root, depth=3):
+    out = []
+    for dirpath, dirnames, files in os.walk(root):
+        rel = os.path.relpath(dirpath, root)
+        level = 0 if rel == "." else rel.count(os.sep) + 1
+        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")) if level < depth else []
+        if level == 0:
+            continue
+        if re.search(r"(^|/)(tests?|fixtures?|examples?|docs?|testdata)(/|$)", rel.replace(os.sep, "/")):
+            continue
+        out += [os.path.join(rel, f).replace(os.sep, "/") for f in files if f in MANIFESTS]
+    return out
+
+
+def python(root):
+    pyproject = read(os.path.join(root, "pyproject.toml")) or ""
+    reqs = "".join(read(os.path.join(root, f)) or "" for f in sorted(os.listdir(root))
+                   if re.match(r"^requirements.*\.txt$", f))
+    if not (pyproject or reqs or exists(root, "setup.py") or exists(root, "Pipfile")):
+        return None
+    deps = pyproject + reqs + (read(os.path.join(root, "Pipfile")) or "")
+    if exists(root, "uv.lock"):
+        run, label = "uv run ", "uv"
+    elif exists(root, "poetry.lock"):
+        run, label = "poetry run ", "poetry"
+    elif exists(root, "pdm.lock"):
+        run, label = "pdm run ", "pdm"
+    else:
+        run, label = "python3 -m ", "pip"
+    tools, fast, full, notes = [label], [], [], []
+    ruff = "[tool.ruff" in pyproject or exists(root, "ruff.toml") or exists(root, ".ruff.toml") or \
+        re.search(r"(?im)^[\s\"']*ruff\b", deps) is not None
+    if ruff:
+        tools.append("ruff")
+        fast.append(run + "ruff check .")
+        full.append(run + "ruff check .")
+    if "[tool.mypy" in pyproject or exists(root, "mypy.ini"):
+        tools.append("mypy")
+        full.append(run + "mypy .")
+    pytest = any(os.path.isdir(os.path.join(root, d)) for d in ("tests", "test")) or exists(root, "conftest.py") \
+        or exists(root, "pytest.ini") or "[tool.pytest" in pyproject or "pytest" in deps
+    if pytest:
+        tools.append("pytest")
+        fast.append(run + "pytest -x -q")
+        full.append(run + "pytest -q")
+    else:
+        notes.append("python: no tests folder or pytest config, so no test command")
+    if not ruff:
+        notes.append("python: no ruff config, so no lint command")
+    return "python (%s)" % ", ".join(tools), fast, full, notes
+
+
+def node(root):
+    pkg = load_json(os.path.join(root, "package.json"))
+    if not isinstance(pkg, dict):
+        return None
+    if exists(root, "pnpm-lock.yaml"):
+        pm = "pnpm"
+    elif exists(root, "yarn.lock"):
+        pm = "yarn"
+    elif exists(root, "bun.lock") or exists(root, "bun.lockb"):
+        pm = "bun"
+    else:
+        pm = "npm"
+    scripts = pkg.get("scripts") or {}
+
+    def script(name):
+        return ("yarn %s" if pm == "yarn" else "%s run %%s" % pm) % name
+
+    fast, full, notes = [], [], []
+    if "lint" in scripts:
+        fast.append(script("lint"))
+        full.append(script("lint"))
+    tc = next((n for n in ("typecheck", "type-check", "tsc") if n in scripts), None)
+    if tc:
+        full.append(script(tc))
+    test = scripts.get("test")
+    if test and NPM_PLACEHOLDER not in test:
+        fast.append(script("test"))
+        full.append(script("test"))
+    else:
+        notes.append("node: no test script in package.json")
+    return "node (%s)" % pm, fast, full, notes
+
+
+def golang(root):
+    if not exists(root, "go.mod"):
+        return None
+    full = ["go vet ./...", "go test ./..."]
+    if any(exists(root, n) for n in (".golangci.yml", ".golangci.yaml", ".golangci.toml")):
+        full.insert(1, "golangci-lint run")
+    return "go", ["go vet ./...", "go test -short ./..."], full, []
+
+
+def rust(root):
+    if not exists(root, "Cargo.toml"):
+        return None
+    lint = "cargo clippy -q --all-targets -- -D warnings"
+    return "rust", [lint, "cargo test -q"], [lint, "cargo test -q"], []
+
+
+# ---------------------------------------------------------------- the Makefile / justfile block
+
+def plan(root, info, tier):
+    """{"file", "text" (new file text or None), "kept": [targets that exist and stay], "fast_cmd", "full_cmd"}."""
+    runner = info["runner"]
+    name = "Makefile" if runner == "make" else ("justfile" if exists(root, "justfile") else
+                                                "Justfile" if exists(root, "Justfile") else "justfile")
+    path = os.path.join(root, name)
+    old = read(path)
+    rest = strip_block(old or "")
+    have = targets(rest, runner)
+    kept = [t for t in ("check-fast", "check") if t in have]
+    full = list(info["full"])
+    if tier == "long":
+        full += [LEDGER_LINE, RATCHET_LINE]
+    want = [t for t in ("check-fast", "check") if t not in have]
+    text = None
+    if want:
+        block = render_block(runner, want, info["fast"], full)
+        new = rest.rstrip("\n")
+        new = (new + "\n\n" if new else "") + block
+        text = None if new == old else new
+    elif old is not None and rest != old:
+        text = rest          # both targets are the owner's now: drop our old block
+    tool = "make" if runner == "make" else "just"
+    return {"file": name, "text": text, "kept": kept, "fast_cmd": "%s check-fast" % tool,
+            "full_cmd": "%s check" % tool}
+
+
+def render_block(runner, want, fast, full):
+    tab = "\t" if runner == "make" else "    "
+    lines = [BLOCK_START]
+    if runner == "make":
+        lines.append(".PHONY: %s" % " ".join(want))
+    if "check-fast" in want:
+        lines.append("# check-fast: lint + unit tests, no network, target under 60 s (the agent Stop hook runs it)")
+        lines.append("check-fast:")
+        lines += [tab + recipe(c, runner) for c in fast]
+    if "check" in want:
+        lines.append("# check: everything; run it before a PR and in CI")
+        lines.append("check:")
+        lines += [tab + recipe(c, runner) for c in full]
+    lines.append(BLOCK_END)
+    return "\n".join(lines) + "\n"
+
+
+def recipe(cmd, runner):
+    return cmd.replace("$", "$$") if runner == "make" else cmd
+
+
+def strip_block(text):
+    rx = re.compile(r"\n*^%s\n.*?^%s\n?" % (re.escape(BLOCK_START), re.escape(BLOCK_END)), re.M | re.S)
+    out = rx.sub("\n", text)
+    return out if out.strip() else ""
+
+
+def targets(text, runner):
+    if runner == "make":
+        rx = r"^([A-Za-z0-9_.-]+(?:\s+[A-Za-z0-9_.-]+)*)\s*::?(?!=)"
+        return {t for m in re.findall(rx, text, re.M) for t in m.split()}
+    return set(re.findall(r"^@?([A-Za-z0-9_-]+)[^\n:=]*:(?!=)", text, re.M))
+
+
+# ---------------------------------------------------------------- helpers
+
+def exists(root, name):
+    return os.path.isfile(os.path.join(root, name))
+
+
+def read(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def load_json(path):
+    try:
+        return json.loads(read(path) or "null")
+    except ValueError:
+        return None
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

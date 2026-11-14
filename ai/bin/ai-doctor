@@ -1094,6 +1094,7 @@ def check_project(path, explicit=False):
         say("PASS" if code == 0 else "WARN", "AGENTS.md Libraries section current (ai-libs --check)",
             out[-400:] if code else "")
     text = hl.repo_agents_md(root) or ""
+    check_tier1(root, hl, text)
     blocks = "\n".join(m.group(0) for rx in (hl.MAP_RX, hl.LIBS_RX) for m in [rx.search(text)] if m)
     hits = sorted(set(hl.builtin_scan("\n".join("+" + ln for ln in blocks.splitlines()), set())))
     say("PASS" if not hits else "FAIL", "no secrets in the Map and Libraries sections", ", ".join(hits))
@@ -1125,6 +1126,62 @@ def check_project(path, explicit=False):
     if need:
         say("PASS" if not miss else "WARN", ".gitignore keeps tool caches out of git",
             ("missing: " + ", ".join(miss)) if miss else "")
+
+
+# ---------------------------------------------------------------- Tier 1 project checks (own block: easy to rebase)
+
+REPO_AGENTS_SOFT = 12 * 1024    # read in every session: the plan is about 1.5k tokens; warn well above it
+CODEX_CAP = 32 * 1024           # Codex stops reading AGENTS.md text above 32 KiB (root rules + repo file)
+DONE_MAX, LESSONS_MAX = 6, 15
+
+
+def section_lines(text, title):
+    """Non-empty, non-comment lines of the `## <title>` section (up to the next ## heading or AI marker)."""
+    m = re.search(r"^##\s+%s\b[^\n]*\n(.*?)(?=^##\s|^<!-- AI:|\Z)" % title, text, re.M | re.S)
+    if not m:
+        return None
+    body = re.sub(r"<!--.*?-->", "", m.group(1), flags=re.S)
+    return [ln for ln in body.splitlines() if ln.strip()]
+
+
+def check_tier1(root, hl, text):
+    """Size budget of the repo AGENTS.md, the Done / Lessons caps, and (adopted repos) tier, check targets,
+    ledger and ratchet."""
+    size = len(text.encode("utf-8"))
+    say("PASS" if size <= REPO_AGENTS_SOFT else "WARN", "repo AGENTS.md size %d bytes (budget %d)"
+        % (size, REPO_AGENTS_SOFT), "" if size <= REPO_AGENTS_SOFT else "move detail to docs/, keep pointers")
+    rules_path = os.path.join(AI_DIR, "AGENTS.md")
+    total = size + (os.path.getsize(rules_path) if os.path.isfile(rules_path) else 0)
+    say("PASS" if total <= CODEX_CAP else "FAIL", "root rules + repo AGENTS.md %d bytes (Codex reads %d)"
+        % (total, CODEX_CAP), "" if total <= CODEX_CAP else "Codex silently drops the rest: trim the repo AGENTS.md")
+    done = section_lines(text, "Done")
+    if done is None:
+        say("WARN", "AGENTS.md Done section", "owner step: ai-adopt (adds the 6-line Done block)")
+    else:
+        items = [ln for ln in done if re.match(r"^\s*(\d+\.|[-*])\s", ln)]
+        say("PASS" if len(items) <= DONE_MAX else "WARN", "AGENTS.md Done section (%d of %d lines)"
+            % (len(items), DONE_MAX))
+    lessons = section_lines(text, "Lessons")
+    if lessons is not None:
+        say("PASS" if len(lessons) <= LESSONS_MAX else "WARN", "AGENTS.md Lessons section (%d of %d lines)"
+            % (len(lessons), LESSONS_MAX), "" if len(lessons) <= LESSONS_MAX else
+            "turn a lesson into a check (test, lint, gate), then delete its line")
+    if not os.path.isfile(os.path.join(root, ".ai", "enabled")):
+        return
+    tier = hl.project_tier(root)
+    makefiles = "".join(read_text_file(os.path.join(root, n)) or "" for n in ("Makefile", "justfile", "Justfile"))
+    miss = [t for t in ("check-fast", "check") if not re.search(r"^@?%s\s*:(?!=)" % re.escape(t), makefiles, re.M)]
+    say("PASS" if not miss else "WARN", "project tier %s; check-fast and check targets" % tier,
+        "missing: %s (ai-adopt writes them; a monorepo needs them by hand)" % ", ".join(miss) if miss else "")
+    if tier != "long":
+        return
+    ledger = os.path.join(BIN, "ai-ledger")
+    if os.path.isfile(ledger):
+        code, out = run(["python3", ledger, "--check", "--dir", root], timeout=60)
+        say("PASS" if code == 0 else "FAIL", "regression ledger honest (ai-ledger --check)", out[-400:] if code else "")
+    base = os.path.isfile(os.path.join(root, ".ai", "ratchet.json"))
+    say("PASS" if base else "WARN", "ratchet baseline .ai/ratchet.json",
+        "" if base else "ai-ratchet --init, then commit .ai/ratchet.json")
 
 
 def read_text_file(path):

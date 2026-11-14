@@ -187,7 +187,8 @@ def t_ai_start(work):
     assert "chore(ai): start project AI setup v" in log, log
     agents = open(os.path.join(proj, "AGENTS.md")).read()
     enabled = [ln for ln in open(os.path.join(proj, ".ai", "enabled")).read().splitlines() if not ln.startswith("#")]
-    assert "<!-- AI:ui v" in agents and enabled == ["ui"], enabled
+    assert "<!-- AI:ui v" in agents and enabled == ["tier: mvp", "ui"], enabled
+    assert "## Done" in agents and "## Lessons" in agents, "Done and Lessons sections missing"
     assert open(os.path.join(proj, "CLAUDE.md")).read() == "@AGENTS.md\n"
     res = run([sys.executable, os.path.join(BIN, "ai-start"), "--dir", proj, "--yes"], env=ident)
     assert "nothing to change" in res.stdout, "rerun must be idempotent: " + res.stdout

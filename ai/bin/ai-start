@@ -5,14 +5,23 @@
   ai-adopt [--dir PATH] [--tools id,id] [--yes] [--dry-run]   existing repo: same layer, show diff,
                                                               one y/N, commit, push (owner repos only)
   Extra flags: --no-knowledge (skip Map and Libraries), --refresh-map (write the Map section again),
-               --no-onboard (no headless claude pass for the Map conventions).
+               --no-onboard (no headless claude pass for the Map conventions),
+               --tier try|mvp|long (project tier, default mvp; asked once when interactive),
+               --no-measure (do not run check-fast once to time it).
 ai-adopt is a link to this file; the mode comes from the command name. Rerun = upgrade (blocks are
 replaced by marker, project text outside the blocks is never touched).
 
 What it writes (project root):
   .ai/base-version   routing.yaml version (the base version vN; local, gitignored)
-  .ai/enabled        opt-in tool ids and opt-outs (no-serena, no-graph), one per line (the router reads it;
-                     committed, always written)
+  .ai/enabled        `tier: try|mvp|long` (default mvp), then opt-in tool ids and opt-outs (no-serena, no-graph,
+                     no-stop-check), one per line (the router and the stop check read it; committed, always written)
+  Makefile/justfile  `check-fast` (lint + unit, under 60 s) and `check` (everything) from ai-check-detect, in one
+                     marked block; targets that exist are never changed; monorepos are refused (by hand). Run
+                     once and timed (--no-measure skips it); the commands go into the Map ("- Check:" line).
+  AGENTS.md          also "## Done" (6 lines, managed block; kept out when the file has its own Done section) and
+                     "## Lessons" (agents add lines; 15-line cap, ai-doctor counts)
+  long tier          docs/REGRESSIONS.md (the regression ledger, format inside) and .ai/ratchet.json (ai-ratchet
+                     --init: test, skip and lint counts that may only improve)
   AGENTS.md          project knowledge every agent reads with no tool call (owner decision 2026-11-12):
                      "## Map" between <!-- AI:map START/END --> (entry points, where things live, how to
                      run and test, non-obvious conventions; <= 60 lines; written when missing or with
@@ -68,13 +77,15 @@ def main(argv):
     routing = load_routing()
     version = str(routing.get("version") or 1)
     optin = [r for r in routing.get("rules", []) if r.get("scope") == "opt-in"]
-    current = read_lines(os.path.join(root, ".ai", "enabled"))
+    current_all = read_lines(os.path.join(root, ".ai", "enabled"))
+    current = [i for i in current_all if not TIER_RX.match(i)]
+    tier = choose_tier(current_all, opts)
     chosen = choose(optin, current, opts)
 
     plan = []
     plan.append(write_plan(os.path.join(root, ".ai", "base-version"), version + "\n"))
     enabled = sorted(set(current) | set(chosen))
-    plan.append(write_plan(os.path.join(root, ".ai", "enabled"), enabled_text(enabled)))
+    plan.append(write_plan(os.path.join(root, ".ai", "enabled"), enabled_text(enabled, tier)))
     agents_path = os.path.join(root, "AGENTS.md")
     agents = read(agents_path) or "# %s\n" % os.path.basename(root)
     for rule in optin:
@@ -85,14 +96,23 @@ def main(argv):
     knowledge = opts["knowledge"]
     if knowledge and (opts["refresh_map"] or not MAP_RX.search(agents)):
         agents = upsert_map(agents, build_map(root))
+    checks = check_plan(root, tier)
+    if checks and checks.get("text") is not None:
+        plan.append((os.path.join(root, checks["file"]), checks["text"]))
+    if checks:
+        agents = upsert_check_line(agents, checks)
+    agents = upsert_done(agents, tier, checks)
     plan.append(write_plan(agents_path, agents))
+    if tier == "long":
+        plan.append(write_plan(os.path.join(root, "docs", "REGRESSIONS.md"),
+                               read(os.path.join(root, "docs", "REGRESSIONS.md")) or LEDGER_TEMPLATE))
     plan.append(write_plan(os.path.join(root, "CLAUDE.md"), claude_md(read(os.path.join(root, "CLAUDE.md")))))
     plan.extend(project_mcp_plan(root, enabled, opts["dry_run"]))
     plan.append(claude_plugins_plan(root, enabled))
     plan.append(write_plan(os.path.join(root, ".gitignore"), gitignore_text(read(os.path.join(root, ".gitignore")),
                                                                             with_defaults(enabled), root)))
     plan = [p for p in plan if p]
-    steps = knowledge_steps(root, opts, with_defaults(enabled))
+    steps = knowledge_steps(root, opts, with_defaults(enabled)) + check_steps(root, opts, tier, checks, plan)
 
     if not plan and not steps:
         print("ai-%s: nothing to change (base v%s)" % (mode, version))
@@ -101,6 +121,8 @@ def main(argv):
         print("%s %s" % ("would write" if opts["dry_run"] else "write", os.path.relpath(path, root)))
     for name, _fn in steps:
         print("%s %s" % ("would run" if opts["dry_run"] else "run", name))
+    if checks and checks.get("text") is not None and opts["dry_run"]:
+        print("%s would get:\n%s" % (checks["file"], checks["block"]))
     if opts["dry_run"]:
         return 0
     for path, text in plan:
@@ -114,6 +136,7 @@ def main(argv):
             print("ai-%s: step failed, skipped (%s): %s" % (mode, name, exc))
     drop_libs_pointer(root)
     paths = [os.path.relpath(p, root) for p, _ in plan]
+    paths += [rel for rel in CHECK_PATHS if os.path.exists(os.path.join(root, rel)) and rel not in paths]
     paths += [rel for rel in KNOWLEDGE_PATHS if (os.path.exists(os.path.join(root, rel)) or
                                                  git(root, "ls-files", "--", rel)) and rel not in paths]
     paths = committable(root, paths)      # .ai/base-version, .codex/, .serena/.gitignore: local, ignored by the block
@@ -151,7 +174,7 @@ def main(argv):
 
 def parse(argv):
     opts = {"dir": ".", "tools": None, "yes": False, "dry_run": False, "knowledge": True, "onboard": True,
-            "refresh_map": False}
+            "refresh_map": False, "tier": None, "measure": True}
     args = list(argv)
     while args:
         a = args.pop(0)
@@ -169,6 +192,12 @@ def parse(argv):
             opts["onboard"] = False
         elif a == "--refresh-map":
             opts["refresh_map"] = True
+        elif a == "--tier" and args:
+            opts["tier"] = args.pop(0)
+            if opts["tier"] not in TIERS:
+                sys.exit("--tier must be one of: " + ", ".join(TIERS))
+        elif a == "--no-measure":
+            opts["measure"] = False
         elif a in ("-h", "--help"):
             print(__doc__)
             sys.exit(0)
@@ -348,10 +377,12 @@ GI_START = "# >>> AI tools (managed by ai-adopt; edit outside this block) >>>"
 GI_END = "# <<< AI tools <<<"
 GI_RX = re.compile(r"^%s\n.*?^%s\n?" % (re.escape(GI_START), re.escape(GI_END)), re.M | re.S)
 GI_LINES = [".omc/*", "!.omc/skills/", ".omx/", ".codex/", ".claude/*", "!.claude/settings.json", ".serena/*",
-            "!.serena/project.yml", "graphify-out/", ".ai/*", "!.ai/enabled"]
+            "!.serena/project.yml", "graphify-out/", ".ai/*", "!.ai/enabled", "!.ai/ratchet.json",
+            "!.ai/destructive.txt"]
 GI_OLD_HEAD = "# AI tools (ai-adopt): caches and generated graph"     # unmarked block of older ai-adopt runs
 GI_OLD_LINES = {".serena/cache/", ".serena/project.local.yml", ".serena/logs/", "graphify-out/"}
-ENABLED_HEAD = "# ai-adopt: opt-in tool ids, one per line; no-serena / no-graph switch a default tool off"
+ENABLED_HEAD = ("# ai-adopt: the project tier (try | mvp | long), then opt-in tool ids, one per line; no-serena / "
+                "no-graph / no-stop-check switch a default off")
 
 
 def gitignore_text(text, enabled=None, root=None):
@@ -386,8 +417,8 @@ def drop_old_block(text):
     return "\n".join(out)
 
 
-def enabled_text(ids):
-    return ENABLED_HEAD + "\n" + "".join(i + "\n" for i in ids)
+def enabled_text(ids, tier="mvp"):
+    return ENABLED_HEAD + "\n" + "tier: %s\n" % tier + "".join(i + "\n" for i in ids)
 
 
 def committable(root, paths):
@@ -681,6 +712,174 @@ def load_json(path):
         return json.loads(read(path) or "null")
     except ValueError:
         return None
+
+
+# ---------------------------------------------------------------- tier, check targets, Done (Tier 1)
+
+TIERS = ("try", "mvp", "long")
+TIER_RX = re.compile(r"^tier\s*:\s*(\S+)$", re.I)
+CHECK_PATHS = [".ai/ratchet.json"]
+CHECK_LINE_RX = re.compile(r"^- Check: .*$", re.M)
+DONE_RX = re.compile(r"^<!-- AI:done START[^>]*-->\n.*?^<!-- AI:done END -->\n?", re.M | re.S)
+OWN_DONE_RX = re.compile(r"^##\s+(Done|Definition of done)\b", re.M | re.I)
+LESSONS = ("## Lessons\n<!-- One line per repeated mistake that no check catches yet; name its ledger ID (R-NNN) "
+           "when it has one. At most 15 lines: when a check covers a lesson, delete its line. -->\n")
+LEDGER_TEMPLATE = """# Regressions
+
+One line per bug that reached the main branch, added in the fix PR together with a test that failed before the
+fix. Format (one line, or wrapped with an indent; `area:` is a path prefix, more than one with commas):
+
+    R-001 | 2026-11-14 | area: src/billing | symptom: ... | cause: ... | test: tests/regressions/test_r001_short_name.py | reopened: 0
+
+Rules: never delete a line; `reopened` only goes up (the same symptom came back); the test is
+tests/regressions/test_r<NNN>_*.py and its name says the promise it keeps. `ai-ledger --check` checks this
+(`make check` runs it). An edit in an `area:` gets a one-line reminder with the IDs to run.
+
+## Ledger
+
+## Quarantine
+Flaky tests, one line each: `- <test id> | since: YYYY-MM-DD | why`. Older than 14 days: fix it or delete it
+with the owner's OK.
+"""
+
+
+def choose_tier(current_all, opts):
+    if opts["tier"]:
+        return opts["tier"]
+    for item in current_all:
+        m = TIER_RX.match(item)
+        if m and m.group(1).lower() in TIERS:
+            return m.group(1).lower()
+    if opts["yes"] or opts["dry_run"] or not sys.stdin.isatty():
+        return "mvp"
+    try:
+        got = input("Project tier: try (prototype), mvp (real users soon) or long (production, money, data)? "
+                    "[mvp] ").strip().lower()
+    except EOFError:
+        got = ""
+    return got if got in TIERS else "mvp"
+
+
+def check_detect_module():
+    import importlib.machinery
+    import importlib.util
+    loader = importlib.machinery.SourceFileLoader("ai_check_detect", os.path.join(BIN, "ai-check-detect"))
+    spec = importlib.util.spec_from_loader("ai_check_detect", loader)
+    mod = importlib.util.module_from_spec(spec)
+    sys.dont_write_bytecode = True
+    loader.exec_module(mod)
+    return mod
+
+
+def check_plan(root, tier):
+    """The check-fast / check targets for this repo (ai-check-detect), or None (no stack, monorepo: printed)."""
+    mod = check_detect_module()
+    info = mod.detect(root)
+    if not info.get("ok"):
+        if info.get("monorepo") or "no test or lint" in info.get("refuse", ""):
+            print("skip check targets: %s" % info["refuse"])
+        return None
+    out = mod.plan(root, info, tier)
+    for t in out["kept"]:
+        print("keep: %s already has a %s target (not changed)" % (out["file"], t))
+    for n in info["notes"]:
+        print("check targets: " + n)
+    text = out["text"] or ""
+    m = re.search(r"^%s\n.*?^%s\n" % (re.escape(mod.BLOCK_START), re.escape(mod.BLOCK_END)), text, re.M | re.S)
+    out["block"] = m.group(0) if m else ""
+    return out
+
+
+def upsert_check_line(agents, checks):
+    """One "- Check:" line in the Map (kept when present: the owner may have tuned it)."""
+    m = MAP_RX.search(agents)
+    if not m or CHECK_LINE_RX.search(m.group(0)):
+        return agents
+    line = ("- Check: `%s` (lint + unit tests, under 60 s; not measured yet); `%s` (everything, before a PR)."
+            % (checks["fast_cmd"], checks["full_cmd"]))
+    block = m.group(0)
+    if LIBS_POINTER in block:
+        new = block.replace(LIBS_POINTER, line + "\n" + LIBS_POINTER, 1)
+    else:
+        new = block.replace("\n" + MAP_END, "\n" + line + "\n" + MAP_END, 1)
+    return agents[:m.start()] + new + agents[m.end():]
+
+
+def render_done(tier, checks):
+    cmd = "`%s`" % checks["full_cmd"] if checks else "The project check (the Map says which)"
+    ledger = " and a line in docs/REGRESSIONS.md" if tier == "long" else ""
+    return "\n".join([
+        "<!-- AI:done START (ai-adopt; 6 lines, a rerun replaces it) -->",
+        "## Done",
+        "1. %s passes; the PR shows the command and the tail of its output." % cmd,
+        "2. New behaviour has a test; a bug fix has a test that failed before the fix%s." % ledger,
+        "3. No test is deleted, skipped or weakened unless the owner said so in this session.",
+        "4. Docs touched by the change are updated (Map, README), or the PR says \"Docs: none, because ...\".",
+        "5. Only what was asked; a refactor goes in its own commit or PR.",
+        "6. A PR stays under about 400 changed lines (generated files excluded), else split it or say why.",
+        "<!-- AI:done END -->"]) + "\n"
+
+
+def upsert_done(agents, tier, checks):
+    """The managed Done block (6 lines) and an empty Lessons section. A hand-written Done section wins."""
+    outside = DONE_RX.sub("", agents)
+    if OWN_DONE_RX.search(outside):
+        print("keep: AGENTS.md has its own Done section (no second one added)")
+        return agents
+    block = render_done(tier, checks)
+    if DONE_RX.search(agents):
+        agents = DONE_RX.sub(lambda _m: block, agents, count=1)
+    else:
+        agents = agents.rstrip("\n") + "\n\n" + block
+    if not re.search(r"^##\s+Lessons\b", agents, re.M):
+        agents = agents.rstrip("\n") + "\n\n" + LESSONS
+    return agents
+
+
+def check_steps(root, opts, tier, checks, plan):
+    """Time check-fast once when its target was (re)written or the Map line has no time yet."""
+    if not checks or not opts["measure"]:
+        return []
+    written = any(os.path.basename(p) == checks["file"] for p, _t in plan)
+    planned = dict(plan).get(os.path.join(root, "AGENTS.md")) or read(os.path.join(root, "AGENTS.md")) or ""
+    m = MAP_RX.search(planned)
+    line = CHECK_LINE_RX.search(m.group(0)) if m else None
+    if not (written or (line and "measured" not in line.group(0))):
+        return []
+    return [("time %s once (writes the seconds into the Map)" % checks["fast_cmd"],
+             lambda: measure_check(root, checks))]
+
+
+def measure_check(root, checks):
+    import time
+    argv = checks["fast_cmd"].split()
+    if not which(argv[0]):
+        note = "not measured: %s not found" % argv[0]
+    else:
+        t0 = time.time()
+        try:
+            res = subprocess.run(argv, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=300)
+            secs = int(round(time.time() - t0))
+            note = "measured %d s" % secs
+            tail = "\n".join(res.stdout.decode("utf-8", "replace").splitlines()[-15:])
+            if res.returncode != 0:
+                print("%s FAILS today (exit %d, %d s). Fix it or tune the target: the Stop hook blocks on a failing "
+                      "check-fast. Last lines:\n%s" % (checks["fast_cmd"], res.returncode, secs, tail))
+            elif secs > 60:
+                print("%s took %d s, over the 60 s target: keep only lint and fast unit tests in it"
+                      % (checks["fast_cmd"], secs))
+            else:
+                print("%s passed in %d s" % (checks["fast_cmd"], secs))
+        except subprocess.TimeoutExpired:
+            note = "not measured: over 300 s"
+            print("%s ran over 300 s: keep only lint and fast unit tests in it" % checks["fast_cmd"])
+    path = os.path.join(root, "AGENTS.md")
+    text = read(path) or ""
+    new = re.sub(r"(- Check: `[^`]+` \(lint \+ unit tests)[^)]*\)", lambda m: "%s; %s)" % (m.group(1), note), text,
+                 count=1)
+    if new != text:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(new)
 
 
 # ---------------------------------------------------------------- helpers
