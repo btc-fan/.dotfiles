@@ -1,0 +1,1568 @@
+{
+ "rule": "no-destroy",
+ "cases": [
+  {
+   "name": "rm -rf home",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf ~"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "home folder"
+   ]
+  },
+  {
+   "name": "rm -rf /",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf /"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "rm -rf $HOME",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf $HOME"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "rm -rf . at the repo root",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf ."
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "repo root"
+   ]
+  },
+  {
+   "name": "rm -rf * at the repo root",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf *"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "wildcard"
+   ]
+  },
+  {
+   "name": "rm -rf .git",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf .git"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "git history"
+   ]
+  },
+  {
+   "name": "rm -rf a data folder",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf data/"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "data folder"
+   ]
+  },
+  {
+   "name": "rm -rf pgdata",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -fr pgdata"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "rm -r a sqlite file folder path",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -r var/app.sqlite3"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "rm -rf the parent of the repo",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf ../"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "parent"
+   ]
+  },
+  {
+   "name": "rm -R outside the repo in home",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -R ~/Documents"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "outside this repo"
+   ]
+  },
+  {
+   "name": "rm --recursive --force home",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm --recursive --force ~/"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "rm -rf a variable path",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf $TARGET"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "variable"
+   ]
+  },
+  {
+   "name": "rm -rf inside bash -c",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "bash -c 'rm -rf ~'"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "rm -rf behind rtk proxy and env",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "env X=1 rtk proxy rm -rf ~"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "rm -rf after cd ..",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd .. && rm -rf proj"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "git push --force to main",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push --force origin main"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "force push"
+   ]
+  },
+  {
+   "name": "git push -f on the default branch, no refspec",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push -f"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "force push"
+   ]
+  },
+  {
+   "name": "git push +main",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push origin +main"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "git push --force-with-lease to master",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push --force-with-lease origin HEAD:master"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "git push --delete main",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push origin --delete main"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "deleting"
+   ]
+  },
+  {
+   "name": "git push :main",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push origin :main"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "git push --mirror",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push --mirror"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "mirror"
+   ]
+  },
+  {
+   "name": "rtk git push -f main",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rtk git push -f origin main"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "git reset --hard on the default branch with changes",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git reset --hard"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init",
+    "dirty": {
+     "src/app.py": "x = 2\n"
+    }
+   },
+   "contains": [
+    "Destructive command blocked",
+    "uncommitted"
+   ]
+  },
+  {
+   "name": "git clean -fdx at the repo root",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git clean -fdx"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "ignored files"
+   ]
+  },
+  {
+   "name": "git clean -xf (no -d) at the root",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git clean -xf"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "docker compose down -v",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "docker compose down -v"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "compose down -v"
+   ]
+  },
+  {
+   "name": "compose options before down --volumes",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "docker compose -f x.yml -p app down --volumes"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "docker-compose down -v cluster",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "docker-compose down -vt 5"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "podman compose down -v",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "podman compose down -v"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "docker volume prune",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "docker volume prune -f"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "volume prune"
+   ]
+  },
+  {
+   "name": "docker system prune --volumes",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "docker system prune -a --volumes"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "psql DROP TABLE on a protected db",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "psql md999 -c 'DROP TABLE listings'"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n",
+     ".ai/destructive.txt": "# protected\ndb: md999\ncmd: launchctl bootout\n",
+     "drop.sql": "DROP SCHEMA public CASCADE;\n",
+     "ok.sql": "SELECT 1;\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "protected database md999"
+   ]
+  },
+  {
+   "name": "psql heredoc TRUNCATE on a protected db",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "psql -d md999 <<EOF\nTRUNCATE listings;\nEOF"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n",
+     ".ai/destructive.txt": "# protected\ndb: md999\ncmd: launchctl bootout\n",
+     "drop.sql": "DROP SCHEMA public CASCADE;\n",
+     "ok.sql": "SELECT 1;\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "TRUNCATE"
+   ]
+  },
+  {
+   "name": "DROP DATABASE piped to psql",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "echo 'DROP DATABASE md999' | psql postgres"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n",
+     ".ai/destructive.txt": "# protected\ndb: md999\ncmd: launchctl bootout\n",
+     "drop.sql": "DROP SCHEMA public CASCADE;\n",
+     "ok.sql": "SELECT 1;\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "dropdb a protected db",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "dropdb md999"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n",
+     ".ai/destructive.txt": "# protected\ndb: md999\ncmd: launchctl bootout\n",
+     "drop.sql": "DROP SCHEMA public CASCADE;\n",
+     "ok.sql": "SELECT 1;\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "docker exec psql DELETE without WHERE",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "docker exec db psql -U app md999 -c 'DELETE FROM listings;'"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n",
+     ".ai/destructive.txt": "# protected\ndb: md999\ncmd: launchctl bootout\n",
+     "drop.sql": "DROP SCHEMA public CASCADE;\n",
+     "ok.sql": "SELECT 1;\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "psql -f file with DROP SCHEMA",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "psql md999 -f drop.sql"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n",
+     ".ai/destructive.txt": "# protected\ndb: md999\ncmd: launchctl bootout\n",
+     "drop.sql": "DROP SCHEMA public CASCADE;\n",
+     "ok.sql": "SELECT 1;\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "DROP SCHEMA"
+   ]
+  },
+  {
+   "name": "PGDATABASE env and stdin file",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "PGDATABASE=md999 psql < drop.sql"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n",
+     ".ai/destructive.txt": "# protected\ndb: md999\ncmd: launchctl bootout\n",
+     "drop.sql": "DROP SCHEMA public CASCADE;\n",
+     "ok.sql": "SELECT 1;\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked"
+   ]
+  },
+  {
+   "name": "repo command rule from destructive.txt",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "launchctl bootout gui/501/com.example.crawler"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n",
+     ".ai/destructive.txt": "# protected\ndb: md999\ncmd: launchctl bootout\n",
+     "drop.sql": "DROP SCHEMA public CASCADE;\n",
+     "ok.sql": "SELECT 1;\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "launchctl bootout"
+   ]
+  },
+  {
+   "name": "rm -rf node_modules",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf node_modules"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "rm -rf rebuildable folders",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf .venv dist build __pycache__ .pytest_cache target graphify-out"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "rm -rf egg-info wildcard",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf *.egg-info"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "rm -rf a temp folder",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf /tmp/ai-build-xyz"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "rm -rf code inside the repo",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf src/old_module"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "rm -rf a variable path to node_modules",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf $ROOT/node_modules"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "rm of one file, not recursive",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -f notes.txt"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "grep for DROP TABLE in docs",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "grep -rn \"DROP TABLE\" docs/"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n",
+     ".ai/destructive.txt": "# protected\ndb: md999\ncmd: launchctl bootout\n",
+     "drop.sql": "DROP SCHEMA public CASCADE;\n",
+     "ok.sql": "SELECT 1;\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "echo of a destructive text",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "echo 'rm -rf / and DROP TABLE md999'"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n",
+     ".ai/destructive.txt": "# protected\ndb: md999\ncmd: launchctl bootout\n",
+     "drop.sql": "DROP SCHEMA public CASCADE;\n",
+     "ok.sql": "SELECT 1;\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "commit message naming rm -rf",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git commit -m 'drop rm -rf ~ from the docs'"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "psql DROP on a scratch db",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "psql test_db -c 'DROP TABLE x'"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n",
+     ".ai/destructive.txt": "# protected\ndb: md999\ncmd: launchctl bootout\n",
+     "drop.sql": "DROP SCHEMA public CASCADE;\n",
+     "ok.sql": "SELECT 1;\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "psql SELECT on a protected db",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "psql md999 -c 'SELECT count(*) FROM listings'"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n",
+     ".ai/destructive.txt": "# protected\ndb: md999\ncmd: launchctl bootout\n",
+     "drop.sql": "DROP SCHEMA public CASCADE;\n",
+     "ok.sql": "SELECT 1;\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "psql -f a safe file on a protected db",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "psql md999 -f ok.sql"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n",
+     ".ai/destructive.txt": "# protected\ndb: md999\ncmd: launchctl bootout\n",
+     "drop.sql": "DROP SCHEMA public CASCADE;\n",
+     "ok.sql": "SELECT 1;\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "DELETE with WHERE on a protected db",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "psql md999 -c \"DELETE FROM listings WHERE id = 1\""
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n",
+     ".ai/destructive.txt": "# protected\ndb: md999\ncmd: launchctl bootout\n",
+     "drop.sql": "DROP SCHEMA public CASCADE;\n",
+     "ok.sql": "SELECT 1;\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "SQL rule needs a protected list",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "psql md999 -c 'DROP TABLE listings'"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "force push to a feature branch",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push --force origin feature/x"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "plain push to main",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push origin main"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "reset --hard on a clean tree",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git reset --hard"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "git reset --soft with changes",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git reset --soft HEAD~1"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init",
+    "dirty": {
+     "src/app.py": "x = 2\n"
+    }
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "git clean dry run",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git clean -fdxn"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "git clean without -x",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git clean -fd"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "git clean -fdx of one folder",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git clean -fdx build/"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "docker compose down",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "docker compose down"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "compose run of a service command",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "docker compose run app down -v"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "docker volume ls",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "docker volume ls"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "launchctl list with a repo rule",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "launchctl list"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n",
+     ".ai/destructive.txt": "# protected\ndb: md999\ncmd: launchctl bootout\n",
+     "drop.sql": "DROP SCHEMA public CASCADE;\n",
+     "ok.sql": "SELECT 1;\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "Codex gets a block too",
+   "agent": "codex",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf ~"
+    },
+    "turn_id": "t"
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   }
+  },
+  {
+   "name": "deny wins over the absolute-path rewrite of git push",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push --force origin main"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n",
+     "managed.json": "{\"sandbox\": {\"excludedCommands\": [\"/usr/bin/git push *\"]}}"
+    },
+    "commit": "init"
+   },
+   "env": {
+    "AI_CLAUDE_MANAGED_SETTINGS": "{{PROJ}}/managed.json"
+   },
+   "contains": "force push",
+   "not_contains": "updatedInput"
+  },
+  {
+   "name": "owner skip lets it through (logged)",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf ~"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "gate_skip": "no-destroy {{SOON}} owner cleanup",
+   "contains": "skipped by the owner",
+   "state_contains": {
+    "gates.log": "SKIP no-destroy"
+   }
+  }
+ ]
+}

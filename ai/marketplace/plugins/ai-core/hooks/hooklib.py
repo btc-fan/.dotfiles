@@ -1114,9 +1114,368 @@ def probe_sudo(stages, cmd=""):
     return bool(root_calls(cmd)) or any("sudo" in st.wrappers or st.exe in ROOT_TOOLS for st in stages)
 
 
-GATES = {"audit-before-install": gate_audit, "secret-scan": gate_secrets, "pr-rules": gate_pr, "no-sudo": gate_sudo}
+# ---------------------------------------------------------------- no-destroy
+# Target-based, not flag-based: `rm -rf node_modules` passes, `rm -rf ~` or `rm -rf .git` does not. The SQL rule
+# fires only for the protected database names of the repo (.ai/destructive.txt), so test databases and text that
+# only mentions SQL (`grep "DROP TABLE" docs/`) pass. Shell indirection (scripts on disk, find -delete,
+# xargs rm) is out of reach: the sandbox and the database role are the real boundary (README known limits).
+
+REBUILDABLE = {"node_modules", ".venv", "venv", "dist", "build", "__pycache__", ".pytest_cache", ".ruff_cache",
+               ".mypy_cache", "target", "graphify-out", ".next", ".nuxt", ".turbo", ".parcel-cache", "coverage",
+               "htmlcov", ".tox", ".nox", ".cache", "out", ".gradle", ".svelte-kit", ".angular", ".eggs"}
+DATA_NAMES = {"data", "pgdata", "postgres", "postgresql", "mysql", "volumes", "db", "database", "backup",
+              "backups"}
+DATA_EXT = (".sqlite", ".sqlite3", ".db")
+PROTECTED_BRANCHES = {"main", "master"}
+SQL_CLIENTS = {"psql", "mysql", "mariadb", "sqlite3", "duckdb", "pgcli", "mycli", "litecli", "clickhouse-client",
+               "usql"}
+DESTRUCTIVE_SQL = re.compile(r"\b(drop\s+(database|schema|table)\b|truncate\b|delete\s+from\s+[\w.\"`]+\s*(;|$))",
+                             re.I | re.M)
+DESTROY_EXES = {"rm", "git", "docker", "podman", "docker-compose", "podman-compose", "dropdb", "pg_restore",
+                "kubectl"} | SQL_CLIENTS
+
+
+def project_tier(root):
+    """try | mvp | long from a `tier: <name>` line in .ai/enabled; mvp when the line or the file is missing."""
+    text = read_text(os.path.join(root, ".ai", "enabled")) if root else None
+    for ln in (text or "").splitlines():
+        m = re.match(r"^\s*tier\s*:\s*(try|mvp|long)\s*(#.*)?$", ln, re.I)
+        if m:
+            return m.group(1).lower()
+    return "mvp"
+
+
+def destructive_config(root):
+    """{"db": [protected database names], "cmd": [[word, ...] command prefixes]} from .ai/destructive.txt."""
+    out = {"db": [], "cmd": []}
+    text =(read_text(os.path.join(root, ".ai", "destructive.txt")) if root else None) or ""
+    for ln in text.splitlines():
+        ln = ln.split("#", 1)[0].strip()
+        m = re.match(r"^(db|cmd)\s*:\s*(.+)$", ln)
+        if m and m.group(1) == "db":
+            out["db"].extend(n for n in re.split(r"[\s,]+", m.group(2)) if n)
+        elif m:
+            out["cmd"].append(m.group(2).split())
+    return out
+
+
+def gate_destroy(ctx, cmd, stages):
+    cwd = ctx.cwd or "."
+    root = project_root(cwd)
+    conf = destructive_config(root)
+    here = cwd
+    for st in stages:
+        if st.exe in ("cd", "pushd") and st.args:
+            here = os.path.normpath(os.path.join(here, os.path.expanduser(st.args[0])))
+            continue
+        why = (rm_rule(st, here, root) or git_destroy_rule(st, here) or compose_rule(st)
+               or sql_rule(st, stages, cmd, here, conf["db"]) or repo_cmd_rule(st, conf["cmd"]))
+        if why:
+            return ("deny", "Destructive command blocked: %s. Do not rephrase it or work around it: give the owner the "
+                    "exact command and the reason, and let the owner run it." % why)
+    return None
+
+
+def probe_destroy(stages, cmd=""):
+    return True       # cheap; repo rules in .ai/destructive.txt may name any program
+
+
+def home_dir():
+    return os.path.realpath(os.path.expanduser("~"))
+
+
+def temp_roots():
+    roots = ["/tmp", "/private/tmp", "/var/tmp", "/var/folders", "/private/var/folders"]
+    if os.environ.get("TMPDIR"):
+        roots.append(os.path.realpath(os.environ["TMPDIR"]))
+    return roots
+
+
+def inside(path, base):
+    return path == base or path.startswith(base.rstrip(os.sep) + os.sep)
+
+
+def rm_rule(st, cwd, session_root=None):
+    if st.exe != "rm":
+        return None
+    flags, targets, end = set(), [], False
+    for a in st.args:
+        if not end and a == "--":
+            end = True
+        elif not end and a.startswith("--"):
+            flags.add(a)
+        elif not end and a.startswith("-") and len(a) > 1:
+            flags.update(a[1:])
+        else:
+            targets.append(a)
+    if not ({"r", "R", "--recursive"} & flags):
+        return None
+    for t in targets:
+        why = rm_target_problem(t, cwd, session_root)
+        if why:
+            return "rm -r %s (%s)" % (t, why)
+    return None
+
+
+def rm_target_problem(t, cwd, session_root=None):
+    base_name = os.path.basename(t.rstrip("/")) or t
+    rebuildable = base_name in REBUILDABLE or base_name.endswith(".egg-info")
+    if "$" in t or "`" in t:
+        m = re.match(r"^(\$HOME|\$\{HOME\})(/.*)?$", t)
+        if m:
+            t = "~" + (m.group(2) or "")
+        elif rebuildable:
+            return None
+        else:
+            return "a variable path: cannot tell what it points to"
+    home = home_dir()
+    root = project_root(cwd)
+    if root:
+        root = os.path.realpath(root)
+    if session_root and not root:         # `cd .. && rm -rf proj`: still the session's repo
+        root = os.path.realpath(session_root)
+    path = os.path.normpath(os.path.join(os.path.realpath(cwd), os.path.expanduser(t)))
+    if path != "/":     # resolve the parent only: `rm -r link` removes the link, not its target
+        path = os.path.join(os.path.realpath(os.path.dirname(path)), os.path.basename(path))
+    if re.search(r"[*?\[]", os.path.basename(path)):
+        parent = os.path.dirname(path)
+        if rebuildable:
+            return None
+        if parent in ("/", home) or (root and parent == root) or (root and inside(root, parent)) or \
+                inside(home, parent):
+            return "a wildcard at the repo root, the home folder or /"
+        path = parent
+    parts = path.split(os.sep)
+    if path == "/" or inside(home, path):
+        return "the home folder, / or a parent of them"
+    if root and inside(root, path):
+        return "the repo root or a parent of it"
+    if ".git" in parts:
+        return "the git history (.git)"
+    if root and inside(path, root):
+        rel = os.path.relpath(path, root).split(os.sep)
+        if any(p in REBUILDABLE or p.endswith(".egg-info") for p in rel):
+            return None
+        if any(p.lower() in DATA_NAMES or p.lower().endswith(DATA_EXT) for p in rel):
+            return "a data folder or database file"
+        return None
+    if inside(path, home):
+        return None if rebuildable else "a path outside this repo"
+    if any(inside(path, os.path.realpath(r)) or inside(path, r) for r in temp_roots()):
+        return None
+    return "a path outside this repo"
+
+
+def git_sub(st, cwd):
+    """(subcommand, rest, dir) of a git stage, or (None, [], cwd)."""
+    args, d, i = st.args, cwd, 0
+    while i < len(args) and args[i].startswith("-"):
+        if args[i] == "-C" and i + 1 < len(args):
+            d = os.path.normpath(os.path.join(d, os.path.expanduser(args[i + 1])))
+        i += 2 if args[i] in GIT_GLOBAL_VALUE else 1
+    if i >= len(args):
+        return None, [], d
+    return args[i], args[i + 1:], d
+
+
+def current_branch(d):
+    return (git_quick(d, ["symbolic-ref", "--short", "-q", "HEAD"]) or "").strip()
+
+
+def short_flags(rest):
+    out = set()
+    for a in rest:
+        if a.startswith("-") and not a.startswith("--") and len(a) > 1:
+            out.update(a[1:])
+    return out
+
+
+def git_destroy_rule(st, cwd):
+    if st.exe != "git":
+        return None
+    sub, rest, d = git_sub(st, cwd)
+    if sub == "push":
+        return push_rule(rest, d)
+    if sub == "reset" and "--hard" in rest:
+        branch = current_branch(d)
+        if branch in PROTECTED_BRANCHES:
+            dirty = git_quick(d, ["status", "--porcelain", "--untracked-files=no"])
+            if dirty and dirty.strip():
+                return "git reset --hard on %s with uncommitted changes (they would be lost)" % branch
+        return None
+    if sub == "clean":
+        letters, longs = short_flags(rest), {a.split("=")[0] for a in rest if a.startswith("--")}
+        if "n" in letters or "--dry-run" in longs:
+            return None
+        force = "f" in letters or "--force" in longs
+        ignored = bool({"x", "X"} & letters)
+        paths, skip = [], False
+        for a in rest:
+            if skip:
+                skip = False
+                continue
+            if a in ("-e", "--exclude"):
+                skip = True
+                continue
+            if a == "--" or a.startswith("-"):
+                continue
+            paths.append(a)
+        root = project_root(d)
+        at_root = root and os.path.realpath(d) == os.path.realpath(root)
+        whole = not paths or all(p in (".", "./", ":/") for p in paths)
+        if force and ignored and at_root and whole:
+            return "git clean -x at the repo root (deletes ignored files: .env, local databases, caches)"
+    return None
+
+
+def push_rule(rest, d):
+    letters, longs = short_flags(rest), {a.split("=")[0] for a in rest if a.startswith("--")}
+    if "--mirror" in longs:
+        return "git push --mirror (rewrites every branch on the remote)"
+    force = "f" in letters or bool(longs & {"--force", "--force-with-lease", "--force-if-includes"})
+    delete = "d" in letters or "--delete" in longs
+    value_opts = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
+    pos, skip = [], False
+    for a in rest:
+        if skip:
+            skip = False
+            continue
+        if a in value_opts:
+            skip = True
+            continue
+        if a.startswith("-"):
+            continue
+        pos.append(a)
+    specs = pos[1:]
+    if any(s.startswith("+") for s in specs):
+        force = True
+    if "--all" in longs or "--branches" in longs:
+        dsts = set(PROTECTED_BRANCHES)
+    elif specs:
+        dsts = set()
+        for s in specs:
+            s = s.lstrip("+")
+            if ":" in s:
+                src, dst = s.split(":", 1)
+                if not src:
+                    delete = True
+                s = dst
+            dsts.add(re.sub(r"^refs/heads/", "", s))
+    else:
+        dsts = {current_branch(d)}
+    hit = sorted(dsts & PROTECTED_BRANCHES)
+    if hit and force:
+        return "force push to %s" % hit[0]
+    if hit and delete:
+        return "deleting %s on the remote" % hit[0]
+    return None
+
+
+COMPOSE_VALUE_OPTS = {"-f", "--file", "-p", "--project-name", "--profile", "--env-file", "--project-directory",
+                      "--ansi", "--progress", "--parallel"}
+DOCKER_VALUE_OPTS = {"-H", "--host", "-c", "--context", "--config", "-l", "--log-level"}
+
+
+def first_word(args, value_opts):
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in value_opts:
+            i += 2
+            continue
+        if a.startswith("-"):
+            i += 1
+            continue
+        return a, args[i + 1:]
+    return None, []
+
+
+def compose_rule(st):
+    if st.exe in ("docker", "podman"):
+        word, rest = first_word(st.args, DOCKER_VALUE_OPTS)
+        if word == "volume":
+            sub, _r = first_word(rest, set())
+            if sub in ("rm", "remove", "prune"):
+                return "%s volume %s (deletes stored data)" % (st.exe, sub)
+            return None
+        if word == "system":
+            sub, r = first_word(rest, set())
+            if sub == "prune" and "--volumes" in r:
+                return "%s system prune --volumes (deletes stored data)" % st.exe
+            return None
+        if word != "compose":
+            return None
+        args = rest
+    elif st.exe in ("docker-compose", "podman-compose"):
+        args = st.args
+    else:
+        return None
+    sub, rest = first_word(args, COMPOSE_VALUE_OPTS)
+    if sub != "down":
+        return None
+    for a in rest:
+        if a == "--volumes" or (a.startswith("-") and not a.startswith("--") and "v" in a[1:]):
+            return "compose down -v (deletes the named volumes: database data)"
+    return None
+
+
+def sql_rule(st, stages, cmd, cwd, protected):
+    if not protected:
+        return None
+    args = list(st.args)
+    exe = st.exe
+    if exe in ("docker", "podman", "kubectl"):
+        idx = next((i for i, a in enumerate(args) if os.path.basename(a) in SQL_CLIENTS | {"dropdb", "pg_restore"}),
+                   None)
+        if idx is None:
+            return None
+        exe, args = os.path.basename(args[idx]), args[idx + 1:]
+    names = " ".join(args + list(st.env.values()))
+    hit = [n for n in protected if re.search(r"(?<![\w-])" + re.escape(n) + r"(?![\w-])", names)]
+    if exe == "dropdb":
+        return "dropdb %s (protected database in .ai/destructive.txt)" % hit[0] if hit else None
+    if exe == "pg_restore":
+        if hit and ("--clean" in args or "-c" in args):
+            return "pg_restore --clean into %s (protected database)" % hit[0]
+        return None
+    if exe not in SQL_CLIENTS:
+        return None
+    text = [" ".join(args)]
+    if "<<" in cmd:
+        text.append(cmd)                     # heredoc bodies are dropped by the tokenizer
+    for prev in stages:                      # echo "DROP ..." | psql
+        if prev.nxt is st and prev.op in ("|", "|&"):
+            text.append(" ".join(prev.args))
+    files = [args[i + 1] for i, a in enumerate(args[:-1]) if a in ("-f", "--file")]
+    files += [a.split("=", 1)[1] for a in args if a.startswith("--file=")]
+    files += re.findall(r"<\s*([^\s<>|;&]+\.sql)\b", cmd)
+    for f in files:
+        data = read_text(os.path.join(cwd, os.path.expanduser(f)))
+        if data is None:
+            return "SQL from a file that cannot be read (%s) against a protected database" % f if hit else None
+        text.append(data[:200 * 1024])
+    sql = "\n".join(text)
+    m = DESTRUCTIVE_SQL.search(sql)
+    if not m:
+        return None
+    hit = hit or [n for n in protected if re.search(r"(?<![\w-])" + re.escape(n) + r"(?![\w-])", sql)]
+    if hit:
+        return "%s on the protected database %s (.ai/destructive.txt)" % (one_line(m.group(1)).upper(), hit[0])
+    return None
+
+
+def repo_cmd_rule(st, prefixes):
+    words = [st.exe] + st.args
+    for p in prefixes:
+        if p and words[:len(p)] == [os.path.basename(p[0])] + p[1:]:
+            return "%s (listed in .ai/destructive.txt)" % " ".join(p)
+    return None
+
+
+GATES = {"audit-before-install": gate_audit, "secret-scan": gate_secrets, "pr-rules": gate_pr, "no-sudo": gate_sudo,
+         "no-destroy": gate_destroy}
 GATE_PROBES = {"audit-before-install": probe_audit, "secret-scan": probe_secrets, "pr-rules": probe_pr,
-               "no-sudo": probe_sudo}
+               "no-sudo": probe_sudo, "no-destroy": probe_destroy}
 
 
 # ---------------------------------------------------------------- project knowledge (router placeholders)

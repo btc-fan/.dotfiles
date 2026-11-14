@@ -77,6 +77,13 @@ rules:
     action: "No sudo for agents: give the owner the exact command. Box work on a server: the box tool (MCP server box); outside a sandbox also plain proj-agent <subcommand>; never sudo."
     strength: gate    # blocks at a command position (also inside bash -c, behind env/nice/timeout); quoted text never counts
 
+  - id: no-destroy
+    scope: global
+    trigger: {tool_before: 'Bash|shell|exec_command|local_shell', command: '\b(rm|git|docker|docker-compose|podman|podman-compose|dropdb|pg_restore|psql|mysql|mariadb|sqlite3|duckdb)\b'}
+    summary: 'rm -r of data, home or repo root; force push or delete of main; reset --hard with changes; clean -x at the root; compose down -v; DROP/TRUNCATE on a protected DB'
+    action: "Destructive command: give the owner the exact command and the reason. Rebuildable folders (node_modules, .venv, dist, build) are fine."
+    strength: gate    # target-based; protected DB names and extra commands per repo in .ai/destructive.txt
+
   - id: pr-rules
     scope: global
     summary: 'before gh pr create or edit'
