@@ -11,6 +11,10 @@ NOT FOUND (our own tool).
 - Counters: `tests` (test definitions in test files: Python, JS/TS, Go, Rust), `skips` (skip and xfail marks,
   `it.skip`, `xit`, `t.Skip`, `#[ignore]`), `lint` (ruff where configured, or the project's own eslint).
 - tests may only go up; skips and lint may only go down. A better count tightens the baseline (commit it).
+- The reference is `.ai/ratchet.json` as committed at the base (merge base with origin/main or main; the session
+  start commit in stop-check), not the working-tree file: lowering the file in the same change does not pass.
+- Skips also count `pytestmark = pytest.mark.skip`, `collect_ignore` in conftest.py, and `--deselect` /
+  `--ignore` in pytest config files and the Makefile/justfile.
 - A test deleted or skipped on purpose: only with the owner's OK; then `ai-ratchet --reset`, and the PR lists it
   under `Changed guards:`.
 - Not a coverage tool, and not a type-check baseline (use basedpyright's baseline when a repo adds a type

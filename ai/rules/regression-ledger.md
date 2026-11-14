@@ -10,7 +10,7 @@ NOT FOUND (our own tool).
 - Long tier only (`tier: long` in `.ai/enabled`). `ai-adopt --tier long` writes the template.
 - One row per bug that reached the main branch, added in the fix PR with a test that failed before the fix:
   `R-012 | 2026-11-12 | area: src/billing/ | symptom: ... | cause: ... | test: tests/regressions/test_r012_x.py | reopened: 0`
-- `area:` is a path prefix (more than one with commas). `reopened` goes up when the same symptom comes back.
+- `area:` is a folder or a file path (more than one with commas); `src/bill` does not cover `src/billing/`. `reopened` goes up when the same symptom comes back.
 - Flaky tests go under `## Quarantine` with a date: `- <test id> | since: YYYY-MM-DD | why`.
 - Not for bugs found before merge, and not a task list.
 

@@ -13,6 +13,8 @@ NOT FOUND (our own tool; nixpacks has no rules text for agents).
 - `ai-adopt` writes both as one marked block in the Makefile (or the justfile when only a justfile exists).
   A target that exists is never changed; a rerun replaces only the marked block. It runs `check-fast` once and
   writes the seconds into the Map line `- Check:`.
+- A pip project with `.venv/bin/python` runs `.venv/bin/python -m pytest` (not the system python). A justfile
+  recipe with parameters (`check-fast pkg="./...":`) counts as an existing target.
 - Not for monorepos (workspaces, lerna, nx, turbo, rush, go.work, two or more package manifests below the root):
   refused with a message; write one target per package by hand and one root target that calls them.
 - Not when the files tell nothing (no tests folder, no lint config): refused; write the targets by hand.

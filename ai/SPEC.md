@@ -587,9 +587,11 @@ restore where something existing is removed; dry-run safe.
 - T2 `hooks/stop-check.py`: a separate script on SessionStart (baseline) and Stop, Claude and Codex. It runs
   `check-fast` only when the tree fingerprint (HEAD, status, diff, untracked sizes and times) differs from the
   session baseline and from the last green tree; JSON `decision: block` with the last 40 lines; at most 2 blocks
-  per tree; silent on success; 55 s timeout passes with a note; 0 tests seen fails; long tier also
-  `ai-ratchet --only tests,skips --no-write`. Silent when `stop_hook_active`, in try tier, with `no-stop-check`,
-  and while an oh-my-claudecode persistent mode of the session is active (OMC owns that stop). Its Stop timeout is
+  per tree and 4 per chain of continuation stops (stop_hook_active does not skip: the fix gets checked); silent
+  on success; one 55 s budget, own process group, a timeout passes with a note; 0 tests or only skipped tests
+  fail; a changed check-fast recipe blocks; no SessionStart baseline means the clean HEAD; long tier also
+  `ai-ratchet --only tests,skips --no-write --base <session start commit>`. Silent in try tier, with
+  `no-stop-check`, and while an oh-my-claudecode persistent mode of the session is active (OMC owns that stop). Its Stop timeout is
   60 s: the one exception to "hook commands stay well under 30 s" (section 6).
 - T3 regression ledger: `docs/REGRESSIONS.md` (`R-NNN | date | area: prefix | symptom | cause | test | reopened`),
   tests in `tests/regressions/test_r<NNN>_*`. Router row `ledger-nudge` (placeholder `{ledger_hits}`, long tier,
@@ -600,7 +602,9 @@ restore where something existing is removed; dry-run safe.
   `ai-doctor --project`: repo AGENTS.md 12 KB soft budget, root rules + repo file under 32 KiB (Codex), caps.
 - T6 gate `no-destroy` (target-based, shaped like no-sudo; per repo `.ai/destructive.txt` with `db:` and `cmd:`).
   dcg is not used (license).
-- T7 `ai-ratchet`: tests up, skips and lint down, baseline `.ai/ratchet.json` (committed, auto-tightens).
+- T7 `ai-ratchet`: tests up, skips (marks, pytestmark, collect_ignore, --deselect, --ignore) and lint down,
+  baseline `.ai/ratchet.json` compared as committed at the base (merge base, or the session start commit for
+  stop-check), never the working-tree edit; it auto-tightens.
 - Feature grill: routing row `feature-grill` (L2, EN/RO/RU strict regex): one round of grilling questions before
   feature code, unless trivial. The kickoff tie-break stays.
 - `.gitignore` block shares `.ai/ratchet.json` and `.ai/destructive.txt` next to `.ai/enabled`.

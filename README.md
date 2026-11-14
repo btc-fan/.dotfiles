@@ -310,13 +310,13 @@ The repo was adopted with `ai-adopt --tier long`. It has `tier: long` in `.ai/en
 You type: "refunds are paid twice when the bank times out, fix it".
 
 1. **Edit.** Before the first Edit in `src/billing/`, the router adds one line: "Regression area src/billing/ has R-012: keep them green, run tests/regressions/test_r012_refund_once.py". Once per area per session.
-2. **Stop.** The agent says it is done. The Stop hook sees that files changed since the session start and runs `make check-fast`. A test fails: the stop is blocked with the last 40 lines, and the agent continues. The same failing files are blocked at most twice; then the owner gets a note.
+2. **Stop.** The agent says it is done. The Stop hook sees that files changed since the session start and runs `make check-fast`. A test fails: the stop is blocked with the last 40 lines, and the agent continues; its next stop checks the fix. The same failing files are blocked at most twice (4 times per chain); then the owner gets a note.
 3. **No cheating.** The agent deletes the failing test instead. `check-fast` is green, but `ai-ratchet` sees "tests 412 -> 411" and the stop is blocked again. A check that ran 0 tests also fails.
 4. **No damage.** `git reset --hard` on main with changes, `rm -rf data/` or `docker compose down -v` are blocked by `no-destroy`.
 5. **Ledger.** The fix adds `R-013` with a test that failed before the fix. `ai-ledger --check` (in `make check`) checks the test exists and carries the id, no row was removed, `reopened` only went up.
 6. **PR.** `gh pr create --title "fix(billing): one refund per timeout"` needs `Verify:` (command and output), `Risk:`, `Docs:`, `Changed guards:`, `Ledger: R-013`, and a test file in the diff. `TODO` in a field counts as missing.
 
-An `mvp` project gets steps 2, 4 and the PR fields `Verify:` and `Risk:`. A `try` project gets the check targets, the Done block and step 4. With oh-my-claudecode in a persistent mode (ralph, autopilot), OMC owns the stop; the check runs at the first stop after the mode ends, so one stop is never blocked twice.
+An `mvp` project gets steps 2, 4 and the PR fields `Verify:` and `Risk:`. A `try` project gets the check targets, the Done block and step 4. With oh-my-claudecode in a persistent mode (ralph, autopilot), OMC owns the stop; the check runs at the first stop after the mode ends, and OMC never blocks a continuation stop, so no stop gets a block from both (checked with the real OMC 5.1.0 hook). A chain of continuation stops gets at most 4 blocks from the check.
 
 ### Example F: a new feature (the feature flow)
 

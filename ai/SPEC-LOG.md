@@ -535,9 +535,12 @@ Seen on the owner's M3 Mac (macOS 15.5), read only:
   SessionStart: a tree that was dirty before the session is not blamed on the agent.
 - oh-my-claudecode: its persistent-mode Stop hook (5.1.0, `scripts/persistent-mode.mjs`, read 2026-11-14) blocks
   while ralph/autopilot/ultragoal/team state is active for the session and never when `stop_hook_active` is set.
-  stop-check defers to it (same state files, same 2-hour stale rule) and also honours `stop_hook_active`. Checked
-  with the real OMC 5.1.0 script on the same payloads: ralph active: OMC blocks, stop-check silent; continuation
-  stop: both silent; ralph ended: OMC silent, stop-check blocks the failing check. No stop got two blocks.
+  stop-check defers to it (same state files, same 2-hour stale rule). Review round (same day): stop-check no
+  longer skips on `stop_hook_active` (it then blocked at most once per user turn and never checked the agent's
+  fix); a per-chain cap of 4 blocks replaces it (a per-session cap would switch the check off for the rest of a
+  long session). Checked with the real OMC 5.1.0 script on the same payloads: ralph active: OMC blocks,
+  stop-check silent; continuation: both silent; ralph ended: stop-check blocks 4 times in the chain, then stops.
+  No stop got two blocks.
 - Retry ceiling 2 per tree: `stop_hook_active` alone does not stop every loop (reported cases where it did not
   propagate). Minimum-input floor: one team's check went green while it checked nothing.
 - no-destroy: own code; dcg rejected (its license grants no rights to Anthropic, OpenAI or anyone acting for

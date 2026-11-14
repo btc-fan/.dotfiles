@@ -754,7 +754,7 @@ LESSONS = ("## Lessons\n<!-- One line per repeated mistake that no check catches
 LEDGER_TEMPLATE = """# Regressions
 
 One line per bug that reached the main branch, added in the fix PR together with a test that failed before the
-fix. Format (one line, or wrapped with an indent; `area:` is a path prefix, more than one with commas):
+fix. Format (one line, or wrapped with an indent; `area:` is a folder or file path, more than one with commas):
 
     R-001 | 2026-11-14 | area: src/billing | symptom: ... | cause: ... | test: tests/regressions/test_r001_short_name.py | reopened: 0
 

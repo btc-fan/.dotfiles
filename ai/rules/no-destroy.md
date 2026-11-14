@@ -8,15 +8,19 @@ OpenAI or anyone acting for them).
 NOT FOUND (our own gate).
 
 ## When / when not
-Blocked (on parsed command stages, also inside `bash -c`, behind `rtk`, `env`, `timeout`):
+Blocked (on parsed command stages, also inside `bash -c`, behind `rtk`, `env`, `timeout`; `cd` is followed:
+bare `cd`, `cd ~`, `cd $HOME` = home, `cd $X`, `cd -`, `popd` = unknown, then any non-rebuildable `rm -r` is blocked):
 - `rm -r` (any `-r`, `-R`, `--recursive`) whose target is `/`, the home folder or a parent of it, the repo root
-  or a parent of it, `.git`, a wildcard at those places, a data folder or database file in the repo (`data`,
-  `pgdata`, `postgres`, `mysql`, `volumes`, `db`, `backup(s)`, `*.sqlite`, `*.db`), a variable path it cannot
-  resolve, or a path outside the repo (temp folders are fine).
+  or a parent of it, `.git` (but `.git/rebase-*` and `.git/*.lock` are fine), a wildcard at those places, a data
+  folder at the repo top level (`data`, `pgdata`, `postgres`, `mysql`, `volumes`, `db`, `backup(s)`) or a database
+  file (`*.sqlite`, `*.db`), a variable path it cannot resolve (`$TMPDIR`, `$tmpdir` are fine), `$(...)` or
+  backticks, `~+` / `~-` forms, each `{a,b}` alternative, or a path outside the repo (temp folders and other
+  worktrees of the repo are fine).
 - `git push` with force (`-f`, `--force`, `--force-with-lease`, `+ref`) to `main` or `master` (also with no
-  refspec while on them), `--delete main`, `:main`, `--mirror`.
+  refspec, `HEAD` or `@` while on them), `--delete main`, `:main`, `--mirror`.
 - `git reset --hard` on `main` or `master` with uncommitted tracked changes.
-- `git clean` with `-f` and `-x`/`-X` at the repo root without a path (deletes `.env`, local databases).
+- `git clean` with `-f` and `-x`/`-X` at the repo root without a path, or with `:/` from anywhere (deletes `.env`,
+  local databases).
 - `docker compose down -v` / `--volumes` (also `docker-compose`, `podman compose`), `docker volume rm|prune`,
   `docker system prune --volumes`.
 - Per repo, `.ai/destructive.txt`: `db: <name>` makes SQL `DROP DATABASE|SCHEMA|TABLE`, `TRUNCATE` and
@@ -39,7 +43,7 @@ commit messages), scratch databases.
 - Should fire (RU): "удали все тома докера" -> `docker compose down -v` (BLOCK).
 - Should not fire: `rm -rf node_modules`; `grep "DROP TABLE" docs/`.
 - Signal: `DENY no-destroy` in `~/.local/state/ai/gates.log`. Tests: `ai/tests/cases/no-destroy.json` (attack
-  table: 41 block rows, 26 allow rows).
+  table: 60 block rows, 34 allow rows).
 
 ## Setup checklist
 - Install: part of the ai-core router. Keys, telemetry: none.

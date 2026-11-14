@@ -22,6 +22,9 @@ NOT FOUND (our own gate).
 - L4 gate, deny (Codex: deny with `decision: block`). Owner skip: `sudo ai-gate-skip pr-rules <min> <why>`.
 - L0: `ai/agents-md/50-pull-requests.md` lists the parts.
 - No diff (no base branch found): the test-file and size checks are skipped with a note in the context.
+- Only `fix:`, `fix(scope):`, `bugfix:`, `hotfix:` titles are fix PRs. A test file is a test name or a code file
+  under tests/ (tests/README.md is not).
+- Limit: `gh api repos/.../pulls -f body=...` and the GitHub web page are not checked (no `gh pr` command).
 
 ## Proof
 - Should fire (EN): `gh pr create --title x --body "fix"` (BLOCK).
