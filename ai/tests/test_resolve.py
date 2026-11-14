@@ -24,18 +24,21 @@ FAILS = []
 NPM = "https://registry.npmjs.org/"
 LIBS = ('. "$AI_HOME/ai/lib/common.sh"; for f in base tools claude codex hermes; do . "$AI_HOME/ai/adapters/$f.sh"; '
         'done; load_pins; AI_OS=macos; AI_ARCH=$(uname -m); SUDO_UNDO=""; ')
-ENV_KEYS = ("AI_PINS", "AI_RESOLVE_FIXTURES", "AI_RESOLVE_OFFLINE", "AI_RESOLVE_MEMO", "AI_STATE_DIR")
+ENV_KEYS = ("AI_PINS", "AI_RESOLVE_FIXTURES", "AI_RESOLVE_OFFLINE", "AI_RESOLVE_MEMO", "AI_STATE_DIR",
+            "AI_SYSTEM_STATE_DIR")
 
 
 def main():
     work = tempfile.mkdtemp(prefix="ai-resolve-tests-")
     saved = {k: os.environ.get(k) for k in ENV_KEYS}
     try:
-        for test in (t_npm, t_pypi, t_github, t_git_tags, t_git_head, t_hold, t_offline_fallback, t_memo,
+        for test in (t_npm, t_pypi, t_pypi_post, t_checksum_not_signature, t_list_survives_errors, t_github, t_git_tags, t_git_head, t_hold, t_offline_fallback, t_memo,
                      t_record, t_checksum, t_verify_npm, t_status, t_pins_file, t_bash_npm_global,
                      t_bash_offline_keep, t_bash_context7, t_context7_discovery, t_bash_plugin_clone,
                      t_claude_plugin_replace, t_claude_plugin_update, t_claude_plugin_fallback,
-                     t_codex_plugin_refresh):
+                     t_claude_dir_same_version, t_claude_fresh_install_checked, t_claude_own_replace_rollback,
+                     t_codex_plugin_refresh, t_audit_accept_by_commit, t_uv_tool_normalized, t_scanners,
+                     t_osv_scanner, t_herdr, t_src_swap_and_dry_sha, t_playwright_keep_only):
             for k in ENV_KEYS:
                 os.environ.pop(k, None)
             resolve._FIXTURES = None
@@ -163,6 +166,43 @@ def t_pypi(work):
     setup(work, 'P_SOURCE="pypi p stable"\n', http={"https://pypi.org/pypi/p/json": {"releases": rel}})
     r = resolve.resolve("p")
     assert r["version"] == "1.10.0.post1" and r["status"] == "new", r
+
+
+def t_pypi_post(work):
+    """A post release of an older version never wins over a newer release (1.0.post5 < 1.0.1)."""
+    setup(work, 'P_SOURCE="pypi p stable"\n', http={"https://pypi.org/pypi/p/json": {"releases": {
+        "1.0.post5": [{}], "1.0.1": [{}], "1.0": [{}]}}})
+    assert resolve.resolve("p")["version"] == "1.0.1"
+    assert resolve.pypi_key("1.0") == resolve.pypi_key("1.0.0") and resolve.same_version("1.0", "1.0.0")
+    assert not resolve.same_version("1.1", "1.10")
+
+
+def t_checksum_not_signature(work):
+    """The checksum file is never its signature (.sig, .asc, .pem next to it)."""
+    rels = [{"tag_name": "v1.0.0", "prerelease": False, "draft": False, "assets": [
+        {"name": "t_SHA256SUMS.sig", "browser_download_url": "https://x/sig"},
+        {"name": "checksums.txt.pem", "browser_download_url": "https://x/pem"},
+        {"name": "t_SHA256SUMS", "browser_download_url": "https://x/sums"}]}]
+    setup(work, 'T_SOURCE="github o/t stable"\n',
+          http={"https://api.github.com/repos/o/t/releases?per_page=100": rels}, git={"https://github.com/o/t --tags": ""})
+    assert resolve.resolve("t")["checksums"] == "https://x/sums"
+
+
+def t_list_survives_errors(work):
+    """`list`: a resolver that crashes for one tool gives that tool status none; the others still resolve."""
+    setup(work, 'A_SOURCE="npm a stable"\nB_SOURCE="pypi b stable"\n',
+          http={NPM + "a/latest": {"version": "1.0.0", "dist": {"integrity": "i"}}})
+    old = resolve.RESOLVERS["pypi"]
+    resolve.RESOLVERS["pypi"] = lambda name, hold="": 1 / 0
+    try:
+        import io, contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            assert resolve.main(["list", "--no-write"]) == 0
+    finally:
+        resolve.RESOLVERS["pypi"] = old
+    lines = {ln.split()[0]: ln for ln in buf.getvalue().splitlines()}
+    assert "1.0.0" in lines["a"] and " none " in lines["b"] and "ZeroDivisionError" in lines["b"], lines
 
 
 def t_github(work):
@@ -294,6 +334,7 @@ def t_verify_npm(work):
 def t_status(work):
     """status (ai-doctor): installed against the cached newest: current, update, unknown."""
     state = setup(work, 'CONTEXT7_MCP_SOURCE="npm c7 stable"\nPLAYWRIGHT_MCP_SOURCE="npm pw stable"\n')
+    os.environ["AI_SYSTEM_STATE_DIR"] = os.path.join(work, "system-state")   # never /var/lib/ai in a test
     home = os.path.join(work, "home")
     os.makedirs(os.path.join(home, ".local", "share", "ai", "npm", "context7-mcp-4.6.0"))
     os.makedirs(os.path.join(home, ".local", "share", "ai", "npm", "playwright-mcp-0.0.85"))
@@ -501,12 +542,242 @@ def t_bash_plugin_clone(work):
     assert "not a clone made by this setup" in out and os.path.exists(os.path.join(dest, "mine.txt")), out
 
 
+def t_audit_accept_by_commit(work):
+    """dir acceptances are keyed by the full commit: a tag (which can move) or a short commit never matches."""
+    env, _home, bindir = bash_env(work, "")
+    rtk = "e288a18c04452fd26192f59132e5324a8bb6924d"
+    code, out = bash(LIBS + 'audit_accepted dir rtk %s; echo "|"; audit_accepted dir rtk v1.2.0; echo "|"; '
+                     'audit_accepted dir rtk %s; echo "|"' % (rtk, rtk[:12]), env)
+    parts = out.split("|")
+    assert "cargo update" in parts[0] and parts[1].strip() == "" and parts[2].strip() == "", out
+    for line in read(os.path.join(AI_DIR, "audit-accepted.txt")).splitlines():
+        if line.startswith("dir "):
+            assert len(line.split()[2]) == 40, "dir line not keyed by a full commit: " + line
+    stub(os.path.join(bindir, "agent-audit"), "#!/bin/sh\nexit 1\n")    # findings
+    code, out = bash(LIBS + 'AI_STATE_DIR=$HOME/st; audit_ok dir /tmp v1.2.0 rtk || echo refused; '
+                     'audit_ok dir /tmp %s rtk && echo accepted' % rtk, env)
+    assert "refused" in out and "accepted" in out, out
+
+
+FAKE_UV = r'''#!/usr/bin/env python3
+import os, re, sys
+a = sys.argv[1:]
+with open(os.environ["FAKE_LOG"], "a") as fh:
+    fh.write("uv " + " ".join(a) + "\n")
+if a[:2] == ["tool", "dir"]:
+    print(os.path.join(os.environ["HOME"], "uvtools")); sys.exit(0)
+if a[:2] == ["tool", "install"]:
+    spec = [x for x in a if "==" in x][0]
+    name, ver = spec.split("==")
+    binname = os.environ.get("FAKE_UV_BIN_" + re.sub(r"[^A-Za-z0-9]", "_", name), name)
+    path = os.path.join(os.environ["FAKE_BIN"], binname)
+    open(path, "w").write("#!/bin/sh\necho %s %s\n" % (binname, os.environ.get("FAKE_UV_PRINTS", ver)))
+    os.chmod(path, 0o755)
+sys.exit(0)
+'''
+
+
+def uv_env(work, pins, pypi):
+    env, home, bindir = bash_env(work, pins)
+    stub(os.path.join(bindir, "uv"), FAKE_UV)
+    fx = os.path.join(work, "fx.json")
+    write(fx, json.dumps({"http": {"https://pypi.org/pypi/%s/json" % n: {"releases": {v: [{}] for v in vs}}
+                                   for n, vs in pypi.items()}}))
+    env.update({"FAKE_LOG": os.path.join(work, "log"), "FAKE_BIN": bindir, "AI_RESOLVE_FIXTURES": fx,
+                "FAKE_UV_BIN_cisco_ai_skill_scanner": "skill-scanner", "FAKE_UV_BIN_serena_agent": "serena"})
+    return env, home, bindir
+
+
+def t_uv_tool_normalized(work):
+    """uv_tool: a tool that prints 2.1 for 2.1.0 is current (no reinstall on every run)."""
+    env, home, bindir = uv_env(work, 'TOOLQ_SOURCE="pypi toolq-agent stable"\n', {"toolq-agent": ["2.1.0"]})
+    env["FAKE_UV_BIN_toolq_agent"] = "toolq"
+    run = LIBS + 'audit_ok() { return 0; }; uv_tool toolq toolq-agent toolq 3.13'
+    code, out = bash(run, dict(env, FAKE_UV_PRINTS="2.1"))
+    assert code == 0 and "toolq 2.1.0 (newest stable" in out, out
+    os.remove(os.path.join(work, "log"))
+    code, out = bash(run, env)
+    assert "toolq 2.1 present" in out and "tool install" not in read(os.path.join(work, "log")), out
+
+
+def t_scanners(work):
+    """guarddog / skill-scanner: the first bootstrap (no guarddog) installs guarddog unaudited with a warning, and
+    audits skill-scanner with it; a later new version is audited first, and findings keep the old one."""
+    pins = 'GUARDDOG_SOURCE="pypi guarddog stable"\nSKILL_SCANNER_SOURCE="pypi cisco-ai-skill-scanner stable"\n'
+    env, home, bindir = uv_env(work, pins, {"guarddog": ["3.2.0"], "cisco-ai-skill-scanner": ["2.3.2"]})
+    audits = os.path.join(work, "audits")
+    run = LIBS + 'SCANNER_PYTHON=3.12; AI_SKIP_PACKAGES=0; audit_ok() { echo "$*" >> %s; return ${AUDIT_RC:-0}; }; tools_scanners' % audits
+    code, out = bash(run, env)
+    assert code == 0 and "bootstrap: guarddog 3.2.0 installed WITHOUT audit" in out, out
+    assert read(audits).split("\n")[0] == "pypi cisco-ai-skill-scanner 2.3.2", read(audits)
+    assert "skill-scanner 2.3.2 (newest stable, wheels only, audited)" in out, out
+    write(env["AI_RESOLVE_FIXTURES"], json.dumps({"http": {
+        "https://pypi.org/pypi/guarddog/json": {"releases": {"3.2.0": [{}], "3.3.0": [{}]}},
+        "https://pypi.org/pypi/cisco-ai-skill-scanner/json": {"releases": {"2.3.2": [{}]}}}}))
+    code, out = bash(run, dict(env, AUDIT_RC="1"))
+    assert "guarddog 3.3.0 not installed: 3.2.0 kept" in out and "pypi guarddog 3.3.0" in read(audits), out
+    code, out = bash(run, env)
+    assert "guarddog 3.2.0 -> 3.3.0 (newest stable, wheels only, audited)" in out, out
+
+
+FAKE_CURL = r'''#!/usr/bin/env python3
+import os, shutil, sys
+a = sys.argv[1:]
+url = [x for x in a if x.startswith("http")][-1]
+out = a[a.index("-o") + 1] if "-o" in a else None
+with open(os.environ["FAKE_LOG"], "a") as fh:
+    fh.write("curl " + url + "\n")
+src = os.path.join(os.environ["FAKE_WEB"], url.replace("/", "_"))
+if not os.path.exists(src):
+    sys.exit(22)
+if out and out != "/dev/null":
+    shutil.copy(src, out)
+elif not out:
+    sys.stdout.write(open(src).read())
+'''
+
+
+def web_env(work, pins, files, http):
+    """A fake curl that serves <files> by URL, resolver fixtures <http>, no gh and no slsa-verifier."""
+    env, home, bindir = bash_env(work, pins)
+    web = os.path.join(work, "web")
+    for url, body in files.items():
+        write(os.path.join(web, url.replace("/", "_")), body)
+    stub(os.path.join(bindir, "curl"), FAKE_CURL)
+    stub(os.path.join(bindir, "gh"), "#!/bin/sh\nexit 1\n")              # not logged in: no attestation check
+    fx = os.path.join(work, "fx.json")
+    write(fx, json.dumps({"http": http, "git": {}}))
+    env.update({"FAKE_LOG": os.path.join(work, "log"), "FAKE_WEB": web, "AI_RESOLVE_FIXTURES": fx,
+                "PATH": os.path.join(home, ".local", "bin") + ":" + env["PATH"]})   # what detect_os adds on macOS
+    return env, home, bindir
+
+
+def sha256(text):
+    import hashlib
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def arch(kind):
+    m = os.uname().machine
+    if kind == "osv":
+        return "amd64" if m in ("x86_64", "amd64") else "arm64"
+    return "x86_64" if m in ("x86_64", "amd64") else "aarch64"
+
+
+def t_osv_scanner(work):
+    """osv-scanner: checked against the release's SHA256SUMS; without slsa-verifier every change prints
+    "unaudited binary update"; a slsa-verifier that rejects the binary stops the install; one that accepts it is
+    reported as verified; a checksum mismatch stops the install."""
+    asset = "osv-scanner_darwin_%s" % arch("osv")
+    binary = "#!/bin/sh\necho osv-scanner version: 2.8.0\n"
+    base = "https://github.com/google/osv-scanner/releases/download/v2.8.0/"
+    rel = {"tag_name": "v2.8.0", "prerelease": False, "draft": False,
+           "assets": [{"name": "osv-scanner_SHA256SUMS", "browser_download_url": base + "osv-scanner_SHA256SUMS"}]}
+    http = {"https://api.github.com/repos/google/osv-scanner/releases?per_page=100": [rel],
+            "https://api.github.com/repos/google/osv-scanner/releases/tags/v2.8.0": rel,
+            base + "osv-scanner_SHA256SUMS": "%s  %s\n" % (sha256(binary), asset)}
+    env, home, bindir = web_env(work, 'OSV_SCANNER_SOURCE="github google/osv-scanner stable"\n',
+                                {base + asset: binary, base + "multiple.intoto.jsonl": "{}"}, http)
+    inst = os.path.join(home, ".local", "bin", "osv-scanner")
+    stub(os.path.join(bindir, "slsa-verifier"), "#!/bin/sh\nexit 1\n")
+    code, out = bash(LIBS + "tools_osv_scanner", env)
+    assert "slsa-verifier rejected" in out and not os.path.exists(inst), out
+    os.remove(os.path.join(bindir, "slsa-verifier"))
+    code, out = bash(LIBS + "tools_osv_scanner", env)
+    assert "unaudited binary update: osv-scanner none -> 2.8.0" in out and os.path.exists(inst), out
+    assert "not agent-audited" in out, out
+    os.remove(inst)
+    stub(os.path.join(bindir, "slsa-verifier"), '#!/bin/sh\necho "$*" >> %s\nexit 0\n' % os.path.join(work, "slsa"))
+    code, out = bash(LIBS + "tools_osv_scanner", env)
+    assert "SLSA provenance verified" in out and "unaudited" not in out and os.path.exists(inst), out
+    assert "--source-uri github.com/google/osv-scanner --source-tag v2.8.0" in read(os.path.join(work, "slsa"))
+    code, out = bash(LIBS + "tools_osv_scanner", env)
+    assert "osv-scanner 2.8.0 present" in out, out
+    os.remove(inst)
+    write(os.path.join(work, "web", (base + asset).replace("/", "_")), binary + "# changed\n")
+    code, out = bash(LIBS + "tools_osv_scanner", env)
+    assert "sha256 differs" in out and not os.path.exists(inst), out
+
+
+def t_herdr(work):
+    """herdr: sha256 from herdr's release manifest; a GitHub attestation is checked only with a logged-in gh;
+    otherwise "unaudited binary update"; a mismatch stops the install."""
+    target = "macos-%s" % arch("herdr")
+    asset = "herdr-" + target
+    binary = "#!/bin/sh\necho herdr 0.9.6\n"
+    base = "https://github.com/herdrdev/herdr/releases/download/v0.9.6/"
+    http = {"https://api.github.com/repos/herdrdev/herdr/releases?per_page=100":
+                [{"tag_name": "v0.9.6", "prerelease": False, "draft": False, "assets": []}],
+            "https://herdr.dev/latest.json": {"version": "0.9.6", "releases": {"0.9.6": {"sha256": {target: sha256(binary)}}}}}
+    env, home, bindir = web_env(work, 'HERDR_SOURCE="github herdrdev/herdr stable"\nHERDR_CHECKSUMS=https://herdr.dev/latest.json\n',
+                                {base + asset: binary}, http)
+    inst = os.path.join(home, ".local", "bin", "herdr")
+    code, out = bash(LIBS + "tools_herdr", env)
+    assert "unaudited binary update: herdr none -> 0.9.6" in out and "herdr 0.9.6 (release binary" in out, out
+    os.remove(inst)
+    att = "https://api.github.com/repos/herdrdev/herdr/attestations/sha256:" + sha256(binary)
+    write(os.path.join(work, "web", att.replace("/", "_")), "{}")
+    stub(os.path.join(bindir, "gh"), '#!/bin/sh\n[ "$1" = auth ] && exit 0\n[ "$1 $2" = "attestation verify" ] && exit ${GH_RC:-0}\nexit 1\n')
+    code, out = bash(LIBS + "tools_herdr", env)
+    assert "GitHub artifact attestation verified" in out and "unaudited" not in out and os.path.exists(inst), out
+    os.remove(inst)
+    code, out = bash(LIBS + "tools_herdr", dict(env, GH_RC="1"))
+    assert "gh attestation verify rejected" in out and not os.path.exists(inst), out
+
+
+def t_src_swap_and_dry_sha(work):
+    """plugin_clone leaves no .new/.old folder next to the source; in a dry run the plugin steps get the commit
+    the clone would move to, not the one on disk."""
+    up = os.path.join(work, "up", "plug")
+    shas = upstream(up, "plug", "plug", ["1.0.0", "1.1.0"])
+    env, home, _ = bash_env(work, 'PLUG_SOURCE="git %s stable"\n' % up)
+    dest = os.path.join(home, ".local", "share", "ai", "plugins", "plug")
+    git("clone", "-q", up, dest)
+    git("-c", "advice.detachedHead=false", "checkout", "-q", shas["1.0.0"], cwd=dest)
+    code, out = bash(LIBS + 'echo "dry=$(AI_DRY_RUN=1 src_sha_for plug) real=$(src_sha_for plug)"', env)
+    assert "dry=%s real=%s" % (shas["1.1.0"], shas["1.0.0"]) in out, out
+    code, out = bash(LIBS + 'AI_SKIP_PACKAGES=0; audit_ok() { return 0; }; plugin_clone plug plug', env)
+    assert code == 0 and git("rev-parse", "HEAD", cwd=dest) == shas["1.1.0"], out
+    assert sorted(os.listdir(os.path.dirname(dest))) == ["plug"], os.listdir(os.path.dirname(dest))
+
+
+def t_playwright_keep_only(work):
+    """ai-start: after a HOLD back to an older Playwright MCP that is still on disk, only that folder stays, so
+    ai-playwright-mcp (highest folder) starts the held version."""
+    from importlib.machinery import SourceFileLoader
+    import types
+    loader = SourceFileLoader("ai_start", os.path.join(AI_DIR, "bin", "ai-start"))
+    mod = types.ModuleType(loader.name)
+    mod.__file__ = loader.path
+    loader.exec_module(mod)
+    home = os.path.join(work, "home")
+    for v in ("0.0.85", "0.0.90"):
+        stub(os.path.join(home, ".local", "share", "ai", "npm", "playwright-mcp-" + v, "node_modules", ".bin",
+                          "mcp-server-playwright"), "#!/bin/sh\necho pw-%s\n" % v)
+    setup(work, 'PLAYWRIGHT_MCP_SOURCE="npm @playwright/mcp stable"\nPLAYWRIGHT_MCP_HOLD=0.0.85\n',
+          http={NPM + "@playwright%2Fmcp/0.0.85": {"version": "0.0.85", "dist": {"integrity": "sha512-pw"}}})
+    old = os.environ.get("HOME")
+    os.environ["HOME"] = home
+    try:
+        assert mod.ensure_playwright() is True
+    finally:
+        os.environ["HOME"] = old
+    assert os.listdir(os.path.join(home, ".local", "share", "ai", "npm")) == ["playwright-mcp-0.0.85"]
+    res = subprocess.run(["bash", os.path.join(AI_DIR, "bin", "ai-playwright-mcp")], stdout=subprocess.PIPE,
+                         env={"HOME": home, "PATH": os.environ["PATH"]})
+    assert res.stdout.decode().strip() == "pw-0.0.85", res.stdout
+
+
 FAKE_CLAUDE = r'''#!/usr/bin/env python3
-"""Fake `claude plugin ...`: the behaviour seen in a temp CLAUDE_CONFIG_DIR on 2026-11-14 (remove uninstalls the
-marketplace's plugins; add Owner/repo#ref stores {source: github, repo, ref}; update + plugin update move)."""
+# Fake `claude plugin ...`: the behaviour seen in a temp CLAUDE_CONFIG_DIR on 2026-11-14 (remove uninstalls the
+# marketplace's plugins; add Owner/repo#ref stores {source: github, repo, ref}; update + plugin update move).
+# install writes enabledPlugins[p] = true in settings.json, uninstall drops the key (data kept with --keep-data).
+# FAKE_FAIL_ADD=<source>: that add fails. FAKE_UPDATE_BROKEN=1: plugin update does nothing.
+# FAKE_BAD_INSTALL=1: install records a wrong version.
 import json, os, shutil, subprocess, sys
-pd = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "plugins")
-km, ip = os.path.join(pd, "known_marketplaces.json"), os.path.join(pd, "installed_plugins.json")
+cfg = os.environ["CLAUDE_CONFIG_DIR"]
+pd = os.path.join(cfg, "plugins")
+km, ip, st = os.path.join(pd, "known_marketplaces.json"), os.path.join(pd, "installed_plugins.json"), os.path.join(cfg, "settings.json")
 a = sys.argv[1:]
 with open(os.environ["FAKE_LOG"], "a") as fh:
     fh.write("claude " + " ".join(a) + "\n")
@@ -518,14 +789,20 @@ def load(p, d):
 def save(p, d):
     os.makedirs(os.path.dirname(p), exist_ok=True)
     json.dump(d, open(p, "w"))
-k, i = load(km, {}), load(ip, {"version": 2, "plugins": {}})
+k, i, sett = load(km, {}), load(ip, {"version": 2, "plugins": {}}), load(st, {})
+en = sett.setdefault("enabledPlugins", {})
 def git(*args):
     return subprocess.run(["git"] + list(args), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode().strip()
 def root(name):
     src = k[name]["source"]
     return src["path"] if src["source"] == "directory" else os.path.join(pd, "marketplaces", name)
+def drop(p):
+    i["plugins"].pop(p, None)
+    en.pop(p, None)
 if a[:3] == ["plugin", "marketplace", "add"]:
     src = a[3]
+    if src == os.environ.get("FAKE_FAIL_ADD"):
+        sys.exit(1)
     if src.startswith("/"):
         name = json.load(open(os.path.join(src, ".claude-plugin", "marketplace.json")))["name"]
         k[name] = {"source": {"source": "directory", "path": src}}
@@ -543,14 +820,14 @@ elif a[:3] == ["plugin", "marketplace", "remove"]:
     name = a[3]
     k.pop(name, None)
     for p in [p for p in i["plugins"] if p.endswith("@" + name)]:
-        del i["plugins"][p]
+        drop(p)
     shutil.rmtree(os.path.join(pd, "marketplaces", name), True)
 elif a[:3] == ["plugin", "marketplace", "update"]:
     src = k[a[3]]["source"]
     if src["source"] == "github" and not src.get("ref"):
         d = root(a[3]); git("-C", d, "pull", "-q", "--ff-only")
 elif a[:3] == ["plugin", "marketplace", "list"]:
-    print("\n".join(k))
+    print("\\n".join(k))
 elif a[:2] == ["plugin", "install"] or (a[:2] == ["plugin", "update"] and not os.environ.get("FAKE_UPDATE_BROKEN")):
     p = a[2]; m = p.split("@")[1]
     if m not in k:
@@ -558,15 +835,21 @@ elif a[:2] == ["plugin", "install"] or (a[:2] == ["plugin", "update"] and not os
     if a[1] == "update" and p not in i["plugins"]:
         sys.exit(1)
     r = root(m)
-    row = {"scope": "user", "version": json.load(open(os.path.join(r, ".claude-plugin", "plugin.json")))["version"]}
+    ver = json.load(open(os.path.join(r, ".claude-plugin", "plugin.json")))["version"]
+    row = {"scope": "user", "version": "9.9.9" if os.environ.get("FAKE_BAD_INSTALL") else ver,
+           "files": git("-C", r, "rev-parse", "HEAD")}
     if k[m]["source"]["source"] != "directory":
-        row["gitCommitSha"] = git("-C", r, "rev-parse", "HEAD")
+        row["gitCommitSha"] = row["files"]
+    if a[1] == "update" and k[m]["source"]["source"] == "directory" and i["plugins"][p][0]["version"] == ver:
+        row = i["plugins"][p][0]          # same version: the real CLI keeps the old cache
     i["plugins"][p] = [row]
+    if a[1] == "install":
+        en[p] = True
 elif a[:2] == ["plugin", "uninstall"]:
-    i["plugins"].pop(a[2], None)
+    drop(a[2])
 elif a[:2] == ["plugin", "list"]:
-    print("\n".join(i["plugins"]))
-save(km, k); save(ip, i)
+    print("\\n".join(i["plugins"]))
+save(km, k); save(ip, i); save(st, sett)
 '''
 
 
@@ -583,6 +866,17 @@ def claude_files(home):
             json.load(open(os.path.join(pd, "installed_plugins.json")))["plugins"])
 
 
+def enabled(home):
+    return json.load(open(os.path.join(home, ".claude", "settings.json"))).get("enabledPlugins") or {}
+
+
+def set_enabled(home, plugin, value):
+    path = os.path.join(home, ".claude", "settings.json")
+    data = json.load(open(path))
+    data.setdefault("enabledPlugins", {})[plugin] = value
+    write(path, json.dumps(data))
+
+
 def mutations(work):
     if not os.path.exists(os.path.join(work, "log")):
         return []
@@ -597,6 +891,7 @@ def t_claude_plugin_replace(work):
     env, home = claude_env(work, 'TESTPLUG_SOURCE="git %s stable"\n' % os.path.join(work, "up", "Owner", "plug"))
     code, out = bash('claude plugin marketplace add "Owner/plug#v1.0.0" && claude plugin install plug@tp --scope user', env)
     assert code == 0, out
+    set_enabled(home, "plug@tp", False)
     os.remove(os.path.join(work, "log"))
     script = LIBS + 'audit_ok() { echo "AUDIT $*"; return 0; }; claude_git_plugin testplug tp Owner/plug plug@tp'
     code, out = bash(script, env)
@@ -604,9 +899,11 @@ def t_claude_plugin_replace(work):
     known, plugins = claude_files(home)
     assert known["tp"]["source"] == {"source": "github", "repo": "Owner/plug", "ref": "v1.1.0"}, known
     assert plugins["plug@tp"][0]["gitCommitSha"] == shas["1.1.0"], plugins
-    assert "AUDIT dir" in out and "v1.1.0 testplug" in out, "the new source is audited before the move: " + out
+    assert "AUDIT dir" in out and "%s testplug" % shas["1.1.0"] in out, "the new source is audited before the move: " + out
     log = mutations(work)
-    assert log[:2] == ["claude plugin marketplace remove tp", "claude plugin marketplace add Owner/plug#v1.1.0"], log
+    assert log[:3] == ["claude plugin uninstall plug@tp --keep-data", "claude plugin marketplace remove tp",
+                       "claude plugin marketplace add Owner/plug#v1.1.0"], log
+    assert enabled(home)["plug@tp"] is False, "the user's enabledPlugins value survives the replace"
     entries = json.load(open(os.path.join(home, ".local", "state", "ai", "managed-keys.json")))["entries"]
     keys = [e["key"] for e in entries]
     assert keys.index("cmd:claude-marketplace-restore:tp") < keys.index("cmd:claude-marketplace:tp") \
@@ -648,6 +945,7 @@ def t_claude_plugin_fallback(work):
     env, home = claude_env(work, "")
     code, out = bash('claude plugin marketplace add %s && claude plugin install plug3@tp3 --scope user' % src, env)
     assert code == 0, out
+    set_enabled(home, "plug3@tp3", False)
     write(os.path.join(src, ".claude-plugin", "plugin.json"), json.dumps({"name": "plug3", "version": "2.0.0"}))
     git("commit", "-q", "-am", "v2", cwd=src)
     head = git("rev-parse", "HEAD", cwd=src)
@@ -658,8 +956,73 @@ def t_claude_plugin_fallback(work):
     _known, plugins = claude_files(home)
     assert plugins["plug3@tp3"][0]["version"] == "2.0.0", plugins
     log = mutations(work)
-    assert log[-2:] == ["claude plugin uninstall plug3@tp3", "claude plugin install plug3@tp3 --scope user"], log
+    assert log[-2:] == ["claude plugin uninstall plug3@tp3 --keep-data", "claude plugin install plug3@tp3 --scope user"], log
     assert read(os.path.join(home, ".local", "state", "ai", "claude-plugin.plug3.src")).strip() == head
+    assert enabled(home)["plug3@tp3"] is False, "the user's enabledPlugins value survives the reinstall"
+
+
+def t_claude_dir_same_version(work):
+    """Local folder marketplace, new commit with the SAME plugin.json version: the stamp (not the version) says
+    it is new, so the plugin is reinstalled and the stamp moves only after the check. No stamp yet: refresh once."""
+    src = os.path.join(work, "up", "Owner", "plug4")
+    upstream(src, "tp4", "plug4", ["1.0.0"])
+    env, home = claude_env(work, "")
+    stamp = os.path.join(home, ".local", "state", "ai", "claude-plugin.plug4.src")
+    def run():
+        return LIBS + 'claude_plugin tp4 %s plug4@tp4 %s "$(plugin_json_version %s)"' % (src, git("rev-parse", "HEAD", cwd=src), src)
+    code, out = bash(run(), env)
+    assert code == 0 and os.path.exists(stamp), out
+    assert read(stamp).strip() == git("rev-parse", "HEAD", cwd=src), out
+    write(os.path.join(src, "README.md"), "new text, same version\n")
+    git("add", "-A", cwd=src)
+    git("commit", "-q", "-m", "docs", cwd=src)
+    new = git("rev-parse", "HEAD", cwd=src)
+    os.remove(os.path.join(work, "log"))
+    code, out = bash(run(), env)
+    _known, plugins = claude_files(home)
+    assert code == 0 and plugins["plug4@tp4"][0]["files"] == new, (out, plugins)
+    assert "claude plugin uninstall plug4@tp4 --keep-data" in mutations(work), mutations(work)
+    assert read(stamp).strip() == new
+    os.remove(os.path.join(work, "log"))
+    code, out = bash(run(), env)
+    assert code == 0 and mutations(work) == [], mutations(work)
+    os.remove(stamp)                                   # an install from before the stamp existed: refresh once
+    code, out = bash(run(), env)
+    assert code == 0 and read(stamp).strip() == new and "claude plugin update plug4@tp4" in mutations(work), out
+
+
+def t_claude_fresh_install_checked(work):
+    """A fresh install is checked too: Claude reporting another version is a warning, and no stamp is written."""
+    src = os.path.join(work, "up", "Owner", "plug5")
+    upstream(src, "tp5", "plug5", ["1.0.0"])
+    env, home = claude_env(work, "")
+    code, out = bash(LIBS + 'claude_plugin tp5 %s plug5@tp5 %s 1.0.0 || echo rc=$?' % (src, git("rev-parse", "HEAD", cwd=src)),
+                     dict(env, FAKE_BAD_INSTALL="1"))
+    assert "rc=1" in out and "wanted 1.0.0" in out, out
+    assert not os.path.exists(os.path.join(home, ".local", "state", "ai", "claude-plugin.plug5.src"))
+
+
+def t_claude_own_replace_rollback(work):
+    """Our own marketplace at an older tag, a new tag whose add fails: the old source and the plugin come back,
+    with the user's enabledPlugins value (false: claude-seo and claude-blog are off at user scope)."""
+    up = os.path.join(work, "up", "Owner", "plug6")
+    upstream(up, "tp6", "plug6", ["1.0.0", "1.1.0"])
+    env, home = claude_env(work, 'TESTPLUG6_SOURCE="git %s stable"\n' % up)
+    code, out = bash(LIBS + 'AI_DRY_RUN=0; claude_plugin tp6 "Owner/plug6#v1.0.0" plug6@tp6', env)
+    assert code == 0, out
+    set_enabled(home, "plug6@tp6", False)
+    os.remove(os.path.join(work, "log"))
+    script = LIBS + 'audit_ok() { return 0; }; claude_git_plugin testplug6 tp6 Owner/plug6 plug6@tp6 || echo rc=$?'
+    code, out = bash(script, dict(env, FAKE_FAIL_ADD="Owner/plug6#v1.1.0"))
+    known, plugins = claude_files(home)
+    assert "rc=1" in out and known["tp6"]["source"]["ref"] == "v1.0.0", (out, known)
+    assert "plug6@tp6" in plugins and enabled(home)["plug6@tp6"] is False, (plugins, enabled(home))
+    assert mutations(work)[0] == "claude plugin uninstall plug6@tp6 --keep-data", mutations(work)
+    entries = json.load(open(os.path.join(home, ".local", "state", "ai", "managed-keys.json")))["entries"]
+    assert not any(e["key"].startswith("cmd:claude-marketplace-restore:") for e in entries), "ours: no restore record"
+    code, out = bash(script, env)                      # the add works now: moved, still off
+    known, plugins = claude_files(home)
+    assert known["tp6"]["source"]["ref"] == "v1.1.0" and enabled(home)["plug6@tp6"] is False, (out, known)
 
 
 def t_codex_plugin_refresh(work):
