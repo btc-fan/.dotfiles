@@ -122,11 +122,7 @@ def bash_env(work, pins, extra=None):
     os.makedirs(home, exist_ok=True)
     os.makedirs(bindir, exist_ok=True)
     write(os.path.join(work, "pins.env"), pins)
-    # Hermetic: tools the real user installed under $HOME (~/.local/bin guarddog, osv-scanner ...) must not count.
-    real_home = os.path.expanduser("~")
-    host_path = ":".join(p for p in os.environ.get("PATH", "/usr/bin:/bin").split(":")
-                         if p and not p.startswith(real_home + os.sep))
-    env = {"PATH": bindir + ":" + host_path, "HOME": home, "LANG": "C.UTF-8",
+    env = {"PATH": bindir + ":" + os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home, "LANG": "C.UTF-8",
            "AI_HOME": REPO, "PYTHONDONTWRITEBYTECODE": "1", "AI_PINS": os.path.join(work, "pins.env"),
            "CLAUDE_CONFIG_DIR": os.path.join(home, ".claude"), "CODEX_HOME": os.path.join(home, ".codex"),
            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
