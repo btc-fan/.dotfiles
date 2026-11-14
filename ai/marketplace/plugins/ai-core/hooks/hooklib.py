@@ -1691,6 +1691,95 @@ def ledger_note(hits, max_ids=3):
             % (", ".join(areas[:3]), shown, " ".join(tests[:max_ids]) or "their tests"))
 
 
+# ---------------------------------------------------------------- project skills: mattpocock opt-ins, verify-<app>
+# `skills: a, b` in .ai/enabled lists the mattpocock opt-in skills of a project; ai-adopt links them into
+# .claude/skills (Claude) and .agents/skills (Codex). A project verification skill (pstack create-verification-skill)
+# lives in .agents/skills/verify-<app>/ (Codex reads it there) with a committed link in .claude/skills.
+
+VERIFY_DIRS = (os.path.join(".agents", "skills"), os.path.join(".claude", "skills"), os.path.join(".cursor", "skills"))
+VERIFY_STALE_COMMITS = 25       # code commits since the feature map last changed
+VERIFY_STALE_DAYS = 30          # or this many days with at least one code commit since
+
+
+def project_skills(root):
+    """The mattpocock opt-in skills a project lists AND has linked (.claude/skills or .agents/skills)."""
+    text = read_text(os.path.join(root, ".ai", "enabled")) if root else None
+    names = []
+    for ln in (text or "").splitlines():
+        m = re.match(r"^\s*skills\s*:\s*(.*)$", ln.split("#", 1)[0], re.I)
+        if m:
+            names = [n.strip() for n in m.group(1).split(",") if n.strip() and n.strip() != "none"]
+    return [n for n in names if any(os.path.isfile(os.path.join(root, d, n, "SKILL.md"))
+                                    for d in (os.path.join(".claude", "skills"), os.path.join(".agents", "skills")))]
+
+
+def verify_skill(root):
+    """{"name", "path" (repo-relative skill folder), "features" (count), "features_dir"} or None."""
+    if not root:
+        return None
+    for d in VERIFY_DIRS:
+        base = os.path.join(root, d)
+        try:
+            names = sorted(os.listdir(base))
+        except OSError:
+            continue
+        for n in names:
+            folder = os.path.join(base, n)
+            if not n.startswith("verify-") or not os.path.isfile(os.path.join(folder, "SKILL.md")):
+                continue
+            if os.path.islink(folder):          # the .claude link: report the real folder
+                real = os.path.realpath(folder)
+                if real.startswith(os.path.realpath(root) + os.sep):
+                    folder = os.path.join(root, os.path.relpath(real, os.path.realpath(root)))
+            feats = next((f for f in (os.path.join(folder, "features"), os.path.join(folder, "references", "features"))
+                          if os.path.isdir(f)), None)
+            count = len([f for f in os.listdir(feats) if f.endswith(".md") and f.lower() != "readme.md"]) if feats else 0
+            return {"name": n, "path": os.path.relpath(folder, root), "features": count,
+                    "features_dir": os.path.relpath(feats, root) if feats else None}
+    return None
+
+
+def verify_staleness(root, info):
+    """(code commits since the feature map last changed, days since that change) or None (no git history).
+    Stale (time for /maintain-verification-skill): >= VERIFY_STALE_COMMITS such commits, or >= VERIFY_STALE_DAYS
+    days with at least one."""
+    rel = info.get("features_dir") or info["path"]
+    last = (git_quick(root, ["log", "-1", "--format=%H %ct", "--", rel]) or "").split()
+    if len(last) < 2:
+        return None
+    out = git_quick(root, ["log", "--format=%x00%H", "--name-only", "%s..HEAD" % last[0]])
+    if out is None:
+        return None
+    commits = 0
+    for chunk in out.split("\0")[1:]:
+        files = [ln for ln in chunk.splitlines()[1:] if ln.strip()]
+        if any(is_code_file(f) and not f.startswith(info["path"] + "/") for f in files):
+            commits += 1
+    try:
+        days = int((time.time() - int(last[1])) / DAY)
+    except ValueError:
+        days = 0
+    return commits, days
+
+
+def verify_stale(stats):
+    return bool(stats) and (stats[0] >= VERIFY_STALE_COMMITS or (stats[1] >= VERIFY_STALE_DAYS and stats[0] >= 1))
+
+
+def verify_status_line(root):
+    """One phrase for the session-start status."""
+    info = verify_skill(root)
+    if not info:
+        optional = " (optional in tier try)" if project_tier(root) == "try" else ""
+        return "Verify skill: missing, run /create-verification-skill%s." % optional
+    stats = verify_staleness(root, info)
+    line = "Verify skill: %s (%d features)" % (info["name"], info["features"])
+    if verify_stale(stats):
+        line += ", stale (%d code commits, %d days since the feature map changed): run /maintain-verification-skill" \
+            % stats
+    return line + "."
+
+
 # ---------------------------------------------------------------- project knowledge (router placeholders)
 # Project knowledge lives in the repo AGENTS.md (read every session, no tool call): a Map block (<= 60 lines)
 # and a Libraries block (context7 IDs + lockfile hashes), both written by ai-adopt / ai-libs. The router only
@@ -1882,6 +1971,7 @@ def knowledge_index(root):
         bits.append("Graph: " + {"fresh": "fresh.", "stale": "stale, run graphify update .",
                                  "missing": "missing, run GRAPHIFY_BACKEND=none graphify extract . --code-only"}[g]
                     + ("" if g == "fresh" else "."))
+    bits.append(verify_status_line(root))
     return " ".join(bits)[:KNOWLEDGE_CAP]
 
 

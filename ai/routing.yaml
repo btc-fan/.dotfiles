@@ -118,9 +118,18 @@ rules:
     scope: global
     summary: 'feature request prompt (add, implement, build ... a feature, endpoint, page; RO, RU)'
     trigger: {prompt: '\b(add|implement|build|create|introduce)\b(\W+\w+){0,4}?\W+(feature|endpoint|page|screen|command|option|flag|setting|integration|flow|button|form|report|export|webhook|notification|mode)s?\b|\badd support for\b|\bnew feature\b|\bfeature request\b|\bchange (how|the way)\b|\bchange the behaviou?r\b|\b(adaug[aă]|implementeaz[aă]|construie[sș]te|creeaz[aă])\b(\W+\w+){0,4}?\W+(func[tț]ionalitate|func[tț]ie|pagin[aă]|endpoint|op[tț]iune|buton|ecran|raport|integrare|comand[aă])\b|\bfunc[tț]ionalitate nou[aă]\b|\bschimb[aă] (cum|felul)\b|(?<!\w)(добавь|добавить|реализуй|реализовать|сделай|создай|внедри)(\W+\w+){0,4}?\W+(функци|фич|эндпоинт|страниц|кнопк|команд|опци|интеграци|отч[её]т|экран|режим)\w*|(?<!\w)нов(ую|ая|ой|ые) (функци|фич)\w*|(?<!\w)измени,? как'}
-    action: "Feature work: before any code, run the grilling skill (one round of questions first), unless the change is trivial (typo, rename, one-line fix, a config value)."
+    action: "{feature_flow}"   # grill-with-docs, to-spec, to-tickets, Done order where linked; else plain grilling
     proof: 'skill:\S*grill'
     strength: nudge   # strict regex: a verb plus a feature noun; "new app" stays with the kickoff tie-break
+
+  - id: verify-before-done
+    scope: global
+    summary: 'after a code edit in a project with a verify-<app> skill (tier mvp, long)'
+    trigger: {tool_after: 'Edit|Write|MultiEdit|NotebookEdit'}
+    action: "{verify_hint}"   # empty without a verify skill, in tier try, or for a non-code file
+    once_per: 'session'
+    proof: 'verify-[\w-]+'
+    strength: nudge
 
   # ---------- opt-in tool is off here: suggest it, never install it ----------
   - id: seo-not-enabled
@@ -218,8 +227,8 @@ rules:
     summary: 'tickets, spec, triage, backlog prompt'
     tool: mattpocock tracker skills
     trigger: {prompt: '\b(ticket|tickets|spec|triage|backlog|roadmap|wayfinder)\b'}
-    action: "to-spec / to-tickets / triage / wayfinder. They write to the tracker: confirm the repo first."
-    proof: 'skill:\S*(to-spec|to-tickets|triage|wayfinder)'
+    action: "to-spec, then to-tickets (on when the project's skills line lists them). Tickets go to docs/tickets/<feature>/ (docs/agents/issue-tracker.md); never GitHub issues or labels without the owner."
+    proof: 'skill:\S*(to-spec|to-tickets)'
     strength: nudge
 
   - id: domain-docs
@@ -245,6 +254,6 @@ rules:
 tiebreaks:
   - {trigger: 'one post file, or a post to be written', winner: 'claude-blog:blog-*', loser: 'claude-seo:seo-*', match: '\b(this|the|a|one|new|my|next) (blog )?post\b|\bpost file\b|\b(write|draft|rewrite) (a |the |this )?(blog )?post\b'}
   - {trigger: 'URL, domain, whole site', winner: 'claude-seo:seo-*', loser: 'claude-blog:blog-*', match: 'https?://|\bwww\.|\b(whole|entire|full) (site|website)\b|\bdomain\b'}
-  - {trigger: 'new app or project (kickoff)', winner: 'grilling (typed: /grill-me)', loser: 'OMC deep-interview (fallback)', match: '\bnew (app|project)\b|\bkick ?off\b'}
+  - {trigger: 'new app or project (kickoff)', winner: 'grilling (grill-with-docs where the project links it; typed: /grill-me)', loser: 'OMC deep-interview (fallback)', match: '\bnew (app|project)\b|\bkick ?off\b'}
   - {trigger: 'deep interview, ambiguity score', winner: 'OMC deep-interview', loser: 'matt grilling', match: '\bdeep interview\b|\bambiguity score\b'}
   - {trigger: 'library API docs', winner: 'context7 with the Libraries ID', loser: 'web search', match: '\b(api docs|library docs|docs for)\b'}

@@ -32,7 +32,7 @@ sys.dont_write_bytecode = True      # no __pycache__ inside the (possibly read-o
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from hooklib import (GATES, GATE_PROBES, ai_home, append_jsonl, command_text, gate_skips,  # noqa: E402
                      iso_now, knowledge_delta, knowledge_index, ledger_hits, ledger_note, libs_hits, log_error,
-                     log_line, one_line, project_tier,
+                     log_line, one_line, project_skills, project_tier, verify_skill, is_code_file,
                      origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
                      state_path, with_defaults, graph_git_calls, start_graph_refresh)
 
@@ -642,6 +642,9 @@ def pack_enabled(tool, ctx):
     return short in names or tool in names or project_plugin_enabled(ctx.root, plugin_id)
 
 
+# Opt-in rows that a project's mattpocock skills line (`skills:` in .ai/enabled, linked by ai-adopt) turns on.
+SKILL_ROWS = {"tracker-flow": ("to-spec", "to-tickets"), "domain-docs": ("grill-with-docs", "domain-modeling")}
+
 # Opt-in plugins of our own marketplace: ON when the project enables them (ai-adopt --tools serena writes it).
 PROJECT_PLUGINS = {"serena": "ai-serena@ai", "browser": "ai-playwright@ai"}
 
@@ -656,6 +659,8 @@ def rule_enabled(rule, ctx):
         return False
     names = enabled_tools(ctx.root)
     if rule["id"].lower() in names or tool in names:
+        return True
+    if set(SKILL_ROWS.get(rule["id"], ())) & set(project_skills(ctx.root)):
         return True
     pid = PROJECT_PLUGINS.get(rule["id"].lower())
     if pid and ctx.agent == "claude" and project_plugin_enabled(ctx.root, pid):
@@ -751,6 +756,37 @@ def _ph_ledger_hits(ctx):
     return ledger_note(new)
 
 
+def _ph_feature_flow(ctx):
+    """The feature-grill action: grill-with-docs, to-spec, to-tickets and the Done order where the project links
+    them; plain grilling elsewhere (tier try, not adopted)."""
+    info = verify_skill(ctx.root) if ctx.root else None
+    vname = info["name"] if info else "verify-<app>"
+    if ctx.root and "grill-with-docs" in project_skills(ctx.root):
+        spec = set(project_skills(ctx.root)) & {"to-spec", "to-tickets"}
+        plan = (" A feature that touches 3+ files: to-spec, then to-tickets (vertical slices with acceptance criteria "
+                "and the %s feature each slice must pass; tickets in docs/tickets/, never GitHub issues without the "
+                "owner)." % vname) if spec == {"to-spec", "to-tickets"} else ""
+        return ("Feature work: grill-with-docs first (one round of questions, then GLOSSARY.md and docs/adr "
+                "updates).%s Then build slice by slice: check-fast green, %s on the changed feature (evidence kept), "
+                "then e2e tests for the proven journey. A trivial change (typo, rename, one-line fix): none needed."
+                % (plan, vname))
+    return ("Feature work: before any code, run the grilling skill (one round of questions first), unless the "
+            "change is trivial (typo, rename, one-line fix, a config value).")
+
+
+def _ph_verify_hint(ctx):
+    """After a code edit in a project with a verify skill (tier mvp or long): the Done order, once per session."""
+    if ctx.event != "PostToolUse" or not ctx.root or project_tier(ctx.root) == "try":
+        return ""
+    path = file_of(tool_input(ctx.payload))
+    info = verify_skill(ctx.root)
+    if not info or not path or not is_code_file(path):
+        return ""
+    return ("Before done: check-fast green, then %s on the changed feature (launch, doctor, drive every entry point "
+            "its feature file lists, keep the evidence), then add or extend e2e tests for the proven journey. The PR "
+            "Verify field names the evidence path and the test." % info["name"])
+
+
 def _ph_origin_slug(ctx):
     return origin_slug(ctx.root)
 
@@ -764,6 +800,8 @@ PLACEHOLDERS = {
     "knowledge_delta": _ph_knowledge_delta,
     "libs_hits": _ph_libs_hits,
     "ledger_hits": _ph_ledger_hits,
+    "feature_flow": _ph_feature_flow,
+    "verify_hint": _ph_verify_hint,
     "origin_slug": _ph_origin_slug,
     "claude_handoff": _ph_claude_handoff,
 }

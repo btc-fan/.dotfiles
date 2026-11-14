@@ -312,6 +312,8 @@ PLACEHOLDER_WORDS = {
     "knowledge_delta": "Update mem:core, run ai-libs --sync or graphify update, as the commit needs.",
     "libs_hits": "(cached IDs)",
     "ledger_hits": "Edit in a docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests.",
+    "feature_flow": "grill-with-docs (where the project links it; else grilling), for 3+ files to-spec then to-tickets, then per slice: check-fast, verify-<app> evidence, e2e. Trivial: none needed.",
+    "verify_hint": "Before done: check-fast, then verify-<app> on the changed feature (evidence), then e2e tests.",
     "origin_slug": "(repo from origin)",
     "claude_handoff": "Other agents: hand off to Claude only when it is logged in, else follow the skill files.",
 }

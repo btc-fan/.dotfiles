@@ -178,6 +178,146 @@
    "project": {
     "git": true
    }
+  },
+  {
+   "name": "grill-with-docs project: full flow with the verify skill",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "implement a discount code option at checkout"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tier: mvp\nskills: grill-with-docs, to-spec, to-tickets\n",
+     ".claude/skills/grill-with-docs/SKILL.md": "x\n",
+     ".claude/skills/to-spec/SKILL.md": "x\n",
+     ".claude/skills/to-tickets/SKILL.md": "x\n",
+     ".agents/skills/verify-shop/SKILL.md": "---\nname: verify-shop\n---\n",
+     ".agents/skills/verify-shop/features/README.md": "x\n",
+     ".agents/skills/verify-shop/features/cart.md": "x\n"
+    }
+   },
+   "contains": [
+    "grill-with-docs first",
+    "to-spec, then to-tickets",
+    "docs/tickets/",
+    "verify-shop on the changed feature",
+    "then e2e tests"
+   ]
+  },
+  {
+   "name": "RO in a grill-with-docs project",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "adaugă o funcționalitate de export în CSV"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tier: mvp\nskills: grill-with-docs, to-spec, to-tickets\n",
+     ".claude/skills/grill-with-docs/SKILL.md": "x\n",
+     ".claude/skills/to-spec/SKILL.md": "x\n",
+     ".claude/skills/to-tickets/SKILL.md": "x\n",
+     ".agents/skills/verify-shop/SKILL.md": "---\nname: verify-shop\n---\n",
+     ".agents/skills/verify-shop/features/README.md": "x\n",
+     ".agents/skills/verify-shop/features/cart.md": "x\n"
+    }
+   },
+   "contains": "grill-with-docs first"
+  },
+  {
+   "name": "RU in a grill-with-docs project",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "добавь функцию экспорта в CSV"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tier: mvp\nskills: grill-with-docs, to-spec, to-tickets\n",
+     ".claude/skills/grill-with-docs/SKILL.md": "x\n",
+     ".claude/skills/to-spec/SKILL.md": "x\n",
+     ".claude/skills/to-tickets/SKILL.md": "x\n",
+     ".agents/skills/verify-shop/SKILL.md": "---\nname: verify-shop\n---\n",
+     ".agents/skills/verify-shop/features/README.md": "x\n",
+     ".agents/skills/verify-shop/features/cart.md": "x\n"
+    }
+   },
+   "contains": "grill-with-docs first"
+  },
+  {
+   "name": "skills listed but not linked: plain grilling",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "add a CSV export endpoint to the API"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "skills: grill-with-docs\n"
+    }
+   },
+   "contains": "run the grilling skill",
+   "not_contains": "grill-with-docs first"
+  },
+  {
+   "name": "tier try (skills: none): plain grilling",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "add a CSV export endpoint to the API"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tier: try\nskills: none\n"
+    }
+   },
+   "contains": "run the grilling skill"
+  },
+  {
+   "name": "grill-with-docs without to-tickets: no ticket step",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "add a CSV export endpoint to the API"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "skills: grill-with-docs\n",
+     ".claude/skills/grill-with-docs/SKILL.md": "x\n"
+    }
+   },
+   "contains": [
+    "grill-with-docs first",
+    "verify-<app> on the changed feature"
+   ],
+   "not_contains": "to-tickets"
+  },
+  {
+   "name": "grill-with-docs project: typo stays quiet",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "fix the typo in the README"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tier: mvp\nskills: grill-with-docs, to-spec, to-tickets\n",
+     ".claude/skills/grill-with-docs/SKILL.md": "x\n",
+     ".claude/skills/to-spec/SKILL.md": "x\n",
+     ".claude/skills/to-tickets/SKILL.md": "x\n",
+     ".agents/skills/verify-shop/SKILL.md": "---\nname: verify-shop\n---\n",
+     ".agents/skills/verify-shop/features/README.md": "x\n",
+     ".agents/skills/verify-shop/features/cart.md": "x\n"
+    }
+   }
   }
  ]
 }

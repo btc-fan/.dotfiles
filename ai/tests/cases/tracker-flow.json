@@ -25,6 +25,36 @@
    "project": {
     "git": true
    }
+  },
+  {
+   "name": "on through the skills line (to-tickets linked)",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "split the spec into tickets"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "skills: to-spec, to-tickets\n",
+     ".agents/skills/to-tickets/SKILL.md": "x\n"
+    }
+   },
+   "contains": "docs/tickets/"
+  },
+  {
+   "name": "skills line without links: off",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "split the spec into tickets"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "skills: to-spec, to-tickets\n"
+    }
+   }
   }
  ]
 }
