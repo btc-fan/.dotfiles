@@ -145,6 +145,62 @@ def t_adopt_monorepo_refused(work):
     assert not os.path.exists(os.path.join(repo, "Makefile")), "monorepo: nothing written"
 
 
+# ---------------------------------------------------------------- mattpocock opt-in skills per project
+
+OPTIN = ("grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd", "codebase-design", "code-review", "pr",
+         "diagnosing-bugs", "improve-codebase-architecture")
+DEFAULT_LINKS = ["grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd", "codebase-design", "code-review"]
+
+
+def fake_plugin_src(work, name, skip=()):
+    base = os.path.join(work, "plugins-" + name)
+    for n in OPTIN:
+        if n not in skip:
+            write(os.path.join(base, "mattpocock-skills", n, "SKILL.md"), "---\nname: %s\n---\n" % n)
+    return base
+
+
+def links(repo, sub):
+    d = os.path.join(repo, sub)
+    return sorted(n for n in os.listdir(d) if os.path.islink(os.path.join(d, n))) if os.path.isdir(d) else []
+
+
+def t_adopt_project_skills(work):
+    repo, env = adopt_repo(work, "skills-mvp", {})
+    env["AI_PLUGIN_SRC"] = fake_plugin_src(work, "mvp", skip=("pr",))
+    res = adopt(repo, env)
+    assert res.returncode == 0, res.stdout
+    enabled = read(os.path.join(repo, ".ai", "enabled")).splitlines()
+    assert "skills: grill-with-docs, domain-modeling, to-spec, to-tickets, tdd" in enabled, enabled
+    for sub in (".claude/skills", ".agents/skills"):
+        assert links(repo, sub) == sorted(DEFAULT_LINKS), (sub, links(repo, sub))
+    target = os.readlink(os.path.join(repo, ".agents", "skills", "tdd"))
+    assert target == os.path.join(env["AI_PLUGIN_SRC"], "mattpocock-skills", "tdd"), target
+    files = run(["git", "-C", repo, "show", "--name-only", "--format=", "HEAD"]).stdout.split()
+    assert "docs/agents/issue-tracker.md" in files and "docs/agents/domain.md" in files, files
+    assert not any(f.startswith((".claude/skills", ".agents/skills")) for f in files), "machine links committed: %s" % files
+    assert "docs/tickets/" in read(os.path.join(repo, "docs", "agents", "issue-tracker.md"))
+    assert run(["git", "-C", repo, "status", "--porcelain"]).stdout.strip() == "", run(["git", "-C", repo, "status"]).stdout
+    assert "nothing to change" in adopt(repo, env).stdout, "a rerun changes nothing"
+    # the owner narrows the list: our other links go, a project's own folder stays
+    write(os.path.join(repo, ".agents", "skills", "pr", "SKILL.md"), "own\n")
+    res = adopt(repo, env, "--skills", "tdd,pr")
+    assert "skip skill links pr: not installed" in res.stdout, res.stdout
+    assert links(repo, ".agents/skills") == ["code-review", "codebase-design", "tdd"], links(repo, ".agents/skills")
+    assert read(os.path.join(repo, ".agents", "skills", "pr", "SKILL.md")) == "own\n", "the project's own folder"
+    assert "skills: tdd, pr" in read(os.path.join(repo, ".ai", "enabled")).splitlines()
+
+
+def t_adopt_try_no_skills(work):
+    repo, env = adopt_repo(work, "skills-try", {})
+    env["AI_PLUGIN_SRC"] = fake_plugin_src(work, "try")
+    res = adopt(repo, env, "--tier", "try")
+    assert res.returncode == 0, res.stdout
+    assert "skills: none" in read(os.path.join(repo, ".ai", "enabled")).splitlines()
+    assert links(repo, ".claude/skills") == [] and links(repo, ".agents/skills") == [], "try tier: plain grilling only"
+    assert not os.path.exists(os.path.join(repo, "docs", "agents")), "no tracker docs without to-spec/to-tickets"
+
+
 # ---------------------------------------------------------------- T5: ai-doctor budget
 
 def t_doctor_budget(work):
@@ -578,7 +634,7 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
     return res
 
 
-TESTS_LIST = [t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_go_rust, t_detect_monorepo,
+TESTS_LIST = [t_adopt_project_skills, t_adopt_try_no_skills, t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_go_rust, t_detect_monorepo,
               t_plan_keeps_targets, t_adopt_try_tier_own_done, t_adopt_long_tier, t_adopt_monorepo_refused,
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_hook_active_silent,
               t_stop_success_silent_both_agents, t_stop_codex_block_and_timeout, t_stop_floor_zero_tests,

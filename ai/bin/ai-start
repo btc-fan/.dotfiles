@@ -7,7 +7,8 @@
   Extra flags: --no-knowledge (skip Map and Libraries), --refresh-map (write the Map section again),
                --no-onboard (no headless claude pass for the Map conventions),
                --tier try|mvp|long (project tier, default mvp; asked once when interactive),
-               --no-measure (do not run check-fast once to time it).
+               --no-measure (do not run check-fast once to time it),
+               --skills a,b|none (mattpocock opt-in skills linked into this project; default by tier).
 ai-adopt is a link to this file; the mode comes from the command name. Rerun = upgrade (blocks are
 replaced by marker, project text outside the blocks is never touched).
 
@@ -20,6 +21,11 @@ What it writes (project root):
                      once and timed (--no-measure skips it); the commands go into the Map ("- Check:" line).
   AGENTS.md          also "## Done" (6 lines, managed block; kept out when the file has its own Done section) and
                      "## Lessons" (agents add lines; 15-line cap, ai-doctor counts)
+  .claude/skills/<name>, .agents/skills/<name>   links to this machine's audited mattpocock opt-in copies for the
+                     names on the `skills:` line (mvp/long default: grill-with-docs, domain-modeling, to-spec,
+                     to-tickets, tdd, plus their callees codebase-design, code-review; try: none). Local, gitignored.
+  docs/agents/issue-tracker.md, docs/agents/domain.md   (with to-spec / to-tickets / grill-with-docs, when missing):
+                     tickets stay in docs/tickets/<feature>/ in the repo; GLOSSARY.md and docs/adr/ at the root
   long tier          docs/REGRESSIONS.md (the regression ledger, format inside) and .ai/ratchet.json (ai-ratchet
                      --init: test, skip and lint counts that may only improve)
   AGENTS.md          project knowledge every agent reads with no tool call (owner decision 2026-11-12):
@@ -78,14 +84,15 @@ def main(argv):
     version = str(routing.get("version") or 1)
     optin = [r for r in routing.get("rules", []) if r.get("scope") == "opt-in"]
     current_all = read_lines(os.path.join(root, ".ai", "enabled"))
-    current = [i for i in current_all if not TIER_RX.match(i)]
+    current = [i for i in current_all if not TIER_RX.match(i) and not SKILLS_RX.match(i)]
     tier = choose_tier(current_all, opts)
+    skills = choose_skills(current_all, opts, tier)
     chosen = choose(optin, current, opts)
 
     plan = []
     plan.append(write_plan(os.path.join(root, ".ai", "base-version"), version + "\n"))
     enabled = sorted(set(current) | set(chosen))
-    plan.append(write_plan(os.path.join(root, ".ai", "enabled"), enabled_text(enabled, tier)))
+    plan.append(write_plan(os.path.join(root, ".ai", "enabled"), enabled_text(enabled, tier, skills)))
     agents_path = os.path.join(root, "AGENTS.md")
     agents = read(agents_path) or "# %s\n" % os.path.basename(root)
     for rule in optin:
@@ -110,10 +117,12 @@ def main(argv):
     plan.extend(project_mcp_plan(root, enabled, opts["dry_run"]))
     plan.append(claude_plugins_plan(root, enabled))
     plan.append(write_plan(os.path.join(root, ".gitignore"), gitignore_text(read(os.path.join(root, ".gitignore")),
-                                                                            with_defaults(enabled), root)))
+                                                                            with_defaults(enabled), root,
+                                                                            skill_closure(skills))))
+    plan.extend(tracker_docs_plan(root, skill_closure(skills)))
     plan = [p for p in plan if p]
     steps = knowledge_steps(root, opts, with_defaults(enabled)) + check_steps(root, opts, tier, checks, plan) \
-        + ratchet_steps(root, tier)
+        + ratchet_steps(root, tier) + skill_link_steps(root, skill_closure(skills))
 
     if not plan and not steps:
         print("ai-%s: nothing to change (base v%s)" % (mode, version))
@@ -175,7 +184,7 @@ def main(argv):
 
 def parse(argv):
     opts = {"dir": ".", "tools": None, "yes": False, "dry_run": False, "knowledge": True, "onboard": True,
-            "refresh_map": False, "tier": None, "measure": True}
+            "refresh_map": False, "tier": None, "measure": True, "skills": None}
     args = list(argv)
     while args:
         a = args.pop(0)
@@ -199,6 +208,8 @@ def parse(argv):
                 sys.exit("--tier must be one of: " + ", ".join(TIERS))
         elif a == "--no-measure":
             opts["measure"] = False
+        elif a == "--skills" and args:
+            opts["skills"] = [t.strip() for t in args.pop(0).split(",") if t.strip()]
         elif a in ("-h", "--help"):
             print(__doc__)
             sys.exit(0)
@@ -382,11 +393,11 @@ GI_LINES = [".omc/*", "!.omc/skills/", ".omx/", ".codex/", ".claude/*", "!.claud
             "!.ai/destructive.txt"]
 GI_OLD_HEAD = "# AI tools (ai-adopt): caches and generated graph"     # unmarked block of older ai-adopt runs
 GI_OLD_LINES = {".serena/cache/", ".serena/project.local.yml", ".serena/logs/", "graphify-out/"}
-ENABLED_HEAD = ("# ai-adopt: the project tier (try | mvp | long), then opt-in tool ids, one per line; no-serena / "
-                "no-graph / no-stop-check switch a default off")
+ENABLED_HEAD = ("# ai-adopt: the project tier (try | mvp | long), the mattpocock skills linked here (skills: a, b | "
+                "none), then opt-in tool ids, one per line; no-serena / no-graph / no-stop-check switch a default off")
 
 
-def gitignore_text(text, enabled=None, root=None):
+def gitignore_text(text, enabled=None, root=None, skill_links=()):
     """The .gitignore with the managed block (added or replaced by marker). None when nothing changes.
     A .claude/ subfolder (commands, agents, rules, skills ...) stays ignored unless the repo already tracks
     files there: then new files in it are shared too."""
@@ -394,7 +405,14 @@ def gitignore_text(text, enabled=None, root=None):
     tracked = (git(root, "ls-files", "--", ".claude") if root else None) or ""
     subs = sorted({p.split("/")[1] for p in tracked.splitlines() if p.count("/") >= 2})
     at = lines.index("!.claude/settings.json") + 1
-    lines[at:at] = ["!.claude/%s/" % sub for sub in subs]
+    # A project verify skill is shared through a committed link .claude/skills/verify-<app> (to .agents/skills/);
+    # other .claude/skills entries stay local unless the repo already tracks that folder.
+    shared = ["!.claude/%s/" % sub for sub in subs]
+    if "skills" not in subs:
+        shared += ["!.claude/skills/", ".claude/skills/*", "!.claude/skills/verify-*"]
+    lines[at:at] = shared
+    # Project links to this machine's audited mattpocock copies: local, never committed (absolute paths).
+    lines += [".claude/skills/%s" % n for n in skill_links] + [".agents/skills/%s" % n for n in skill_links]
     block = "\n".join([GI_START] + lines + [GI_END]) + "\n"
     text = text or ""
     if GI_RX.search(text):
@@ -418,8 +436,9 @@ def drop_old_block(text):
     return "\n".join(out)
 
 
-def enabled_text(ids, tier="mvp"):
-    return ENABLED_HEAD + "\n" + "tier: %s\n" % tier + "".join(i + "\n" for i in ids)
+def enabled_text(ids, tier="mvp", skills=()):
+    return (ENABLED_HEAD + "\n" + "tier: %s\n" % tier + "skills: %s\n" % (", ".join(skills) or "none")
+            + "".join(i + "\n" for i in ids))
 
 
 def committable(root, paths):
@@ -742,6 +761,118 @@ tests/regressions/test_r<NNN>_*.py and its name says the promise it keeps. `ai-l
 Flaky tests, one line each: `- <test id> | since: YYYY-MM-DD | why`. Older than 14 days: fix it or delete it
 with the owner's OK.
 """
+
+
+# mattpocock opt-in skills per project (owner plan section 9). Claude reads <repo>/.claude/skills, Codex reads
+# <repo>/.agents/skills: both get a link to the audited copy the installer keeps for this machine.
+SKILLS_RX = re.compile(r"^skills\s*:\s*(.*)$", re.I)
+OPTIN_SKILLS = ("grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd", "codebase-design", "code-review",
+                "pr", "diagnosing-bugs", "improve-codebase-architecture")
+TIER_SKILLS = {"try": (), "mvp": ("grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd"),
+               "long": ("grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd")}
+SKILL_CALLEES = {"grill-with-docs": ("domain-modeling",), "to-spec": ("domain-modeling",),
+                 "to-tickets": ("domain-modeling",), "tdd": ("codebase-design", "code-review"),
+                 "diagnosing-bugs": ("domain-modeling",), "improve-codebase-architecture": ("codebase-design",
+                                                                                            "domain-modeling")}
+ISSUE_TRACKER_DOC = """# Issue tracker
+
+Local, in this repo. No GitHub issues, labels or remote calls without the owner's OK in this session.
+
+- Specs (to-spec): `docs/specs/<feature-slug>.md`.
+- Tickets (to-tickets): `docs/tickets/<feature-slug>/NN-<slice>.md`, one file per vertical slice: title,
+  acceptance criteria, blocked by, and the verify-<app> feature the slice must pass (its file in the project's
+  verify skill). A ticket is done when check-fast is green, the verify run left evidence, and an e2e test encodes
+  the proven journey.
+- Close a ticket by moving its file to `docs/tickets/<feature-slug>/done/` in the PR that finishes it.
+"""
+DOMAIN_DOC = """# Domain docs
+
+Single context: `GLOSSARY.md` (terms, one line each) and `docs/adr/NNNN-<title>.md` (decisions that are hard to
+reverse) at the repo root. grill-with-docs and domain-modeling update them during the questions.
+"""
+
+
+def plugin_src(name):
+    """The installer's audited copy of a plugin source on this machine (tools.sh plugin_src_dir)."""
+    base = os.environ.get("AI_PLUGIN_SRC") or ("/opt/agent-plugins" if sys.platform.startswith("linux")
+                                               else os.path.expanduser("~/.local/share/ai/plugins"))
+    return os.path.join(base, name)
+
+
+def choose_skills(current_all, opts, tier):
+    if opts.get("skills") is not None:
+        names = [] if opts["skills"] == ["none"] else opts["skills"]
+        bad = [n for n in names if n not in OPTIN_SKILLS]
+        if bad:
+            sys.exit("unknown skill(s): %s (opt-in: %s)" % (", ".join(bad), ", ".join(OPTIN_SKILLS)))
+        return [n for n in OPTIN_SKILLS if n in names]
+    for item in current_all:
+        m = SKILLS_RX.match(item)
+        if m:
+            names = [x.strip() for x in m.group(1).split(",") if x.strip() and x.strip() != "none"]
+            return [n for n in OPTIN_SKILLS if n in names]
+    return list(TIER_SKILLS[tier])
+
+
+def skill_closure(names):
+    out = set(names)
+    for n in names:
+        out.update(SKILL_CALLEES.get(n, ()))
+    return [n for n in OPTIN_SKILLS if n in out]
+
+
+def tracker_docs_plan(root, names):
+    out = []
+    if {"to-spec", "to-tickets"} & set(names) and not os.path.exists(os.path.join(root, "docs", "agents",
+                                                                                     "issue-tracker.md")):
+        out.append((os.path.join(root, "docs", "agents", "issue-tracker.md"), ISSUE_TRACKER_DOC))
+    if {"grill-with-docs", "domain-modeling"} & set(names) and not os.path.exists(os.path.join(root, "docs", "agents",
+                                                                                                 "domain.md")):
+        out.append((os.path.join(root, "docs", "agents", "domain.md"), DOMAIN_DOC))
+    return out
+
+
+def skill_link_plan(root, names):
+    """[(link path, target or None to remove)] for the project skill links that are missing, wrong or no longer
+    wanted. Only links into the mattpocock copy are ever removed (anything else is the project's own)."""
+    src = plugin_src("mattpocock-skills")
+    out = []
+    for base in (os.path.join(root, ".claude", "skills"), os.path.join(root, ".agents", "skills")):
+        for n in OPTIN_SKILLS:
+            link = os.path.join(base, n)
+            want = n in names and os.path.isfile(os.path.join(src, n, "SKILL.md"))
+            cur = os.readlink(link) if os.path.islink(link) else None
+            if want and cur != os.path.join(src, n):
+                if os.path.exists(link) and not os.path.islink(link):
+                    print("skip skill link %s: a real folder is there (the project's own)" % os.path.relpath(link, root))
+                    continue
+                out.append((link, os.path.join(src, n)))
+            elif not want and cur is not None and cur.startswith(src + os.sep):
+                out.append((link, None))
+    missing = [n for n in names if not os.path.isfile(os.path.join(src, n, "SKILL.md"))]
+    if missing:
+        print("skip skill links %s: not installed on this machine (%s; install.sh copies them)"
+              % (", ".join(missing), src))
+    return out
+
+
+def skill_link_steps(root, names):
+    todo = skill_link_plan(root, names)
+    if not todo:
+        return []
+
+    def apply():
+        for link, target in todo:
+            if os.path.islink(link):
+                os.remove(link)
+            if target:
+                os.makedirs(os.path.dirname(link), exist_ok=True)
+                os.symlink(target, link)
+    added = sorted({os.path.basename(l) for l, t in todo if t})
+    gone = sorted({os.path.basename(l) for l, t in todo if not t})
+    label = "link project skills for Claude (.claude/skills) and Codex (.agents/skills): %s" % (
+        ", ".join(added) or "none") + ("; remove: %s" % ", ".join(gone) if gone else "")
+    return [(label, apply)]
 
 
 def choose_tier(current_all, opts):

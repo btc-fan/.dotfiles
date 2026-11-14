@@ -294,14 +294,21 @@ plugin_clone() {
 # audited. The repo has a symlink (AGENTS.md), so the tree is not moved as a whole: only the five folders,
 # checked for links, are copied to <plugin src>/mattpocock-skills/<name>.
 MATTPOCOCK_PICKS="productivity/grilling productivity/grill-me productivity/wait-what productivity/writing-for-agents engineering/retro"
+# Opt-in per project (owner plan section 9, pocock-skills-audit): copied and audited with the five, but linked only
+# into a project that lists them on its `skills:` line in .ai/enabled (ai-adopt makes the project links). Bare
+# names: the folder is found under any category except misc/ and in-progress/. A name missing upstream is
+# skipped with a warning; it never stops the five. Skipped on purpose: implement, implement-spec, research,
+# triage, wayfinder, misc/*, in-progress/*.
+MATTPOCOCK_OPTIN_PICKS="grill-with-docs domain-modeling to-spec to-tickets tdd codebase-design code-review pr diagnosing-bugs improve-codebase-architecture"
 
 mattpocock_src() {
-    local dest tmp p have repo
+    local dest tmp p n have repo
     dest=$(plugin_src_dir mattpocock-skills)
     have=$(cat "$dest/.commit" 2>/dev/null || true)
     resolve_tool mattpocock-skills || return 1
     repo=${R_SOURCE#git }
-    if [ -n "$have" ] && [ "$have" = "$R_SHA" ]; then
+    # The pick list is part of the marker: a changed list at the same commit copies (and audits) again.
+    if [ -n "$have" ] && [ "$have" = "$R_SHA" ] && [ "$(cat "$dest/.picks" 2>/dev/null)" = "$MATTPOCOCK_OPTIN_PICKS" ]; then
         info "mattpocock skills at $dest are at ${R_REF:-commit} ${R_SHA:0:7} (newest stable)"; return 0
     fi
     if [ -n "$have" ] && [ "$R_STATUS" = cached ]; then info "mattpocock skills kept at ${have:0:7} (offline)"; return 0; fi
@@ -322,12 +329,23 @@ mattpocock_src() {
         fi
         cp -R "$tmp/src/skills/$p" "$tmp/out/$(basename "$p")"
     done
+    for n in $MATTPOCOCK_OPTIN_PICKS; do
+        p=$(cd "$tmp/src/skills" && ls -d -- */"$n" 2>/dev/null | grep -vE '^(misc|in-progress)/' | head -n 1 || true)
+        if [ -z "$p" ] || [ ! -f "$tmp/src/skills/$p/SKILL.md" ]; then
+            warn "mattpocock opt-in skill $n not found at ${R_REF:-$R_SHA}: skipped (projects that list it get no link)"; continue
+        fi
+        if [ -n "$(find "$tmp/src/skills/$p" -type l -print -quit)" ]; then
+            warn "mattpocock opt-in skill $n contains a symlink: skipped"; continue
+        fi
+        cp -R "$tmp/src/skills/$p" "$tmp/out/$n"
+    done
     printf '%s\n' "$R_SHA" > "$tmp/out/.commit"
+    printf '%s\n' "$MATTPOCOCK_OPTIN_PICKS" > "$tmp/out/.picks"
     audit_ok dir "$tmp/out" "$R_SHA" mattpocock-skills || { rm -rf "$tmp"; return 1; }
     src_swap "$tmp/out" "$dest" "plugin-src:mattpocock-skills"
     rm -rf "$tmp"
     r_record
-    ok "mattpocock skills ($MATTPOCOCK_PICKS) ${have:+${have:0:7} -> }${R_REF:-${R_SHA:0:7}} in $dest (audited)"
+    ok "mattpocock skills ($MATTPOCOCK_PICKS; opt-in: $MATTPOCOCK_OPTIN_PICKS) ${have:+${have:0:7} -> }${R_REF:-${R_SHA:0:7}} in $dest (audited)"
 }
 
 # One route per agent: ~/.agents/skills/<name> (Codex, opencode) and ~/.claude/skills/<name> (Claude), links.

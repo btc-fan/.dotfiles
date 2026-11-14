@@ -411,8 +411,10 @@ def t_adopt_optin_serena_graph(work, server):
     assert len(agents) < 4000, "opt-in blocks must stay short: %d bytes" % len(agents)
 
 
-GI_BLOCK = [".omc/*", "!.omc/skills/", ".omx/", ".codex/", ".claude/*", "!.claude/settings.json", ".serena/*",
-            "!.serena/project.yml", "graphify-out/", ".ai/*", "!.ai/enabled", "!.ai/ratchet.json", "!.ai/destructive.txt"]
+GI_BLOCK = [".omc/*", "!.omc/skills/", ".omx/", ".codex/", ".claude/*", "!.claude/settings.json", "!.claude/skills/",
+            ".claude/skills/*", "!.claude/skills/verify-*", ".serena/*", "!.serena/project.yml", "graphify-out/",
+            ".ai/*", "!.ai/enabled", "!.ai/ratchet.json", "!.ai/destructive.txt"]
+GI_SKILL_LINKS = ["grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd", "codebase-design", "code-review"]
 
 
 def t_adopt_gitignore_block(work, server):
@@ -430,7 +432,7 @@ def t_adopt_gitignore_block(work, server):
     assert res.returncode == 0, res.stdout
     files = set(run(["git", "-C", repo, "show", "--name-only", "--format=", "HEAD"]).stdout.split())
     want = {"AGENTS.md", "CLAUDE.md", ".gitignore", ".claude/settings.json", ".ai/enabled", ".serena/project.yml",
-            "Makefile"}
+            "Makefile", "docs/agents/issue-tracker.md", "docs/agents/domain.md"}
     assert files == want, "committed %s, want %s" % (sorted(files), sorted(want))
     status = run(["git", "-C", repo, "status", "--porcelain", "--untracked-files=all"]).stdout
     assert status.strip() == "", "local tool files not ignored:\n" + status
@@ -442,7 +444,9 @@ def t_adopt_gitignore_block(work, server):
     assert "# AI tools (ai-adopt): caches and generated graph" not in gi, "old unmarked block not removed"
     start = lines.index("# >>> AI tools (managed by ai-adopt; edit outside this block) >>>")
     end = lines.index("# <<< AI tools <<<")
-    assert lines[start + 1:end] == GI_BLOCK, lines[start + 1:end]
+    want_lines = GI_BLOCK + [".claude/skills/%s" % n for n in GI_SKILL_LINKS] + [".agents/skills/%s" % n
+                                                                                for n in GI_SKILL_LINKS]
+    assert lines[start + 1:end] == want_lines, lines[start + 1:end]
     assert gi.count(">>> AI tools") == 1
     res = run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--yes"], env=env, cwd=repo)
     assert "nothing to change" in res.stdout, "rerun must be idempotent: " + res.stdout
@@ -565,10 +569,10 @@ def libs(work, repo, *args, url=DEAD_URL, state=None):
 
 
 def enabled_ids(repo):
-    """Opt-in ids of .ai/enabled (the `tier:` line is checked on its own)."""
+    """Opt-in ids of .ai/enabled (the `tier:` and `skills:` lines are checked on their own)."""
     text = open(os.path.join(repo, ".ai", "enabled")).read()
     return [ln.split("#", 1)[0].strip() for ln in text.splitlines()
-            if ln.split("#", 1)[0].strip() and not ln.startswith("tier:")]
+            if ln.split("#", 1)[0].strip() and not ln.startswith(("tier:", "skills:"))]
 
 
 def table(repo):

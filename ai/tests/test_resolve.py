@@ -37,7 +37,7 @@ def main():
                      t_bash_offline_keep, t_bash_context7, t_context7_discovery, t_bash_plugin_clone,
                      t_claude_plugin_replace, t_claude_plugin_update, t_claude_plugin_fallback,
                      t_claude_dir_same_version, t_claude_fresh_install_checked, t_claude_own_replace_rollback,
-                     t_codex_plugin_refresh, t_audit_accept_by_commit, t_uv_tool_normalized, t_scanners,
+                     t_codex_plugin_refresh, t_bash_mattpocock_optin, t_audit_accept_by_commit, t_uv_tool_normalized, t_scanners,
                      t_osv_scanner, t_herdr, t_src_swap_and_dry_sha, t_playwright_keep_only):
             for k in ENV_KEYS:
                 os.environ.pop(k, None)
@@ -540,6 +540,44 @@ def t_bash_plugin_clone(work):
     write(os.path.join(dest, "mine.txt"), "x")
     code, out = bash(LIBS + 'AI_OS=macos; AI_SKIP_PACKAGES=0; audit_ok() { return 0; }; plugin_clone plug plug || true', env)
     assert "not a clone made by this setup" in out and os.path.exists(os.path.join(dest, "mine.txt")), out
+
+
+def t_bash_mattpocock_optin(work):
+    """mattpocock_src: the five global picks plus the opt-in picks (found under any category except misc/ and
+    in-progress/; a missing one is skipped with a warning, the five still install); the pick list is in the marker;
+    mattpocock_link links only the five global names."""
+    up = os.path.join(work, "up", "mp")
+    os.makedirs(up)
+    git("init", "-q", "-b", "main", up)
+    for rel in ("productivity/grilling", "productivity/grill-me", "productivity/wait-what",
+                "productivity/writing-for-agents", "engineering/retro", "engineering/grill-with-docs",
+                "engineering/domain-modeling", "engineering/to-tickets", "engineering/tdd", "engineering/codebase-design",
+                "engineering/code-review", "engineering/pr", "engineering/diagnosing-bugs", "misc/to-spec",
+                "engineering/implement"):
+        write(os.path.join(up, "skills", rel, "SKILL.md"), "---\nname: %s\n---\nbody\n" % rel.split("/")[1])
+    git("add", "-A", cwd=up)
+    git("commit", "-q", "-m", "v1", cwd=up)
+    git("tag", "-a", "v1.0.0", "-m", "v1", cwd=up)
+    env, home, _ = bash_env(work, 'MATTPOCOCK_SKILLS_SOURCE="git %s stable"\n' % up)
+    code, out = bash(LIBS + 'AI_OS=macos; AI_SKIP_PACKAGES=0; audit_ok() { return 0; }; mattpocock_src', env)
+    assert code == 0, out
+    dest = os.path.join(home, ".local", "share", "ai", "plugins", "mattpocock-skills")
+    have = sorted(n for n in os.listdir(dest) if not n.startswith("."))
+    assert have == sorted(["grilling", "grill-me", "wait-what", "writing-for-agents", "retro", "grill-with-docs",
+                           "domain-modeling", "to-tickets", "tdd", "codebase-design", "code-review", "pr",
+                           "diagnosing-bugs"]), have
+    assert "opt-in skill to-spec not found" in out and "improve-codebase-architecture not found" in out, out
+    assert "implement" not in have, "implement stays skipped"
+    assert "grill-with-docs" in read(os.path.join(dest, ".picks")), "pick list missing from the marker"
+    code, out = bash(LIBS + 'AI_OS=macos; AI_SKIP_PACKAGES=0; mattpocock_src', env)
+    assert "(newest stable)" in out, "same commit and picks: nothing to do: " + out
+    write(os.path.join(dest, ".picks"), "old list\n")
+    code, out = bash(LIBS + 'AI_OS=macos; AI_SKIP_PACKAGES=0; audit_ok() { return 0; }; mattpocock_src', env)
+    assert "(newest stable)" not in out and "audited" in out, "a changed pick list copies again: " + out
+    target = os.path.join(home, "skills")
+    code, out = bash(LIBS + 'AI_OS=macos; mattpocock_link "%s"' % target, env)
+    assert sorted(os.listdir(target)) == sorted(["grilling", "grill-me", "wait-what", "writing-for-agents", "retro"]), \
+        "only the five global picks are linked globally: %s" % os.listdir(target)
 
 
 def t_audit_accept_by_commit(work):
