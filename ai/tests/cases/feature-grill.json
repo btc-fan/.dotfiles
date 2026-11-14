@@ -1,0 +1,183 @@
+{
+ "rule": "feature-grill",
+ "cases": [
+  {
+   "name": "EN: add an endpoint",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "add a CSV export endpoint to the API"
+   },
+   "project": {
+    "git": true
+   },
+   "contains": "grilling skill"
+  },
+  {
+   "name": "EN: change how",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "change how the crawler retries on 429"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "EN: add support for",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "add support for webhooks in the billing service"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "RO: adauga o functionalitate",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "adaugă o funcționalitate de export în CSV"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "RO: implementeaza un buton",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "implementeaza un buton de logout"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "RU: dobav funktsiyu",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "добавь функцию экспорта в CSV"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "RU: realizuy novuyu fichu",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "реализуй новую фичу для оплаты"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "EN: typo fix is trivial",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "fix the typo in the README"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "EN: rename",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "rename the variable price to amount"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "EN: question about a page",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "what does this page do?"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "EN: build the project",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "build the project and run the tests"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "EN: add a test",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "add a test for the parser"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "EN: new app keeps the kickoff tie-break only",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "build a new app for my notes"
+   },
+   "project": {
+    "git": true
+   },
+   "contains": "tie-break (new app or project (kickoff))"
+  },
+  {
+   "name": "RO: corecteaza greseala",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "corectează greșeala din README"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "RU: ispravь opechatku",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "исправь опечатку в README"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "RU: pochemu padaet test",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "почему падает тест?"
+   },
+   "project": {
+    "git": true
+   }
+  }
+ ]
+}

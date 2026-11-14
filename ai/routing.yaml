@@ -114,6 +114,14 @@ rules:
     proof: 'tool:mcp__\S*context7'
     strength: nudge
 
+  - id: feature-grill
+    scope: global
+    summary: 'feature request prompt (add, implement, build ... a feature, endpoint, page; RO, RU)'
+    trigger: {prompt: '\b(add|implement|build|create|introduce)\b(\W+\w+){0,4}?\W+(feature|endpoint|page|screen|command|option|flag|setting|integration|flow|button|form|report|export|webhook|notification|mode)s?\b|\badd support for\b|\bnew feature\b|\bfeature request\b|\bchange (how|the way)\b|\bchange the behaviou?r\b|\b(adaug[aă]|implementeaz[aă]|construie[sș]te|creeaz[aă])\b(\W+\w+){0,4}?\W+(func[tț]ionalitate|func[tț]ie|pagin[aă]|endpoint|op[tț]iune|buton|ecran|raport|integrare|comand[aă])\b|\bfunc[tț]ionalitate nou[aă]\b|\bschimb[aă] (cum|felul)\b|(?<!\w)(добавь|добавить|реализуй|реализовать|сделай|создай|внедри)(\W+\w+){0,4}?\W+(функци|фич|эндпоинт|страниц|кнопк|команд|опци|интеграци|отч[её]т|экран|режим)\w*|(?<!\w)нов(ую|ая|ой|ые) (функци|фич)\w*|(?<!\w)измени,? как'}
+    action: "Feature work: before any code, run the grilling skill (one round of questions first), unless the change is trivial (typo, rename, one-line fix, a config value)."
+    proof: 'skill:\S*grill'
+    strength: nudge   # strict regex: a verb plus a feature noun; "new app" stays with the kickoff tie-break
+
   # ---------- opt-in tool is off here: suggest it, never install it ----------
   - id: seo-not-enabled
     scope: global
