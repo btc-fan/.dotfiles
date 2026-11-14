@@ -33,7 +33,7 @@ Audit reports (local, not in git) live next to the checkouts in `ai-audit/`.
 
 **Tier 1 project checks: DONE in code on branch `ai` (2026-11-14), not deployed.** Tier per repo (`try`, `mvp`,
 `long`), `ai-check-detect` + `check-fast`/`check` targets, the `stop-check` Stop hook, `no-destroy` gate, PR tier
-fields, Done/Lessons, regression ledger (`ai-ledger`), `ai-ratchet`, the `feature-grill` row (SPEC 24). Next: the
+fields, Done/Lessons, regression ledger (`ai-ledger`), `ai-ratchet`, the `feature-grill` row (SPEC 25). Next: the
 scriptube pilot (`ai-adopt --tier long`), a real plugin install and a real Codex run of the Stop hook.
 
 **Open, in order:**

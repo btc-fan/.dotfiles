@@ -348,7 +348,7 @@ mattpocock_src() {
     ok "mattpocock skills ($MATTPOCOCK_PICKS; opt-in: $MATTPOCOCK_OPTIN_PICKS) ${have:+${have:0:7} -> }${R_REF:-${R_SHA:0:7}} in $dest (audited)"
 }
 
-# pstack verification skills (SPEC 25, ai/rules/verification-skill.md): create-verification-skill and
+# pstack verification skills (SPEC 26, ai/rules/verification-skill.md): create-verification-skill and
 # maintain-verification-skill from github.com/cursor/plugins (folder pstack/, MIT). The repo ships an adapted copy in
 # ai/skills/ (linked like every own skill) made from the vendor copy at a known commit. When the newest commit
 # upstream differs, this copies the two folders, audits them, applies the same transform (ai/lib/pstack_adapt.py)

@@ -573,7 +573,7 @@ restore where something existing is removed; dry-run safe.
   `~/.claude/.omc-launch/`) when it has the OMC markers. install.sh and ai-sync add the AI:core import block to
   it after `<!-- OMC:END -->` when the file exists (macOS; Linux has /etc/claude-code/CLAUDE.md).
 - ai-doctor checks all of the above.
-## 24. Tier 1: project checks per adopted repo (owner decision 2026-11-14)
+## 25. Tier 1: project checks per adopted repo (owner decision 2026-11-14)
 - Plan: `ai-audit/factory-plan.md` sections 0.5, 1, 5 (Phase 1). Every piece is a hook, a gate or a script; text
   in AGENTS.md is limited to the 6-line Done block and the Lessons section (15 lines).
 - Tier per project: `tier: try|mvp|long` in `.ai/enabled` (default `mvp`, also for repos without the line;
@@ -611,7 +611,7 @@ restore where something existing is removed; dry-run safe.
 - Not built in this round: Codex `prefix_rule` second layer for no-destroy, a Code Review Rules section, CI
   workflow files, the SessionStart status fields (HANDOFF, quarantine count, last check).
 
-## 25. Feature flow and verification skills (owner decisions 2026-11-14)
+## 26. Feature flow and verification skills (owner decisions 2026-11-14)
 - mattpocock opt-in skills per project: `MATTPOCOCK_OPTIN_PICKS` (10 names) copied and audited with the five global
   picks; `skills: a, b | none` in `.ai/enabled` (`ai-adopt --skills`; mvp and long default grill-with-docs,
   domain-modeling, to-spec, to-tickets, tdd; try none); `ai-adopt` links the names and their callees into

@@ -524,7 +524,7 @@ Seen on the owner's M3 Mac (macOS 15.5), read only:
   loaded there. Neither Mac has the file today; OMC setup can create it. Our block now goes into it too (after
   OMC:END); ai-sync adds it after a pull, ai-doctor fails without it.
 
-## 2026-11-14: Tier 1 project checks (SPEC 24)
+## 2026-11-14: Tier 1 project checks (SPEC 25)
 - Why: the research (project-evolution B, K) showed the healthy AI-built projects share five things: one runnable
   check, incidents turned into checks, hooks over text, no destructive commands, evidence before "done". Text
   rules grow back and get ignored; checks cost 0 tokens when green. So each piece is a hook, gate or script.
@@ -553,7 +553,7 @@ Seen on the owner's M3 Mac (macOS 15.5), read only:
 - Feature grill: grilling before code for features is the Pocock flow; the regex needs a verb plus a feature
   noun, so questions, typo fixes and renames do not get the forced-eval text.
 
-## 2026-11-14: feature flow and verification skills (SPEC 25)
+## 2026-11-14: feature flow and verification skills (SPEC 26)
 - Owner: every project needs a scripted way to prove behavior before "done"; end-to-end tests come only after the
   proof, so they encode a journey that was seen working, not a guess. pstack's generator writes that as a project
   skill with a feature map (one file per feature, user point of view), and its maintain skill keeps the map honest.

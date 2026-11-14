@@ -110,7 +110,7 @@ A tool is never updated by the tool itself. Auto-update stays off. The agent rul
 
 ## 10. Project checks (Tier 1)
 
-The per-project pieces (SPEC 24) follow the same path: contract in `ai/rules/`, evals in `ai/evals/tier1.md`,
+The per-project pieces (SPEC 25) follow the same path: contract in `ai/rules/`, evals in `ai/evals/tier1.md`,
 tests in `ai/tests/test_tier1.py` (and router cases for gates and rows). Common changes:
 
 1. A new stack for `ai-check-detect`: add a detector next to `python`, `node`, `golang`, `rust` (files only, no
@@ -125,7 +125,7 @@ tests in `ai/tests/test_tier1.py` (and router cases for gates and rows). Common 
    `t_ratchet*` test. A new counter appears in the baseline on the next run; it never fails on its first run.
 5. Tiers: a piece belongs to the lowest tier where its cost (tokens, time, blocked steps) is worth it. Do not add
    AGENTS.md text for something a hook or a check can do.
-6. The Stop hook keeps a 60 s timeout (SPEC 24): `check-fast` must stay under 60 s; the router hooks stay well
+6. The Stop hook keeps a 60 s timeout (SPEC 25): `check-fast` must stay under 60 s; the router hooks stay well
    under 30 s.
 7. A project verification skill is made in the project (`/create-verification-skill`), never in this repo. Change
    our copy of the pstack skills only through `ai/lib/pstack_adapt.py` or a refreshed vendor copy

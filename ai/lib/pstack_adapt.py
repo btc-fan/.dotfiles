@@ -8,7 +8,7 @@ Writes <out>/create-verification-skill/ and <out>/maintain-verification-skill/ (
 --vendor writes the vendor copy instead: the same files byte for byte, except U+2014 (em dash) becomes " - "
 (repo rule), plus SOURCE.md.
 
-The adapted copy changes only what must change here (SPEC 25):
+The adapted copy changes only what must change here (SPEC 26):
   - the project skill path `.cursor/skills/` becomes `.agents/skills/` (Codex reads project skills there;
     ai-adopt links .claude/skills/verify-<app> to it for Claude);
   - one attribution and path note after the frontmatter;
