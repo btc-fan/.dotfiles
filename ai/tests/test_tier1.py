@@ -162,6 +162,10 @@ def t_doctor_budget(work):
                  "PASS project tier long; check-fast and check targets", "WARN ratchet baseline .ai/ratchet.json",
                  "PASS root rules + repo AGENTS.md"):
         assert want in text, "%r not in:\n%s" % (want, text)
+    out = io.StringIO()
+    with redirect_stdout(out):
+        doctor.check_destroy_smoke()
+    assert out.getvalue().startswith("PASS no-destroy blocks"), out.getvalue()
     big = tree(work, "doc-big", {"AGENTS.md": "# x\n" + "y" * 40000})
     out = io.StringIO()
     with redirect_stdout(out):

@@ -133,7 +133,7 @@ Read it from the top.
 3. Each agent receives that one file in the way it supports (see [docs/AGENTS-MD.md](docs/AGENTS-MD.md)).
 4. The plugin `ai-core` gives Claude and Codex our hooks, skills and MCP server list.
 5. The router hook adds a short status line at session start and a few cheap reminders. The gates block five kinds of unsafe steps. A separate Stop hook runs the project's `check-fast` before the agent says it is done (section 3, example E).
-6. Every decision is logged. `ai-doctor` reads the logs and the contracts and tells you what is wrong. `ai-doctor --live` runs a canary `claude -p` session: a token commit, `gh pr create` without the PR blocks, and an unaudited `uv add` must each be denied (new DENY lines in `gates.log`).
+6. Every decision is logged. `ai-doctor` reads the logs and the contracts and tells you what is wrong. `ai-doctor --live` runs a canary `claude -p` session: a token commit, `gh pr create` without the PR blocks, an unaudited `uv add` and a force push to main (in a scratch repo with no remote) must each be denied (new DENY lines in `gates.log`).
 7. On a server, project work happens inside a box, never on the host.
 
 ### Parts, in one table
