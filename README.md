@@ -378,6 +378,33 @@ Restore one database: `sudo -u postgres pg_restore -d NAME --clean < /backup/pos
 (big ones: `/backup/postgres-big/NAME/daily/<date>/NAME.dump`). Test without touching anything:
 `sudo pg-restore-drill --test`.
 
+**Big databases on HDDs: `PG_PITR=yes`.** Measured on the reference server: the first dump of a
+64 GB database ran 9 hours and was not half done. It reads rows in random order and holds one
+transaction open, so no cleanup runs meanwhile and the live system slows down. With
+`PG_PITR=yes` the big databases get no daily dump (`pg-backup-big` is turned off). Instead:
+
+| Job | Default | What | Keeps |
+|---|---|---|---|
+| WAL archive | always | Postgres hands every finished 16 MB WAL file to `pg-wal-archive`, which writes it zstd-compressed to `PG_WAL_DIR` (default `BACKUP_MOUNT/postgres-wal`). At most 15 min of changes wait (`archive_timeout`) | from the oldest base backup on |
+| `pg-base-backup` | Sun 05:30 | `pg_basebackup` copies the data files in order (read at most `PG_BASE_MAX_RATE`, 50M) to `PG_BASE_DIR` (default `BACKUP_MOUNT/postgres-base`)`/<date>`, checked with `pg_verifybackup` | `PG_BASE_KEEP` (2) |
+
+Turning it on needs one PostgreSQL restart (`archive_mode`); step 60 never restarts Postgres
+itself and prints the command. The daily digest shows the base backup age and when the last WAL
+file was archived, and alerts on a failure. Small databases keep their daily `pg-backup`.
+
+Restore from the base backup and the WAL archive (the whole cluster, to a moment you choose):
+
+```bash
+sudo systemctl stop postgresql@16-main
+sudo mv /data/postgresql/16/main /data/postgresql/16/main.broken          # keep it until the restore works
+sudo cp -a /backup/postgres-base/<date> /data/postgresql/16/main
+sudo -u postgres touch /data/postgresql/16/main/recovery.signal
+echo "restore_command = 'zstd -q -dc /backup/postgres-wal/%f.zst > %p'
+recovery_target_time = '2026-11-20 14:00:00+02'   # leave out = replay to the newest WAL
+recovery_target_action = 'promote'" | sudo -u postgres tee /etc/postgresql/16/main/conf.d/90-restore.conf
+sudo systemctl start postgresql@16-main      # replays the WAL, then opens; then remove 90-restore.conf
+```
+
 ### 70-hosting (optional)
 
 Skipped unless `BOX_DISK_SERIAL` is set. Every project gets its own **box**: an unprivileged

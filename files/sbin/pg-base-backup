@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# pg-base-backup: weekly base backup of the whole PostgreSQL cluster (PG_PITR=yes). Values from
+# /etc/server/host.env. With the WAL archive (pg-wal-archive) it restores to any moment since
+# the oldest base backup kept.
+#
+#   pg-base-backup     pg_basebackup (plain files, WAL streamed in, read at most PG_BASE_MAX_RATE)
+#                      into PG_BASE_DIR/<date>.partial, checked with pg_verifybackup, then renamed
+#                      to PG_BASE_DIR/<date>. Keeps PG_BASE_KEEP (2) base backups and removes the
+#                      archived WAL older than the oldest one kept (pg_archivecleanup).
+#
+# Why not pg_dump for big databases: a dump reads row by row in random order and holds one
+# transaction for hours (no cleanup meanwhile). A base backup reads the data files in order.
+# Restore: README, "Restore from the base backup and the WAL archive".
+# Run by pg-base-backup.timer.
+set -euo pipefail
+# shellcheck source=/dev/null
+. /etc/server/host.env
+cd /
+
+num_or() { if [[ "${1:-}" =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ]; then echo "$1"; else echo "$2"; fi; }
+as_pg() { runuser -u postgres -- "$@"; }
+bin=/usr/lib/postgresql/${PG_VERSION:-16}/bin
+
+base=${PG_BASE_DIR:-${BACKUP_MOUNT:?BACKUP_MOUNT is empty}/postgres-base}
+wal=${PG_WAL_DIR:-$BACKUP_MOUNT/postgres-wal}
+keep=$(num_or "${PG_BASE_KEEP:-}" 2)
+rate=${PG_BASE_MAX_RATE:-50M}
+[[ "$rate" =~ ^[0-9]+[kM]?$ ]] || { echo "PG_BASE_MAX_RATE: odd value '$rate'" >&2; exit 1; }
+
+# The backup disk must really be mounted: never fill the system disk by mistake.
+if [ -n "${BACKUP_MOUNT:-}" ] && ! mountpoint -q "$BACKUP_MOUNT"; then
+    echo "$BACKUP_MOUNT is not mounted: no base backup" >&2; exit 1
+fi
+install -d -o postgres -g postgres -m 700 "$base"
+
+# A half-done backup from a killed run.
+find "$base" -mindepth 1 -maxdepth 1 -name '*.partial' -exec rm -rf {} +
+
+# Free space: the data directory size plus 10 %.
+data=$(as_pg psql -XAtc "SHOW data_directory")
+need=$(( $(du -sb "$data" | cut -f1) * 11 / 10 ))
+free=$(df -B1 --output=avail "$base" | tail -n 1 | tr -d ' ')
+[ "$free" -gt "$need" ] || { echo "not enough space in $base: need $need, free $free" >&2; exit 1; }
+
+day=$(date +%F)
+dst="$base/$day"
+[ ! -e "$dst" ] || { echo "$dst exists already: one base backup a day" >&2; exit 0; }
+t0=$(date +%s)
+as_pg "$bin/pg_basebackup" -D "$dst.partial" -Fp -X stream --checkpoint=spread --max-rate="$rate" \
+    --label="pg-base-backup $day" --no-password
+as_pg "$bin/pg_verifybackup" -q "$dst.partial"
+mv "$dst.partial" "$dst"
+echo "base backup $dst: $(du -sh "$dst" | cut -f1) in $(( ($(date +%s) - t0) / 60 )) min, verified"
+
+# Keep the newest $keep, then drop the WAL the oldest kept one no longer needs.
+mapfile -t all < <(find "$base" -mindepth 1 -maxdepth 1 -type d -name '[0-9][0-9][0-9][0-9]-*' ! -name '*.partial' | sort)
+if [ "${#all[@]}" -gt "$keep" ]; then
+    for old in "${all[@]:0:${#all[@]}-keep}"; do rm -rf "$old"; echo "removed old base backup $old"; done
+fi
+oldest=$(find "$base" -mindepth 1 -maxdepth 1 -type d -name '[0-9][0-9][0-9][0-9]-*' ! -name '*.partial' | sort | head -n 1)
+first=$(sed -n 's/^START WAL LOCATION: .* (file \([0-9A-F]\{24\}\))$/\1/p' "$oldest/backup_label")
+if [ -n "$first" ] && [ -d "$wal" ]; then
+    as_pg "$bin/pg_archivecleanup" -x .zst "$wal" "$first"
+    echo "WAL archive: kept from $first on ($(du -sh "$wal" | cut -f1))"
+fi
+date +%s > "$base/.last-ok"

@@ -76,7 +76,23 @@ if [ -n "${BACKUP_DIR:-}" ] && { [ "${INSTALL_POSTGRES:-yes}" = yes ] || [ -d "$
     else
         b="$b dumps: NONE in $root/daily,"; warn+=("no normal dump in $root/daily")
     fi
-    for db in ${PG_BACKUP_SKIP_DBS:-}; do
+    if [ "${PG_PITR:-no}" = yes ]; then
+        # The big databases are covered by the weekly base backup + the WAL archive.
+        base=${PG_BASE_DIR:-${BACKUP_MOUNT:-/backup}/postgres-base}
+        if [ -f "$base/.last-ok" ]; then
+            h=$(age_h "$(cat "$base/.last-ok")")
+            b="$b base backup ${h} h old,"
+            [ "$h" -le 192 ] || warn+=("base backup is $h h old (weekly expected)")
+        else
+            b="$b base backup: never,"; warn+=("no base backup yet in $base")
+        fi
+        arch=$(runuser -u postgres -- psql -XAtc "SELECT coalesce(extract(epoch FROM now() - last_archived_time)::int, -1) || ' ' || failed_count || ' ' || coalesce(extract(epoch FROM now() - last_failed_time)::int, -1) FROM pg_stat_archiver" 2>/dev/null || echo "-1 0 -1")
+        read -r a_age a_fail a_fail_age <<< "$arch"
+        b="$b WAL archived $(( a_age < 0 ? -1 : a_age / 60 )) min ago,"
+        if [ "$a_age" -lt 0 ] || [ "$a_age" -gt 3600 ]; then warn+=("WAL archive: last file archived ${a_age} s ago (archive_mode on? see pg_stat_archiver)"); fi
+        if [ "$a_fail_age" -ge 0 ] && [ "$a_fail_age" -lt 86400 ]; then warn+=("WAL archive: a failure in the last 24 h ($a_fail failures in total)"); fi
+    fi
+    for db in $([ "${PG_PITR:-no}" = yes ] || echo "${PG_BACKUP_SKIP_DBS:-}"); do
         n=$(newest_dir "$big_root/$db/daily")
         if [ -n "$n" ]; then
             h=$(age_h "$(stat -c %Y "$n")")

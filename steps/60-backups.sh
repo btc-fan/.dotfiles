@@ -19,25 +19,68 @@ main() {
         /etc/systemd/system/work-snapshot.timer.d/10-schedule.conf \
         /etc/systemd/system/backup-mirror.timer.d/10-schedule.conf
     unit_changed
-    if is_yes "${INSTALL_POSTGRES:-yes}"; then pg_backup; fi
+    if is_yes "${INSTALL_POSTGRES:-yes}"; then pg_backup; pg_pitr; fi
     if [ -n "${WORK_DIR:-}" ]; then work_snapshot; fi
     if [ -n "${BACKUP_MOUNT:-}" ]; then backup_mirror; fi
     if [ "$UNITS" = 1 ]; then
         run systemctl daemon-reload
         # Pick up new times in timers that are already running.
         local t
-        for t in pg-backup pg-backup-big pg-restore-drill work-snapshot backup-mirror; do
+        for t in pg-backup pg-backup-big pg-base-backup pg-restore-drill work-snapshot backup-mirror; do
             if systemctl is-active -q "$t.timer"; then run systemctl restart "$t.timer"; fi
         done
     fi
     if is_yes "${INSTALL_POSTGRES:-yes}"; then
         enable_unit pg-backup.timer --now
-        enable_unit pg-backup-big.timer --now
+        if is_yes "${PG_PITR:-no}"; then
+            # The base backup + WAL archive cover the big databases: no daily dump of them.
+            if systemctl is-enabled -q pg-backup-big.timer 2>/dev/null; then run systemctl disable --now pg-backup-big.timer; fi
+            enable_unit pg-base-backup.timer --now
+        else
+            enable_unit pg-backup-big.timer --now
+        fi
         enable_unit pg-restore-drill.timer --now
     fi
     [ -z "${WORK_DIR:-}" ] || enable_unit work-snapshot.timer --now
     [ -z "${BACKUP_MOUNT:-}" ] || enable_unit backup-mirror.timer --now
-    dry || systemctl list-timers --all --no-pager 'pg-backup*.timer' 'pg-restore-drill.timer' 'work-snapshot.timer' 'backup-mirror.timer' | sed 's/^/   /'
+    dry || systemctl list-timers --all --no-pager 'pg-backup*.timer' 'pg-base-backup.timer' 'pg-restore-drill.timer' 'work-snapshot.timer' 'backup-mirror.timer' | sed 's/^/   /'
+}
+
+# PG_PITR=yes: every finished WAL file is copied to the backup disk (archive_command) and a base
+# backup of the whole cluster runs once a week. Restore to any moment since the oldest base
+# backup kept. archive_mode needs one PostgreSQL restart: this step never restarts PostgreSQL,
+# it says when the restart is still due.
+pg_pitr() {
+    local conf="/etc/postgresql/$PG_VERSION/main/conf.d/30-wal-archive.conf"
+    if ! is_yes "${PG_PITR:-no}"; then
+        if [ -f "$conf" ]; then
+            run rm -f "$conf"
+            warn "PG_PITR is off: $conf removed. Restart PostgreSQL to stop archiving: sudo systemctl restart postgresql@$PG_VERSION-main"
+        fi
+        return 0
+    fi
+    [ -n "${BACKUP_MOUNT:-}" ] || die "PG_PITR=yes needs BACKUP_MOUNT (the WAL archive and the base backups go there)"
+    local wal=${PG_WAL_DIR:-$BACKUP_MOUNT/postgres-wal} base=${PG_BASE_DIR:-$BACKUP_MOUNT/postgres-base}
+    local day=${PG_BASE_BACKUP_DAY:-Sun} at=${PG_BASE_BACKUP_TIME:-05:30}
+    [[ "$day" =~ ^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$ ]] || die "PG_BASE_BACKUP_DAY: Mon..Sun, not '$day'"
+    [[ "$wal" =~ ^/[A-Za-z0-9/._-]+$ ]] || die "PG_WAL_DIR: odd path '$wal'"
+    log "PITR: WAL archive -> $wal (zstd), base backup every $day at $at -> $base, keep ${PG_BASE_KEEP:-2}"
+    apt_install zstd
+    run install -d -o postgres -g postgres -m 700 "$wal" "$base"
+    put_file sbin/pg-wal-archive /usr/local/sbin/pg-wal-archive 755
+    put_file sbin/pg-base-backup /usr/local/sbin/pg-base-backup 750
+    put "$conf" 644 postgres:postgres <<EOF
+# Managed by ~/.dotfiles setup.sh (step 60-backups, PG_PITR=yes). archive_mode needs a restart.
+archive_mode = on
+archive_command = '/usr/local/sbin/pg-wal-archive %p %f $wal'
+archive_timeout = 900      # a quiet hour still sends its WAL every 15 min
+EOF
+    dry || runuser -u postgres -- psql -XAtqc "SELECT pg_reload_conf()" >/dev/null
+    if ! dry && [ "$(runuser -u postgres -- psql -XAtc "SHOW archive_mode")" != on ]; then
+        warn "archive_mode needs one PostgreSQL restart (seconds; clients reconnect): sudo systemctl restart postgresql@$PG_VERSION-main"
+    fi
+    pg_unit pg-base-backup "Weekly base backup of the PostgreSQL cluster (PITR)" "/usr/local/sbin/pg-base-backup" "$wal $base"
+    timer pg-base-backup "Weekly PostgreSQL base backup" "$at" "$day *-*-*"
 }
 
 # timer NAME DESCRIPTION HH:MM [DAYS]: DAYS is the OnCalendar date part (default every day).

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# pg-wal-archive: PostgreSQL archive_command. Copies one finished WAL file to the backup disk,
+# zstd-compressed, atomically. Set by step 60 when PG_PITR=yes (conf.d/30-wal-archive.conf):
+#   archive_command = '/usr/local/sbin/pg-wal-archive %p %f <WAL dir>'
+# Runs as the postgres user, from the data directory. Exit 0 = archived (Postgres may recycle
+# the file), anything else = Postgres keeps the file and calls again later.
+# A file that is already in the archive (a retry after a crash) counts as archived only when its
+# content is the same; a different file with the same name is refused (never overwrite).
+set -euo pipefail
+
+src=$1 name=$2 dir=$3
+dst="$dir/$name.zst"
+
+[ -d "$dir" ] || { echo "pg-wal-archive: $dir missing (backup disk not mounted?)" >&2; exit 1; }
+
+if [ -e "$dst" ]; then
+    if zstd -q -dc "$dst" | cmp -s - "$src"; then exit 0; fi
+    echo "pg-wal-archive: $dst exists with other content: refused" >&2
+    exit 1
+fi
+
+tmp="$dir/.$name.tmp.$$"
+trap 'rm -f "$tmp"' EXIT
+zstd -q -3 -c "$src" > "$tmp"
+sync "$tmp"
+mv "$tmp" "$dst"
+sync -f "$dir"
