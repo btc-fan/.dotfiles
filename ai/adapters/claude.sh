@@ -88,35 +88,117 @@ print("%s %s" % (row.get("version") or "-", row.get("gitCommitSha") or "-"))
 EOS
 }
 
-# claude_plugin_at <plugin> <sha> <version> [stamp file]: true when the installed plugin is the wanted one: its
-# gitCommitSha is <sha> (when Claude records one), else its version is <version>, else the stamp says <sha>.
-claude_plugin_at() {
-    local plugin=$1 sha=$2 want=$3 stamp=${4:-} info iver isha
-    info=$(claude_plugin_info "$plugin"); iver=${info%% *}; isha=${info##* }
-    if [ -n "$sha" ] && [ "$isha" != - ]; then [ "$isha" = "$sha" ]; return; fi
-    if [ -n "$want" ]; then [ "$iver" = "$want" ]; return; fi
-    if [ -n "$sha" ] && [ -n "$stamp" ]; then [ "$(cat "$stamp" 2>/dev/null)" = "$sha" ]; return; fi
-    return 0
+# claude_enabled_get <plugin@marketplace>: the user's enabledPlugins value in settings.json (true, false, or
+# nothing). claude_enabled_set <plugin> <value>: put it back after an uninstall + install (not recorded: it is
+# the user's own value, not ours).
+claude_enabled_get() {
+    python3 - "$CLAUDE_DIR/settings.json" "$1" <<'EOS'
+import json, sys
+try:
+    v = (json.load(open(sys.argv[1])).get("enabledPlugins") or {}).get(sys.argv[2])
+except (OSError, ValueError):
+    v = None
+print("" if v is None else json.dumps(v))
+EOS
+}
+claude_enabled_set() {
+    [ -n "$2" ] && [ "$AI_DRY_RUN" != 1 ] || return 0
+    [ "$(claude_enabled_get "$1")" = "$2" ] && return 0
+    python3 - "$CLAUDE_DIR/settings.json" "$1" "$2" <<'EOS'
+import json, os, sys
+path, key, value = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
+try:
+    data = json.load(open(path))
+except (OSError, ValueError):
+    data = {}
+data.setdefault("enabledPlugins", {})[key] = value
+tmp = path + ".ai-tmp"
+with open(tmp, "w") as fh:
+    json.dump(data, fh, indent=2)
+    fh.write("\n")
+os.replace(tmp, path)
+EOS
+    info "$1: enabledPlugins kept at $2 (the value before the reinstall)"
 }
 
-# Replace a marketplace that points to another source. Removing it uninstalls its plugins (claude CLI, tested
-# 2026-11-14); the caller installs ours again. A marketplace this setup did not add gets a restore record:
-# uninstall.sh first removes ours, then adds the old source back (and its plugin, when one was installed).
+# claude_plugin_current <plugin> <sha> <version> <stamp file>: true when the installed plugin is the wanted one.
+# With a commit: Claude's gitCommitSha when it records one (github marketplaces), else the stamp this setup
+# wrote after the last verified install (local folder marketplaces: a new tag with the same plugin.json version
+# still counts as new), else unknown (false: refresh once). Without a commit: the version.
+claude_plugin_current() {
+    local plugin=$1 sha=$2 want=$3 stamp=$4 info iver isha
+    info=$(claude_plugin_info "$plugin"); iver=${info%% *}; isha=${info##* }
+    if [ -n "$sha" ]; then
+        [ "$isha" != - ] && { [ "$isha" = "$sha" ]; return; }
+        [ -f "$stamp" ] || return 1
+        [ "$(cat "$stamp")" = "$sha" ] || return 1
+        [ -z "$want" ] || [ "$iver" = "$want" ]
+        return
+    fi
+    [ -z "$want" ] || [ "$iver" = "$want" ]
+}
+
+# claude_plugin_verified <plugin> <sha> <version>: after an install or update, what Claude reports: its
+# gitCommitSha when it records one, else the version (a local folder marketplace has no commit in Claude).
+claude_plugin_verified() {
+    local plugin=$1 sha=$2 want=$3 info iver isha
+    claude_has_plugin "$plugin" || return 1
+    info=$(claude_plugin_info "$plugin"); iver=${info%% *}; isha=${info##* }
+    if [ -n "$sha" ] && [ "$isha" != - ]; then [ "$isha" = "$sha" ]; return; fi
+    [ -z "$want" ] || [ "$iver" = "$want" ]
+}
+
+# Replace a marketplace that points to another source (a foreign one, or ours at an older tag: the claude CLI
+# stores the ref and `marketplace update` never changes it, so a new tag needs remove + add). The plugin is
+# uninstalled first with --keep-data (its data folder stays; removing the marketplace alone would uninstall it
+# without that flag). A marketplace this setup did not add gets a restore record: uninstall.sh first removes
+# ours, then adds the old source back (and its plugin). If the add fails, the old source and the plugin come back
+# at once (claude_replace_rollback). Sets CLAUDE_REPLACED_FROM to the old source.
+CLAUDE_REPLACED_FROM=""
 claude_marketplace_replace() {
-    local mname=$1 msrc=$2 plugin=$3 cur=$4 old
+    local mname=$1 msrc=$2 plugin=$3 cur=$4 enabled=$5 old had=0
     old=$(claude_src_add_form "$cur")
+    claude_has_plugin "$plugin" && had=1
     if ! state_has "cmd:claude-marketplace:$mname"; then
-        if claude_has_plugin "$plugin"; then
+        if [ $had = 1 ]; then
             aiconf record-cmd "claude-marketplace-restore:$mname" -- sh -c \
                 'claude plugin marketplace add "$1" && claude plugin install "$2" --scope user' _ "$old" "$plugin"
         else
             aiconf record-cmd "claude-marketplace-restore:$mname" -- claude plugin marketplace add "$old"
         fi
     fi
-    info "marketplace $mname points to $old, ours is $msrc: replaced"
-    run claude plugin marketplace remove "$mname" || { warn "claude plugin marketplace remove $mname failed: left as it is"; return 1; }
-    run claude plugin marketplace add "$msrc" || { warn "claude plugin marketplace add $msrc failed"; return 1; }
+    info "marketplace $mname points to $old, ours is $msrc: replaced (plugin data kept)"
+    [ $had = 0 ] || run claude plugin uninstall "$plugin" --keep-data || true
+    if ! run claude plugin marketplace remove "$mname"; then
+        warn "claude plugin marketplace remove $mname failed: left as it is"
+        [ $had = 0 ] || { run claude plugin install "$plugin" --scope user || true; claude_enabled_set "$plugin" "$enabled"; }
+        return 1
+    fi
+    CLAUDE_REPLACED_FROM=$old
+    if ! run claude plugin marketplace add "$msrc"; then
+        warn "claude plugin marketplace add $msrc failed: the old source $old is put back"
+        claude_replace_rollback "$mname" "$plugin" "$enabled" "$had"
+        return 1
+    fi
     aiconf record-cmd "claude-marketplace:$mname" -- claude plugin marketplace remove "$mname"
+}
+
+# claude_replace_rollback <mname> <plugin> <enabled value> <had plugin 0|1>: after a failed replace, the old
+# marketplace source and the plugin (with its enabledPlugins value) come back.
+claude_replace_rollback() {
+    local mname=$1 plugin=$2 enabled=$3 had=${4:-1} old=$CLAUDE_REPLACED_FROM
+    [ -n "$old" ] || return 0
+    CLAUDE_REPLACED_FROM=""
+    claude_marketplace_src "$mname" | grep -q . && run claude plugin marketplace remove "$mname" || true
+    if run claude plugin marketplace add "$old"; then
+        if [ "$had" = 1 ]; then
+            run claude plugin install "$plugin" --scope user || { warn "rollback: $plugin not reinstalled from $old: check /plugin"; return 1; }
+            claude_enabled_set "$plugin" "$enabled"
+        fi
+        info "rollback: marketplace $mname is $old again$([ "$had" = 1 ] && printf ', %s reinstalled' "$plugin")"
+    else
+        warn "rollback: claude plugin marketplace add $old failed: $plugin is not installed now (check /plugin)"
+    fi
 }
 
 # git_source_audited <tool name> <repo URL> <ref> <sha>: agent-audit of a git source at <sha> before a plugin
@@ -129,24 +211,27 @@ git_source_audited() {
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/ai-$name.XXXXXX")
     git clone -q "$repo" "$tmp/$name" && git -C "$tmp/$name" -c advice.detachedHead=false checkout -q "$sha" \
         || { warn "$name: clone of $repo at $sha failed"; rm -rf "$tmp"; return 1; }
-    audit_ok dir "$tmp/$name" "${ref:-${sha:0:12}}" "$name" || { rm -rf "$tmp"; return 1; }
+    audit_ok dir "$tmp/$name" "$sha" "$name" || { rm -rf "$tmp"; return 1; }
     rm -rf "$tmp"
 }
 
 # claude_plugin <marketplace-name> <marketplace-source> <plugin@marketplace> [sha] [version]
 # Marketplace: added when missing; replaced when it points to another source. Plugin: installed when missing;
-# moved when it is not at <sha> / <version> (marketplace update + plugin update, else uninstall + install),
-# then checked. A github marketplace clone must be at <sha> (the commit the resolver saw for the tag).
+# moved when it is not at <sha> / <version> (marketplace update + plugin update, else uninstall --keep-data +
+# install), then checked; the user's enabledPlugins value survives every reinstall. A github marketplace clone
+# must be at <sha> (the commit the resolver saw for the tag). A failure after a replace puts the old source back.
 claude_plugin() {
-    local mname=$1 msrc=$2 plugin=$3 sha=${4:-} want=${5:-} cur head stamp
+    local mname=$1 msrc=$2 plugin=$3 sha=${4:-} want=${5:-} cur head stamp enabled before
     stamp="$AI_STATE_DIR/claude-plugin.${plugin%@*}.src"
+    enabled=$(claude_enabled_get "$plugin")
+    CLAUDE_REPLACED_FROM=""
     cur=$(claude_marketplace_src "$mname")
     if [ -z "$cur" ] && ! claude_has_marketplace "$mname"; then
         run claude plugin marketplace add "$msrc" || { warn "claude plugin marketplace add $msrc failed"; return 1; }
         aiconf record-cmd "claude-marketplace:$mname" -- claude plugin marketplace remove "$mname"
     elif [ -n "$cur" ] && [ "$mname" != ai ] && ! same_src "$cur" "$(claude_src_norm "$msrc")"; then
         # (ai = this repo's own marketplace: never removed here, B2; ai-core is refreshed in place below.)
-        claude_marketplace_replace "$mname" "$msrc" "$plugin" "$cur" || return 1
+        claude_marketplace_replace "$mname" "$msrc" "$plugin" "$cur" "$enabled" || return 1
     fi
     case "$msrc" in
         /*) ;;
@@ -159,24 +244,32 @@ claude_plugin() {
                 fi
                 if [ "$head" != "$sha" ]; then
                     warn "$mname marketplace is at $head, the resolved source is $sha: plugin not installed or moved (check /plugin)"
+                    claude_replace_rollback "$mname" "$plugin" "$enabled"
                     return 1
                 fi
             fi
             ;;
     esac
     if claude_has_plugin "$plugin"; then
-        if claude_plugin_at "$plugin" "$sha" "$want" "$stamp"; then
+        if claude_plugin_current "$plugin" "$sha" "$want" "$stamp"; then
             info "$plugin installed${want:+ $want}${sha:+ at ${sha:0:7}}"
-            [ -z "$sha" ] || [ "$AI_DRY_RUN" = 1 ] || { mkdir -p "$AI_STATE_DIR"; printf '%s\n' "$sha" > "$stamp"; }
             return 0
         fi
+        before=$(claude_plugin_info "$plugin")
         run claude plugin marketplace update "$mname" || true
         run claude plugin update "$plugin" || true
-        if [ "$AI_DRY_RUN" != 1 ] && ! claude_plugin_at "$plugin" "$sha" "$want"; then
-            run claude plugin uninstall "$plugin" || true
-            run claude plugin install "$plugin" --scope user || { warn "claude plugin install $plugin failed after uninstall"; return 1; }
+        # A local folder marketplace: Claude records no commit, and `plugin update` keeps a cache whose version
+        # did not change. Same version, new commit: reinstall so the new files are really copied.
+        if [ "$AI_DRY_RUN" != 1 ] && [ -n "$sha" ] && [ "${before##* }" = - ] && [ "$(claude_plugin_info "$plugin")" = "$before" ]; then
+            run claude plugin uninstall "$plugin" --keep-data || true
+            run claude plugin install "$plugin" --scope user || true
         fi
-        if [ "$AI_DRY_RUN" = 1 ] || claude_plugin_at "$plugin" "$sha" "$want"; then
+        if [ "$AI_DRY_RUN" != 1 ] && ! claude_plugin_verified "$plugin" "$sha" "$want"; then
+            run claude plugin uninstall "$plugin" --keep-data || true
+            run claude plugin install "$plugin" --scope user || true
+        fi
+        claude_enabled_set "$plugin" "$enabled"
+        if [ "$AI_DRY_RUN" = 1 ] || claude_plugin_verified "$plugin" "$sha" "$want"; then
             [ -z "$sha" ] || [ "$AI_DRY_RUN" = 1 ] || { mkdir -p "$AI_STATE_DIR"; printf '%s\n' "$sha" > "$stamp"; }
             ok "Claude plugin $plugin moved to ${want:-${sha:0:7}} (newest stable)"
             return 0
@@ -188,9 +281,18 @@ claude_plugin() {
     # refresh it once and retry before giving up (old Mac, 2026-11-12).
     if ! run claude plugin install "$plugin" --scope user; then
         run claude plugin marketplace update "$mname" || run claude plugin marketplace add "$msrc" || true
-        run claude plugin install "$plugin" --scope user || { warn "claude plugin install $plugin failed"; return 1; }
+        if ! run claude plugin install "$plugin" --scope user; then
+            warn "claude plugin install $plugin failed"
+            claude_replace_rollback "$mname" "$plugin" "$enabled"
+            return 1
+        fi
     fi
     aiconf record-cmd "claude-plugin:$plugin" -- claude plugin uninstall "$plugin"
+    claude_enabled_set "$plugin" "$enabled"
+    if [ "$AI_DRY_RUN" != 1 ] && ! claude_plugin_verified "$plugin" "$sha" "$want"; then
+        warn "Claude plugin $plugin installed but Claude reports $(claude_plugin_info "$plugin"), wanted ${want:-$sha}: check /plugin"
+        return 1
+    fi
     [ -z "$sha" ] || [ "$AI_DRY_RUN" = 1 ] || { mkdir -p "$AI_STATE_DIR"; printf '%s\n' "$sha" > "$stamp"; }
     ok "Claude plugin $plugin (user scope)"
 }
@@ -201,7 +303,7 @@ claude_git_plugin() {
     local tool=$1 mname=$2 repo=$3 plugin=$4 src
     resolve_tool "$tool" || return 1
     src="$repo${R_REF:+#$R_REF}"
-    if claude_has_plugin "$plugin" && claude_plugin_at "$plugin" "$R_SHA" "" "$AI_STATE_DIR/claude-plugin.${plugin%@*}.src" \
+    if claude_has_plugin "$plugin" && claude_plugin_current "$plugin" "$R_SHA" "" "$AI_STATE_DIR/claude-plugin.${plugin%@*}.src" \
         && same_src "$(claude_marketplace_src "$mname")" "$(claude_src_norm "$src")"; then
         info "$plugin at ${R_REF:-${R_SHA:0:7}} (newest stable)"; return 0
     fi
@@ -298,7 +400,7 @@ claude_plugins() {
     for pn in ponytail i-have-adhd; do
         d=$(plugin_src_dir "$pn")
         if [ -d "$d" ] || [ "$AI_DRY_RUN" = 1 ]; then
-            claude_plugin "$pn" "$d" "$pn@$pn" "$(src_head "$d")" "$(plugin_json_version "$d")" || true
+            claude_plugin "$pn" "$d" "$pn@$pn" "$(src_sha_for "$pn")" "$(plugin_json_version "$d")" || true
         else
             skip "$pn: audited source missing"
         fi
