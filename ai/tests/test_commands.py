@@ -321,24 +321,24 @@ print(json.dumps(out))
 
 def t_playwright(work):
     """ai-start turns on ai-playwright@ai for Claude and writes `ai-playwright-mcp` for Codex (never npx);
-    the wrapper runs only an installed pinned binary."""
-    ver = [ln.split("=", 1)[1].split()[0] for ln in open(os.path.join(AI_DIR, "pins.env"))
-           if ln.startswith("PLAYWRIGHT_MCP_VERSION=")][0]
+    the wrapper runs only an installed binary, the highest installed version (ai-start installs the newest
+    stable release; no network in tests: AI_RESOLVE_OFFLINE=1 keeps what is installed)."""
     home = os.path.join(work, "pw-home")
     wrapper = os.path.join(BIN, "ai-playwright-mcp")
     res = run(["bash", wrapper, "--headless"], env={"HOME": home})
     assert res.returncode == 1 and "not installed" in res.stdout, res.stdout
-    fake = os.path.join(home, ".local", "share", "ai", "npm", "playwright-mcp-" + ver, "node_modules", ".bin",
-                        "mcp-server-playwright")
-    os.makedirs(os.path.dirname(fake))
-    write_exec(fake, "#!/bin/sh\necho fake-playwright \"$@\"\n")
+    for ver, name in (("0.0.9", "old"), ("0.0.85", "new")):
+        fake = os.path.join(home, ".local", "share", "ai", "npm", "playwright-mcp-" + ver, "node_modules", ".bin",
+                            "mcp-server-playwright")
+        os.makedirs(os.path.dirname(fake))
+        write_exec(fake, "#!/bin/sh\necho fake-playwright-%s \"$@\"\n" % name)
     res = run(["bash", wrapper, "--headless", "--isolated"], env={"HOME": home})
-    assert res.returncode == 0 and "fake-playwright --headless --isolated" in res.stdout, res.stdout
+    assert res.returncode == 0 and "fake-playwright-new --headless --isolated" in res.stdout, res.stdout
     proj = os.path.join(work, "pw-proj")
     os.makedirs(proj)
     run(["git", "init", "-q", proj])
     res = run([sys.executable, os.path.join(BIN, "ai-start"), "--dir", proj, "--tools", "browser", "--yes"],
-              env={"HOME": home, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t.invalid",
+              env={"HOME": home, "AI_RESOLVE_OFFLINE": "1", "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t.invalid",
                    "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t.invalid"})
     assert res.returncode == 0, res.stdout
     assert not os.path.exists(os.path.join(proj, ".mcp.json")), "project .mcp.json is blocked: use ai-playwright@ai"
@@ -350,10 +350,12 @@ def t_playwright(work):
     os.makedirs(proj2)
     run(["git", "init", "-q", proj2])
     res = run([sys.executable, os.path.join(BIN, "ai-start"), "--dir", proj2, "--tools", "browser", "--dry-run"],
-              env={"HOME": os.path.join(work, "pw-empty-home")})
+              env={"HOME": os.path.join(work, "pw-empty-home"), "AI_RESOLVE_OFFLINE": "1"})
     assert "npx" not in res.stdout, res.stdout
     assert not os.path.exists(os.path.join(work, "pw-empty-home", ".local", "share", "ai", "npm")), \
         "dry run must not install"
+    assert not os.path.exists(os.path.join(work, "pw-empty-home", ".local", "state", "ai", "resolved.json")), \
+        "dry run must not write resolved.json"
 
 
 def t_state_mode(work):

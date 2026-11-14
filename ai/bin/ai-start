@@ -45,6 +45,7 @@ origin remote of $AI_HOME. Third-party repos are refused.
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -693,50 +694,72 @@ def load_routing():
         sys.exit("no ai/build/routing.json: run ai-render")
 
 
-def pin(name):
-    for line in (read(os.path.join(AI_DIR, "pins.env")) or "").splitlines():
-        m = re.match(r"^\s*%s\s*=\s*\"?([^\"#\s]+)" % re.escape(name), line)
-        if m:
-            return m.group(1)
-    return None
+def resolver():
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, os.path.join(AI_DIR, "lib"))
+    import resolve
+    return resolve
 
 
 def playwright_dir(ver):
     return os.path.expanduser("~/.local/share/ai/npm/playwright-mcp-%s" % ver)
 
 
+def playwright_installed():
+    """Highest installed playwright-mcp-<version> folder with its binary, or None."""
+    base = os.path.expanduser("~/.local/share/ai/npm")
+    for ver in reversed(resolver().npm_dir_versions(base, "playwright-mcp")):
+        if os.access(os.path.join(playwright_dir(ver), "node_modules", ".bin", "mcp-server-playwright"), os.X_OK):
+            return ver
+    return None
+
+
 def ensure_playwright(dry_run=False):
-    """Install the pinned @playwright/mcp once (integrity from pins.env, agent-audit PASS in 24 h,
-    --ignore-scripts) into ~/.local/share/ai/npm/playwright-mcp-<ver>. False = not installed (reason printed)."""
-    ver, want = pin("PLAYWRIGHT_MCP_VERSION"), pin("PLAYWRIGHT_MCP_INTEGRITY")
-    if not ver:
-        print("skip Playwright MCP: no PLAYWRIGHT_MCP_VERSION in ai/pins.env (audit and pin it first)")
-        return False
-    prefix = playwright_dir(ver)
-    if os.access(os.path.join(prefix, "node_modules", ".bin", "mcp-server-playwright"), os.X_OK):
+    """Install the newest stable @playwright/mcp (owner decision 2026-11-14; PLAYWRIGHT_MCP_HOLD in ai/pins.env
+    holds it) into ~/.local/share/ai/npm/playwright-mcp-<ver>: registry integrity, agent-audit PASS in 24 h,
+    --ignore-scripts, then version and integrity checked. Offline: the installed version stays.
+    False = nothing usable installed (reason printed)."""
+    res = resolver()
+    have = playwright_installed()
+    r = res.resolve("playwright-mcp", write=not dry_run)
+    ver, want = r.get("version"), r.get("integrity")
+    if r.get("status") in ("none", "cached") and have:
+        if ver and ver != have:
+            print("Playwright MCP %s kept (newest stable not checked: %s)" % (have, r.get("note")))
         return True
-    if not want:
-        print("skip Playwright MCP: no PLAYWRIGHT_MCP_INTEGRITY in ai/pins.env (needed for a checked install)")
-        return False
+    if not ver:
+        print("skip Playwright MCP: newest stable unknown (%s)" % (r.get("note") or "resolver failed"))
+        return bool(have)
+    if ver == have:
+        return True
+    prefix = playwright_dir(ver)
     pkg = "@playwright/mcp@%s" % ver
     if dry_run:
         print("would install %s into %s (integrity + agent-audit checked first)" % (pkg, prefix))
         return True
     got = (cmd_out(["npm", "view", pkg, "dist.integrity"]) or "").strip()
-    if got != want:
-        print("skip Playwright MCP: %s integrity mismatch (registry: %s)" % (pkg, got or "none"))
-        return False
+    if not want or got != want:
+        print("skip Playwright MCP %s: npm sees integrity %s, the registry answer was %s%s"
+              % (ver, got or "none", want or "none", ("; %s kept" % have) if have else ""))
+        return bool(have)
     if not audit_passed("npm", "@playwright/mcp", ver):
-        print("skip Playwright MCP: no agent-audit PASS in 24 h. Run: agent-audit npm @playwright/mcp %s" % ver)
-        return False
+        print("skip Playwright MCP %s: no agent-audit PASS in 24 h. Run: agent-audit npm @playwright/mcp %s%s"
+              % (ver, ver, ("; %s kept" % have) if have else ""))
+        return bool(have)
     os.makedirs(prefix, exist_ok=True)
     rc = subprocess.call(["npm", "install", "--prefix", prefix, "--ignore-scripts", "--no-audit", "--no-fund",
                           "--save-exact", pkg])
-    if rc != 0:
-        print("skip Playwright MCP: npm install failed (%d)" % rc)
-        return False
-    print("Playwright MCP %s installed in %s. Browsers are not downloaded (--ignore-scripts): run once\n"
-          "  %s/node_modules/.bin/playwright install chromium" % (ver, prefix, prefix))
+    ok, msg = res.verify_npm(prefix, "@playwright/mcp", ver, want) if rc == 0 else (False, "npm install failed (%d)" % rc)
+    if not ok:
+        print("skip Playwright MCP %s: %s" % (ver, msg))
+        shutil.rmtree(prefix, ignore_errors=True)
+        return bool(have)
+    res.record("playwright-mcp", ver, integrity=want)
+    if have:
+        shutil.rmtree(playwright_dir(have), ignore_errors=True)
+    print("Playwright MCP %s installed in %s%s. Browsers are not downloaded (--ignore-scripts): run once\n"
+          "  %s/node_modules/.bin/playwright install chromium" % (ver, prefix, (" (was %s)" % have) if have else "",
+                                                                   prefix))
     return True
 
 
