@@ -567,4 +567,7 @@ restore where something existing is removed; dry-run safe.
   audited, through the claude-seo path (a foreign marketplace is replaced, data kept), ON at user scope on every
   machine. Contract `ai/rules/last30days.md`, evals `ai/evals/last30days.md`, one passive line in
   `ai/agents-md/90-toolbox-and-vendor-rules.md`, no routing row.
+- OMC companion file: `omc launch` (OMC CLI 5.8.x) loads only `~/.claude/CLAUDE-omc.md` (copied into
+  `~/.claude/.omc-launch/`) when it has the OMC markers. install.sh and ai-sync add the AI:core import block to
+  it after `<!-- OMC:END -->` when the file exists (macOS; Linux has /etc/claude-code/CLAUDE.md).
 - ai-doctor checks all of the above.

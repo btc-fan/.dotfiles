@@ -518,4 +518,9 @@ Seen on the owner's M3 Mac (macOS 15.5), read only:
   topic to the sources it queries (vendor "Security & Permissions" list); cookie reads and publishing need
   consent in chat. agent-audit was not run at intake on this Mac (scanners not installed here); install.sh
   audits the tag tree before every install, as for claude-seo.
+- OMC launch: the owner starts Claude with `omc` / `omc launch`. OMC CLI 5.8.4 (`dist/cli/launch.js`,
+  prepareOmcLaunchConfigDir, read on the M3) builds `~/.claude/.omc-launch/` when `~/.claude/CLAUDE-omc.md` has
+  the OMC markers and copies only that file as CLAUDE.md, so our AI:core import in `~/.claude/CLAUDE.md` is not
+  loaded there. Neither Mac has the file today; OMC setup can create it. Our block now goes into it too (after
+  OMC:END); ai-sync adds it after a pull, ai-doctor fails without it.
 

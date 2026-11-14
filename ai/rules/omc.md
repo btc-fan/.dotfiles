@@ -39,5 +39,6 @@ Tie-breaks (routing.yaml): "grill me" goes to matt grilling. "deep interview" go
 4. Run `omc-setup` in a throwaway HOME first. Read the diff. Then real. How it upserts the CLAUDE.md block: UNVERIFIED. Diff the Mac's template against the 5.8.4 template.
 5. Per project: gitignore `.omc/` except `.omc/skills/`.
 6. Verify: `claude plugin list` shows oh-my-claudecode 5.8.4 (cli route: `omc --version`). `/oh-my-claudecode:omc-doctor` is clean. `/mcp` shows no exa server. Run the proof prompts.
+   `omc launch` (CLI 5.8.x) uses `~/.claude/CLAUDE-omc.md` as the ONLY CLAUDE.md of its runtime dir `~/.claude/.omc-launch/` when that file has the OMC markers. install.sh and ai-sync add our `AI:core` import block to it after `<!-- OMC:END -->` (macOS; recorded). ai-doctor fails without it.
 7. Cleanup: `claude plugin uninstall oh-my-claudecode@omc` and `claude plugin marketplace remove omc`, or `npm rm -g oh-my-claude-sisyphus` on the cli route. Remove the OMC block from `~/.claude/CLAUDE.md`. Delete `~/.claude/claude-omc/` and `.omc/`. Check `crontab -l`.
 Open: tmux nesting of `/team` under herdr is UNVERIFIED. Test on the server.
