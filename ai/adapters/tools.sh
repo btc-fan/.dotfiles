@@ -666,8 +666,9 @@ tools_context7() {
 # binaries need AVX2, contracts-mcp-a 4.6), so every OS and arch gets the same path, and the source tree is
 # audited before the build. Offline: the installed rtk stays. The tag and commit go to the audit log.
 tools_rtk() {
-    local tag ver have
+    local tag ver have bb
     resolve_tool rtk || return 0
+    if bb=$(rtk_brew_bin); then tools_rtk_brew "$bb"; return 0; fi
     tag=$R_REF; ver=$R_VERSION
     have=$(tool_version rtk)
     # The build stamp says how the installed binary was built; a changed build mode (cargo update on/off) rebuilds.
@@ -717,6 +718,67 @@ tools_rtk() {
     printf '%s\n' "$want_stamp" > "$stamp"
     r_record "$rtkhead"
     ok "rtk ${have:+$have -> }$ver built from source ($tag, $rtkhead)"
+}
+
+# RTK from Homebrew (owner decision 2026-11-14, macOS): when the homebrew-core formula rtk (same project,
+# rtk-ai/rtk) is installed, it is the one rtk. `brew upgrade rtk` moves it when it is older than the newest
+# stable release; the source tree of that release tag is audited first (agent-audit dir, the same accept-list
+# key as the source build). No Rust, no source build. Without the formula: the source build above.
+rtk_brew_bin() {
+    [ "$AI_OS" = macos ] && has brew || return 1
+    local b real
+    b="$(brew --prefix 2>/dev/null)/bin/rtk"
+    [ -x "$b" ] || return 1
+    real=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$b")
+    case "$real" in */Cellar/rtk/*) printf '%s\n' "$b" ;; *) return 1 ;; esac
+}
+
+bin_version() {
+    "$1" --version 2>/dev/null | awk 'match($0, /[0-9]+\.[0-9]+(\.[0-9]+)*/) { print substr($0, RSTART, RLENGTH); exit }' || true
+}
+
+tools_rtk_brew() {
+    local b=$1 have new
+    have=$(bin_version "$b")
+    rtk_drop_own_copy "$b"
+    if ver_eq "$have" "$R_VERSION"; then info "rtk $have present (Homebrew formula, newest stable)"; return 0; fi
+    if [ -n "$have" ] && [ "$R_STATUS" = cached ]; then info "rtk $have kept (Homebrew; offline: not moved to $R_VERSION)"; return 0; fi
+    if [ -n "$have" ] && version_ge "$have" "$R_VERSION"; then
+        info "rtk $have (Homebrew) is newer than $R_VERSION${R_NOTE:+ ($R_NOTE)}: brew does not downgrade, kept"; return 0
+    fi
+    git_source_audited rtk "https://github.com/${R_SOURCE#github }" "$R_REF" "$R_SHA" \
+        || { warn "rtk $R_VERSION: audit findings: brew upgrade rtk not run${have:+, $have kept}"; return 0; }
+    run brew upgrade rtk || { warn "brew upgrade rtk failed${have:+: $have kept}"; return 0; }
+    if [ "$AI_DRY_RUN" = 1 ]; then ok "rtk ${have:+$have -> }$R_VERSION via brew upgrade rtk (Homebrew formula)"; return 0; fi
+    new=$(bin_version "$b")
+    if ver_eq "$new" "$R_VERSION"; then
+        mkdir -p "$AI_STATE_DIR"
+        printf '%s rtk %s brew-upgrade %s -> %s (newest stable, source tag %s audited)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            "$R_REF" "${have:-none}" "$new" "$R_SHA" >> "$AI_STATE_DIR/audit.log"
+        r_record
+        ok "rtk ${have:+$have -> }$new (brew upgrade rtk; source tag $R_REF audited)"
+    else
+        warn "brew upgrade rtk gave ${new:-nothing}, the newest stable is $R_VERSION: Homebrew has not packaged it yet (the next run tries again)"
+    fi
+}
+
+# rtk_drop_own_copy <brew rtk>: a copy this setup built earlier in ~/.local/bin would shadow (or be shadowed by)
+# the Homebrew one, and its version check never matches. Ours (recorded build) is moved to the backup folder,
+# with a restore record; one that is not ours is only reported.
+rtk_drop_own_copy() {
+    local own backup
+    own="$(bin_dir)/rtk"
+    [ -e "$own" ] || return 0
+    if state_has cmd:bin:rtk || [ -f "$AI_STATE_DIR/rtk.build" ]; then
+        backup="$AI_STATE_DIR/backup/rtk.$(date +%Y%m%d-%H%M%S)"
+        run mkdir -p "$AI_STATE_DIR/backup"
+        run mv "$own" "$backup"
+        run rm -f "$AI_STATE_DIR/rtk.build"
+        aiconf record-cmd "rtk-own-copy-removed" -- sh -c '[ -e "$2" ] || mv "$1" "$2"' _ "$backup" "$own"
+        ok "rtk: the copy this setup built ($own) moved to $backup; the Homebrew rtk ($1) is the only one on PATH"
+    else
+        warn "two rtk on PATH: $own (not from this setup) and $1 (Homebrew): remove one by hand"
+    fi
 }
 
 # ---------------------------------------------------------------- dropped tools (owner decision 2026-11-12)
