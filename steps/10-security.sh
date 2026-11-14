@@ -354,7 +354,14 @@ EOF
 Unattended-Upgrade::Automatic-Reboot "false";
 Unattended-Upgrade::Remove-Unused-Dependencies "true";
 EOF
-    put /etc/needrestart/conf.d/50-auto.conf 644 <<'EOF'
+    # NEEDRESTART_SKIP (host.env): more unit name prefixes never restarted by surprise, for host
+    # projects whose jobs run for hours (a restart kills a running job mid-way).
+    local skip="" p
+    for p in ${NEEDRESTART_SKIP:-}; do
+        [[ "$p" =~ ^[A-Za-z0-9@._-]+$ ]] || die "NEEDRESTART_SKIP: odd unit prefix '$p'"
+        skip+="\$nrconf{override_rc}{qr(^${p//./\\.})} = 0;"$'\n'
+    done
+    { cat <<'EOF'
 # Managed by ~/.dotfiles setup.sh: restart services after library updates without asking.
 $nrconf{restart} = 'a';
 # Never restart these by surprise: databases, boxes and containers. needrestart lists them;
@@ -364,6 +371,8 @@ $nrconf{override_rc}{qr(^incus)} = 0;
 $nrconf{override_rc}{qr(^docker)} = 0;
 $nrconf{override_rc}{qr(^containerd)} = 0;
 EOF
+      [ -z "$skip" ] || printf '# host.env NEEDRESTART_SKIP\n%s' "$skip"
+    } | put /etc/needrestart/conf.d/50-auto.conf 644
     enable_unit unattended-upgrades --now
 }
 

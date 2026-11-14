@@ -195,7 +195,8 @@ It also prints the CPU, RAM and disks, and warns when the CPU has no AVX2 (see [
   logins under that name).
 - **Updates**: unattended-upgrades installs security updates every day. It never reboots.
   needrestart restarts services after a library update, except PostgreSQL, Incus, Docker and
-  containerd: those you restart yourself, when it suits.
+  containerd: those you restart yourself, when it suits. Add more unit prefixes with
+  `NEEDRESTART_SKIP` in host.env (host projects whose jobs run for hours).
 - **Apt keys**: every repo signing key (Docker, PGDG, NodeSource, GitHub CLI, Tailscale, Zabbly)
   is checked against a fixed fingerprint in `lib/common.sh`. A different key is refused.
 - **sysctl**: standard network hardening (no redirects, no source routing, SYN cookies, rp_filter).
