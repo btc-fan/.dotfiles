@@ -117,6 +117,19 @@ def main():
     s = sub.add_parser("claude-take-mcp", help="move user-scope MCP entries that our plugin now serves")
     s.add_argument("claude_json"); s.add_argument("mcp_json")
 
+    s = sub.add_parser("claude-drop-mcp", help="remove dropped user-scope MCP entries (saved, undo restores)")
+    s.add_argument("claude_json"); s.add_argument("names", nargs="*")
+
+    s = sub.add_parser("codex-drop-mcp", help="remove dropped Codex MCP entries (saved, undo restores)")
+    s.add_argument("config", help="~/.codex/config.toml"); s.add_argument("names", nargs="*")
+
+    s = sub.add_parser("hooks-node-fix", help="hook commands on a versioned Homebrew Cellar node -> <prefix>/opt/node "
+                       "(recorded; trusted Codex hashes follow)")
+    s.add_argument("file", help="hooks JSON (~/.codex/hooks.json)")
+    s.add_argument("--needle", required=True, help="only handlers whose command contains this text")
+    s.add_argument("--prefix", action="append", default=[], help="Homebrew prefix (repeatable)")
+    s.add_argument("--config", default="", help="Codex config.toml: a trusted_hash of a changed hook moves along")
+
     s = sub.add_parser("mcp-register", help="register our MCP servers in codex | hermes")
     s.add_argument("agent", choices=["codex", "hermes"])
     s.add_argument("--mcp-json", required=True); s.add_argument("--plugin-root", required=True)
@@ -543,26 +556,117 @@ def cmd_hooks_remove(a):
     write_json(a.file, data)
     for event, group, gi, hi in removed:
         cmd = group["hooks"][0].get("command", "")
+        # A copy of the removed entry next to the state (the state record alone restores it on undo).
+        blob = save_blob("hook-%s-%s.json" % (event, re.sub(r"[^A-Za-z0-9._-]+", "_", os.path.basename(cmd))[:60]),
+                         json.dumps({"file": a.file, "event": event, "group": group}, indent=2))
         record({"kind": "hook-removed", "file": a.file, "event": event, "group": group, "gi": gi, "hi": hi},
                key="hook:%s:%s:%s" % (a.file, event, cmd))
-        say("remove", a.file, "%s hook %r" % (event, cmd))
+        say("remove", a.file, "%s hook %r (saved to %s)" % (event, cmd, blob))
 
 
 def cmd_claude_take_mcp(a):
     ours, _ = load_json(a.mcp_json)
     names = list((ours.get("mcpServers") or {}).keys())
-    data, _ = load_json(a.claude_json)
+    if not claude_user_mcp_remove(a.claude_json, names, "move", "our plugin serves it now"):
+        say("same", a.claude_json, "no user-scope MCP duplicates the plugin")
+
+
+def cmd_claude_drop_mcp(a):
+    if not claude_user_mcp_remove(a.claude_json, a.names, "drop", "dropped by owner decision"):
+        say("same", a.claude_json, "no dropped user-scope MCP left (%s)" % " ".join(a.names))
+
+
+def claude_user_mcp_remove(claude_json, names, action, why):
+    """Remove user-scope MCP entries NAMES from ~/.claude.json with `claude mcp remove`; each is saved first and
+    recorded for undo. Returns the names removed."""
+    data, _ = load_json(claude_json)
     user = data.get("mcpServers") or {}
     taken = [n for n in names if n in user]
     for n in taken:
         # S1: the entry may hold tokens: kept in a 0600 file, restored by a file edit (never argv).
         blob = save_blob("claude-user-mcp-%s.json" % n, json.dumps(user[n], indent=2))
         run(["claude", "mcp", "remove", "--scope", "user", n])
-        record({"kind": "claude-mcp-restore", "file": a.claude_json, "name": n, "blob": blob},
+        record({"kind": "claude-mcp-restore", "file": claude_json, "name": n, "blob": blob},
                key="restore:claude-user-mcp:%s" % n)
-        say("move", a.claude_json, "user-scope MCP %r removed (saved to %s): the ai-core plugin serves it now" % (n, blob))
-    if not taken:
-        say("same", a.claude_json, "no user-scope MCP duplicates the plugin")
+        say(action, claude_json, "user-scope MCP %r removed (saved to %s): %s" % (n, blob, why))
+    return taken
+
+
+def codex_mcp_table(text, name):
+    """(table name, its text) of [mcp_servers.<name>] or [mcp_servers."<name>"], or ("", "")."""
+    for table in ("mcp_servers." + name, 'mcp_servers."%s"' % name):
+        got = toml_extract_tables(text, table)
+        if got:
+            return table, got
+    return "", ""
+
+
+def cmd_codex_drop_mcp(a):
+    """Remove dropped MCP servers from Codex (codex mcp remove). The TOML entry is saved first (0600, may hold
+    tokens) and recorded as a restore, the same record a replaced foreign entry gets (codex_register)."""
+    done = []
+    for n in a.names:
+        _table, saved = codex_mcp_table(read_text(a.config), n)
+        if not saved:
+            continue
+        blob = save_blob("codex-mcp-%s.toml" % n, saved)
+        run(["codex", "mcp", "remove", n])
+        record({"kind": "codex-mcp-restore", "file": a.config, "name": n, "blob": blob, "prefix": []},
+               key="restore:codex-mcp:%s" % n)
+        say("drop", a.config, "Codex MCP %r removed (saved to %s): dropped by owner decision" % (n, blob))
+        done.append(n)
+    if not done:
+        say("same", a.config, "no dropped Codex MCP left (%s)" % " ".join(a.names))
+
+
+CELLAR_NODE_RX = r"(?P<prefix>%s)/Cellar/node/[^/\s\"']+/bin/node"
+
+
+def cmd_hooks_node_fix(a):
+    """Hook handlers (command contains --needle) that start node from a versioned Homebrew Cellar folder break on
+    the next `brew upgrade node`. Point them to <prefix>/opt/node/bin/node, Homebrew's stable link, when it
+    exists. Only that path changes. A Codex trusted_hash that matched the old handler moves to the new one (the
+    user trusted exactly that hook); any other trust entry stays as it is. Recorded; undo puts both back."""
+    if not os.path.exists(a.file):
+        return say("same", a.file, "missing")
+    prefixes = [p.rstrip("/") for p in a.prefix if p and os.path.isfile(os.path.join(p, "opt", "node", "bin", "node"))]
+    if not prefixes:
+        return say("same", a.file, "no <brew prefix>/opt/node/bin/node: hook commands left as they are")
+    rx = re.compile(CELLAR_NODE_RX % "|".join(re.escape(p) for p in prefixes))
+    data, _ = load_json(a.file)
+    pairs, trust = {}, {}
+    for event, groups in (data.get("hooks") or {}).items():
+        for gi, g in enumerate(groups or []):
+            for hi, h in enumerate(g.get("hooks") or []):
+                cmd = h.get("command", "")
+                if a.needle not in cmd or not rx.search(cmd):
+                    continue
+                old_hash = codex_hook_hash(event, g.get("matcher"), h)
+                new = rx.sub(lambda m: m.group("prefix") + "/opt/node/bin/node", cmd)
+                h["command"] = new
+                pairs[cmd] = new
+                trust["%s:%s:%d:%d" % (a.file, codex_event_label(event), gi, hi)] = \
+                    (old_hash, codex_hook_hash(event, g.get("matcher"), h), cmd)
+    if not pairs:
+        return say("same", a.file, "no %s hook on a versioned Cellar node" % a.needle)
+    write_json(a.file, data)
+    moved = {}
+    if a.config and os.path.exists(a.config):
+        lines = read_text(a.config).splitlines()
+        tables = codex_trust_tables("\n".join(lines))
+        for key, (old_hash, new_hash, cmd) in trust.items():
+            cur = ((tables.get(key) or {}).get("fields") or {}).get("trusted_hash")
+            if cur and cur[0] == old_hash:
+                lines[cur[1]] = toml_field("trusted_hash", new_hash)
+                moved.setdefault(cmd, {})[key] = [old_hash, new_hash]
+        if moved:
+            write_text(a.config, "\n".join(lines) + "\n")
+    for old, new in pairs.items():
+        record({"kind": "hook-cmd", "file": a.file, "old": old, "new": new, "config": a.config,
+                "trust": moved.get(old, {})}, key="hook-cmd:%s:%s" % (a.file, old))
+        say("fix", a.file, "%s hooks: %r -> %r" % (a.needle, old, new))
+    if moved:
+        say("trust", a.config, "%d trusted hash(es) moved with the changed hooks" % sum(len(v) for v in moved.values()))
 
 
 def cmd_mcp_register(a):
@@ -1287,6 +1391,31 @@ def undo_entry(e):
             groups.insert(min(gi, len(groups)), e["group"])
         write_json(f, data)
         return say("undo", f, "%s hook restored" % e["event"]) or True
+    if k == "hook-cmd":
+        data, _ = load_json(f)
+        n = 0
+        for groups in (data.get("hooks") or {}).values():
+            for g in groups or []:
+                for h in g.get("hooks") or []:
+                    if h.get("command") == e["new"]:
+                        h["command"] = e["old"]
+                        n += 1
+        if n:
+            write_json(f, data)
+        cfg = e.get("config")
+        if cfg and e.get("trust") and os.path.exists(cfg):
+            lines = read_text(cfg).splitlines()
+            tables = codex_trust_tables("\n".join(lines))
+            back = 0
+            for key, (old_hash, new_hash) in e["trust"].items():
+                cur = ((tables.get(key) or {}).get("fields") or {}).get("trusted_hash")
+                if cur and cur[0] == new_hash:
+                    lines[cur[1]] = toml_field("trusted_hash", old_hash)
+                    back += 1
+            if back:
+                write_text(cfg, "\n".join(lines) + "\n")
+        return say("undo", f, "%d hook command(s) back to %r" % (n, e["old"]) if n else
+                   "hook command %r changed since install" % e["new"]) or True
     if k == "claude-mcp-restore":
         data, _ = load_json(f)
         servers = data.setdefault("mcpServers", {})
