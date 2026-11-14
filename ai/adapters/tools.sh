@@ -668,7 +668,9 @@ tools_context7() {
 tools_rtk() {
     local tag ver have bb
     resolve_tool rtk || return 0
-    if bb=$(rtk_brew_bin); then tools_rtk_brew "$bb"; return 0; fi
+    if bb=$(rtk_brew_bin); then
+        tools_rtk_brew "$bb" && return 0     # 1 = build from source instead (RTK_BREW_MISMATCH=build)
+    fi
     tag=$R_REF; ver=$R_VERSION
     have=$(tool_version rtk)
     # The build stamp says how the installed binary was built; a changed build mode (cargo update on/off) rebuilds.
@@ -721,9 +723,12 @@ tools_rtk() {
 }
 
 # RTK from Homebrew (owner decision 2026-11-14, macOS): when the homebrew-core formula rtk (same project,
-# rtk-ai/rtk) is installed, it is the one rtk. `brew upgrade rtk` moves it when it is older than the newest
-# stable release; the source tree of that release tag is audited first (agent-audit dir, the same accept-list
-# key as the source build). No Rust, no source build. Without the formula: the source build above.
+# rtk-ai/rtk) is installed, it is the one rtk. It moves only to the version this run resolved and audited
+# (newest stable, or RTK_HOLD): the formula's stable version in the local tap (`brew info --json=v2 rtk`) must
+# be exactly that version, from homebrew/core; then the source tree of that release tag is audited
+# (agent-audit dir, the same accept-list key as the source build) and `brew upgrade rtk` runs without brew's
+# auto-update, so it installs the version that was checked. Any mismatch: a WARN and the installed rtk stays
+# (RTK_BREW_MISMATCH=build in ai/pins.env: the source build of the audited tag instead). No formula: source build.
 rtk_brew_bin() {
     [ "$AI_OS" = macos ] && has brew || return 1
     local b real
@@ -737,34 +742,57 @@ bin_version() {
     "$1" --version 2>/dev/null | awk 'match($0, /[0-9]+\.[0-9]+(\.[0-9]+)*/) { print substr($0, RSTART, RLENGTH); exit }' || true
 }
 
+# rtk_brew_formula: "<tap> <stable version>" of the rtk formula in the local Homebrew taps, or nothing.
+rtk_brew_formula() {
+    brew info --json=v2 rtk 2>/dev/null | python3 -c 'import json,sys
+try:
+    f = json.load(sys.stdin)["formulae"][0]
+    print("%s %s" % (f.get("tap") or "-", (f.get("versions") or {}).get("stable") or "-"))
+except Exception:
+    pass' || true
+}
+
+# tools_rtk_brew <brew rtk>: 0 = done (moved, present or kept with a warning); 1 = build from source instead.
 tools_rtk_brew() {
-    local b=$1 have new
+    local b=$1 have new formula tap stable
     have=$(bin_version "$b")
-    rtk_drop_own_copy "$b"
-    if ver_eq "$have" "$R_VERSION"; then info "rtk $have present (Homebrew formula, newest stable)"; return 0; fi
-    if [ -n "$have" ] && [ "$R_STATUS" = cached ]; then info "rtk $have kept (Homebrew; offline: not moved to $R_VERSION)"; return 0; fi
-    if [ -n "$have" ] && version_ge "$have" "$R_VERSION"; then
-        info "rtk $have (Homebrew) is newer than $R_VERSION${R_NOTE:+ ($R_NOTE)}: brew does not downgrade, kept"; return 0
+    if ver_eq "$have" "$R_VERSION"; then
+        rtk_drop_own_copy "$b"
+        if [ "$R_STATUS" = hold ]; then info "rtk $have present (Homebrew formula, held version)"
+        else info "rtk $have present (Homebrew formula, newest stable)"; fi
+        return 0
     fi
+    if [ -n "$have" ] && [ "$R_STATUS" = cached ]; then info "rtk $have kept (Homebrew; offline: not moved to $R_VERSION)"; return 0; fi
+    formula=$(rtk_brew_formula); tap=${formula%% *}; stable=${formula##* }
+    if [ "$tap" != homebrew/core ] || ! ver_eq "$stable" "$R_VERSION"; then
+        if [ "${RTK_BREW_MISMATCH:-skip}" = build ]; then
+            warn "rtk: Homebrew formula is ${tap:-unknown} ${stable:-unknown}, the audited version is $R_VERSION: source build instead (RTK_BREW_MISMATCH=build); the Homebrew rtk stays on PATH too"
+            return 1
+        fi
+        warn "rtk: Homebrew formula is ${tap:-unknown} ${stable:-unknown}, the audited version is $R_VERSION${R_NOTE:+ ($R_NOTE)}: brew upgrade rtk not run${have:+, $have kept} (brew update, or RTK_BREW_MISMATCH=build)"
+        rtk_drop_own_copy "$b"
+        return 0
+    fi
+    rtk_drop_own_copy "$b"
     git_source_audited rtk "https://github.com/${R_SOURCE#github }" "$R_REF" "$R_SHA" \
         || { warn "rtk $R_VERSION: audit findings: brew upgrade rtk not run${have:+, $have kept}"; return 0; }
-    run brew upgrade rtk || { warn "brew upgrade rtk failed${have:+: $have kept}"; return 0; }
-    if [ "$AI_DRY_RUN" = 1 ]; then ok "rtk ${have:+$have -> }$R_VERSION via brew upgrade rtk (Homebrew formula)"; return 0; fi
+    run env HOMEBREW_NO_AUTO_UPDATE=1 brew upgrade rtk || { warn "brew upgrade rtk failed${have:+: $have kept}"; return 0; }
+    if [ "$AI_DRY_RUN" = 1 ]; then ok "rtk ${have:+$have -> }$R_VERSION via brew upgrade rtk (Homebrew formula $tap $stable)"; return 0; fi
     new=$(bin_version "$b")
     if ver_eq "$new" "$R_VERSION"; then
         mkdir -p "$AI_STATE_DIR"
-        printf '%s rtk %s brew-upgrade %s -> %s (newest stable, source tag %s audited)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            "$R_REF" "${have:-none}" "$new" "$R_SHA" >> "$AI_STATE_DIR/audit.log"
+        printf '%s rtk brew-upgrade %s -> %s (homebrew/core; tag %s (%s) audited)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            "${have:-none}" "$new" "$R_REF" "$R_SHA" >> "$AI_STATE_DIR/audit.log"
         r_record
-        ok "rtk ${have:+$have -> }$new (brew upgrade rtk; source tag $R_REF audited)"
+        ok "rtk ${have:+$have -> }$new (brew upgrade rtk; tag $R_REF ($R_SHA) audited)"
     else
-        warn "brew upgrade rtk gave ${new:-nothing}, the newest stable is $R_VERSION: Homebrew has not packaged it yet (the next run tries again)"
+        warn "brew upgrade rtk gave ${new:-nothing}, the audited version is $R_VERSION: check it (rtk --version)"
     fi
 }
 
 # rtk_drop_own_copy <brew rtk>: a copy this setup built earlier in ~/.local/bin would shadow (or be shadowed by)
 # the Homebrew one, and its version check never matches. Ours (recorded build) is moved to the backup folder,
-# with a restore record; one that is not ours is only reported.
+# with a restore record keyed as a tool (cmd:bin:, undone with the tools); one that is not ours is only reported.
 rtk_drop_own_copy() {
     local own backup
     own="$(bin_dir)/rtk"
@@ -774,7 +802,7 @@ rtk_drop_own_copy() {
         run mkdir -p "$AI_STATE_DIR/backup"
         run mv "$own" "$backup"
         run rm -f "$AI_STATE_DIR/rtk.build"
-        aiconf record-cmd "rtk-own-copy-removed" -- sh -c '[ -e "$2" ] || mv "$1" "$2"' _ "$backup" "$own"
+        aiconf record-cmd "bin:rtk-own-copy-removed" -- sh -c '[ -e "$2" ] || mv "$1" "$2"' _ "$backup" "$own"
         ok "rtk: the copy this setup built ($own) moved to $backup; the Homebrew rtk ($1) is the only one on PATH"
     else
         warn "two rtk on PATH: $own (not from this setup) and $1 (Homebrew): remove one by hand"
