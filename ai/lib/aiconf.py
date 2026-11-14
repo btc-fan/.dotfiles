@@ -578,14 +578,18 @@ def cmd_claude_drop_mcp(a):
 
 def claude_user_mcp_remove(claude_json, names, action, why):
     """Remove user-scope MCP entries NAMES from ~/.claude.json with `claude mcp remove`; each is saved first and
-    recorded for undo. Returns the names removed."""
+    recorded for undo. A failed remove is a warning, not recorded. Returns the names found."""
     data, _ = load_json(claude_json)
     user = data.get("mcpServers") or {}
     taken = [n for n in names if n in user]
     for n in taken:
         # S1: the entry may hold tokens: kept in a 0600 file, restored by a file edit (never argv).
         blob = save_blob("claude-user-mcp-%s.json" % n, json.dumps(user[n], indent=2))
-        run(["claude", "mcp", "remove", "--scope", "user", n])
+        rc = run(["claude", "mcp", "remove", "--scope", "user", n], check=False)
+        if rc != 0:
+            # A failed remove must not stop the install (set -e in the caller): say so, record nothing.
+            warn_line("claude mcp remove --scope user %s failed (%d): left as it is" % (n, rc))
+            continue
         record({"kind": "claude-mcp-restore", "file": claude_json, "name": n, "blob": blob},
                key="restore:claude-user-mcp:%s" % n)
         say(action, claude_json, "user-scope MCP %r removed (saved to %s): %s" % (n, blob, why))
@@ -610,7 +614,11 @@ def cmd_codex_drop_mcp(a):
         if not saved:
             continue
         blob = save_blob("codex-mcp-%s.toml" % n, saved)
-        run(["codex", "mcp", "remove", n])
+        rc = run(["codex", "mcp", "remove", n], check=False)
+        if rc != 0:
+            warn_line("codex mcp remove %s failed (%d): left as it is" % (n, rc))
+            done.append(n)
+            continue
         record({"kind": "codex-mcp-restore", "file": a.config, "name": n, "blob": blob, "prefix": []},
                key="restore:codex-mcp:%s" % n)
         say("drop", a.config, "Codex MCP %r removed (saved to %s): dropped by owner decision" % (n, blob))
@@ -1392,6 +1400,11 @@ def undo_entry(e):
         write_json(f, data)
         return say("undo", f, "%s hook restored" % e["event"]) or True
     if k == "hook-cmd":
+        node = re.search(r"(/[^\s\"']*/Cellar/node/[^/\s\"']+/bin/node)", e["old"])
+        if node and not os.path.exists(node.group(1)):
+            # The old Cellar node is gone (brew upgrade node): putting it back would break the hooks.
+            return say("left", f, "hook command kept on %r: the old node %s no longer exists" % (
+                e["new"], node.group(1))) or True
         data, _ = load_json(f)
         n = 0
         for groups in (data.get("hooks") or {}).values():
@@ -1429,7 +1442,7 @@ def undo_entry(e):
             return say("left", e["name"], "foreign Codex entry was not extracted: see %s" % e["blob"]) or True
         run(e.get("prefix", []) + ["codex", "mcp", "remove", e["name"]], check=False)
         text = read_text(f)
-        if "[mcp_servers.%s]" % e["name"] not in text:
+        if not codex_mcp_table(text, e["name"])[1]:
             write_text(f, text.rstrip("\n") + "\n\n" + saved)
         return say("undo", f, "Codex MCP %r restored" % e["name"]) or True
     if k == "hermes-mcp-restore":
@@ -1803,6 +1816,11 @@ def sha(text):
 def short(v):
     s = json.dumps(v)
     return s if len(s) < 80 else s[:77] + "..."
+
+
+def warn_line(text):
+    """A warning on stderr in the installer's WARN form; the command goes on (exit 0)."""
+    sys.stderr.write("  WARN: %s\n" % text)
 
 
 def say(action, target, detail):

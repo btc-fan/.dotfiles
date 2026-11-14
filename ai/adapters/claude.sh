@@ -326,8 +326,19 @@ claude_ai_core_ok() {
     local listing
     listing=$(claude plugin list 2>/dev/null || true)
     printf '%s\n' "$listing" | grep -qF 'ai-core@ai' || return 1
-    printf '%s\n' "$listing" | grep -F 'ai-core@ai' | grep -qi 'disabled' && return 1
+    printf '%s\n' "$listing" | claude_listed_disabled ai-core@ai && return 1
     [ "$(aiconf json-get "$CLAUDE_DIR/settings.json" 'enabledPlugins/ai-core@ai' 2>/dev/null)" = true ]
+}
+
+# claude_listed_disabled <plugin@marketplace>: true when `claude plugin list` (on stdin) shows that plugin
+# disabled. The CLI prints a block per plugin with "Status: ... disabled" on its own line (2.1.x); a status on
+# the name line counts too.
+claude_listed_disabled() {
+    awk -v p="$1" 'index($0, p) { f = 1; if (tolower($0) ~ /disabled/) d = 1; next }
+        f && /^[[:space:]]*$/ { f = 0 }
+        f && /❯/ { f = 0 }
+        f && tolower($0) ~ /status:.*disabled/ { d = 1 }
+        END { exit d ? 0 : 1 }'
 }
 
 # ---------------------------------------------------------------- step 7: MCP
@@ -440,11 +451,17 @@ claude_plugins() {
 
 # last30days (owner decision 2026-11-14): ON by default for Claude on every machine. Same path as claude-seo:
 # newest stable tag, audited, a foreign marketplace replaced by the tag source (plugin data kept).
+# Turned on only when the plugin step succeeded. The first run of this setup turns it on (stamp
+# last30days.on-once in the state folder); on later runs a value the user set to false is kept.
 claude_last30days() {
-    claude_git_plugin last30days last30days-skill mvanhorn/last30days-skill last30days@last30days-skill || true
-    if claude_has_plugin last30days@last30days-skill || [ "$AI_DRY_RUN" = 1 ]; then
-        aiconf json-set "$CLAUDE_DIR/settings.json" "enabledPlugins/last30days@last30days-skill" true
+    local pk=last30days@last30days-skill stamp="$AI_STATE_DIR/last30days.on-once"
+    claude_git_plugin last30days last30days-skill mvanhorn/last30days-skill "$pk" || return 0
+    if [ -f "$stamp" ] && [ "$(claude_enabled_get "$pk")" = false ]; then
+        info "$pk is off by your choice (enabledPlugins false): kept"
+        return 0
     fi
+    aiconf json-set "$CLAUDE_DIR/settings.json" "enabledPlugins/$pk" true
+    [ "$AI_DRY_RUN" = 1 ] || { mkdir -p "$AI_STATE_DIR"; : > "$stamp"; }
 }
 
 # Off by default (AI_OFF_CLAUDE_PLUGINS in ai/pins.env, owner decisions 2026-11-12 and 2026-11-14): installed
@@ -464,17 +481,19 @@ claude_plugins_off() {
 # removed when no other installed plugin comes from it. One restore record: uninstall.sh adds the old
 # marketplace source back and installs the plugin again. The context7 plugin is only reported (owner's call).
 claude_drop_plugins() {
-    local p m src others
+    local p m src others en
     for p in ${AI_DROP_CLAUDE_PLUGINS:-}; do
         claude_has_plugin "$p" || continue
         m=${p#*@}
+        en=$(claude_enabled_get "$p")
         src=$(claude_src_add_form "$(claude_marketplace_src "$m")")
         others=$(claude_marketplace_users "$m" "$p")
         [ -z "$others" ] && [ "$m" != ai ] || src=""
         run claude plugin uninstall "$p" --keep-data || { warn "claude plugin uninstall $p failed: left as it is"; continue; }
+        # Restore: marketplace (when it went), plugin, then its old enabledPlugins value.
         aiconf record-cmd "claude-plugin-restore:$p" -- sh -c \
-            '[ -z "$1" ] || claude plugin marketplace add "$1" >/dev/null 2>&1; claude plugin install "$2" --scope user' \
-            _ "$src" "$p"
+            '[ -z "$1" ] || claude plugin marketplace add "$1" >/dev/null 2>&1; claude plugin install "$2" --scope user || exit 1; [ -z "$3" ] || python3 -c "import json,sys; f,k,v=sys.argv[1:4]; d=json.load(open(f)); d.setdefault(\"enabledPlugins\",{})[k]=json.loads(v); json.dump(d,open(f,\"w\"),indent=2)" "$4" "$2" "$3"' \
+            _ "$src" "$p" "$en" "$CLAUDE_DIR/settings.json"
         if [ -n "$src" ]; then
             run claude plugin marketplace remove "$m" || warn "claude plugin marketplace remove $m failed: left as it is"
         fi
@@ -507,10 +526,13 @@ EOS
 
 # Owner decision 2026-11-14: once ai-serena@ai is installed and enabled, it serves Serena; a user-scope copy
 # named serena in ~/.claude.json is moved out (saved, restore recorded), like context7 after ai-core.
+# The plugin runs a bare `serena`: without it on PATH the user-scope copy stays (it is the only working one).
 claude_take_serena() {
     if [ "$AI_DRY_RUN" != 1 ]; then
         claude_has_plugin ai-serena@ai || return 0
         [ "$(aiconf json-get "$CLAUDE_DIR/settings.json" 'enabledPlugins/ai-serena@ai' 2>/dev/null)" = true ] || return 0
+        claude plugin list 2>/dev/null | claude_listed_disabled ai-serena@ai && return 0
+        has serena || { info "serena not on PATH: the user-scope serena in $(CLAUDE_JSON) is kept (ai-serena@ai runs a bare serena)"; return 0; }
     fi
     aiconf claude-take-mcp "$(CLAUDE_JSON)" "$AI_HOME/ai/marketplace/plugins/ai-serena/.mcp.json"
 }
@@ -519,7 +541,15 @@ claude_take_serena() {
 # the words are removed (saved, recorded; undo restores). Their script files are not ours: reported, kept.
 claude_drop_hooks() {
     [ -n "${AI_DROP_CLAUDE_HOOKS:-}" ] || return 0
-    local rx w files=""
+    local rx w files="" p
+    if [ "$AI_DRY_RUN" != 1 ]; then
+        for p in ${AI_DROP_CLAUDE_PLUGINS:-}; do
+            if claude_has_plugin "$p"; then
+                warn "$p is still installed (its uninstall failed): its settings.json hooks are left as they are"
+                return 0
+            fi
+        done
+    fi
     rx=$(python3 -c 'import re,sys; print("|".join(re.escape(w) for w in sys.argv[1:]))' $AI_DROP_CLAUDE_HOOKS)
     aiconf hooks-remove "$CLAUDE_DIR/settings.json" "$rx"
     for w in $AI_DROP_CLAUDE_HOOKS; do
