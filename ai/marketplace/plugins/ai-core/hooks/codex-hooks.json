@@ -11,6 +11,11 @@
           },
           {
             "type": "command",
+            "command": "/usr/bin/python3 \"${PLUGIN_ROOT}/hooks/stop-check.py\" --agent codex SessionStart",
+            "timeout": 10
+          },
+          {
+            "type": "command",
             "command": "/bin/sh \"${PLUGIN_ROOT}/hooks/serena-hook\" activate --client=codex",
             "timeout": 10
           }
@@ -59,6 +64,11 @@
             "type": "command",
             "command": "/usr/bin/python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex Stop",
             "timeout": 25
+          },
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"${PLUGIN_ROOT}/hooks/stop-check.py\" --agent codex Stop",
+            "timeout": 60
           }
         ]
       }

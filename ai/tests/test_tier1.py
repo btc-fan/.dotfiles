@@ -170,6 +170,160 @@ def t_doctor_budget(work):
         out.getvalue()
 
 
+# ---------------------------------------------------------------- T2: stop-check
+
+STOP = os.path.join(HOOKS, "stop-check.py")
+STOP_MAKEFILE = "check-fast:\n\t@echo run >> \"$$MARK\"\n\t@sh check.sh\n"
+PASS_SH = "echo '3 passed in 0.01s'\n"
+FAIL_SH = "echo 'FAILED tests/test_a.py::test_price - assert 1 == 2'\necho '1 failed, 2 passed'\nexit 1\n"
+
+
+def stop_repo(work, name, check_sh=FAIL_SH, enabled="tier: mvp\n"):
+    repo = tree(work, name, {"Makefile": STOP_MAKEFILE, "check.sh": check_sh, "src/app.py": "x = 1\n"})
+    if enabled is not None:
+        write(os.path.join(repo, ".ai", "enabled"), enabled)
+    run(["git", "init", "-q", repo])
+    env = git_env(work, name)
+    run(["git", "-C", repo, "add", "-A"], env=env)
+    run(["git", "-C", repo, "commit", "-q", "-m", "init"], env=env)
+    return repo, env
+
+
+def git_env(work, name):
+    home = os.path.join(work, "home-" + name)
+    os.makedirs(home, exist_ok=True)
+    return {"HOME": home, "AI_STATE_DIR": os.path.join(home, "state"), "MARK": os.path.join(home, "mark"),
+            "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t.invalid", "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@t.invalid", "AI_HOME": os.path.dirname(AI_DIR)}
+
+
+def hook(repo, env, event, agent="claude", session="s1", **extra):
+    payload = dict({"session_id": session, "cwd": repo, "hook_event_name": event}, **extra)
+    res = run([sys.executable, STOP, "--agent", agent, event], env=env, stdin=json.dumps(payload), timeout=90)
+    assert res.returncode == 0, "stop-check exit %d: %s" % (res.returncode, res.stdout)
+    out = res.stdout.strip()
+    return json.loads(out) if out else None
+
+
+def runs(env):
+    return len((read(env["MARK"]) or "").splitlines())
+
+
+def t_stop_no_change_no_run(work):
+    repo, env = stop_repo(work, "stop-nochange")
+    write(os.path.join(repo, "src", "dirty.py"), "y = 1\n")     # dirty before the session: not the agent's
+    assert hook(repo, env, "SessionStart") is None, "SessionStart must print nothing"
+    assert hook(repo, env, "Stop") is None and runs(env) == 0, "no change since the baseline: no run"
+    assert hook(repo, env, "SessionStart", source="compact") is None
+    assert hook(repo, env, "Stop") is None and runs(env) == 0, "compact keeps the first baseline"
+
+
+def t_stop_blocks_twice_then_stops(work):
+    repo, env = stop_repo(work, "stop-fail")
+    hook(repo, env, "SessionStart")
+    write(os.path.join(repo, "src", "app.py"), "x = 2\n")
+    for i in (1, 2):
+        out = hook(repo, env, "Stop")
+        assert out and out.get("decision") == "block", "try %d: %s" % (i, out)
+        assert "make check-fast failed (exit 2)" in out["reason"] and "FAILED tests/test_a.py" in out["reason"], out
+        assert "block %d of 2" % i in out["reason"], out["reason"]
+    out = hook(repo, env, "Stop")
+    assert out and "decision" not in out and "not blocking again" in out.get("systemMessage", ""), out
+    assert hook(repo, env, "Stop") is None, "told once: silent after"
+    assert runs(env) == 2, "the check ran %d times, want 2" % runs(env)
+    write(os.path.join(repo, "src", "app.py"), "x = 3\n")       # new files: a new try count
+    assert hook(repo, env, "Stop")["decision"] == "block"
+
+
+def t_stop_hook_active_silent(work):
+    repo, env = stop_repo(work, "stop-active")
+    hook(repo, env, "SessionStart")
+    write(os.path.join(repo, "src", "app.py"), "x = 2\n")
+    assert hook(repo, env, "Stop", stop_hook_active=True) is None and runs(env) == 0, "stop_hook_active: no run"
+
+
+def t_stop_success_silent_both_agents(work):
+    for agent in ("claude", "codex"):
+        repo, env = stop_repo(work, "stop-ok-" + agent, check_sh=PASS_SH)
+        hook(repo, env, "SessionStart", agent=agent)
+        write(os.path.join(repo, "new_file.py"), "z = 1\n")        # untracked file counts as a change
+        assert hook(repo, env, "Stop", agent=agent) is None and runs(env) == 1, agent
+        assert hook(repo, env, "Stop", agent=agent) is None and runs(env) == 1, "green tree is not checked again"
+        write(os.path.join(repo, "new_file.py"), "z = 22\n")       # an edit of an untracked file is a change
+        assert hook(repo, env, "Stop", agent=agent) is None and runs(env) == 2, agent
+
+
+def t_stop_codex_block_and_timeout(work):
+    repo, env = stop_repo(work, "stop-codex")
+    hook(repo, env, "SessionStart", agent="codex")
+    write(os.path.join(repo, "src", "app.py"), "x = 2\n")
+    out = hook(repo, env, "Stop", agent="codex", turn_id="t1")
+    assert out and out["decision"] == "block" and set(out) == {"decision", "reason"}, out
+    slow, env2 = stop_repo(work, "stop-slow", check_sh="sleep 5\n")
+    env2["AI_STOP_CHECK_TIMEOUT"] = "1"
+    hook(slow, env2, "SessionStart")
+    write(os.path.join(slow, "src", "app.py"), "x = 2\n")
+    out = hook(slow, env2, "Stop")
+    assert out and "ran over 1 s" in out.get("systemMessage", "") and "decision" not in out, out
+    write(os.path.join(slow, "src", "app.py"), "x = 3\n")
+    assert hook(slow, env2, "Stop", agent="codex") is None, "Codex: a timeout prints nothing"
+
+
+def t_stop_floor_zero_tests(work):
+    repo, env = stop_repo(work, "stop-floor", check_sh="echo 'collected 0 items'\necho 'no tests ran in 0.01s'\n")
+    hook(repo, env, "SessionStart")
+    write(os.path.join(repo, "src", "app.py"), "x = 2\n")
+    out = hook(repo, env, "Stop")
+    assert out and out["decision"] == "block" and "ran 0 tests" in out["reason"], out
+    lint_only, env2 = stop_repo(work, "stop-lintonly", check_sh="echo 'All checks passed!'\n")
+    hook(lint_only, env2, "SessionStart")
+    write(os.path.join(lint_only, "src", "app.py"), "x = 2\n")
+    assert hook(lint_only, env2, "Stop") is None, "no test runner output: cannot tell, so it passes"
+
+
+def t_stop_off_switches(work):
+    for name, enabled in (("stop-try", "tier: try\n"), ("stop-optout", "no-stop-check\n"), ("stop-noadopt", None)):
+        repo, env = stop_repo(work, name, enabled=enabled)
+        hook(repo, env, "SessionStart")
+        write(os.path.join(repo, "src", "app.py"), "x = 2\n")
+        assert hook(repo, env, "Stop") is None and runs(env) == 0, name
+
+
+def omc_state(repo, session, mode="ralph", age_s=0, scoped=True):
+    from datetime import datetime, timezone
+    ts = datetime.fromtimestamp(time_now() - age_s, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    d = os.path.join(repo, ".omc", "state", "sessions", session) if scoped else os.path.join(repo, ".omc", "state")
+    write(os.path.join(d, "%s-state.json" % mode), json.dumps(
+        {"active": True, "session_id": session, "iteration": 1, "max_iterations": 10, "started_at": ts,
+         "last_checked_at": ts}))
+
+
+def time_now():
+    import time
+    return time.time()
+
+
+def t_stop_omc_coexistence(work):
+    """oh-my-claudecode persistent modes block Stop themselves (and never when stop_hook_active). While one is
+    active for this session, stop-check stays silent: one stop never gets two blocks, and the chain ends."""
+    repo, env = stop_repo(work, "stop-omc")
+    hook(repo, env, "SessionStart")
+    write(os.path.join(repo, "src", "app.py"), "x = 2\n")
+    omc_state(repo, "s1")
+    assert hook(repo, env, "Stop") is None and runs(env) == 0, "OMC ralph active: OMC owns this stop"
+    assert hook(repo, env, "Stop", stop_hook_active=True) is None, "the continuation stop: both silent"
+    omc_state(repo, "other-session")
+    os.remove(os.path.join(repo, ".omc", "state", "sessions", "s1", "ralph-state.json"))
+    out = hook(repo, env, "Stop")
+    assert out and out["decision"] == "block", "another session's OMC mode must not silence this one: %s" % out
+    omc_state(repo, "s1", age_s=3 * 3600)                     # stale: OMC ignores it, so we check
+    write(os.path.join(repo, "src", "app.py"), "x = 3\n")
+    assert hook(repo, env, "Stop")["decision"] == "block", "stale OMC state must not silence the check"
+    omc_state(repo, "s1", mode="autopilot", scoped=False)     # legacy (unscoped) state of this session
+    write(os.path.join(repo, "src", "app.py"), "x = 4\n")
+    assert hook(repo, env, "Stop") is None, "legacy OMC state with this session id"
+
+
 # ---------------------------------------------------------------- helpers
 
 def detect(repo):
@@ -250,7 +404,9 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
 
 TESTS_LIST = [t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_go_rust, t_detect_monorepo,
               t_plan_keeps_targets, t_adopt_try_tier_own_done, t_adopt_long_tier, t_adopt_monorepo_refused,
-              t_doctor_budget]
+              t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_hook_active_silent,
+              t_stop_success_silent_both_agents, t_stop_codex_block_and_timeout, t_stop_floor_zero_tests,
+              t_stop_off_switches, t_stop_omc_coexistence]
 
 if __name__ == "__main__":
     sys.exit(main())

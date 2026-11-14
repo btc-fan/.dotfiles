@@ -373,7 +373,7 @@ def check_codex_trust():
     if have_managed:
         data = load_json_file(managed)
         text = json.dumps(data) if data else ""
-        scripts = sorted(set(re.findall(r'(/[^\s"\\]+/hooks/(?:router\.py|serena-hook))', text)))
+        scripts = sorted(set(re.findall(r'(/[^\s"\\]+/hooks/(?:router\.py|serena-hook|stop-check\.py))', text)))
         bad = [x for x in scripts if not os.path.isfile(x) or os.access(x, os.W_OK)]
         aiconf = aiconf_module()
         for groups in ((data or {}).get("hooks") or {}).values():

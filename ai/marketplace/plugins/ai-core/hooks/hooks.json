@@ -8,6 +8,11 @@
             "type": "command",
             "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude SessionStart",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/stop-check.py\" --agent claude SessionStart",
+            "timeout": 10
           }
         ]
       },
@@ -87,6 +92,11 @@
             "type": "command",
             "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude Stop",
             "timeout": 25
+          },
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/stop-check.py\" --agent claude Stop",
+            "timeout": 60
           }
         ]
       }

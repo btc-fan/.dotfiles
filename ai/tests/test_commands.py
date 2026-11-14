@@ -51,7 +51,9 @@ def t_hook_files(work):
                         assert root_var in cmd, "%s %s: wrong plugin root var in %s" % (name, event, cmd)
                         script = cmd.split("/hooks/", 1)[1].split('"')[0].split()[0]
                         assert os.path.isfile(os.path.join(HOOKS, script)), "%s: missing %s" % (name, script)
-                    assert h.get("timeout", 1) < 30, "%s %s: timeout must stay under 30 s" % (name, event)
+                    # stop-check runs check-fast (55 s cap, a timeout passes): the one hook allowed 60 s (SPEC 24)
+                    cap = 61 if "stop-check.py" in cmd and event == "Stop" else 30
+                    assert h.get("timeout", 1) < cap, "%s %s: timeout must stay under %d s" % (name, event, cap)
     claude = json.load(open(os.path.join(HOOKS, "hooks.json")))["hooks"]
     owner = [h["command"] for g in claude["SessionStart"] for h in g["hooks"]]
     caf = [c for c in owner if "caffeinate -s -w $PPID" in c]
