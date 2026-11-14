@@ -139,6 +139,8 @@ def python(root):
         run, label = "poetry run ", "poetry"
     elif exists(root, "pdm.lock"):
         run, label = "pdm run ", "pdm"
+    elif os.path.isfile(os.path.join(root, ".venv", "bin", "python")):
+        run, label = ".venv/bin/python -m ", "pip, .venv"     # the project's venv, not the system python
     else:
         run, label = "python3 -m ", "pip"
     tools, fast, full, notes = [label], [], [], []
@@ -273,7 +275,8 @@ def targets(text, runner):
     if runner == "make":
         rx = r"^([A-Za-z0-9_.-]+(?:\s+[A-Za-z0-9_.-]+)*)\s*::?(?!=)"
         return {t for m in re.findall(rx, text, re.M) for t in m.split()}
-    return set(re.findall(r"^@?([A-Za-z0-9_-]+)[^\n:=]*:(?!=)", text, re.M))
+    # just: `name:`, `name arg="1" *rest:`, `@name:`; not `name := value` (an assignment)
+    return set(re.findall(r"^@?([A-Za-z0-9_-]+)(?:[ \t][^\n]*?)?:(?!=)", text, re.M))
 
 
 # ---------------------------------------------------------------- helpers

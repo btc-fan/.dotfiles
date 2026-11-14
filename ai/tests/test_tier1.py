@@ -53,6 +53,9 @@ def t_detect_python_pip(work):
     repo = tree(work, "py-pip", {"requirements.txt": "flask==3.0\npytest==8.0\n", "app.py": "x = 1\n"})
     info = detect(repo)
     assert info["ok"] and info["fast"] == ["python3 -m pytest -x -q"], info
+    write(os.path.join(repo, ".venv", "bin", "python"), "")
+    info = detect(repo)
+    assert info["fast"] == [".venv/bin/python -m pytest -x -q"], "a .venv: its python, not the system one: %s" % info
     assert any("no ruff config" in n for n in info["notes"]), info
     repo2 = tree(work, "py-notest", {"pyproject.toml": "[project]\nname='x'\n"})
     info = detect(repo2)
@@ -98,6 +101,10 @@ def t_plan_keeps_targets(work):
     assert mod.plan(repo, mod.detect(repo), "mvp")["text"] is None, "a rerun must change nothing"
     p = mod.plan(repo, mod.detect(repo), "long")
     assert "ai-ratchet" in p["text"] and "ai-ledger --check" in p["text"], "long tier adds ledger and ratchet"
+    pjust = tree(work, "plan-just-args", {"go.mod": "module x\n",
+                                          "justfile": 'check-fast pkg="./...":\n    go test {{pkg}}\nv := "1"\n'})
+    p = mod.plan(pjust, mod.detect(pjust), "mvp")
+    assert p["kept"] == ["check-fast"] and "\ncheck-fast:" not in p["text"], "a recipe with parameters: %s" % p["text"]
     just = tree(work, "plan-just", {"go.mod": "module x\n", "justfile": "build:\n    go build\n"})
     p = mod.plan(just, mod.detect(just), "mvp")
     assert p["file"] == "justfile" and "\n    go vet ./...\n" in p["text"] and p["fast_cmd"] == "just check-fast", p
@@ -671,6 +678,12 @@ def t_ratchet_other_languages(work):
         "src/lib.rs": "#[test]\nfn a() {}\n#[tokio::test]\n#[ignore]\nasync fn b() {}\n"})
     res = ratchet(repo, {}, "--show", "--only", "tests,skips")
     assert json.loads(res.stdout) == {"tests": 6, "skips": 4}, res.stdout
+    py = tree(work, "ratchet-hidden", {
+        "tests/test_mod.py": "import pytest\npytestmark = pytest.mark.skip(reason='x')\ndef test_a():\n    pass\n",
+        "tests/conftest.py": "collect_ignore = ['test_old.py']\n",
+        "pytest.ini": "[pytest]\naddopts = --deselect tests/test_mod.py::test_a\n"})
+    res = ratchet(py, {}, "--show", "--only", "tests,skips")
+    assert json.loads(res.stdout) == {"tests": 1, "skips": 3}, "pytestmark, collect_ignore, --deselect: " + res.stdout
 
 
 def t_stop_ratchet_long_tier(work):

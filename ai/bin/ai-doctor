@@ -1172,7 +1172,8 @@ def check_tier1(root, hl, text):
         return
     tier = hl.project_tier(root)
     makefiles = "".join(read_text_file(os.path.join(root, n)) or "" for n in ("Makefile", "justfile", "Justfile"))
-    miss = [t for t in ("check-fast", "check") if not re.search(r"^@?%s\s*:(?!=)" % re.escape(t), makefiles, re.M)]
+    miss = [t for t in ("check-fast", "check")
+            if not re.search(r"^@?%s(?:[ \t][^\n]*?)?:(?!=)" % re.escape(t), makefiles, re.M)]
     say("PASS" if not miss else "WARN", "project tier %s; check-fast and check targets" % tier,
         "missing: %s (ai-adopt writes them; a monorepo needs them by hand)" % ", ".join(miss) if miss else "")
     check_verify_skill(root, hl, tier)
