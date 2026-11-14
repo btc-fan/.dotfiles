@@ -361,24 +361,75 @@ def t_stop_blocks_twice_then_stops(work):
     repo, env = stop_repo(work, "stop-fail")
     hook(repo, env, "SessionStart")
     write(os.path.join(repo, "src", "app.py"), "x = 2\n")
-    for i in (1, 2):
-        out = hook(repo, env, "Stop")
+    for i in (1, 2):    # the second stop is the continuation Claude makes after the first block
+        out = hook(repo, env, "Stop", stop_hook_active=(i > 1))
         assert out and out.get("decision") == "block", "try %d: %s" % (i, out)
         assert "make check-fast failed (exit 2)" in out["reason"] and "FAILED tests/test_a.py" in out["reason"], out
         assert "block %d of 2" % i in out["reason"], out["reason"]
-    out = hook(repo, env, "Stop")
+    out = hook(repo, env, "Stop", stop_hook_active=True)
     assert out and "decision" not in out and "not blocking again" in out.get("systemMessage", ""), out
-    assert hook(repo, env, "Stop") is None, "told once: silent after"
+    assert hook(repo, env, "Stop", stop_hook_active=True) is None, "told once: silent after"
     assert runs(env) == 2, "the check ran %d times, want 2" % runs(env)
     write(os.path.join(repo, "src", "app.py"), "x = 3\n")       # new files: a new try count
     assert hook(repo, env, "Stop")["decision"] == "block"
 
 
-def t_stop_hook_active_silent(work):
+def t_stop_continuation_checks_the_fix(work):
+    """stop_hook_active does not skip the check: the continuation after a block is where the fix is checked."""
     repo, env = stop_repo(work, "stop-active")
     hook(repo, env, "SessionStart")
     write(os.path.join(repo, "src", "app.py"), "x = 2\n")
-    assert hook(repo, env, "Stop", stop_hook_active=True) is None and runs(env) == 0, "stop_hook_active: no run"
+    assert hook(repo, env, "Stop")["decision"] == "block"
+    write(os.path.join(repo, "check.sh"), PASS_SH)                 # the agent fixes the failure
+    assert hook(repo, env, "Stop", stop_hook_active=True) is None and runs(env) == 2, "the fix is checked"
+
+
+def t_stop_chain_cap(work):
+    """A chain of continuation stops gets at most 4 blocks even when each one changes the files."""
+    repo, env = stop_repo(work, "stop-chain")
+    hook(repo, env, "SessionStart")
+    outs = []
+    for i in range(6):
+        write(os.path.join(repo, "src", "app.py"), "x = %d\n" % (i + 10))
+        outs.append(hook(repo, env, "Stop", stop_hook_active=(i > 0)))
+    blocks = [o for o in outs if o and o.get("decision") == "block"]
+    assert len(blocks) == 4 and "not blocking again" in (outs[4] or {}).get("systemMessage", "") and outs[5] is None, outs
+    write(os.path.join(repo, "src", "app.py"), "x = 99\n")        # a new user turn: a new chain
+    assert hook(repo, env, "Stop")["decision"] == "block"
+
+
+def t_stop_no_baseline_uses_head(work):
+    repo, env = stop_repo(work, "stop-nobase")
+    write(os.path.join(repo, "src", "app.py"), "x = 2\n")         # SessionStart never ran (it timed out)
+    out = hook(repo, env, "Stop")
+    assert out and out["decision"] == "block", "the clean HEAD is the baseline: %s" % out
+
+
+def t_stop_recipe_changed(work):
+    repo, env = stop_repo(work, "stop-recipe")
+    hook(repo, env, "SessionStart")
+    write(os.path.join(repo, "Makefile"), "check-fast:\n\t@echo '1 passed'\n")
+    out = hook(repo, env, "Stop")
+    assert out and out["decision"] == "block" and "check-fast recipe in Makefile changed" in out["reason"], out
+    assert runs(env) == 0, "a changed recipe is not trusted to run"
+
+
+def t_stop_skipped_only_and_group_kill(work):
+    repo, env = stop_repo(work, "stop-skipped", check_sh="echo '5 skipped in 0.02s'\n")
+    hook(repo, env, "SessionStart")
+    write(os.path.join(repo, "src", "app.py"), "x = 2\n")
+    out = hook(repo, env, "Stop")
+    assert out and "only skipped" in out["reason"], out
+    late = os.path.join(env["HOME"], "late")
+    slow, env2 = stop_repo(work, "stop-group", check_sh="(sleep 3; touch %s) &\nwait\n" % late)
+    env2["AI_STOP_CHECK_TIMEOUT"] = "1"
+    hook(slow, env2, "SessionStart")
+    write(os.path.join(slow, "src", "app.py"), "x = 2\n")
+    out = hook(slow, env2, "Stop")
+    assert out and "ran over 1 s" in out.get("systemMessage", ""), out
+    import time
+    time.sleep(4)
+    assert not os.path.exists(late), "the timeout killed make only, its children kept running"
 
 
 def t_stop_success_silent_both_agents(work):
@@ -633,6 +684,11 @@ def t_stop_ratchet_long_tier(work):
     assert out and out["decision"] == "block" and "ai-ratchet" in out["reason"] and "tests" in out["reason"], out
     assert not run(["git", "-C", repo, "status", "--porcelain", "--", ".ai/ratchet.json"]).stdout.strip(), \
         "the Stop hook must not write the baseline"
+    base = json.loads(read(os.path.join(repo, ".ai", "ratchet.json")))
+    write(os.path.join(repo, ".ai", "ratchet.json"), json.dumps(dict(base, tests=base["tests"] - 1)))
+    out = hook(repo, env, "Stop", stop_hook_active=True)
+    assert out and out["decision"] == "block" and "committed at" in out["reason"], \
+        "lowering the baseline file in the same session must not pass: %s" % out
 
 
 # ---------------------------------------------------------------- helpers
@@ -715,7 +771,8 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
 
 TESTS_LIST = [t_verify_skills_copy, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_try_no_skills, t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_go_rust, t_detect_monorepo,
               t_plan_keeps_targets, t_adopt_try_tier_own_done, t_adopt_long_tier, t_adopt_monorepo_refused,
-              t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_hook_active_silent,
+              t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_continuation_checks_the_fix, t_stop_chain_cap, t_stop_no_baseline_uses_head,
+              t_stop_recipe_changed, t_stop_skipped_only_and_group_kill,
               t_stop_success_silent_both_agents, t_stop_codex_block_and_timeout, t_stop_floor_zero_tests,
               t_stop_off_switches, t_stop_omc_coexistence, t_ledger_check_honest, t_ledger_quarantine_clock,
               t_ledger_stop_note, t_ratchet, t_ratchet_other_languages, t_stop_ratchet_long_tier]

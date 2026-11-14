@@ -10,17 +10,20 @@ Python stdlib only (/usr/bin/python3 3.9 too). An internal error is logged and t
 quality check, not a security gate (the gates are in the router).
 
 Stop, in order:
-  1. stop_hook_active (the agent is already continuing because a Stop hook blocked): silent. No loops.
-  2. Only in an adopted repo (.ai/enabled), tier mvp or long, without a `no-stop-check` line.
-  3. An oh-my-claudecode persistent mode (ralph, autopilot, ultragoal, team ...) is active for this session:
+  1. Only in an adopted repo (.ai/enabled), tier mvp or long, without a `no-stop-check` line.
+  2. An oh-my-claudecode persistent mode (ralph, autopilot, ultragoal, team ...) is active for this session:
      silent. That mode owns the continuation; this check runs at the first stop after the mode ends.
-     So the two hooks never both block one stop.
-  4. The tree fingerprint (HEAD, git status, git diff, untracked file sizes and times) equals the session
-     baseline or the last green tree: silent (nothing changed in this session, or already checked).
-  5. The same tree failed twice already: no third block (Claude: one short note to the owner).
-  6. `make check-fast` (or `just check-fast`), 55 s timeout. A timeout passes with a note.
-     Exit 0 but 0 tests seen (minimum-input floor) is a failure. Long tier: then `ai-ratchet --only tests,skips`
-     (test count may not drop, skip count may not grow).
+     OMC itself never blocks when stop_hook_active is set, so one stop never gets a block from both.
+  3. The tree fingerprint (HEAD, git status, git diff, untracked file sizes and times) equals the session
+     baseline or the last green tree: silent. No SessionStart baseline (hook timed out, added mid-session):
+     the baseline is the clean HEAD, so any uncommitted change counts.
+  4. Loop limits: at most 2 blocks on the same tree, and at most 4 blocks in one stop chain (stops while
+     stop_hook_active is set; a new user turn starts a new chain). Then one note to the owner (Claude).
+     stop_hook_active does not skip the check: the continuation is where the agent's fix gets checked.
+  5. The check-fast recipe changed since the session start: a block (the owner decides on a weaker check).
+  6. `make check-fast` (or `just check-fast`) in its own process group, 55 s budget in all (a timeout kills
+     the group and passes with a note). Exit 0 with 0 tests seen, or only skipped tests, fails
+     (minimum-input floor). Long tier: then `ai-ratchet --only tests,skips --base <session start commit>`.
   7. Failure: JSON {"decision": "block", "reason": <command, exit code, last 40 lines>}. Success: no output.
 """
 import hashlib
@@ -39,6 +42,7 @@ from hooklib import (ai_home, iso_now, ledger_hits, ledger_note, log_line, proje
 
 CHECK_TIMEOUT = float(os.environ.get("AI_STOP_CHECK_TIMEOUT") or 55)   # env: tests only (the hook's own env)
 MAX_TRIES = 2
+MAX_CHAIN = 4                   # blocks in one chain of continuation stops
 TAIL_LINES = 40
 OMC_MODES = ("ralph", "ultragoal", "autopilot", "ultrapilot", "pipeline", "team", "omc-teams", "ultrawork",
              "ultraqa")
@@ -48,6 +52,8 @@ UNTRACKED_CAP = 2000
 COUNT_RX = re.compile(r"\b(\d+) (?:tests? )?(?:passed|passing)\b|\bRan (\d+) tests?\b|^ok\s+\S+", re.M)
 ZERO_RX = re.compile(r"no tests ran|collected 0 items|no test files|running 0 tests|no tests found|ran 0 tests",
                      re.I)
+SKIPPED_RX = re.compile(r"\b\d+ (?:tests? )?skipped\b", re.I)
+TARGET_RX = r"^@?check-fast(?:[ \t][^\n]*?)?:(?!=)"     # make: check-fast:; just: check-fast arg="1":
 
 
 def main(argv):
@@ -97,8 +103,7 @@ def on_session_start(payload):
 
 
 def on_stop(payload, agent):
-    if payload.get("stop_hook_active"):
-        return None
+    t0 = time.time()
     root = active_root(payload)
     if not root:
         return None
@@ -106,53 +111,64 @@ def on_stop(payload, agent):
     if omc_mode_active(root, session):
         return None
     st = State(payload, root)
+    continuing = bool(payload.get("stop_hook_active"))
+    if not continuing:
+        st.data["chain"], st.data["chain_told"] = 0, False   # a new user turn: a new chain of continuation stops
     fp = fingerprint(root)
-    if not st.data.get("baseline"):         # no SessionStart seen (hook added mid-session): start from here
-        st.data.update(baseline=fp, baseline_head=head(root), started=iso_now())
-        st.save()
-        return None
+    if not st.data.get("baseline"):         # no SessionStart baseline: the clean HEAD is the baseline
+        h = head(root)
+        st.data.update(baseline=clean_fingerprint(h), baseline_head=h, started=iso_now())
     if fp == st.data["baseline"] or fp in (st.data.get("last_ok") or []):
+        st.save()
         return None
     tries = st.data.setdefault("tries", {})
-    if tries.get(fp, 0) >= MAX_TRIES:
+    if tries.get(fp, 0) >= MAX_TRIES or st.data.get("chain", 0) >= MAX_CHAIN:
         told = st.data.setdefault("told", [])
-        if fp in told:
+        if fp in told or st.data.get("chain_told"):
+            st.save()
             return None
         told.append(fp)
+        st.data["chain_told"] = st.data.get("chain", 0) >= MAX_CHAIN
         st.save()
-        return note(agent, "check-fast still fails after %d blocks on the same files; not blocking again. "
-                           "Owner: run it yourself and decide." % MAX_TRIES)
+        return note(agent, "check-fast still fails after %d blocks; not blocking again. Owner: run it yourself "
+                           "and decide." % max(tries.get(fp, 0), st.data.get("chain", 0)))
     cmd = check_command(root)
     if not cmd:
-        return None
-    t0 = time.time()
-    try:
-        res = subprocess.run(cmd, cwd=root, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                             stderr=subprocess.STDOUT, timeout=CHECK_TIMEOUT)
-    except subprocess.TimeoutExpired:
-        st.data["last_ok"] = [fp, fingerprint(root)]
         st.save()
-        return note(agent, "%s ran over %d s and was not judged (counted as a pass). Keep check-fast under 60 s."
-                    % (" ".join(cmd), CHECK_TIMEOUT))
-    except OSError as exc:
-        return note(agent, "%s could not start: %s" % (" ".join(cmd), exc))
-    output = res.stdout.decode("utf-8", "replace")
-    problem = None
-    if res.returncode != 0:
-        problem = "%s failed (exit %d)" % (" ".join(cmd), res.returncode)
-    elif tests_seen(output) == 0:
-        problem = "%s passed but ran 0 tests (minimum-input floor: a check that checks nothing fails)" % " ".join(cmd)
-    elif project_tier(root) == "long":
-        left = max(5.0, CHECK_TIMEOUT - (time.time() - t0))
-        ok, msg = ratchet(root, left)
-        if not ok:
-            problem, output = "ai-ratchet (tests and skips) failed", msg
+        return None
+    problem, output = None, ""
+    changed = recipe_changed(root, st.data.get("baseline_head"))
+    if changed:
+        problem, output = ("the check-fast recipe in %s changed in this session: a weaker check is the owner's "
+                           "call. Put it back, or stop and tell the owner why it must change" % changed), ""
+    else:
+        rc, output, timed_out = run_group(cmd, root, CHECK_TIMEOUT - (time.time() - t0))
+        if timed_out:
+            st.data["last_ok"] = [fp, fingerprint(root)]
+            st.save()
+            return note(agent, "%s ran over %d s and was not judged (counted as a pass). Keep check-fast under 60 s."
+                        % (" ".join(cmd), CHECK_TIMEOUT))
+        if rc is None:
+            st.save()
+            return note(agent, "%s could not start: %s" % (" ".join(cmd), output))
+        if rc != 0:
+            problem = "%s failed (exit %d)" % (" ".join(cmd), rc)
+        elif tests_seen(output) == 0:
+            problem = ("%s passed but ran 0 tests, or only skipped ones (minimum-input floor: a check that checks "
+                       "nothing fails)" % " ".join(cmd))
+        elif project_tier(root) == "long":
+            left = CHECK_TIMEOUT - (time.time() - t0)
+            if left >= 3:                   # the hook timeout is 60 s: never start what cannot finish
+                ok, msg = ratchet(root, left, st.data.get("baseline_head"))
+                if not ok:
+                    problem, output = "ai-ratchet (tests and skips) failed", msg
     if problem is None:
         st.data["last_ok"] = [fp, fingerprint(root)]       # the check may touch files (caches, formatters)
         msg = ledger_stop_note(root, st, payload) if agent == "claude" and project_tier(root) == "long" else ""
         st.save()
         return note(agent, msg) if msg else None
     tries[fp] = tries.get(fp, 0) + 1
+    st.data["chain"] = st.data.get("chain", 0) + 1
     st.save()
     tail = "\n".join(output.rstrip().splitlines()[-TAIL_LINES:])
     reason = ("[ai stop-check] %s. Last %d lines:\n%s\n\nFix the cause, then finish. Do not delete, skip or weaken a "
@@ -206,12 +222,64 @@ def active_root(payload):
     return root
 
 
+RECIPE_FILES = (("Makefile", "make"), ("GNUmakefile", "make"), ("justfile", "just"), ("Justfile", "just"))
+
+
 def check_command(root):
-    for name, tool in (("Makefile", "make"), ("GNUmakefile", "make"), ("justfile", "just"), ("Justfile", "just")):
+    for name, tool in RECIPE_FILES:
         text = read_text(os.path.join(root, name))
-        if text and re.search(r"^@?check-fast\s*:(?!=)", text, re.M):
+        if text and re.search(TARGET_RX, text, re.M):
             return [tool, "check-fast"]
     return None
+
+
+def recipe(text):
+    """The check-fast target line and its indented recipe lines, or ''."""
+    m = re.search(TARGET_RX, text or "", re.M)
+    if not m:
+        return ""
+    lines = [text[m.start():].split("\n", 1)[0]]
+    for ln in text[m.end():].split("\n")[1:]:
+        if ln[:1] in ("\t", " ") and ln.strip():
+            lines.append(ln.rstrip())
+        elif ln.strip():
+            break
+    return "\n".join(lines)
+
+
+def recipe_changed(root, base):
+    """The file name when the check-fast recipe differs from the one at the session start commit, else ''."""
+    if not base:
+        return ""
+    for name, _tool in RECIPE_FILES:
+        now = read_text(os.path.join(root, name))
+        if now is None:
+            continue
+        old = git(root, "show", "%s:%s" % (base, name)).decode("utf-8", "replace")
+        if recipe(now) and old and recipe(now) != recipe(old):
+            return name
+    return ""
+
+
+def run_group(cmd, root, timeout):
+    """(exit code or None, output, timed out). The command runs in its own process group: a timeout kills the
+    whole group (make's children too), not only make."""
+    import signal
+    try:
+        proc = subprocess.Popen(cmd, cwd=root, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, start_new_session=True)
+    except OSError as exc:
+        return None, str(exc), False
+    try:
+        out, _ = proc.communicate(timeout=max(1.0, timeout))
+        return proc.returncode, out.decode("utf-8", "replace"), False
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        proc.communicate()
+        return None, "", True
 
 
 def git(root, *args):
@@ -225,6 +293,13 @@ def git(root, *args):
 
 def head(root):
     return git(root, "rev-parse", "-q", "--verify", "HEAD").decode().strip()
+
+
+def clean_fingerprint(h):
+    """The fingerprint of a clean tree at commit h (what fingerprint() gives with nothing changed)."""
+    x = hashlib.sha256()
+    x.update(h.encode() or b"no-head")
+    return x.hexdigest()
 
 
 def fingerprint(root):
@@ -253,16 +328,18 @@ def tests_seen(output):
         total += int(m.group(1) or m.group(2) or 1)
     if total:
         return total
-    return 0 if ZERO_RX.search(output) else None
+    return 0 if ZERO_RX.search(output) or SKIPPED_RX.search(output) else None
 
 
-def ratchet(root, timeout):
-    """ai-ratchet --only tests,skips --no-write (a missing baseline passes). (ok, message)."""
+def ratchet(root, timeout, base=None):
+    """ai-ratchet --only tests,skips --no-write against the baseline committed at the session start commit (an
+    edit of .ai/ratchet.json in this session does not count). A missing baseline passes. (ok, message)."""
     exe = os.path.join(ai_home() or "/nonexistent", "ai", "bin", "ai-ratchet")
     if not os.path.isfile(exe):
         return True, ""
+    extra = ["--base", base] if base else []
     try:
-        res = subprocess.run([sys.executable, exe, "--dir", root, "--only", "tests,skips", "--no-write"],
+        res = subprocess.run([sys.executable, exe, "--dir", root, "--only", "tests,skips", "--no-write"] + extra,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
     except (OSError, subprocess.SubprocessError):
         return True, ""

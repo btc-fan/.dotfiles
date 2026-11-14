@@ -8,12 +8,17 @@
   ai-ratchet --init | --reset         write the baseline from the current counts (--reset: after the owner
                                       agreed to delete or skip a test; say so in the PR "Changed guards")
   ai-ratchet --show                   print the counts, compare nothing
+  ai-ratchet --base REF               compare with .ai/ratchet.json as committed at REF (stop-check: the commit at
+                                      the session start). Default: the merge base with origin/HEAD, origin/main or
+                                      main (HEAD when on it). The working-tree file counts only when nothing is
+                                      committed yet, so an edit of the baseline in the same change does not pass.
 
 Counters (no test run, so it is fast; it counts definitions in test files):
   tests  Python def test_* in test_*.py / *_test.py; JS/TS it( / test( in *.test.* / *.spec.* / __tests__;
          Go func Test* in *_test.go; Rust #[test] / #[tokio::test]
-  skips  pytest.mark.skip/skipif/xfail, unittest.skip, pytest.skip(; it.skip / test.skip / xit / .todo;
-         t.Skip; #[ignore]
+  skips  pytest.mark.skip/skipif/xfail (decorators and pytestmark), unittest.skip, pytest.skip(;
+         collect_ignore and --deselect / --ignore in conftest.py, pytest/tox/setup.cfg/pyproject config and the
+         Makefile/justfile; it.skip / test.skip / xit / .todo; t.Skip; #[ignore]
   lint   ruff findings (configured ruff: [tool.ruff], ruff.toml) or the project's own eslint
          (node_modules/.bin/eslint); left out when no linter is configured or installed
 tests may only go up; skips and lint may only go down. A missing baseline passes with a note.
@@ -32,13 +37,17 @@ PY_TEST_FILE = re.compile(r"^(test_.*|.*_test)\.py$")
 JS_TEST_FILE = re.compile(r"\.(test|spec)\.[cm]?[jt]sx?$")
 COUNTS = {
     "py": (re.compile(r"^\s*(?:async\s+)?def\s+test_\w*\s*\(", re.M),
-           re.compile(r"@pytest\.mark\.(?:skip|skipif|xfail)\b|@unittest\.skip\w*|\bpytest\.skip\(")),
+           re.compile(r"\bpytest\.mark\.(?:skip|skipif|xfail)\b|@unittest\.skip\w*|\bpytest\.skip\(")),
     "js": (re.compile(r"(?<![\w.$])(?:it|test)(?:\.each\s*\([^)]*\))?\s*\("),
            re.compile(r"(?<![\w.$])(?:it|test|describe)\.(?:skip|todo)\s*\(|(?<![\w.$])x(?:it|test|describe)\s*\(")),
     "go": (re.compile(r"^func\s+Test\w*\s*\(", re.M), re.compile(r"\bt\.Skip(?:f|Now)?\s*\(")),
     "rs": (re.compile(r"#\[(?:tokio::)?test\]"), re.compile(r"#\[ignore\b")),
 }
-BETTER_UP = {"tests"}          # the others (skips, lint) are better when they go down
+BETTER_UP = {"tests"}
+# Files that can hide tests without a mark in a test file.
+DESELECT_FILES = ("conftest.py", "pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml", "Makefile", "justfile",
+                  "Justfile")
+DESELECT_RX = re.compile(r"\bcollect_ignore(?:_glob)?\b|--deselect\b|--ignore(?:-glob)?\b")          # the others (skips, lint) are better when they go down
 
 
 def main(argv):
@@ -53,10 +62,8 @@ def main(argv):
         write(path, cur)
         print("ai-ratchet: baseline %s written: %s" % (BASELINE, fmt(cur)))
         return 0
-    try:
-        with open(path) as fh:
-            base = json.load(fh)
-    except (OSError, ValueError):
+    base, where = reference(root, arg(argv, "--base"))
+    if base is None:
         print("ai-ratchet: no baseline (%s): run ai-ratchet --init and commit it. Counts now: %s" % (BASELINE, fmt(cur)))
         return 0
     worse, better, new = [], [], {}
@@ -74,9 +81,9 @@ def main(argv):
         else:
             worse.append("%s %d -> %d" % (key, old, val))
     if worse:
-        print("ai-ratchet: worse than the baseline: %s. Tests may only grow; skips and lint findings may only "
+        print("ai-ratchet: worse than the baseline (%s): %s. Tests may only grow; skips and lint findings may only "
               "shrink. Put the test back or fix the finding. Only the owner may accept it (ai-ratchet --reset, "
-              "and the PR lists it under Changed guards)." % "; ".join(worse))
+              "and the PR lists it under Changed guards)." % (where, "; ".join(worse)))
         return 1
     if new and "--no-write" not in argv:
         merged = dict(base)
@@ -86,6 +93,47 @@ def main(argv):
     else:
         print("ai-ratchet: ok (%s)" % fmt(cur))
     return 0
+
+
+def reference(root, base):
+    """(baseline dict, where it came from) or (None, ""): committed at REF (or the default base), else the
+    working-tree file when no commit holds one yet."""
+    rel = BASELINE.replace(os.sep, "/")
+    ref = base or default_base(root)
+    if ref:
+        text = git(root, "show", "%s:%s" % (ref, rel))
+        if text is not None:
+            try:
+                return json.loads(text), "committed at %s" % ref[:12]
+            except ValueError:
+                pass
+    if base:
+        return None, ""                     # the session start commit had no baseline: nothing to hold to yet
+    try:
+        with open(os.path.join(root, BASELINE)) as fh:
+            return json.load(fh), "working tree"
+    except (OSError, ValueError):
+        return None, ""
+
+
+def default_base(root):
+    head = (git(root, "rev-parse", "-q", "--verify", "HEAD") or "").strip()
+    if not head:
+        return None
+    for ref in ("origin/HEAD", "origin/main", "origin/master", "main", "master"):
+        mb = (git(root, "merge-base", "HEAD", ref) or "").strip()
+        if mb and mb != head:
+            return mb
+    return head
+
+
+def git(root, *args):
+    try:
+        res = subprocess.run(["git", "-C", root] + list(args), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                             timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return res.stdout.decode("utf-8", "replace") if res.returncode == 0 else None
 
 
 def arg(argv, name):
@@ -119,6 +167,13 @@ def counts(root, only):
             test_rx, skip_rx = COUNTS[kind]
             skips += len(skip_rx.findall(text))
             tests += len(test_rx.findall(text))      # it.skip( / xit( are not matched here: skips only
+        for name in DESELECT_FILES:
+            for dirpath, dirnames, files in os.walk(root) if name == "conftest.py" else [(root, [], [name])]:
+                if name == "conftest.py":
+                    dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+                if name not in files:
+                    continue
+                skips += len(DESELECT_RX.findall(read(os.path.join(dirpath, name)) or ""))
         if "tests" in only:
             out["tests"] = tests
         if "skips" in only:
