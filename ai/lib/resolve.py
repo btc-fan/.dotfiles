@@ -490,7 +490,7 @@ BINARIES = {"codex": "codex", "omc": "omc", "omx": "omx", "opencode": "opencode"
             "skill-scanner": "skill-scanner", "osv-scanner": "osv-scanner", "gitleaks": "gitleaks"}
 PLUGIN_SOURCES = {"ponytail": "ponytail", "i-have-adhd": "i-have-adhd", "claude-seo": "claude-seo",
                   "claude-blog": "claude-blog"}
-CLAUDE_PLUGINS = {"omc-plugin": "oh-my-claudecode@omc"}
+CLAUDE_PLUGINS = {"omc-plugin": "oh-my-claudecode@omc", "last30days": "last30days@last30days-skill"}
 
 
 def plugin_src_dir(name):

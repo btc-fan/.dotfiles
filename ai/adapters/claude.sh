@@ -337,6 +337,8 @@ claude_mcp() {
     # The ai-core plugin serves Serena, context7, GitHub, Grounded Docs. Any user-scope copy (the
     # hand-made config registered Serena there) is moved in step 8, after ai-core is verified.
     info "Claude MCP: served by the ai-core plugin (user-scope duplicates are moved after the plugin check)"
+    # Dropped servers (AI_DROP_MCP in ai/pins.env): removed from user scope, each entry saved for uninstall.
+    [ -z "${AI_DROP_MCP:-}" ] || aiconf claude-drop-mcp "$(CLAUDE_JSON)" $AI_DROP_MCP
 }
 
 # Remove user-scope MCP copies and settings.json hook copies, only when ai-core is live.
@@ -414,13 +416,8 @@ claude_plugins() {
     claude_git_plugin claude-seo agricidaniel-claude-seo AgriciDaniel/claude-seo claude-seo@agricidaniel-claude-seo || true
     claude_git_plugin claude-blog agricidaniel-blog AgriciDaniel/claude-blog claude-blog@agricidaniel-blog || true
     # Owner decision 2026-11-12: opt-in per project (about 12k tokens per session each). Installed, but OFF
-    # at user scope; a project turns one on with ai-adopt --tools seo|blog, which writes enabledPlugins true in
-    # its .claude/settings.json (project and local settings win over user settings).
-    local pk
-    for pk in claude-seo@agricidaniel-claude-seo claude-blog@agricidaniel-blog; do
-        aiconf json-set "$CLAUDE_DIR/settings.json" "enabledPlugins/$pk" false
-    done
-    ok "Claude: claude-seo and claude-blog off by default (per project: ai-adopt --tools seo,blog)"
+    # at user scope (claude_plugins_off, AI_OFF_CLAUDE_PLUGINS); a project turns one on with ai-adopt --tools
+    # seo|blog, which writes enabledPlugins true in its .claude/settings.json (project settings win over user).
     claude_omc_wiring
     # Serena: opt-in per project (owner decision 2026-11-12). Installed, OFF at user scope; a project turns it
     # on with ai-adopt --tools serena (project enabledPlugins ai-serena@ai = true).
@@ -433,17 +430,103 @@ claude_plugins() {
     done
     aiconf json-set "$CLAUDE_DIR/settings.json" "enabledPlugins/ai-serena@ai" true
     aiconf json-set "$CLAUDE_DIR/settings.json" "enabledPlugins/ai-playwright@ai" false
+    claude_take_serena
     manual "Claude, once per machine, in a project with claude-seo on: /seo setup, then /seo doctor (venv + Chromium)"
 
-    # Plugins the design dropped: report, never remove.
+    claude_last30days
+    claude_plugins_off
+    claude_drop_plugins
+}
+
+# last30days (owner decision 2026-11-14): ON by default for Claude on every machine. Same path as claude-seo:
+# newest stable tag, audited, a foreign marketplace replaced by the tag source (plugin data kept).
+claude_last30days() {
+    claude_git_plugin last30days last30days-skill mvanhorn/last30days-skill last30days@last30days-skill || true
+    if claude_has_plugin last30days@last30days-skill || [ "$AI_DRY_RUN" = 1 ]; then
+        aiconf json-set "$CLAUDE_DIR/settings.json" "enabledPlugins/last30days@last30days-skill" true
+    fi
+}
+
+# Off by default (AI_OFF_CLAUDE_PLUGINS in ai/pins.env, owner decisions 2026-11-12 and 2026-11-14): installed
+# plugins on that list get enabledPlugins false at user scope (recorded; uninstall puts the old value back).
+# A project turns one on with ai-adopt where a tool id exists (seo, blog, ui); typesafe has none: just off.
+claude_plugins_off() {
+    local pk off=""
+    for pk in ${AI_OFF_CLAUDE_PLUGINS:-}; do
+        claude_has_plugin "$pk" || continue
+        aiconf json-set "$CLAUDE_DIR/settings.json" "enabledPlugins/$pk" false
+        off="$off ${pk%@*}"
+    done
+    [ -z "$off" ] || ok "Claude: off at user scope:$off (per project: ai-adopt --tools seo,blog,ui)"
+}
+
+# Dropped plugins (AI_DROP_CLAUDE_PLUGINS in ai/pins.env): uninstalled with --keep-data, and their marketplace
+# removed when no other installed plugin comes from it. One restore record: uninstall.sh adds the old
+# marketplace source back and installs the plugin again. The context7 plugin is only reported (owner's call).
+claude_drop_plugins() {
+    local p m src others
+    for p in ${AI_DROP_CLAUDE_PLUGINS:-}; do
+        claude_has_plugin "$p" || continue
+        m=${p#*@}
+        src=$(claude_src_add_form "$(claude_marketplace_src "$m")")
+        others=$(claude_marketplace_users "$m" "$p")
+        [ -z "$others" ] && [ "$m" != ai ] || src=""
+        run claude plugin uninstall "$p" --keep-data || { warn "claude plugin uninstall $p failed: left as it is"; continue; }
+        aiconf record-cmd "claude-plugin-restore:$p" -- sh -c \
+            '[ -z "$1" ] || claude plugin marketplace add "$1" >/dev/null 2>&1; claude plugin install "$2" --scope user' \
+            _ "$src" "$p"
+        if [ -n "$src" ]; then
+            run claude plugin marketplace remove "$m" || warn "claude plugin marketplace remove $m failed: left as it is"
+        fi
+        ok "Claude plugin $p removed (dropped; data kept${src:+; marketplace $m removed}; uninstall.sh restores it)"
+    done
     local f="$CLAUDE_PLUGINS_DIR/installed_plugins.json" name
     if [ -f "$f" ]; then
         for name in $(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1])).get("plugins",{}).keys()))' "$f" 2>/dev/null); do
             case "$name" in
-                caveman@*|context7@*) manual "dropped by design, remove if you agree: claude plugin uninstall $name" ;;
+                context7@*) manual "dropped by design, remove if you agree: claude plugin uninstall $name" ;;
             esac
         done
     fi
+    return 0
+}
+
+# claude_marketplace_users <marketplace> <plugin>: other installed plugins from that marketplace, one per line.
+claude_marketplace_users() {
+    python3 - "$CLAUDE_PLUGINS_DIR/installed_plugins.json" "$1" "$2" <<'EOS'
+import json, sys
+try:
+    names = (json.load(open(sys.argv[1])).get("plugins") or {}).keys()
+except (OSError, ValueError):
+    names = []
+for n in names:
+    if n.endswith("@" + sys.argv[2]) and n != sys.argv[3]:
+        print(n)
+EOS
+}
+
+# Owner decision 2026-11-14: once ai-serena@ai is installed and enabled, it serves Serena; a user-scope copy
+# named serena in ~/.claude.json is moved out (saved, restore recorded), like context7 after ai-core.
+claude_take_serena() {
+    if [ "$AI_DRY_RUN" != 1 ]; then
+        claude_has_plugin ai-serena@ai || return 0
+        [ "$(aiconf json-get "$CLAUDE_DIR/settings.json" 'enabledPlugins/ai-serena@ai' 2>/dev/null)" = true ] || return 0
+    fi
+    aiconf claude-take-mcp "$(CLAUDE_JSON)" "$AI_HOME/ai/marketplace/plugins/ai-serena/.mcp.json"
+}
+
+# Dropped hook entries (AI_DROP_CLAUDE_HOOKS in ai/pins.env): settings.json handlers whose command has one of
+# the words are removed (saved, recorded; undo restores). Their script files are not ours: reported, kept.
+claude_drop_hooks() {
+    [ -n "${AI_DROP_CLAUDE_HOOKS:-}" ] || return 0
+    local rx w files=""
+    rx=$(python3 -c 'import re,sys; print("|".join(re.escape(w) for w in sys.argv[1:]))' $AI_DROP_CLAUDE_HOOKS)
+    aiconf hooks-remove "$CLAUDE_DIR/settings.json" "$rx"
+    for w in $AI_DROP_CLAUDE_HOOKS; do
+        [ -e "$CLAUDE_DIR/hooks/$w" ] && files="$files $CLAUDE_DIR/hooks/$w"
+    done
+    [ -z "$files" ] || manual "hook scripts left on disk (no hook runs them now; not ours):$files. Delete them if you agree"
+    return 0
 }
 
 # ---------------------------------------------------------------- step 9: skills
@@ -476,6 +559,7 @@ claude_hooks() {
 
     # graphify is opt-in per project now (`graph` in .ai/enabled): no global graphify hooks; earlier ones go.
     aiconf hooks-remove "$CLAUDE_DIR/settings.json" 'graphify (hook-guard|hook-check)'
+    claude_drop_hooks
 
     claude_rtk
     # graphify or RTK may have added copies of plugin hooks just now: adopt again (gated by B2).

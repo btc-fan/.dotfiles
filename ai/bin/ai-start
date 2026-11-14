@@ -21,8 +21,9 @@ What it writes (project root):
                      Plus one short managed block per enabled opt-in tool:
                      <!-- AI:<id> v<N> START --> <routing action> <!-- AI:<id> v<N> END -->
   CLAUDE.md          a line "@AGENTS.md" (created when missing)
-  .claude/settings.json   enabledPlugins for claude-seo / claude-blog / oh-my-claudecode when "seo" / "blog" /
-                     "omc" is enabled (omc is off by default on servers, always on on macOS)
+  .claude/settings.json   enabledPlugins for claude-seo / claude-blog / ui-ux-pro-max / oh-my-claudecode when
+                     "seo" / "blog" / "ui" / "omc" is enabled (omc is off by default on servers, always on on
+                     macOS; ui-ux-pro-max only takes effect where the plugin is installed)
   .claude/settings.json   also enabledPlugins "ai-serena@ai" ("serena") and "ai-playwright@ai" ("browser"): each
                      plugin holds only its MCP entry; managed settings block project .mcp.json servers
   .codex/config.toml Codex entries for Playwright ("browser": ai-playwright-mcp, the pinned @playwright/mcp
@@ -244,6 +245,7 @@ def claude_md(text):
 # Serena too: plugin ai-serena@ai holds only its MCP entry, because managed strictPluginOnlyCustomization
 # blocks project .mcp.json files (planted-config defence) while plugin servers still load.
 CLAUDE_PLUGINS = {"seo": "claude-seo@agricidaniel-claude-seo", "blog": "claude-blog@agricidaniel-blog",
+                  "ui": "ui-ux-pro-max@ui-ux-pro-max-skill",       # off at user scope (owner 2026-11-14)
                   "serena": "ai-serena@ai", "browser": "ai-playwright@ai",
                   "omc": "oh-my-claudecode@omc"}      # server: off at user scope (owner 2026-11-12); Mac: always on
 

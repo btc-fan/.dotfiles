@@ -36,6 +36,8 @@ codex_marketplace_plugin() {
 
 codex_mcp() {
     has codex || { skip "Codex MCP: codex not found"; return 0; }
+    # Dropped servers (AI_DROP_MCP in ai/pins.env): codex mcp remove, each entry saved for uninstall.
+    [ -z "${AI_DROP_MCP:-}" ] || aiconf codex-drop-mcp "$CODEX_DIR/config.toml" $AI_DROP_MCP
     local skip=()
     box_present || skip=(--skip box)
     aiconf mcp-register codex --mcp-json "$(PLUGIN_DIR)/.mcp.json" --plugin-root "$(PLUGIN_DIR)" ${skip[@]+"${skip[@]}"}
@@ -129,7 +131,22 @@ codex_hooks() {
             ok "RTK for Codex"
         fi
     fi
+    codex_omx_node_fix
     codex_trust
+}
+
+# OMX writes its Codex hooks with the node it ran under. With Homebrew node that is a versioned Cellar path
+# (/opt/homebrew/Cellar/node/<ver>/bin/node), gone after the next `brew upgrade node`. Owner decision
+# 2026-11-14: those oh-my-codex commands point to Homebrew's stable link <prefix>/opt/node/bin/node when it
+# exists (recorded; a trust hash the user gave the old command moves along). Nothing else of OMX changes.
+codex_omx_node_fix() {
+    [ -f "$CODEX_DIR/hooks.json" ] || return 0
+    local args="" p
+    for p in $( { has brew && brew --prefix 2>/dev/null; } || true) ${AI_BREW_PREFIXES-/opt/homebrew /usr/local}; do
+        args="$args --prefix $p"
+    done
+    # shellcheck disable=SC2086
+    aiconf hooks-node-fix "$CODEX_DIR/hooks.json" --needle oh-my-codex $args --config "$CODEX_DIR/config.toml"
 }
 
 # Linux admin installs: Codex sandbox and approvals pinned through the documented managed layer
