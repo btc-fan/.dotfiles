@@ -578,6 +578,16 @@ def t_ledger_check_honest(work):
     assert res.returncode == 1 and "test_r099_orphan.py has no ledger row" in res.stdout, res.stdout
 
 
+def t_ledger_removed_in_last_commit(work):
+    """On the main branch (HEAD is its own merge base) the check compares with HEAD~1: a row removed and
+    committed is still caught."""
+    repo, env = ledger_repo(work, "ledger-main")
+    write(os.path.join(repo, "docs", "REGRESSIONS.md"), "# Regressions\n## Ledger\n## Quarantine\n")
+    run(["git", "-C", repo, "commit", "-qam", "drop the row"], env=env)
+    res = ledger_check(repo, env)
+    assert res.returncode == 1 and "R-012 was removed" in res.stdout, res.stdout
+
+
 def t_ledger_quarantine_clock(work):
     old = LEDGER + "- tests/test_a.py::test_x | since: 2026-01-01 | timing\n"
     repo, env = ledger_repo(work, "ledger-q", ledger=old)
@@ -601,7 +611,7 @@ def t_ledger_stop_note(work):
     write(os.path.join(repo, "src", "billing", "refund.py"), "x = 3\n")
     assert hook(repo, env, "Stop") is None, "one note per area per session"
     repo2, env2 = ledger_repo(work, "ledger-stop-nudged")
-    write(os.path.join(env2["AI_STATE_DIR"], "sessions", "s1.json"), json.dumps({"ledger_areas": ["src/billing/"]}))
+    write(os.path.join(env2["AI_STATE_DIR"], "sessions", "s1.json"), json.dumps({"ledger_areas": ["src/billing"]}))
     hook(repo2, env2, "SessionStart")
     write(os.path.join(repo2, "src", "billing", "refund.py"), "x = 2\n")
     assert hook(repo2, env2, "Stop") is None, "the edit nudge already named this area"
@@ -787,7 +797,7 @@ TESTS_LIST = [t_verify_skills_copy, t_adopt_verify_link, t_verify_status_and_doc
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_continuation_checks_the_fix, t_stop_chain_cap, t_stop_no_baseline_uses_head,
               t_stop_recipe_changed, t_stop_skipped_only_and_group_kill,
               t_stop_success_silent_both_agents, t_stop_codex_block_and_timeout, t_stop_floor_zero_tests,
-              t_stop_off_switches, t_stop_omc_coexistence, t_ledger_check_honest, t_ledger_quarantine_clock,
+              t_stop_off_switches, t_stop_omc_coexistence, t_ledger_check_honest, t_ledger_removed_in_last_commit, t_ledger_quarantine_clock,
               t_ledger_stop_note, t_ratchet, t_ratchet_other_languages, t_stop_ratchet_long_tier]
 
 if __name__ == "__main__":

@@ -187,6 +187,30 @@
      }
     }
    ]
+  },
+  {
+   "name": "an area is a folder, not a name prefix",
+   "expect": "nofire",
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     "docs/REGRESSIONS.md": "## Ledger\nR-001 | 2026-11-12 | area: src/bill | symptom: s | cause: c | test: tests/regressions/test_r001_x.py | reopened: 0\n"
+    }
+   },
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Edit",
+      "tool_input": {
+       "file_path": "{{PROJ}}/src/billing/x.py",
+       "old_string": "a",
+       "new_string": "b"
+      }
+     }
+    }
+   ]
   }
  ]
 }

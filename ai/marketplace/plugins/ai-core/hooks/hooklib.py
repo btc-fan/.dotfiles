@@ -1015,9 +1015,9 @@ PR_FIELD_HELP = {"Verify": "the check command and the tail of its output", "Risk
                  "Ledger": "R-NNN and the test path (docs/REGRESSIONS.md)"}
 PR_PLACEHOLDER = re.compile(r"^(<[^>]*>|todo|tbd|\.{2,}|xxx+|\?+|-+|n/?a|fill (it )?in|placeholder|same|see above|"
                             r"(add|describe|write)\b.*\bhere)\W*$", re.I)
-PR_FIX_TITLE = re.compile(r"^\s*(fix|bugfix|hotfix)\b", re.I)
-PR_TEST_PATH = re.compile(r"(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]*\.py$|_test\.(go|py)$|"
-                          r"\.(test|spec)\.[cm]?[jt]sx?$")
+PR_FIX_TITLE = re.compile(r"^\s*(fix|bugfix|hotfix)(\([^)]*\))?!?:", re.I)     # conventional titles only
+PR_TEST_PATH = re.compile(r"(^|/)test_[^/]*\.py$|_test\.(go|py)$|\.(test|spec)\.[cm]?[jt]sx?$|"
+                          r"(^|/)(tests?|spec|__tests__)/(.*/)?[^/]+\.(py|[cm]?[jt]sx?|go|rs|rb|java|kt|php|cs|swift)$")
 PR_GENERATED = re.compile(r"(^|/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|poetry\.lock|Cargo\.lock|"
                           r"go\.sum|bun\.lockb?|composer\.lock|Gemfile\.lock)$|\.(lock|min\.js|min\.css|snap)$|"
                           r"(^|/)(dist|vendor|generated|__generated__)/")
@@ -1069,7 +1069,7 @@ def gate_pr(ctx, cmd, stages):
 
 
 def pr_body_text(ctx, cmd, args):
-    text = " ".join(args)
+    text = "\n".join(args)     # one line per word: -b "Verify: ..." keeps its field at a line start
     for i, a in enumerate(args):
         opt, eq, val = a.partition("=")
         if opt in ("--body-file", "-F"):
@@ -1749,8 +1749,8 @@ def ledger_hits(root, rel):
     out = []
     for row in ledger_rows(root):
         for area in row["area"]:
-            a = norm_rel(area)
-            if a and (rel == a.rstrip("/") or rel.startswith(a)):
+            a = norm_rel(area).rstrip("/")
+            if a and (rel == a or rel.startswith(a + "/")):         # a folder or a file, never a name prefix
                 out.append((row["id"], a, row["test"]))
                 break
     return out

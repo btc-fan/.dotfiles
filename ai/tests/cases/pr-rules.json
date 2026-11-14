@@ -512,6 +512,80 @@
      "command": "gh pr create --title 'feat: cart' --body-file pr.md --base HEAD~1"
     }
    }
+  },
+  {
+   "name": "tests/README.md is not a test file",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/a.py": "x = 1\n",
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    },
+    "commit": "init",
+    "extra_commits": [
+     {
+      "src/a.py": "x = 2\n",
+      "tests/README.md": "notes\n"
+     }
+    ]
+   },
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'fix: rounding' --body-file pr.md --base HEAD~1"
+    }
+   },
+   "contains": "a test file in the diff of a fix: PR"
+  },
+  {
+   "name": "a plain 'Fix the ...' title is not a conventional fix PR",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/a.py": "x = 1\n",
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    },
+    "commit": "init",
+    "extra_commits": [
+     {
+      "src/a.py": "x = 2\n"
+     }
+    ]
+   },
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'Fix the rounding' --body-file pr.md --base HEAD~1"
+    }
+   }
+  },
+  {
+   "name": "-b with the fields on the first line",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/a.py": "x = 1\n",
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    },
+    "commit": "init",
+    "extra_commits": [
+     {
+      "src/a.py": "x = 2\n"
+     }
+    ]
+   },
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'feat: x' -b \"Verify: make check -> 12 passed\nRisk: low\n```mermaid\ngraph TD; a-->b\n```\n<!-- author-sessions\n-->\" --base HEAD~1"
+    }
+   }
   }
  ]
 }

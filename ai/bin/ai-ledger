@@ -84,7 +84,8 @@ def check(root, text, base):
                 fails.append("%s: test file %s does not carry the id (name it test_r%03d_<promise>)"
                              % (row["id"], os.path.basename(test_file), num))
         for area in row["area"]:
-            if not any(t.startswith(norm_rel(area)) for t in tracked):
+            a = norm_rel(area).rstrip("/")
+            if not any(t == a or t.startswith(a + "/") for t in tracked):
                 warns.append("%s: area %s matches no tracked file (moved?)" % (row["id"], area))
     listed = {r["test"].split("::", 1)[0] for r in rows}
     for rel in regression_files(root):
@@ -147,7 +148,8 @@ def default_base(root):
         mb = git(root, "merge-base", "HEAD", ref)
         if mb and mb.strip() != head.strip():
             return mb.strip()
-    return "HEAD"
+    # On the main branch itself (HEAD is the merge base): the commit before, so the last commit is checked too.
+    return "HEAD~1" if git(root, "rev-parse", "-q", "--verify", "HEAD~1") else "HEAD"
 
 
 def parse_date(s):
