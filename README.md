@@ -388,7 +388,9 @@ transaction open, so no cleanup runs meanwhile and the live system slows down. T
 | `base` | `pg-base-backup` on `PG_BASE_BACKUP_DAY` (daily, a day, or a list): `pg_basebackup` copies the data files in order (read at most `PG_BASE_MAX_RATE`, 50M) to `PG_BASE_DIR/<date>`, checked with `pg_verifybackup`. Self-contained (the WAL it needs is streamed in) | last base backup | about 20 min of sequential reads per 60 GB |
 | `yes` | `base` plus the WAL archive: every finished 16 MB WAL file, zstd-compressed, to `PG_WAL_DIR`. At most 15 min of changes wait (`archive_timeout`). Needs one PostgreSQL restart (step 60 prints the command) | any moment since the oldest base backup | the backup disk must hold the WAL of `PG_BASE_KEEP` intervals: archived WAL is about 0.6 x the WAL written. If the backup disk fills, archiving fails, `pg_wal` grows on the data disk and Postgres stops. Size it first |
 
-Extra tablespaces (for example indexes on an SSD) are copied too: `PG_BASE_DIR/ts.<date>.<name>`,
+Test a base backup without touching the live cluster: `sudo pg-base-drill` (copies the newest one to
+`DATA_MOUNT/pg-drill`, starts it on port 5499 with a socket only, compares the tables per database,
+deletes it; result to Discord). Extra tablespaces (for example indexes on an SSD) are copied too: `PG_BASE_DIR/ts.<date>.<name>`,
 linked from `<date>/pg_tblspc`. The daily digest shows the base backup age (and with `yes` when the
 last WAL file was archived, and archive failures). Small databases keep their daily `pg-backup`.
 

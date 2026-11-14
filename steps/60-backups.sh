@@ -74,6 +74,7 @@ pg_pitr() {
     apt_install zstd
     run install -d -o postgres -g postgres -m 700 "$base"
     put_file sbin/pg-base-backup /usr/local/sbin/pg-base-backup 750
+    put_file sbin/pg-base-drill /usr/local/sbin/pg-base-drill 750
     pg_unit pg-base-backup "Base backup of the PostgreSQL cluster" "/usr/local/sbin/pg-base-backup" "$base"
     timer pg-base-backup "PostgreSQL base backup" "$at" "$cal"
     [ "$PG_PITR" = yes ] || return 0

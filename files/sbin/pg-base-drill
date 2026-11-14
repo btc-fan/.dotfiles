@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# pg-base-drill: prove the newest base backup (PG_PITR=base|yes) starts and holds the databases.
+#   1. copies PG_BASE_DIR/<newest> and its tablespace copies (ts.<date>.<name>) to DATA_MOUNT/pg-drill;
+#      the tablespace links are pointed at those drill copies, never at a live location
+#   2. starts a throwaway PostgreSQL there: port 5499, unix socket in the drill folder only, no TCP,
+#      no archive. It recovers from the WAL inside the backup (backup_label)
+#   3. compares the number of tables per database with the live cluster (2 tables of slack)
+#   4. stops it and deletes the drill folder. One Discord message: #info passed, #alerts failed
+# Refused when DATA_MOUNT has less free space than 1.2 x the backup. Run at night: it reads the
+# backup and writes a full copy (sequential, about 2 x the backup size of disk traffic).
+# Usage: pg-base-drill [--test]   (--test: prints the message instead of posting it)
+set -uo pipefail
+# shellcheck source=/dev/null
+. /etc/server/host.env
+cd /
+
+test=()
+[ "${1:-}" = --test ] && test=(--test)
+bin=/usr/lib/postgresql/${PG_VERSION:-16}/bin
+base=${PG_BASE_DIR:-${BACKUP_MOUNT:-/backup}/postgres-base}
+drill="${DATA_MOUNT:-/var/lib/postgresql}/pg-drill"
+as_pg() { runuser -u postgres -- "$@"; }
+live_q() { as_pg psql -XAtc "$1" "${2:-postgres}"; }
+drill_q() { as_pg psql -h "$drill" -p 5499 -XAtc "$1" "${2:-postgres}"; }
+t0=$(date +%s)
+report() {   # report ok|fail TEXT
+    local ch=info title="base backup drill passed"
+    [ "$1" = ok ] || { ch=alerts; title="base backup drill FAILED"; }
+    echo "$title: $2"
+    /usr/local/sbin/discord-notify "${test[@]}" "$ch" "$title" "$2" || true
+}
+cleanup() {
+    if [ -f "$drill/main/postmaster.pid" ]; then as_pg "$bin/pg_ctl" -D "$drill/main" -m fast -w -t 300 stop >/dev/null 2>&1 || true; fi
+    rm -rf "$drill"
+}
+trap cleanup EXIT
+
+newest=$(find "$base" -mindepth 1 -maxdepth 1 -type d -name '[0-9][0-9][0-9][0-9]-*' ! -name '*.partial' 2>/dev/null | sort | tail -n 1)
+[ -n "$newest" ] || { report fail "no base backup in $base"; exit 1; }
+day=$(basename "$newest")
+size=$(du -sb "$newest" "$base"/ts."$day".* 2>/dev/null | awk '{s += $1} END {print s + 0}')
+[ -e "$drill" ] && rm -rf "$drill"   # a leftover of a killed run
+free=$(df -B1 --output=avail "$(dirname "$drill")" | tail -n 1 | tr -d ' ')
+[ "$free" -gt $(( size * 12 / 10 )) ] || { report fail "not enough space for $day: need $(( size * 12 / 10 )), free $free"; exit 1; }
+
+install -d -o postgres -g postgres -m 700 "$drill"
+cp -a "$newest" "$drill/main"
+for l in "$drill/main/pg_tblspc"/*; do
+    [ -L "$l" ] || continue
+    name=$(basename "$(readlink "$l")")
+    cp -a "$(readlink "$l")" "$drill/$name"
+    ln -sfn "$drill/$name" "$l"
+done
+# Debian keeps postgresql.conf and pg_hba.conf in /etc: the copy has none. A minimal, isolated set.
+cat > "$drill/main/postgresql.conf" <<EOF
+port = 5499
+listen_addresses = ''
+unix_socket_directories = '$drill'
+shared_buffers = 256MB
+max_connections = 10
+archive_mode = off
+hba_file = '$drill/pg_hba.conf'
+ident_file = '$drill/pg_ident.conf'
+EOF
+printf 'local all postgres peer\n' > "$drill/pg_hba.conf"
+: > "$drill/pg_ident.conf"
+rm -f "$drill/main/postmaster.pid" "$drill/main/postmaster.opts"
+chown -R postgres:postgres "$drill"
+
+if ! as_pg "$bin/pg_ctl" -D "$drill/main" -l "$drill/server.log" -w -t 1800 start >/dev/null; then
+    report fail "$day did not start: $(tail -n 3 "$drill/server.log" | tr '\n' ' ')"; exit 1
+fi
+text="" bad=0
+for db in $(live_q "SELECT datname FROM pg_database WHERE NOT datistemplate AND datname NOT LIKE 'restore_drill_%' ORDER BY 1"); do
+    sql="SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind IN ('r','p','m') AND n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_temp%'"
+    live=$(live_q "$sql" "$db"); got=$(drill_q "$sql" "$db" 2>/dev/null || echo missing)
+    text="$text $db $got/$live tables,"
+    # a job may have made a table or two since the backup: up to 2 fewer tables is fine
+    if ! [[ "$got" =~ ^[0-9]+$ ]] || [ $(( live - got )) -gt 2 ] || [ $(( got - live )) -gt 2 ]; then bad=1; fi
+done
+text="${text%,} ($day, $(numfmt --to=iec "$size"), $(( ($(date +%s) - t0) / 60 )) min)"
+if [ "$bad" = 0 ]; then report ok "$text"; else report fail "$text"; exit 1; fi
