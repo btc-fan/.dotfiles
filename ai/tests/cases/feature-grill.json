@@ -318,6 +318,94 @@
      ".agents/skills/verify-shop/features/cart.md": "x\n"
     }
    }
+  },
+  {
+   "name": "EN: implement OAuth login",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "implement OAuth login"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "EN: Add rate limiting",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "Add rate limiting"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "RU: realizuy eksport",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "реализуй экспорт в CSV"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "EN: build and run the report",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "build and run the report"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "EN: create a page break",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "create a page break"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "RU: dobav test dlya komandy",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "добавь тест для команды"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "EN: add a test for the command",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "add a test for the command"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "EN: add the missing import",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "add the missing import"
+   },
+   "project": {
+    "git": true
+   }
   }
  ]
 }
