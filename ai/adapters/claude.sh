@@ -802,6 +802,7 @@ claude_allow_rules() {
 
 # graphify subcommands that write agent config or git hooks: always ask, even under Bash(graphify *).
 claude_ask_rules() {
+    [ "${PROFILE_GUARDS:-1}" = 1 ] || return 0      # dev-mac: no ask rules (owner 2026-11-15: full autonomy)
     # git push always asks, also when the sandbox would auto-allow a command (it runs outside the sandbox).
     printf '%s\n' 'Bash(git push*)' 'Bash(rtk git push*)'
     local git; git=$(sandbox_prog git)
@@ -817,6 +818,7 @@ CLAUDE_PATH_DIRS="~/.local/bin/** ~/bin/** ~/.npm-global/bin/** ~/.cargo/bin/** 
 # Agents never edit the files that carry the house rules and their own permissions.
 claude_deny_rules() {
     local f
+    [ "${PROFILE_GUARDS:-1}" = 1 ] || return 0      # dev-mac: no deny rules (owner 2026-11-15: full autonomy)
     set -f   # $CLAUDE_PATH_DIRS below is split on spaces, never globbed
     # Files that carry house rules, permissions, hooks, plugin code, shell start-up, Serena config and the
     # global Serena memories. Edit(path) rules cover every built-in file-writing tool (Write and NotebookEdit
@@ -860,7 +862,11 @@ claude_permissions() {
         aiconf json-list-sync "$f" "permissions/$kind" "$tmp" >/dev/null
     done
     rm -f "$tmp"
-    ok "Claude permissions merged into $f: allow read-only tools, ask graphify install/hook, deny rule/config edits and secrets.env"
+    if [ "${PROFILE_GUARDS:-1}" = 1 ]; then
+        ok "Claude permissions merged into $f: allow read-only tools, ask graphify install/hook, deny rule/config edits and secrets.env"
+    else
+        ok "Claude permissions merged into $f: allow lists only; no ask or deny rules (profile $AI_PROFILE)"
+    fi
 }
 
 json_str() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }

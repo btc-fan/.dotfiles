@@ -52,7 +52,7 @@ def t_devmac(home, fake, repo):
                                            "AI_ROUTING_JSON": os.path.join(home, "..", "routing-dev-mac.json")}).stdout
     assert "Profile: dev-mac (AI_PROFILE)" in out, out
     assert "box (global" not in out and "audit-before-install" not in out and "ai-gate-skip" not in out, out
-    assert "Gates: secret-scan, no-sudo" in out and "the owner runs a blocked command himself" in out, out
+    assert "Gates: secret-scan, pr-rules" in out and "the owner runs a blocked command himself" in out, out
     write(os.path.join(home, ".config", "ai", "profile"), "server\n")
     out = run(home, fake, repo, "--short", extra_env={"AI_PROFILE": ""}).stdout
     os.remove(os.path.join(home, ".config", "ai", "profile"))

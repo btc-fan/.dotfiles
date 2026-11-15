@@ -73,6 +73,7 @@ rules:
 
   - id: no-sudo
     scope: global
+    profiles: [server]    # dev-mac (all 3 machines): off, agents do what the task needs (owner 2026-11-15)
     trigger: {tool_before: 'Bash|shell|exec_command|local_shell', command: '\b(sudo|doas|pkexec|sudoedit|su|run0)\b'}
     summary: 'any sudo, su, doas, pkexec'
     action: "No sudo for agents: give the owner the exact command. Box work on a server: the box tool (MCP server box); outside a sandbox also plain proj-agent <subcommand>; never sudo."
@@ -80,6 +81,7 @@ rules:
 
   - id: no-destroy
     scope: global
+    profiles: [server]    # dev-mac: off (owner 2026-11-15: keep only secret-scan and pr-rules)
     trigger: {tool_before: 'Bash|shell|exec_command|local_shell', command: '\b(rm|git|docker|docker-compose|podman|podman-compose|dropdb|pg_restore|psql|mysql|mariadb|sqlite3|duckdb)\b'}
     summary: 'rm -r of data, home or repo root; force push or delete of main; reset --hard with changes; clean -x at the root; compose down -v; DROP/TRUNCATE on a protected DB'
     action: "Destructive command: give the owner the exact command and the reason. Rebuildable folders (node_modules, .venv, dist, build) are fine."

@@ -1342,6 +1342,11 @@ def check_verify_skill(root, hl, tier):
 def check_destroy_smoke():
     """Unit check (router called directly): no-destroy denies rm -rf of the home folder and a force push to main,
     also in RTK's form, and lets rm -rf node_modules pass. Nothing runs: the router only judges the text."""
+    rules = (load_json_file(os.environ.get("AI_ROUTING_JSON") or os.path.join(AI_DIR, "build", "routing.json"))
+             or {}).get("rules") or []
+    if not any(r.get("id") == "no-destroy" for r in rules):
+        say("PASS", "no-destroy is off on this profile (owner 2026-11-15): no router check")
+        return
     router = os.path.join(PLUGIN, "hooks", "router.py")
     tmp = tempfile.mkdtemp(prefix="ai-doctor-destroy-")
     want = {"rm -rf ~": True, "rtk git push --force origin main": True, "rm -rf node_modules": False}

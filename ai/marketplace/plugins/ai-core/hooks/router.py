@@ -950,9 +950,10 @@ def run_gate(rule, ctx, cmd):
         return
     decision, msg = verdict
     # Decide first: logging below never raises, and a failure there must not lose the decision.
-    ctx.decide(decision, "[ai gate %s] %s\nOnly the owner can let it through, by running "
-               "sudo ai-gate-skip %s <minutes, max 60> <why>. It is logged. Do not try to get around "
-               "the gate." % (rule["id"], msg, rule["id"]))
+    how = ("by running sudo ai-gate-skip %s <minutes, max 60> <why>. It is logged" % rule["id"]
+           if os.path.exists("/usr/local/sbin/ai-gate-skip") else "by running the command himself")
+    ctx.decide(decision, "[ai gate %s] %s\nOnly the owner can let it through, %s. Do not try to get around "
+               "the gate." % (rule["id"], msg, how))
     log_line("gates.log", "%s %s %s session=%s cmd=%s" % (
         iso_now(), decision.upper(), rule["id"], ctx.session, redact(one_line(cmd))[:200]))
     ctx.fired(rule, "PreToolUse")

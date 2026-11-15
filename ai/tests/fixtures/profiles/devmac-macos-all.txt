@@ -267,7 +267,7 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
   [dry-run] set     ~/.claude/settings.json env/OPENCODE_DISABLE_LSP_DOWNLOAD = "1"
   [dry-run] set     ~/.claude/settings.json env/MCP_TIMEOUT = "60000"
   planned: Claude: env switches in ~/.claude/settings.json (merge): hooks, MCP servers and -p runs see them
-  planned: Claude permissions merged into ~/.claude/settings.json: allow read-only tools, ask graphify install/hook, deny rule/config edits and secrets.env
+  planned: Claude permissions merged into ~/.claude/settings.json: allow lists only; no ask or deny rules (profile dev-mac)
   [dry-run] set     ~/.claude/settings.json env/UV_CACHE_DIR = "~/.cache/ai-sandbox/uv"
   [dry-run] set     ~/.codex/config.toml [root] check_for_update_on_startup = false
   [dry-run] set     ~/.codex/config.toml [root] project_doc_max_bytes = 65536
@@ -344,7 +344,7 @@ done (36)
   - (planned) Codex: managed block in ~/.codex/AGENTS.md (OMX blocks kept)
   - (planned) git: global excludes ignore the sandbox placeholders in project roots (~/.config/git/ignore)
   - (planned) Claude: env switches in ~/.claude/settings.json (merge): hooks, MCP servers and -p runs see them
-  - (planned) Claude permissions merged into ~/.claude/settings.json: allow read-only tools, ask graphify install/hook, deny rule/config edits and secrets.env
+  - (planned) Claude permissions merged into ~/.claude/settings.json: allow lists only; no ask or deny rules (profile dev-mac)
   - (planned) Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches, GIT_GUARD_AGENT and git fsmonitor off in shell_environment_policy.set
   - (planned) Claude add-ons: OMC auto-update off, Ponytail defaultMode full
   - (planned) git hooks post-merge + post-rewrite run ai-sync after a pull

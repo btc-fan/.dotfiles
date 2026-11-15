@@ -208,8 +208,21 @@ def note(agent, text):
 
 # ---------------------------------------------------------------- project state
 
+def profile_guards():
+    """False on a profile with PROFILE_GUARDS=0 (dev-mac): no Stop check there. Any error: the check stays on."""
+    try:
+        sys.path.insert(0, os.path.join(ai_home(), "ai", "lib"))
+        import ai_profile
+        name, _from = ai_profile.resolve()
+        return ai_profile.load(name).get("PROFILE_GUARDS", "1") != "0"
+    except Exception:
+        return True
+
+
 def active_root(payload):
     """The repo root when the stop check is on there: adopted, tier mvp or long, no `no-stop-check`."""
+    if not profile_guards():
+        return None          # profile dev-mac: no Stop check (owner 2026-11-15)
     root = project_root(str(payload.get("cwd") or os.getcwd()))
     if not root:
         return None

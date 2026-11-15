@@ -186,7 +186,7 @@ def t_adopt_failing_check_turns_stop_off(work):
     assert "no-stop-check  # check-fast failed at adopt time" in enabled, enabled
     shown = run(["git", "-C", repo, "show", "HEAD:.ai/enabled"]).stdout
     assert "no-stop-check" in shown, "the off switch is committed: " + shown
-    env = dict(env, AI_HOME=os.path.dirname(AI_DIR))
+    env = dict(env, AI_HOME=os.path.dirname(AI_DIR), AI_PROFILE="server")    # Stop check: server profile only
     hook(repo, env, "SessionStart")
     write(os.path.join(repo, "src", "new.py"), "y = 2\n")
     assert hook(repo, env, "Stop") is None, "no-stop-check: the Stop hook stays quiet"
@@ -387,7 +387,8 @@ def t_doctor_budget(work):
     out = io.StringIO()
     with redirect_stdout(out):
         doctor.check_destroy_smoke()
-    assert out.getvalue().startswith("PASS no-destroy blocks"), out.getvalue()
+    # dev-mac (the repo build on the Macs): no-destroy is off, the check says so; server: the router blocks.
+    assert out.getvalue().startswith(("PASS no-destroy blocks", "PASS no-destroy is off on this profile")), out.getvalue()
     big = tree(work, "doc-big", {"AGENTS.md": "# x\n" + "y" * 40000})
     out = io.StringIO()
     with redirect_stdout(out):
@@ -420,7 +421,8 @@ def git_env(work, name):
     os.makedirs(home, exist_ok=True)
     return {"HOME": home, "AI_STATE_DIR": os.path.join(home, "state"), "MARK": os.path.join(home, "mark"),
             "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t.invalid", "GIT_COMMITTER_NAME": "t",
-            "GIT_COMMITTER_EMAIL": "t@t.invalid", "AI_HOME": os.path.dirname(AI_DIR)}
+            "GIT_COMMITTER_EMAIL": "t@t.invalid", "AI_HOME": os.path.dirname(AI_DIR),
+            "AI_PROFILE": "server"}    # the Stop check runs on profile server only (dev-mac: off, owner 2026-11-15)
 
 
 def hook(repo, env, event, agent="claude", session="s1", **extra):

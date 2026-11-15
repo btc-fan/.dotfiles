@@ -935,7 +935,11 @@ def t_managed_router(work):
     os.makedirs(os.path.join(proj, ".git"))
     payload = json.dumps({"hook_event_name": "PreToolUse", "session_id": "m", "cwd": proj, "tool_name": "Bash",
                           "tool_input": {"command": "sudo -n true"}}).encode()
-    renv = dict(env, AI_CLAUDE_MANAGED_SETTINGS=ms, AI_STATE_DIR=os.path.join(work, "st"))
+    srv = os.path.join(work, "render-server")      # no-sudo is a server-profile gate (dev-mac: off, owner 2026-11-15)
+    subprocess.run([sys.executable, os.path.join(AI_DIR, "bin", "ai-render"), "--profile", "server", "--out", srv],
+                   stdout=subprocess.DEVNULL, check=True)
+    renv = dict(env, AI_CLAUDE_MANAGED_SETTINGS=ms, AI_STATE_DIR=os.path.join(work, "st"),
+                AI_ROUTING_JSON=os.path.join(srv, "routing.json"))
     router = os.path.join(PLUGIN, "hooks", "router.py")
     res = subprocess.run([sys.executable, router, "--agent", "claude", "PreToolUse"], input=payload,
                          env=dict(renv, CLAUDE_PLUGIN_ROOT=PLUGIN), stdout=subprocess.PIPE)
