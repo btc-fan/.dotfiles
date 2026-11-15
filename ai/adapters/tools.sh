@@ -167,8 +167,10 @@ uv_tool() {
 uv_install_wheels_first() {
     local spec=$1; shift
     run env UV_LINK_MODE=copy uv tool install --force --no-build "$@" "$spec" && return 0
-    [ "$AI_OS" = macos ] || return 1
-    info "$spec: no wheel for this macOS, building from source"
+    # The server (root layer) takes wheels only; the Mac and a light Linux build what has no wheel
+    # (Serena 2.1.0 needs proxy-tools, an sdist only: owner Ubuntu 2026-11-15).
+    root_layer && return 1
+    info "$spec: no wheel for this machine, building from source"
     run env UV_LINK_MODE=copy uv tool install --force "$@" "$spec"
 }
 
