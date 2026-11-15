@@ -211,12 +211,10 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
   [dry-run] codex plugin add i-have-adhd@i-have-adhd
   [dry-run] record  codex-plugin:i-have-adhd@i-have-adhd undo: codex plugin remove i-have-adhd@i-have-adhd
   planned: Codex plugin i-have-adhd@i-have-adhd
-  manual: Codex: open /hooks once and trust the hooks of ponytail and i-have-adhd (ai-core, rtk, graphify are trusted by install)
 
 [9/14] skills
   [dry-run] link    ~/.claude/skills/create-verification-skill -> $REPO/ai/skills/create-verification-skill
   [dry-run] link    ~/.claude/skills/maintain-verification-skill -> $REPO/ai/skills/maintain-verification-skill
-  [dry-run] link    ~/.claude/skills/prompting-claude-and-codex -> $REPO/ai/skills/prompting-claude-and-codex
   planned: Claude: shared skills and the 5 mattpocock skills linked into ~/.claude/skills
   [dry-run] link    ~/.agents/skills/create-verification-skill -> $REPO/ai/skills/create-verification-skill
   [dry-run] link    ~/.agents/skills/maintain-verification-skill -> $REPO/ai/skills/maintain-verification-skill
@@ -292,7 +290,10 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OPENCODE_DISABLE_MODELS_FETCH = "1"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OPENCODE_DISABLE_LSP_DOWNLOAD = "1"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GIT_GUARD_AGENT = "1"
-  planned: Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches and GIT_GUARD_AGENT in shell_environment_policy.set
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GIT_CONFIG_COUNT = "1"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GIT_CONFIG_KEY_0 = "core.fsmonitor"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GIT_CONFIG_VALUE_0 = "false"
+  planned: Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches, GIT_GUARD_AGENT and git fsmonitor off in shell_environment_policy.set
   [dry-run] set     ~/.config/claude-omc/config.jsonc security/disableAutoUpdate = true
   [dry-run] set     ~/.config/claude-omc/config.jsonc mcpServers/exa/enabled = false
   [dry-run] set     ~/.config/ponytail/config.json defaultMode = "full"
@@ -345,7 +346,7 @@ done (37)
   - (planned) git: global excludes ignore the sandbox placeholders in project roots (~/.config/git/ignore)
   - (planned) Claude: env switches in ~/.claude/settings.json (merge): hooks, MCP servers and -p runs see them
   - (planned) Claude permissions merged into ~/.claude/settings.json: allow read-only tools, ask graphify install/hook, deny rule/config edits and secrets.env
-  - (planned) Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches and GIT_GUARD_AGENT in shell_environment_policy.set
+  - (planned) Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches, GIT_GUARD_AGENT and git fsmonitor off in shell_environment_policy.set
   - (planned) Claude add-ons: OMC auto-update off, Ponytail defaultMode full
   - (planned) git hooks post-merge + post-rewrite run ai-sync after a pull
 
@@ -356,11 +357,10 @@ skipped (2)
 warnings (1)
   - pstack: newest stable unknown (offline): kept as it is
 
-manual steps left (7)
+manual steps left (6)
   - create ~/.config/ai/secrets.env: install -m 600 $REPO/secrets.env.example ~/.config/ai/secrets.env, then fill GITHUB_PERSONAL_ACCESS_TOKEN and CONTEXT7_API_KEY
   - OMC plugin route: run /oh-my-claudecode:omc-setup once in Claude (CLAUDE.md block, HUD)
   - Claude, once per machine, in a project with claude-seo on: /seo setup, then /seo doctor (venv + Chromium)
-  - Codex: open /hooks once and trust the hooks of ponytail and i-have-adhd (ai-core, rtk, graphify are trusted by install)
   - add to your shell rc: [ -f ~/.config/ai/env.sh ] && . ~/.config/ai/env.sh
   - log in once: claude (then /login)
   - log in once: codex login --device-auth

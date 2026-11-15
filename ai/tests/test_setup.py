@@ -955,11 +955,11 @@ def t_owner_2026_11_12(work):
     env, home, bindir = bash_env(work)
     stub(bindir, "claude", "exit 0")
     settings = os.path.join(home, ".claude", "settings.json")
-    code, out = bash(LIBS + "AI_OS=linux; AI_OMC_WIRING=plugin; claude_plugin() { :; }; claude_omc_wiring", env)
+    code, out = bash(LIBS + "AI_OS=linux; AI_OMC_WIRING=plugin; claude_plugin() { :; }; claude_git_plugin() { :; }; claude_omc_wiring", env)
     assert code == 0, out
     assert json.load(open(settings))["enabledPlugins"]["oh-my-claudecode@omc"] is False
     os.remove(settings)
-    code, out = bash(LIBS + "AI_OS=macos; AI_OMC_WIRING=plugin; claude_plugin() { :; }; claude_omc_wiring", env)
+    code, out = bash(LIBS + "AI_OS=macos; AI_OMC_WIRING=plugin; claude_plugin() { :; }; claude_git_plugin() { :; }; claude_omc_wiring", env)
     assert not os.path.exists(settings) or "oh-my-claudecode" not in read(settings), "the Mac keeps OMC on"
     start = read(os.path.join(AI_DIR, "bin", "ai-start"))
     assert '"omc": "oh-my-claudecode@omc"' in start, "ai-adopt --tools omc turns it on per project"
