@@ -1186,7 +1186,9 @@ ROOT_TOOLS = {"sudo", "doas", "pkexec", "sudoedit", "su", "run0"}
 
 def root_calls(cmd, depth=0):
     """[(tool, next words)] for every privilege tool at a command position, also inside bash -c / eval.
-    Quoted words are text, never commands. Leading NAME=value words and plain wrappers are skipped."""
+    A quoted word at a command position still runs (`'sudo' true`, `"sudo" -n true`); quoted words in
+    argument positions are text (`echo "sudo"`, commit messages). Leading NAME=value words and plain
+    wrappers are skipped."""
     out = []
     try:
         toks = tokenize(cmd or "")
@@ -1203,15 +1205,15 @@ def root_calls(cmd, depth=0):
             continue
         if not kind and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", text):
             continue
-        if after_wrapper and not kind and (text.startswith("-") or re.match(r"^\d+(\.\d+)?[smhd]?$", text)):
+        if after_wrapper and (text.startswith("-") or re.match(r"^\d+(\.\d+)?[smhd]?$", text)):
             continue        # wrapper options and values: timeout 5, nice -n 10, env -i
         base = os.path.basename(text)
-        if not kind and (base in PLAIN_WRAPPERS | RTK_WRAPPERS | {"env", "nice", "timeout", "xargs", "stdbuf"}
-                         or (text == "proxy" and i > 0 and os.path.basename(toks[i - 1][0]) == "rtk")):
+        if (base in PLAIN_WRAPPERS | RTK_WRAPPERS | {"env", "nice", "timeout", "xargs", "stdbuf"}
+                or (text == "proxy" and i > 0 and os.path.basename(toks[i - 1][0]) == "rtk")):
             after_wrapper = True
             continue
         at_cmd = False
-        if not kind and base in ROOT_TOOLS:
+        if base in ROOT_TOOLS:
             rest = [t for t, k in toks[i + 1:i + 5] if k is not None and k != "redir" or (k is None and t not in OPS)]
             out.append((base, rest))
     if depth < 2:

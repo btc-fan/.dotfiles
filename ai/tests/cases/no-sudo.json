@@ -341,6 +341,42 @@
    }
   },
   {
+   "name": "single-quoted sudo at command position",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "'sudo' true"}}
+  },
+  {
+   "name": "double-quoted sudo at command position",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "\"sudo\" -n true"}}
+  },
+  {
+   "name": "split-quoted sudo after a chain and a wrapper",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "ls && 'env' s'u'do -n true"}}
+  },
+  {
+   "name": "quoted sudo inside bash -c",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "bash -c '\"sudo\" true'"}}
+  },
+  {
+   "name": "echo \"sudo\" is text",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "echo \"sudo\" 'sudo -n true'"}}
+  },
+  {
+   "name": "commit message that starts with sudo is text",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "git commit --dry-run -m \"sudo: drop the sudo hint\""}}
+  },
+  {
    "name": "stdbuf with options before sudo",
    "expect": "deny",
    "event": "PreToolUse",
