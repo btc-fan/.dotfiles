@@ -207,7 +207,7 @@ git_source_audited() {
     local name=$1 repo=$2 ref=$3 sha=$4 tmp
     [ -n "$sha" ] || return 0
     [ "$(src_head "$(plugin_src_dir "$name")")" = "$sha" ] && return 0
-    if grep -qs "^$sha $name\$" "$AI_STATE_DIR/rejected-shas"; then
+    if ! scan_skipped "$name" && grep -qs "^$sha $name\$" "$AI_STATE_DIR/rejected-shas"; then
         warn "$name ${ref:-${sha:0:12}}: skill-scanner rejected this commit before: not installed (no new scan)"; return 1
     fi
     if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] git clone $repo at ${ref:-${sha:0:12}}; agent-audit dir"; return 0; fi
@@ -341,7 +341,7 @@ claude_git_plugin() {
         info "$plugin at ${R_REF:-${R_SHA:0:7}} (newest stable)"; return 0
     fi
     if [ "$R_STATUS" = cached ] && claude_has_plugin "$plugin"; then info "$plugin kept (offline)"; return 0; fi
-    if [ -n "$R_VERSION" ] && [ "$X_VERSION" = "$R_VERSION" ]; then
+    if [ -n "$R_VERSION" ] && [ "$X_VERSION" = "$R_VERSION" ] && ! scan_skipped "$tool"; then
         warn "$plugin ${R_REF:-$R_VERSION} was rejected by skill-scanner before: not installed"
     elif git_source_audited "$tool" "${R_SOURCE#git }" "$R_REF" "$R_SHA"; then
         claude_plugin "$mname" "$src" "$plugin" "$R_SHA" || return 1

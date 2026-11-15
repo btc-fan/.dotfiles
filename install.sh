@@ -8,7 +8,7 @@
 #   macOS, or a Linux user with sudo (one process): ~/.dotfiles-ai/install.sh [options]
 #
 #   options: [--dry-run] [--agents claude,codex,hermes,opencode,herdr] [--skip-packages] [--profile server|dev-mac]
-#            [--allow-dirty] [--yes] [--keep-claudeai-connectors]   env: AI_OMC_WIRING=plugin|cli|keep|remove
+#            [--allow-dirty] [--yes] [--keep-claudeai-connectors] [--skip-scan <tool,...|all>]   env: AI_OMC_WIRING=plugin|cli|keep|remove
 #   profile: --profile NAME > ~/.config/ai/profile > OS default (Linux server, macOS dev-mac); saved there.
 #
 # Distribution = each agent's own extension points (plugins, `mcp add`, `config set`). Our own merge
@@ -26,7 +26,7 @@ export AI_HOME AI_SRC_HOME
 usage() { sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 AI_DRY_RUN=0 AI_YES=0 AI_SKIP_PACKAGES=0 AI_DOCS_SERVER=0 AI_ALLOW_DIRTY=0 AGENTS=""
-AI_MODE=all AI_FOR_USER="" AI_UPDATE=0 AI_PROFILE_ARG=""
+AI_MODE=all AI_FOR_USER="" AI_UPDATE=0 AI_PROFILE_ARG="" AI_SKIP_SCAN=""
 AI_ARGS=("$@")
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -44,13 +44,15 @@ while [ $# -gt 0 ]; do
         --agents=*) AGENTS=${1#--agents=} ;;
         --profile) [ $# -ge 2 ] || usage 1; AI_PROFILE_ARG=$2; shift ;;
         --profile=*) AI_PROFILE_ARG=${1#--profile=} ;;
+        --skip-scan) [ $# -ge 2 ] || usage 1; AI_SKIP_SCAN=$2; shift ;;
+        --skip-scan=*) AI_SKIP_SCAN=${1#--skip-scan=} ;;
         -h|--help) usage 0 ;;
         *) printf 'unknown option: %s\n' "$1" >&2; usage 1 ;;
     esac
     shift
 done
 AI_CLAUDEAI_CONNECTORS=${AI_CLAUDEAI_CONNECTORS:-}
-export AI_DRY_RUN AI_YES AI_SKIP_PACKAGES AI_ALLOW_DIRTY AI_MODE AI_FOR_USER AI_CLAUDEAI_CONNECTORS
+export AI_DRY_RUN AI_YES AI_SKIP_PACKAGES AI_ALLOW_DIRTY AI_MODE AI_FOR_USER AI_CLAUDEAI_CONNECTORS AI_SKIP_SCAN
 
 # Root never runs code from a tree another user can change. This first check uses no file of the tree;
 # ai/lib/root-guard.sh (sourced only after it passed) adds the file, clean-tree and pushed-commit checks.
@@ -210,6 +212,7 @@ run_user_part() {
     [ "$AI_SKIP_PACKAGES" = 1 ] && args="$args --skip-packages"
     [ "$AI_CLAUDEAI_CONNECTORS" = keep ] && args="$args --keep-claudeai-connectors"
     args="$args --profile $AI_PROFILE"
+    [ -n "$AI_SKIP_SCAN" ] && args="$args --skip-scan $AI_SKIP_SCAN"
     [ -n "$AGENTS" ] && args="$args --agents $(printf '%s' "$AGENTS" | sed 's/,*hermes//; s/^,//')"
     info "running as $AI_FOR_USER: $AI_HOME/install.sh $args"
     # shellcheck disable=SC2086

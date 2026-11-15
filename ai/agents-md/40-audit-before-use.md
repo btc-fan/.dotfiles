@@ -1,7 +1,7 @@
 
 Audit and gates
 - Before you install a package, MCP server, skill or plugin: agent-audit npm|pypi|dir|skill <target> (also pypi httpx==0.28.1). Exit 3 = a scanner could not run: no PASS, not a finding. A finding means stop and show it to me. Exact versions only, no @latest, no curl piped to a shell. <!-- profiles: server -->
-- A skill or plugin with a skill-scanner HIGH or CRITICAL finding is never installed (agent-audit exit 4), not even for an accepted version.
+- A skill or plugin with a skill-scanner HIGH or CRITICAL finding is never installed (agent-audit exit 4), not even for an accepted version. Only the owner can skip the scan (install.sh --skip-scan <tool>); never add that flag yourself.
 - Never git add -A or git add . blindly: git status first, then add your changed files by name. Sandbox placeholder files in project roots are ignored globally; a real new .mcp.json or .claude/commands needs git add -f.
 - Never commit a key, token or password. The secret-scan gate blocks commit and push on a hit.
 - Never edit .env files or print their values. New settings go into the example file (.env.example) and the config code.

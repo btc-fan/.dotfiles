@@ -81,7 +81,7 @@ undo --only ^cmd:bin:osv-scanner$: 1 entr(y/ies) reversed
   codex: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 0.169.0
   codex 1.0.0 is not from npm ($WORK/devmac/bin/codex): left as it is (newest stable: 0.169.0)
   omx: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 0.22.6
-  omx 0.22.6 present (newest stable)
+  omx 0.22.7 kept (offline: not moved to 0.22.6)
   preview of 'omx setup' in a throwaway HOME ($TMP/ai-preview.XXXXXX):
   [dry-run] HOME=$TMP/ai-preview.XXXXXX env OMX_AUTO_UPDATE=0 OMX_NATIVE_AUTO_FETCH=0 omx setup
   [dry-run] env OMX_AUTO_UPDATE=0 OMX_NATIVE_AUTO_FETCH=0 omx setup

@@ -316,6 +316,13 @@ report_changes() {
 }
 
 # Audit gate: an install runs only after agent-audit passed for that exact target.
+# scan_skipped <name>: true when the owner ran install.sh --skip-scan with this tool id (or "all"). Owner only:
+# an agent never adds it (rule 40-audit-before-use). Every skip is a LOUD warning and a SKIPPED line in audit.log.
+scan_skipped() {
+    case ",${AI_SKIP_SCAN:-}," in *,all,*|*,"$1",*) return 0 ;; esac
+    return 1
+}
+
 audit_ok() {
     # audit_ok <ecosystem> <target> [version] [name]
     # name: for `dir` audits of a temp folder, the tool name to look up in ai/audit-accepted.txt.
@@ -325,6 +332,15 @@ audit_ok() {
     # plugin sources (dir, skill) are still scanned: skill-scanner only there, HIGH or CRITICAL is final.
     if [ "${PROFILE_PACKAGE_AUDIT:-1}" = 0 ] && [ "$eco" != dir ] && [ "$eco" != skill ]; then
         info "audit skipped: profile $AI_PROFILE ($eco $name${ver:+ $ver})"
+        return 0
+    fi
+    if scan_skipped "$name"; then
+        warn "LOUD: skill-scanner SKIPPED for $name${ver:+ $ver} by the owner (install.sh --skip-scan $AI_SKIP_SCAN): installed without a scan"
+        if [ "$AI_DRY_RUN" != 1 ]; then
+            mkdir -p "$AI_STATE_DIR"
+            printf '%s %s %s %s SKIPPED owner --skip-scan\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$eco" "$name" "${ver:--}" \
+                >> "$AI_STATE_DIR/audit.log"
+        fi
         return 0
     fi
     if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] agent-audit $eco $target${ver:+ $ver}"; return 0; fi
