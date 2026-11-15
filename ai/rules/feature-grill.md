@@ -16,6 +16,10 @@ NOT FOUND for the row; the grilling skill text is in `mattpocock-skills.md`.
   with acceptance criteria and the verify-<app> feature each slice must pass; tickets in docs/tickets/, never
   GitHub issues without the owner), then build slice by slice in the Done order (check-fast, verify-<app>
   evidence, then e2e). Elsewhere (tier try, not adopted): the grilling skill, one round of questions.
+- grill-with-docs, to-spec and to-tickets are typed-only (`disable-model-invocation: true`): the Skill tool cannot
+  run them. The hint gives the SKILL.md path that exists for the agent (project link `.claude/skills/<name>/` for
+  Claude, `.agents/skills/<name>/` for Codex, else the machine copy). The agent reads that file, follows it, and
+  tells the owner the typed form (`/grill-with-docs`). Proof: a Skill call or a Read of that SKILL.md.
 - Not: trivial changes (typo, rename, one-line fix, a config value): the agent answers "none needed".
 - Not: "new app" or "kickoff" (the existing tie-break already routes it to grilling).
 

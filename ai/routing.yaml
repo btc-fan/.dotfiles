@@ -120,7 +120,7 @@ rules:
     summary: 'feature request prompt (add, implement, build ... a feature, endpoint, page; RO, RU)'
     trigger: {prompt: '\b(add|implement|introduce|create)\b(?!\W+(a\W+|an\W+|the\W+|more\W+|some\W+)?(unit\W+|e2e\W+|regression\W+)?tests?\b)(\W+\w+){0,4}?\W+(feature|endpoint|page(?!\W+break)|screen|command|option|flag|setting|integration|flow|button|form|report|export|webhook|notification|mode|login|sign[- ]?in|sign[- ]?up|oauth|auth\w*|rate limit\w*|limiting|caching|pagination|search|upload|download|sync|dashboard|api)s?\b|\bbuild\b(\W+\w+){0,3}?\W+(feature|endpoint|screen|integration|dashboard)s?\b|\badd support for\b|\bnew feature\b|\bfeature request\b|\bchange (how|the way)\b|\bchange the behaviou?r\b|\b(adaug[aă]|implementeaz[aă]|construie[sș]te|creeaz[aă])\b(?!\W+(un\W+)?test)(\W+\w+){0,4}?\W+(func[tț]ionalitate|func[tț]ie|pagin[aă]|endpoint|op[tț]iune|buton|ecran|raport|integrare|comand[aă]|export|import|autentificare|c[aă]utare)\b|\bfunc[tț]ionalitate nou[aă]\b|\bschimb[aă] (cum|felul)\b|(?<!\w)(добавь|добавить|реализуй|реализовать|сделай|создай|внедри)(?!\s+(\w+\s+)?тест)(\W+\w+){0,4}?\W+(функци|фич|эндпоинт|страниц|кнопк|команд|опци|интеграци|отч[её]т|экран|режим|экспорт|импорт|поиск|авторизаци|вход|регистраци|загрузк)\w*|(?<!\w)нов(ую|ая|ой|ые) (функци|фич)\w*|(?<!\w)измени,? как'}
     action: "{feature_flow}"   # grill-with-docs, to-spec, to-tickets, Done order where linked; else plain grilling
-    proof: 'skill:\S*grill'
+    proof: 'skill:\S*grill|grill[\w-]*/SKILL\.md'
     strength: nudge   # strict regex: a verb plus a feature noun; "new app" stays with the kickoff tie-break
 
   - id: verify-before-done
@@ -228,8 +228,8 @@ rules:
     summary: 'tickets, spec, triage, backlog prompt'
     tool: mattpocock tracker skills
     trigger: {prompt: '\b(ticket|tickets|spec|triage|backlog|roadmap|wayfinder)\b'}
-    action: "to-spec, then to-tickets (on when the project's skills line lists them). Tickets go to docs/tickets/<feature>/ (docs/agents/issue-tracker.md); never GitHub issues or labels without the owner."
-    proof: 'skill:\S*(to-spec|to-tickets)'
+    action: "to-spec, then to-tickets (on when the project's skills line lists them). Tickets go to docs/tickets/<feature>/ (docs/agents/issue-tracker.md); never GitHub issues or labels without the owner.{tracker_flow}"
+    proof: 'skill:\S*(to-spec|to-tickets)|(to-spec|to-tickets)/SKILL\.md'
     strength: nudge
 
   - id: domain-docs
@@ -237,8 +237,8 @@ rules:
     summary: 'glossary, domain model, ADR prompt'
     tool: mattpocock grill-with-docs + domain-modeling
     trigger: {prompt: '\b(glossary|domain model|ubiquitous language|adr|decision record)\b'}
-    action: "Use grill-with-docs / domain-modeling (GLOSSARY.md, docs/adr/)."
-    proof: 'skill:\S*(grill-with-docs|domain-model)'
+    action: "Use grill-with-docs / domain-modeling (GLOSSARY.md, docs/adr/).{domain_docs}"
+    proof: 'skill:\S*(grill-with-docs|domain-model)|(grill-with-docs|domain-modeling)/SKILL\.md'
     strength: nudge
 
   - id: knowledge-wiki

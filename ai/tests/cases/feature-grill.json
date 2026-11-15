@@ -406,6 +406,119 @@
    "project": {
     "git": true
    }
+  },
+  {
+   "name": "typed-only skills: read the SKILL.md and follow it, tell the owner the typed form",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "implement a discount code option at checkout"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tier: mvp\nskills: grill-with-docs, to-spec, to-tickets\n",
+     ".claude/skills/grill-with-docs/SKILL.md": "---\nname: grill-with-docs\ndisable-model-invocation: true\n---\nbody\n",
+     ".agents/skills/grill-with-docs/SKILL.md": "---\nname: grill-with-docs\ndisable-model-invocation: true\n---\nbody\n",
+     ".claude/skills/to-spec/SKILL.md": "---\nname: to-spec\ndisable-model-invocation: true\n---\nbody\n",
+     ".agents/skills/to-spec/SKILL.md": "---\nname: to-spec\ndisable-model-invocation: true\n---\nbody\n",
+     ".claude/skills/to-tickets/SKILL.md": "---\nname: to-tickets\ndisable-model-invocation: true\n---\nbody\n",
+     ".agents/skills/to-tickets/SKILL.md": "---\nname: to-tickets\ndisable-model-invocation: true\n---\nbody\n"
+    }
+   },
+   "contains": [
+    "grill-with-docs first",
+    "Typed-only skills (no Skill tool call): read the file, follow it, and tell the owner the typed form",
+    "/grill-with-docs = {{PROJ}}/.claude/skills/grill-with-docs/SKILL.md",
+    "/to-spec = {{PROJ}}/.claude/skills/to-spec/SKILL.md",
+    "/to-tickets = {{PROJ}}/.claude/skills/to-tickets/SKILL.md"
+   ]
+  },
+  {
+   "name": "Codex: typed-only skills point at .agents/skills",
+   "expect": "fire",
+   "agent": "codex",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "implement a discount code option at checkout"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tier: mvp\nskills: grill-with-docs, to-spec, to-tickets\n",
+     ".claude/skills/grill-with-docs/SKILL.md": "---\nname: grill-with-docs\ndisable-model-invocation: true\n---\nbody\n",
+     ".agents/skills/grill-with-docs/SKILL.md": "---\nname: grill-with-docs\ndisable-model-invocation: true\n---\nbody\n",
+     ".claude/skills/to-spec/SKILL.md": "---\nname: to-spec\ndisable-model-invocation: true\n---\nbody\n",
+     ".agents/skills/to-spec/SKILL.md": "---\nname: to-spec\ndisable-model-invocation: true\n---\nbody\n",
+     ".claude/skills/to-tickets/SKILL.md": "---\nname: to-tickets\ndisable-model-invocation: true\n---\nbody\n",
+     ".agents/skills/to-tickets/SKILL.md": "---\nname: to-tickets\ndisable-model-invocation: true\n---\nbody\n"
+    }
+   },
+   "contains": [
+    "/grill-with-docs = {{PROJ}}/.agents/skills/grill-with-docs/SKILL.md"
+   ]
+  },
+  {
+   "name": "model-invocable skill files: no typed-only note",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "implement a discount code option at checkout"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "skills: grill-with-docs\n",
+     ".claude/skills/grill-with-docs/SKILL.md": "---\nname: grill-with-docs\n---\n"
+    }
+   },
+   "contains": "grill-with-docs first",
+   "not_contains": "Typed-only"
+  },
+  {
+   "name": "no miss when the agent read the typed-only SKILL.md",
+   "expect": "nomiss",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "implement a discount code option at checkout"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {},
+     "transcript_append": [
+      {
+       "type": "assistant",
+       "message": {
+        "role": "assistant",
+        "content": [
+         {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+           "file_path": "{{PROJ}}/.claude/skills/grill-with-docs/SKILL.md"
+          }
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ],
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tier: mvp\nskills: grill-with-docs, to-spec, to-tickets\n",
+     ".claude/skills/grill-with-docs/SKILL.md": "---\nname: grill-with-docs\ndisable-model-invocation: true\n---\nbody\n",
+     ".agents/skills/grill-with-docs/SKILL.md": "---\nname: grill-with-docs\ndisable-model-invocation: true\n---\nbody\n",
+     ".claude/skills/to-spec/SKILL.md": "---\nname: to-spec\ndisable-model-invocation: true\n---\nbody\n",
+     ".agents/skills/to-spec/SKILL.md": "---\nname: to-spec\ndisable-model-invocation: true\n---\nbody\n",
+     ".claude/skills/to-tickets/SKILL.md": "---\nname: to-tickets\ndisable-model-invocation: true\n---\nbody\n",
+     ".agents/skills/to-tickets/SKILL.md": "---\nname: to-tickets\ndisable-model-invocation: true\n---\nbody\n"
+    }
+   }
   }
  ]
 }

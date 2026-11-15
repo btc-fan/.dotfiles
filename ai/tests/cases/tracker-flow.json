@@ -55,6 +55,31 @@
      ".ai/enabled": "skills: to-spec, to-tickets\n"
     }
    }
+  },
+  {
+   "name": "typed-only to-spec / to-tickets: read and follow",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "split the spec into tickets"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tier: mvp\nskills: grill-with-docs, to-spec, to-tickets\n",
+     ".claude/skills/grill-with-docs/SKILL.md": "---\nname: grill-with-docs\ndisable-model-invocation: true\n---\nbody\n",
+     ".agents/skills/grill-with-docs/SKILL.md": "---\nname: grill-with-docs\ndisable-model-invocation: true\n---\nbody\n",
+     ".claude/skills/to-spec/SKILL.md": "---\nname: to-spec\ndisable-model-invocation: true\n---\nbody\n",
+     ".agents/skills/to-spec/SKILL.md": "---\nname: to-spec\ndisable-model-invocation: true\n---\nbody\n",
+     ".claude/skills/to-tickets/SKILL.md": "---\nname: to-tickets\ndisable-model-invocation: true\n---\nbody\n",
+     ".agents/skills/to-tickets/SKILL.md": "---\nname: to-tickets\ndisable-model-invocation: true\n---\nbody\n"
+    }
+   },
+   "contains": [
+    "docs/tickets/",
+    "/to-spec = {{PROJ}}/.claude/skills/to-spec/SKILL.md",
+    "/to-tickets = {{PROJ}}/.claude/skills/to-tickets/SKILL.md"
+   ]
   }
  ]
 }

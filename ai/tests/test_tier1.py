@@ -208,6 +208,30 @@ def t_adopt_decline_undoes_intent_to_add(work):
     assert "?? Makefile" in status and "?? .ai/" in status, status
 
 
+def t_typed_only_skill_paths(work):
+    """QA 2026-11-15: typed-only skills (disable-model-invocation) cannot go through the Skill tool: the hints
+    give the SKILL.md path to read, the project link per agent first, then the machine copy."""
+    hooklib = load(os.path.join(HOOKS, "hooklib.py"), "hooklib_typed")
+    typed = "---\nname: %s\ndisable-model-invocation: true\n---\n"
+    repo = tree(work, "typed", {".claude/skills/create-verification-skill/SKILL.md": typed % "c",
+                                ".agents/skills/create-verification-skill/SKILL.md": typed % "c"})
+    line = hooklib.verify_status_line(repo)
+    assert "run /create-verification-skill (typed-only; agent: read %s/.claude/skills/create-verification-skill/" \
+        "SKILL.md and follow it)." % repo in line, line
+    assert "/.agents/skills/create-verification-skill/SKILL.md" in hooklib.verify_status_line(repo, "codex")
+    home = os.path.join(work, "home-typed")
+    write(os.path.join(home, ".agents", "skills", "to-spec", "SKILL.md"), typed % "to-spec")
+    write(os.path.join(home, ".claude", "skills", "grilling", "SKILL.md"), "---\nname: grilling\n---\n")
+    old = os.environ.get("HOME")
+    os.environ["HOME"] = home
+    try:
+        note = hooklib.typed_skills_note(repo, ["to-spec", "grilling", "missing"])
+    finally:
+        os.environ["HOME"] = old
+    assert note == (" Typed-only skills (no Skill tool call): read the file, follow it, and tell the owner the typed "
+                    "form: /to-spec = %s/.agents/skills/to-spec/SKILL.md." % home), note
+
+
 # ---------------------------------------------------------------- mattpocock opt-in skills per project
 
 OPTIN = ("grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd", "codebase-design", "code-review", "pr",
@@ -850,6 +874,7 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
 
 TESTS_LIST = [t_verify_skills_copy, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_try_no_skills, t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_go_rust, t_detect_monorepo,
               t_detect_probe_drops_missing_tool, t_adopt_failing_check_turns_stop_off, t_adopt_decline_undoes_intent_to_add,
+              t_typed_only_skill_paths,
               t_plan_keeps_targets, t_adopt_try_tier_own_done, t_adopt_long_tier, t_adopt_monorepo_refused,
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_continuation_checks_the_fix, t_stop_chain_cap, t_stop_no_baseline_uses_head,
               t_stop_recipe_changed, t_stop_skipped_only_and_group_kill,

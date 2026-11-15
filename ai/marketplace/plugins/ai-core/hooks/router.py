@@ -34,11 +34,11 @@ from hooklib import (GATES, GATE_PROBES, ai_home, append_jsonl, command_text, ga
                      iso_now, knowledge_delta, knowledge_index, ledger_hits, ledger_note, libs_hits, log_error,
                      log_line, one_line, project_skills, project_tier, verify_skill, is_code_file,
                      origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
-                     state_path, with_defaults, graph_git_calls, start_graph_refresh)
+                     state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
 CONTEXT_CAP = 9500          # additionalContext is cut here (hook output caps: Claude 10,000 chars, Codex ~2,500 tokens)
-PLACEHOLDER_MAX = {"knowledge_index": 600}   # worst-case length of a placeholder value (ai-render budget)
+PLACEHOLDER_MAX = {"knowledge_index": 800}   # worst-case length of a placeholder value (ai-render budget)
 L0_RESEND_SOURCES = ("compact", "clear")    # SessionStart sources that get the L0 table again
 L1_HEADER = "[ai router L1] Routing table (also in your root rules; re-sent after compaction):\n"
 DAY = 86400
@@ -708,7 +708,7 @@ def check_state(name, ctx):
 # its own label, or "" (then it disappears). An action that renders to empty text sends no message.
 
 def _ph_knowledge_index(ctx):
-    return knowledge_index(ctx.root)
+    return knowledge_index(ctx.root, ctx.agent)
 
 
 def _ph_knowledge_delta(ctx):
@@ -768,10 +768,18 @@ def _ph_feature_flow(ctx):
                 "owner)." % vname) if spec == {"to-spec", "to-tickets"} else ""
         return ("Feature work: grill-with-docs first (one round of questions, then GLOSSARY.md and docs/adr "
                 "updates).%s Then build slice by slice: check-fast green, %s on the changed feature (evidence kept), "
-                "then e2e tests for the proven journey. A trivial change (typo, rename, one-line fix): none needed."
-                % (plan, vname))
+                "then e2e tests for the proven journey. A trivial change (typo, rename, one-line fix): none needed.%s"
+                % (plan, vname, typed_skills_note(ctx.root, ["grill-with-docs"] + sorted(spec), ctx.agent)))
     return ("Feature work: before any code, run the grilling skill (one round of questions first), unless the "
             "change is trivial (typo, rename, one-line fix, a config value).")
+
+
+def _ph_tracker_flow(ctx):
+    return typed_skills_note(ctx.root, ["to-spec", "to-tickets"], ctx.agent)
+
+
+def _ph_domain_docs(ctx):
+    return typed_skills_note(ctx.root, ["grill-with-docs", "domain-modeling"], ctx.agent)
 
 
 def _ph_verify_hint(ctx):
@@ -802,6 +810,8 @@ PLACEHOLDERS = {
     "ledger_hits": _ph_ledger_hits,
     "feature_flow": _ph_feature_flow,
     "verify_hint": _ph_verify_hint,
+    "tracker_flow": _ph_tracker_flow,
+    "domain_docs": _ph_domain_docs,
     "origin_slug": _ph_origin_slug,
     "claude_handoff": _ph_claude_handoff,
 }

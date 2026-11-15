@@ -1801,6 +1801,40 @@ def project_skills(root):
                                     for d in (os.path.join(".claude", "skills"), os.path.join(".agents", "skills")))]
 
 
+def skill_md(root, name, agent="claude"):
+    """The SKILL.md of skill `name` that exists for this agent: the project link first (.claude/skills for
+    Claude, .agents/skills for Codex), then this machine's copy. None when it is not installed."""
+    dirs = [os.path.join(".claude", "skills"), os.path.join(".agents", "skills")]
+    if agent != "claude":
+        dirs.reverse()
+    for base in ([root] if root else []) + [os.path.expanduser("~")]:
+        for d in dirs:
+            path = os.path.join(base, d, name, "SKILL.md")
+            if os.path.isfile(path):
+                return path
+    return None
+
+
+def typed_only(path):
+    """True for a skill with `disable-model-invocation: true`: the Skill tool cannot run it."""
+    m = re.match(r"^---\n(.*?)\n---", read_text(path) or "", re.S)
+    return bool(m and re.search(r"(?m)^disable-model-invocation\s*:\s*true\s*$", m.group(1)))
+
+
+def typed_skills_note(root, names, agent="claude"):
+    """For the typed-only skills among `names`: read the file and follow it, and tell the owner the typed form.
+    The model cannot call them through the Skill tool (owner QA 2026-11-15: the agent fell back). "" for none."""
+    rows = []
+    for n in names:
+        path = skill_md(root, n, agent)
+        if path and typed_only(path):
+            rows.append("/%s = %s" % (n, path))
+    if not rows:
+        return ""
+    return (" Typed-only skills (no Skill tool call): read the file, follow it, and tell the owner the typed form: "
+            "%s." % "; ".join(rows))
+
+
 def verify_skill(root):
     """{"name", "path" (repo-relative skill folder), "features" (count), "features_dir"} or None."""
     if not root:
@@ -1854,18 +1888,26 @@ def verify_stale(stats):
     return bool(stats) and (stats[0] >= VERIFY_STALE_COMMITS or (stats[1] >= VERIFY_STALE_DAYS and stats[0] >= 1))
 
 
-def verify_status_line(root):
+def verify_status_line(root, agent="claude"):
     """One phrase for the session-start status."""
     info = verify_skill(root)
     if not info:
         optional = " (optional in tier try)" if project_tier(root) == "try" else ""
-        return "Verify skill: missing, run /create-verification-skill%s." % optional
+        return "Verify skill: missing, run /create-verification-skill%s%s." % (
+            optional, read_and_follow(root, "create-verification-skill", agent))
     stats = verify_staleness(root, info)
     line = "Verify skill: %s (%d features)" % (info["name"], info["features"])
     if verify_stale(stats):
         line += ", stale (%d code commits, %d days since the feature map changed): run /maintain-verification-skill" \
             % stats
+        line += read_and_follow(root, "maintain-verification-skill", agent)
     return line + "."
+
+
+def read_and_follow(root, name, agent="claude"):
+    """Short form for the status line: a typed-only skill the agent runs by reading its file."""
+    path = skill_md(root, name, agent)
+    return " (typed-only; agent: read %s and follow it)" % path if path and typed_only(path) else ""
 
 
 # ---------------------------------------------------------------- project knowledge (router placeholders)
@@ -1887,7 +1929,7 @@ MAP_CAP_LINES = 60
 LOCKFILES = ("uv.lock", "poetry.lock", "requirements.txt", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
              "go.sum", "Cargo.lock")
 MANIFESTS = ("pyproject.toml", "package.json", "Cargo.toml", "go.mod", "Gemfile", "composer.json")
-KNOWLEDGE_CAP = 600
+KNOWLEDGE_CAP = 800
 
 
 def is_code_file(path):
@@ -2036,8 +2078,8 @@ def docs_map_status(root):
     return "matches " + ", ".join(locks)
 
 
-def knowledge_index(root):
-    """One pointer line (<= 600 chars) for the session start: the Map and Libraries blocks of AGENTS.md, and
+def knowledge_index(root, agent="claude"):
+    """One pointer line (<= 800 chars) for the session start: the Map and Libraries blocks of AGENTS.md, and
     Serena / graph only where the project enabled them. Empty outside a git repo."""
     if not root:
         return ""
@@ -2059,7 +2101,7 @@ def knowledge_index(root):
         bits.append("Graph: " + {"fresh": "fresh.", "stale": "stale, run graphify update .",
                                  "missing": "missing, run GRAPHIFY_BACKEND=none graphify extract . --code-only"}[g]
                     + ("" if g == "fresh" else "."))
-    bits.append(verify_status_line(root))
+    bits.append(verify_status_line(root, agent))
     return " ".join(bits)[:KNOWLEDGE_CAP]
 
 

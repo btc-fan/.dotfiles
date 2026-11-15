@@ -31,7 +31,8 @@ the app changes."
 
 ## Enforcement
 - L1: the session-start status says "Verify skill: verify-<app> (N features)", "... stale ...: run
-  /maintain-verification-skill" or "missing, run /create-verification-skill".
+  /maintain-verification-skill" or "missing, run /create-verification-skill". Both skills are typed-only, so the
+  line adds "(typed-only; agent: read <path>/SKILL.md and follow it)" with the path that exists for the agent.
 - L3: row `verify-before-done` after the first code edit of a session (tier mvp, long; only with a verify skill).
 - L2: the feature flow (`feature-grill`) names the verify feature per slice and the Done order.
 - L4: pr-rules: with a verify skill and app code in the diff, Verify must name the verify run, an evidence path
