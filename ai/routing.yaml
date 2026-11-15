@@ -96,9 +96,9 @@ rules:
 
   - id: ledger-nudge
     scope: global
-    summary: 'before an edit in a regression-ledger area (tier long)'
+    summary: 'before an edit in a regression-ledger area'
     trigger: {tool_before: 'Edit|Write|MultiEdit|NotebookEdit'}
-    action: "{ledger_hits}"   # empty outside long-tier repos and areas; once per area per session
+    action: "{ledger_hits}"   # empty outside ledger areas; once per area per session
     strength: nudge
 
   # ---------- lint and docs ----------
@@ -127,9 +127,9 @@ rules:
 
   - id: verify-before-done
     scope: global
-    summary: 'after a code edit in a project with a verify-<app> skill (tier mvp, long)'
+    summary: 'after a code edit in a project with a verify-<app> skill'
     trigger: {tool_after: 'Edit|Write|MultiEdit|NotebookEdit'}
-    action: "{verify_hint}"   # empty without a verify skill, in tier try, or for a non-code file
+    action: "{verify_hint}"   # empty without a verify skill or for a non-code file
     once_per: 'session'
     proof: 'verify-[\w-]+'
     strength: nudge

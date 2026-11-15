@@ -96,7 +96,7 @@ undo --only ^cmd:bin:osv-scanner$: 1 entr(y/ies) reversed
   claude-blog: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 2.3.2
   [dry-run] git clone https://github.com/AgriciDaniel/claude-blog; checkout v2.3.2 (4f9c2cb8fd17); agent-audit dir; ~/.local/share/ai/plugins/claude-blog
   mattpocock-skills: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 1.3.2
-  [dry-run] git clone https://github.com/mattpocock/skills; checkout v1.3.2 (d1478fcb140d); agent-audit dir; copy productivity/grilling productivity/grill-me productivity/wait-what productivity/writing-for-agents engineering/retro to ~/.local/share/ai/plugins/mattpocock-skills
+  [dry-run] git clone https://github.com/mattpocock/skills; checkout v1.3.2 (d1478fcb140d); agent-audit dir; copy productivity/grilling productivity/grill-me productivity/wait-what productivity/writing-for-agents engineering/retro engineering/ask-matt to ~/.local/share/ai/plugins/mattpocock-skills
   WARN: pstack: newest stable unknown (offline): kept as it is
   serena: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 2.1.0
   audit skipped: profile dev-mac (pypi serena-agent 2.1.0)
@@ -211,10 +211,12 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
 [9/14] skills
   [dry-run] link    ~/.claude/skills/create-verification-skill -> $REPO/ai/skills/create-verification-skill
   [dry-run] link    ~/.claude/skills/maintain-verification-skill -> $REPO/ai/skills/maintain-verification-skill
+  [dry-run] link    ~/.claude/skills/skills-guide -> $REPO/ai/skills/skills-guide
   planned: Claude: shared skills and the 5 mattpocock skills linked into ~/.claude/skills
   [dry-run] link    ~/.agents/skills/create-verification-skill -> $REPO/ai/skills/create-verification-skill
   [dry-run] link    ~/.agents/skills/maintain-verification-skill -> $REPO/ai/skills/maintain-verification-skill
   [dry-run] link    ~/.agents/skills/prompting-claude-and-codex -> $REPO/ai/skills/prompting-claude-and-codex
+  [dry-run] link    ~/.agents/skills/skills-guide -> $REPO/ai/skills/skills-guide
   planned: Codex/opencode: shared skills and the 5 mattpocock skills linked into ~/.agents/skills
 
 [10/14] hooks (plugin owns them; vendor hooks: RTK, herdr, graphify)

@@ -548,7 +548,7 @@ def t_bash_plugin_clone(work):
 
 
 def t_bash_mattpocock_optin(work):
-    """mattpocock_src: the five global picks plus the opt-in picks (found under any category except misc/ and
+    """mattpocock_src: the six global picks (ask-matt since 2026-11-15) plus the opt-in picks (found under any category except misc/ and
     in-progress/; a missing one is skipped with a warning, the five still install); the pick list is in the marker;
     mattpocock_link links only the five global names."""
     up = os.path.join(work, "up", "mp")
@@ -558,7 +558,7 @@ def t_bash_mattpocock_optin(work):
                 "productivity/writing-for-agents", "engineering/retro", "engineering/grill-with-docs",
                 "engineering/domain-modeling", "engineering/to-tickets", "engineering/tdd", "engineering/codebase-design",
                 "engineering/code-review", "engineering/pr", "engineering/diagnosing-bugs", "misc/to-spec",
-                "engineering/implement"):
+                "engineering/implement", "engineering/ask-matt"):
         write(os.path.join(up, "skills", rel, "SKILL.md"), "---\nname: %s\n---\nbody\n" % rel.split("/")[1])
     git("add", "-A", cwd=up)
     git("commit", "-q", "-m", "v1", cwd=up)
@@ -570,9 +570,9 @@ def t_bash_mattpocock_optin(work):
     have = sorted(n for n in os.listdir(dest) if not n.startswith("."))
     assert have == sorted(["grilling", "grill-me", "wait-what", "writing-for-agents", "retro", "grill-with-docs",
                            "domain-modeling", "to-tickets", "tdd", "codebase-design", "code-review", "pr",
-                           "diagnosing-bugs"]), have
+                           "diagnosing-bugs", "implement", "ask-matt"]), have
     assert "opt-in skill to-spec not found" in out and "improve-codebase-architecture not found" in out, out
-    assert "implement" not in have, "implement stays skipped"
+    assert "wayfinder not found" in out, "a missing opt-in name is reported: " + out
     assert "grill-with-docs" in read(os.path.join(dest, ".picks")), "pick list missing from the marker"
     code, out = bash(LIBS + 'AI_OS=macos; AI_SKIP_PACKAGES=0; mattpocock_src', env)
     assert "(newest stable)" in out, "same commit and picks: nothing to do: " + out
@@ -581,8 +581,9 @@ def t_bash_mattpocock_optin(work):
     assert "(newest stable)" not in out and "audited" in out, "a changed pick list copies again: " + out
     target = os.path.join(home, "skills")
     code, out = bash(LIBS + 'AI_OS=macos; mattpocock_link "%s"' % target, env)
-    assert sorted(os.listdir(target)) == sorted(["grilling", "grill-me", "wait-what", "writing-for-agents", "retro"]), \
-        "only the five global picks are linked globally: %s" % os.listdir(target)
+    assert sorted(os.listdir(target)) == sorted(["grilling", "grill-me", "wait-what", "writing-for-agents", "retro",
+                                                 "ask-matt"]), \
+        "only the six global picks are linked globally: %s" % os.listdir(target)
 
 
 def t_bash_pstack(work):

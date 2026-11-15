@@ -105,6 +105,10 @@ Prompting other agents
 Goal and what is ruled out, absolute file paths, one narrow task, expected output and format, read-only unless I said otherwise. No --bare on claude -p. Check the result yourself. Skill: prompting-claude-and-codex.
 
 
+Skills
+- Which skill, flow or command fits a task, or how a skill works: load the skills-guide skill first. It covers the 27 Matt Pocock skills and their overlaps with OMC (Matt first). Owner guide with full scenarios: ~/.dotfiles-ai/docs/GUIDE.md.
+- Every project has the full setup (tier long). A Matt skill that is not linked in this repo: read its SKILL.md from the path in skills-guide, and suggest ai-adopt --skills.
+
 Other agents
 claude -p "<task>" --output-format stream-json --verbose (no --bare); codex exec --json "<task>"; opencode run "<task>" --format json. Hermes never hands work to Claude. Details: ~/.config/ai/rules/<tool>.md.
 
@@ -118,17 +122,17 @@ opt-in = only in projects that enabled the tool (ai-start, ai-adopt).
 |---|---|---|
 | project-knowledge (nudge) | session start in a code repo | Read the Map and Libraries sections of this repo's AGENTS.md first, then search narrowly. (status line: memories, graph, docs map) |
 | no-ai-base (nudge) | session start: repo without .ai/base-version | No AI base or Map here. Suggest the owner runs ai-adopt. |
-| knowledge-check (nudge) | after a git commit | Update mem:core, run ai-libs --sync or graphify update, as the commit needs. |
+| knowledge-check (nudge) | after a git commit | Update the Map section of AGENTS.md, run ai-libs --sync or graphify update, as the commit needs. |
 | audit-before-install (gate) | before a package install command | agent-audit this package first. No @latest, no curl-to-shell. |
 | secret-scan (gate) | before git commit or push | Secret scan found a key, token or password. Remove it before commit or push. |
 | no-sudo (gate) | any sudo, su, doas, pkexec | No sudo for agents: give the owner the exact command. Box work on a server: the box tool (MCP server box); outside a sandbox also plain proj-agent <subcommand>; never sudo. |
 | no-destroy (gate) | rm -r of data, home or repo root; force push or delete of main; reset --hard with changes; clean -x at the root; compose down -v; DROP/TRUNCATE on a protected DB | Destructive command: give the owner the exact command and the reason. Rebuildable folders (node_modules, .venv, dist, build) are fine. |
 | pr-rules (gate) | before gh pr create or edit | PR body (pr skill template): Summary with a Mermaid diagram, Evidence (Before and After), Merge Danger (Door: one-way or two-way; Blast Radius), Docs, Changed guards (Ledger on fix PRs), author-sessions block at the end. |
-| ledger-nudge (nudge) | before an edit in a regression-ledger area (tier long) | Edit in a docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests. |
+| ledger-nudge (nudge) | before an edit in a regression-ledger area | Edit in a docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests. |
 | no-em-dash (nudge) | after a write with U+2014 | Remove the em dash (U+2014). Use '-', ':' or a new sentence. |
 | docs-lookup (nudge) | docs, SDK or library prompt | Library code: context7 query-docs with the ID from the Libraries section (resolve only if missing), then the official docs site. (cached IDs) |
 | feature-grill (nudge) | feature request prompt (add, implement, build ... a feature, endpoint, page; RO, RU) | grill-with-docs (where the project links it; else grilling), for 3+ files to-spec then to-tickets, then per slice: check-fast, verify-<app> evidence, e2e. Trivial: none needed. |
-| verify-before-done (nudge) | after a code edit in a project with a verify-<app> skill (tier mvp, long) | Before done: check-fast, then verify-<app> on the changed feature (evidence), then e2e tests. |
+| verify-before-done (nudge) | after a code edit in a project with a verify-<app> skill | Before done: check-fast, then verify-<app> on the changed feature (evidence), then e2e tests. |
 | seo-not-enabled (nudge) | SEO prompt, project without claude-seo | claude-seo is off in this project. Suggest: ai-adopt --tools seo. Do not enable it yourself. |
 | blog-not-enabled (nudge) | blog prompt, project without claude-blog | claude-blog is off in this project. Suggest: ai-adopt --tools blog. Do not enable it yourself. |
 | browser-not-enabled (nudge) | browser prompt, project without Playwright MCP | No Playwright MCP in this project. Suggest: ai-adopt --tools browser. Do not install a browser tool yourself. |
