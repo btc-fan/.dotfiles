@@ -264,6 +264,7 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
   [dry-run] set     ~/.claude/settings.json env/OPENCODE_DISABLE_AUTOUPDATE = "1"
   [dry-run] set     ~/.claude/settings.json env/OPENCODE_DISABLE_MODELS_FETCH = "1"
   [dry-run] set     ~/.claude/settings.json env/OPENCODE_DISABLE_LSP_DOWNLOAD = "1"
+  [dry-run] set     ~/.claude/settings.json env/MCP_TIMEOUT = "60000"
   planned: Claude: env switches in ~/.claude/settings.json (merge): hooks, MCP servers and -p runs see them
   planned: Claude permissions merged into ~/.claude/settings.json: allow read-only tools, ask graphify install/hook, deny rule/config edits and secrets.env
   [dry-run] set     ~/.claude/settings.json env/UV_CACHE_DIR = "~/.cache/ai-sandbox/uv"
@@ -286,6 +287,7 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OPENCODE_DISABLE_AUTOUPDATE = "1"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OPENCODE_DISABLE_MODELS_FETCH = "1"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OPENCODE_DISABLE_LSP_DOWNLOAD = "1"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] MCP_TIMEOUT = "60000"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GIT_GUARD_AGENT = "1"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GIT_CONFIG_COUNT = "1"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GIT_CONFIG_KEY_0 = "core.fsmonitor"

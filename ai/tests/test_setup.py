@@ -299,7 +299,7 @@ def t_claude_permissions(work):
     assert perms["allow"][0] == "Bash(ls)" and "Bash(rm *)" in perms["deny"], "user rules must stay"
     assert stale not in perms["allow"], "a rule an earlier install added and the lists dropped must go"
     assert len(perms["allow"]) == len(set(perms["allow"])), "duplicates after a second run"
-    for rule in ("mcp__plugin_ai-serena_serena__find_symbol", "mcp__plugin_ai-serena_serena__get_symbols_overview",
+    for rule in ("mcp__plugin_ai-serena_serena__*",     # every Serena tool (owner 2026-11-15)
                  "mcp__plugin_ai-core_context7__*", "Bash(gh pr view *)", "Bash(gh issue list*)",
                  "Bash(graphify query *)", "Bash(agent-audit *)",
                  "Bash(ai-doctor*)", "WebFetch", "WebSearch", "Read(~/.claude/plugins/**)", "Read(~/.config/ai/**)"):

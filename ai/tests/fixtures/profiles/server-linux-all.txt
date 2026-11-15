@@ -269,6 +269,7 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
   [dry-run] set     ~/.claude/settings.json env/OPENCODE_DISABLE_AUTOUPDATE = "1"
   [dry-run] set     ~/.claude/settings.json env/OPENCODE_DISABLE_MODELS_FETCH = "1"
   [dry-run] set     ~/.claude/settings.json env/OPENCODE_DISABLE_LSP_DOWNLOAD = "1"
+  [dry-run] set     ~/.claude/settings.json env/MCP_TIMEOUT = "60000"
   [dry-run] set     ~/.claude/settings.json disableClaudeAiConnectors = true
   planned: Claude: env switches in ~/.claude/settings.json (merge): hooks, MCP servers and -p runs see them
   planned: Claude permissions merged into ~/.claude/settings.json: allow read-only tools, ask graphify install/hook, deny rule/config edits and secrets.env
@@ -292,6 +293,7 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OPENCODE_DISABLE_AUTOUPDATE = "1"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OPENCODE_DISABLE_MODELS_FETCH = "1"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OPENCODE_DISABLE_LSP_DOWNLOAD = "1"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] MCP_TIMEOUT = "60000"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GIT_GUARD_AGENT = "1"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GIT_CONFIG_COUNT = "1"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GIT_CONFIG_KEY_0 = "core.fsmonitor"
@@ -320,6 +322,7 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
   [dry-run] add     /etc/environment line 'OPENCODE_DISABLE_AUTOUPDATE=1'
   [dry-run] add     /etc/environment line 'OPENCODE_DISABLE_MODELS_FETCH=1'
   [dry-run] add     /etc/environment line 'OPENCODE_DISABLE_LSP_DOWNLOAD=1'
+  [dry-run] add     /etc/environment line 'MCP_TIMEOUT=60000'
   [dry-run] set     /etc/claude-code/managed-settings.json env/DISABLE_TELEMETRY = "1"
   [dry-run] set     /etc/claude-code/managed-settings.json env/DISABLE_ERROR_REPORTING = "1"
   [dry-run] set     /etc/claude-code/managed-settings.json env/DISABLE_AUTOUPDATER = "1"
@@ -335,6 +338,7 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
   [dry-run] set     /etc/claude-code/managed-settings.json env/OPENCODE_DISABLE_AUTOUPDATE = "1"
   [dry-run] set     /etc/claude-code/managed-settings.json env/OPENCODE_DISABLE_MODELS_FETCH = "1"
   [dry-run] set     /etc/claude-code/managed-settings.json env/OPENCODE_DISABLE_LSP_DOWNLOAD = "1"
+  [dry-run] set     /etc/claude-code/managed-settings.json env/MCP_TIMEOUT = "60000"
   [dry-run] set     /etc/claude-code/managed-settings.json disableClaudeAiConnectors = true
   [dry-run] set     /etc/claude-code/managed-settings.json skillListingBudgetFraction = 0.02
   [dry-run] add     /etc/claude-code/managed-settings.json permissions/deny += "Edit(~/.claude/settings.json)"

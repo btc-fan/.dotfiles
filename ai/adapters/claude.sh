@@ -759,12 +759,9 @@ claude_allow_rules() {
     local t
     # context7 (resolve + query): every tool.
     printf '%s\n' "${CLAUDE_MCP_PREFIX}context7__*"
-    # Serena (plugin ai-serena, on by default): the read-only symbol tools of the claude-code context (its file
-    # and shell tools are excluded there; memories and onboarding are off: mode no-memories). Edits still prompt.
-    for t in initial_instructions get_current_config search_for_pattern get_symbols_overview find_symbol \
-        find_referencing_symbols find_declaration find_implementations get_diagnostics_for_file; do
-        printf 'mcp__plugin_ai-serena_serena__%s\n' "$t"
-    done
+    # Serena (plugin ai-serena, on by default): every tool, symbol edits too (owner 2026-11-15: "at its best", no
+    # prompt per Serena call). Its shell tools are excluded in serena_config.yml; memories are off (no-memories).
+    printf '%s\n' 'mcp__plugin_ai-serena_serena__*'
     # GitHub through the gh CLI (the GitHub MCP was dropped): read-only forms only; everything else asks.
     # The bare forms run inside the sandbox; the absolute forms are what the router writes for the commands
     # that leave the sandbox (excludedCommands, root-owned program only).
