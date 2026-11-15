@@ -212,7 +212,33 @@ git_source_audited() {
     git clone -q "$repo" "$tmp/$name" && git -C "$tmp/$name" -c advice.detachedHead=false checkout -q "$sha" \
         || { warn "$name: clone of $repo at $sha failed"; rm -rf "$tmp"; return 1; }
     audit_ok dir "$tmp/$name" "$sha" "$name" || { rm -rf "$tmp"; return 1; }
+    local missing
+    missing=$(plugin_files_missing "$tmp/$name")
+    if [ -n "$missing" ]; then
+        warn "$name ${ref:-${sha:0:12}}: files its plugin config starts are not in the git tree ($missing): not installable"
+        rm -rf "$tmp"; return 1
+    fi
     rm -rf "$tmp"
+}
+
+# plugin_files_missing <dir>: the ${CLAUDE_PLUGIN_ROOT}/<path> files that .mcp.json and the hooks JSON of a
+# plugin tree name but the tree does not have (OMC v5.8.6: bridge/mcp-server.cjs is a build output, not in git,
+# so its MCP server failed with CONNECTION_CLOSED; owner QA 2026-11-15).
+plugin_files_missing() {
+    python3 - "$1" <<'EOS'
+import json, os, re, sys
+root = sys.argv[1]
+missing = []
+for rel in (".mcp.json", ".claude-plugin/plugin.json", "hooks/hooks.json"):
+    try:
+        text = json.dumps(json.load(open(os.path.join(root, rel))))
+    except (OSError, ValueError):
+        continue
+    for m in re.finditer(r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\s\"'\\]+)", text):
+        if not os.path.exists(os.path.join(root, m.group(1))) and m.group(1) not in missing:
+            missing.append(m.group(1))
+print(", ".join(missing[:5]))
+EOS
 }
 
 # claude_plugin <marketplace-name> <marketplace-source> <plugin@marketplace> [sha] [version]
@@ -300,17 +326,52 @@ claude_plugin() {
 # claude_git_plugin <tool id> <marketplace-name> <Owner/repo> <plugin@marketplace>: a plugin from a github
 # marketplace at the resolved tag (Owner/repo#<tag>; no tag: the default branch), audited before it moves.
 claude_git_plugin() {
-    local tool=$1 mname=$2 repo=$3 plugin=$4 src
+    local tool=$1 mname=$2 repo=$3 plugin=$4 src I_VERSION="" I_SHA="" I_SCANNED=0 X_VERSION=""
     resolve_tool "$tool" || return 1
+    eval "$(resolver installed-info "$tool" 2>/dev/null)"
     src="$repo${R_REF:+#$R_REF}"
+    # A copy installed before this setup audited it (I_SCANNED 0, e.g. OMC 5.8.6 before the skill-scanner rule)
+    # is audited again, even when it is the newest.
     if claude_has_plugin "$plugin" && claude_plugin_current "$plugin" "$R_SHA" "" "$AI_STATE_DIR/claude-plugin.${plugin%@*}.src" \
-        && same_src "$(claude_marketplace_src "$mname")" "$(claude_src_norm "$src")"; then
+        && same_src "$(claude_marketplace_src "$mname")" "$(claude_src_norm "$src")" \
+        && { [ "$I_SCANNED" = 1 ] || [ "$I_SHA" != "$R_SHA" ]; }; then
         info "$plugin at ${R_REF:-${R_SHA:0:7}} (newest stable)"; return 0
     fi
     if [ "$R_STATUS" = cached ] && claude_has_plugin "$plugin"; then info "$plugin kept (offline)"; return 0; fi
-    git_source_audited "$tool" "${R_SOURCE#git }" "$R_REF" "$R_SHA" || { warn "$plugin not moved to ${R_REF:-$R_SHA}: audit"; return 1; }
-    claude_plugin "$mname" "$src" "$plugin" "$R_SHA" || return 1
-    r_record
+    if [ -n "$R_VERSION" ] && [ "$X_VERSION" = "$R_VERSION" ]; then
+        warn "$plugin ${R_REF:-$R_VERSION} was rejected by skill-scanner before: not installed"
+    elif git_source_audited "$tool" "${R_SOURCE#git }" "$R_REF" "$R_SHA"; then
+        claude_plugin "$mname" "$src" "$plugin" "$R_SHA" || return 1
+        r_record
+        return 0
+    fi
+    claude_git_plugin_fallback "$tool" "$mname" "$repo" "$plugin"
+}
+
+# The newest version failed (skill-scanner reject or files missing): the newest older stable tag that passes
+# (at most 5 tried, newest first). The installed copy counts when this setup audited it. None passes: the
+# installed copy stays, with a loud warning when it is that failing version itself (ai-doctor FAILs it).
+claude_git_plugin_fallback() {
+    local tool=$1 mname=$2 repo=$3 plugin=$4 newest=$R_VERSION line v ref sha
+    for line in $(resolver candidates "$tool" --max 5 --below "${R_REF:-$R_VERSION}" 2>/dev/null | tr ' ' '|'); do
+        v=${line%%|*}; ref=${line#*|}; sha=${ref#*|}; ref=${ref%%|*}
+        if [ "$v" = "$I_VERSION" ] && [ "$I_SCANNED" = 1 ] && claude_has_plugin "$plugin"; then
+            warn "$plugin: newest $newest failed the audit; the installed $v (audited) stays"; return 0
+        fi
+        R_VERSION=$v; R_REF=$ref; R_SHA=$sha
+        if git_source_audited "$tool" "${R_SOURCE#git }" "$ref" "$sha"; then
+            claude_plugin "$mname" "$repo#$ref" "$plugin" "$sha" || return 1
+            r_record
+            warn "$plugin moved to $ref, the newest version that passes the audit ($newest failed it)"
+            return 0
+        fi
+    done
+    if claude_has_plugin "$plugin" && [ "$I_VERSION" = "$newest" ]; then
+        warn "LOUD: $plugin $I_VERSION is installed and fails the audit itself (skill-scanner reject or files missing), and none of the 5 older versions passes: it stays installed; remove it by hand if you agree (claude plugin uninstall $plugin)"
+    else
+        warn "$plugin not moved to $newest: audit (no older version of the last 5 passes either)"
+    fi
+    return 1
 }
 
 # plugin_json_version <dir>: "version" of <dir>/.claude-plugin/plugin.json, or nothing.

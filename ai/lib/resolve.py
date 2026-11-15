@@ -29,7 +29,14 @@ Offline or a registry error: the last resolved value from resolved.json (status 
   resolve.py status [--network]             JSON for ai-doctor: per tool installed and newest
   resolve.py reject <tool> --version V [--sha S] [--findings TEXT]
                                             skill-scanner rejected that version (HIGH or CRITICAL): kept in
-                                            resolved.json ("rejected") for ai-doctor; a later install clears it
+                                            resolved.json ("rejected") for ai-doctor; an install of that same
+                                            version clears it
+  resolve.py candidates <tool> [--max N] [--below V]
+                                            git sources: the stable tags newest first (below V), one
+                                            "<version> <tag> <commit>" line each: the fallback when the newest
+                                            is rejected or incomplete (owner QA 2026-11-15, OMC 5.8.6)
+  resolve.py installed-info <tool>          shell assignments I_VERSION I_SHA I_SCANNED (1: recorded after this
+                                            setup audited it) X_VERSION (the rejected version, or empty)
 
 State: $AI_STATE_DIR (default ~/.local/state/ai)/resolved.json and audit.log. Tests: AI_PINS (pins file),
 AI_RESOLVE_FIXTURES (a JSON file {"http": {url: body}, "git": {url: ls-remote text}}; a URL not in it is
@@ -418,8 +425,9 @@ def record(tool, version, sha="", integrity="", specs=None):
     data = load_state()
     entry = data["tools"].setdefault(tool, {})
     entry["source"] = source
-    entry["installed"] = {"version": version, "sha": sha, "integrity": integrity, "time": now()}
-    entry.pop("rejected", None)
+    entry["installed"] = {"version": version, "sha": sha, "integrity": integrity, "time": now(), "scanned": True}
+    if (entry.get("rejected") or {}).get("version") in (version, None, "", "-"):
+        entry.pop("rejected", None)     # a rejected NEWER version stays recorded (ai-doctor, the fallback)
     save_state(data)
     # Same line shape as agent-audit (<time> <kind> <name> <version> <result>), kind "install": the audit
     # gate's 24 h PASS lookup reads only npm, pypi and dir lines, so these never count as an audit result.
@@ -432,6 +440,9 @@ def reject(tool, version, sha="", findings=""):
     """skill-scanner HIGH or CRITICAL (owner rule 2026-11-14): this version is never installed; ai-doctor reads it."""
     data = load_state()
     entry = data["tools"].setdefault(tool, {})
+    old = (entry.get("rejected") or {}).get("version") or ""
+    if semver_key(old) and semver_key(version) and semver_key(version) < semver_key(old):
+        return          # an older fallback candidate failing too: the newest rejected version stays on record
     entry["rejected"] = {"version": version, "sha": sha, "findings": findings[:500], "time": now(),
                          "by": "skill-scanner"}
     save_state(data)
@@ -441,6 +452,36 @@ def rejected():
     """{tool: rejected entry} from resolved.json."""
     return {t: v["rejected"] for t, v in (load_state().get("tools") or {}).items()
             if isinstance(v, dict) and v.get("rejected")}
+
+
+def candidates(tool, below="", limit=5, specs=None):
+    """[(version, tag, commit)] of a git source, stable tags newest first, only versions below `below`."""
+    specs = tools() if specs is None else specs
+    spec = specs.get(tool)
+    if not spec or spec["type"] != "git":
+        return []
+    tags = {}
+    for line in git_ls_remote(spec["name"], "--tags").splitlines():
+        parts = line.split()
+        if len(parts) != 2 or not parts[1].startswith("refs/tags/"):
+            continue
+        name = parts[1][len("refs/tags/"):]
+        if name.endswith("^{}"):
+            tags[name[:-3]] = parts[0]
+        else:
+            tags.setdefault(name, parts[0])
+    stable = sorted((t for t in tags if semver_key(t) is not None), key=semver_key, reverse=True)
+    if below and semver_key(below) is not None:
+        stable = [t for t in stable if semver_key(t) < semver_key(below)]
+    return [(t.lstrip("v"), t, tags[t]) for t in stable[:limit]]
+
+
+def installed_info(tool):
+    entry = load_state()["tools"].get(tool) or {}
+    inst = entry.get("installed") or {}
+    return {"I_VERSION": inst.get("version") or "", "I_SHA": inst.get("sha") or "",
+            "I_SCANNED": "1" if inst.get("scanned") else "0",
+            "X_VERSION": (entry.get("rejected") or {}).get("version") or ""}
 
 
 # ---------------------------------------------------------------- checksums, npm verify
@@ -690,6 +731,19 @@ def main(argv):
             else:
                 i += 1
         reject(rest[0], opts["--version"], opts["--sha"], opts["--findings"])
+        return 0
+    if cmd == "candidates" and rest:
+        limit = int(rest[rest.index("--max") + 1]) if "--max" in rest else 5
+        below = rest[rest.index("--below") + 1] if "--below" in rest else ""
+        try:
+            for row in candidates(rest[0], below, limit):
+                print("%s %s %s" % row)
+        except Unavailable as exc:
+            print("resolve.py: %s" % exc, file=sys.stderr)
+            return 1
+        return 0
+    if cmd == "installed-info" and rest:
+        print("\n".join("%s=%s" % (k, shlex.quote(v)) for k, v in installed_info(rest[0]).items()))
         return 0
     if cmd == "checksum" and len(rest) >= 3:
         target = rest[rest.index("--target") + 1] if "--target" in rest and rest.index("--target") + 1 < len(rest) else ""

@@ -1071,8 +1071,15 @@ def check_drops_and_defaults():
         else:
             say("PASS" if ok else "FAIL", "Claude plugin last30days installed and on (default)",
                 "" if ok else ("installed but off" if pk in installed else "not installed") + "; " + fix)
+    inst = {t: ((v.get("installed") or {}).get("version") or "") for t, v in
+            ((load_json_file(os.path.join(STATE, "resolved.json")) or {}).get("tools") or {}).items() if isinstance(v, dict)}
     for tool, r in sorted(rej.items()):
-        if tool != "last30days":
+        if r.get("version") and inst.get(tool) == r.get("version"):
+            # Owner QA 2026-11-15: OMC 5.8.6 was installed before the skill-scanner rule and fails it now.
+            say("FAIL", "installed version is rejected by skill-scanner: %s %s" % (tool, r["version"]),
+                "re-run install.sh (moves to the newest older version that passes, of the last 5); %s"
+                % (r.get("findings") or "")[:200])
+        elif tool != "last30days":
             say("WARN", "rejected by skill-scanner: %s %s" % (tool, r.get("version", "?")),
                 "not installed or updated (an installed older copy stays); %s" % (r.get("findings") or "")[:200])
     for rel in ("rules/last30days.md", "evals/last30days.md"):

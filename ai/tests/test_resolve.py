@@ -37,6 +37,7 @@ def main():
                      t_bash_offline_keep, t_bash_context7, t_context7_discovery, t_bash_plugin_clone,
                      t_claude_plugin_replace, t_claude_plugin_update, t_claude_plugin_fallback,
                      t_claude_dir_same_version, t_claude_fresh_install_checked, t_claude_own_replace_rollback,
+                     t_claude_plugin_rejected_newest,
                      t_codex_plugin_refresh, t_bash_mattpocock_optin, t_bash_pstack, t_audit_accept_by_commit, t_uv_tool_normalized, t_scanners,
                      t_osv_scanner, t_herdr, t_src_swap_and_dry_sha, t_playwright_keep_only):
             for k in ENV_KEYS:
@@ -1116,6 +1117,50 @@ def t_claude_own_replace_rollback(work):
     code, out = bash(script, env)                      # the add works now: moved, still off
     known, plugins = claude_files(home)
     assert known["tp6"]["source"]["ref"] == "v1.1.0" and enabled(home)["plug6@tp6"] is False, (out, known)
+
+
+def t_claude_plugin_rejected_newest(work):
+    """QA 2026-11-15 item 8 (OMC 5.8.6): the installed newest version was put on before the skill-scanner rule
+    and fails it now. It is audited again (installed without "scanned"), and the plugin moves back to the newest
+    older tag that passes (max 5 tried); a candidate whose plugin config names a file the tree lacks (OMC's
+    bridge/mcp-server.cjs build output) is skipped. None passes: kept, a LOUD warning, ai-doctor FAILs it."""
+    up = os.path.join(work, "up", "Owner", "plug7")
+    shas = upstream(up, "tp7", "plug7", ["1.0.0", "1.1.0", "1.2.0", "1.3.0"])
+    git("checkout", "-q", "v1.1.0", cwd=up)
+    write(os.path.join(up, ".mcp.json"), json.dumps({"mcpServers": {"t": {"command": "node",
+                                                                      "args": ["${CLAUDE_PLUGIN_ROOT}/bridge/x.cjs"]}}}))
+    git("add", "-f", ".mcp.json", cwd=up)          # -f: a global excludes file may list .mcp.json
+    git("commit", "-q", "-m", "1.1.0 without its build output", cwd=up)
+    git("tag", "-f", "-a", "v1.1.0", "-m", "v1.1.0", cwd=up)
+    shas["1.1.0"] = git("rev-parse", "HEAD", cwd=up)
+    git("checkout", "-q", "main", cwd=up)
+    env, home = claude_env(work, 'TESTPLUG7_SOURCE="git %s stable"\n' % up)
+    code, out = bash(LIBS + 'AI_DRY_RUN=0; claude_plugin tp7 "Owner/plug7#v1.3.0" plug7@tp7 %s' % shas["1.3.0"], env)
+    assert code == 0, out
+    state = os.path.join(home, ".local", "state", "ai", "resolved.json")
+    write(state, json.dumps({"tools": {"testplug7": {"installed": {"version": "1.3.0", "sha": shas["1.3.0"]}}}}))
+    bad = " ".join([shas["1.3.0"], shas["1.2.0"]])
+    script = LIBS + ('audit_ok() { case " %s " in *" $3 "*) resolver reject testplug7 --version "$R_VERSION" '
+                     '--sha "$3"; return 1 ;; esac; echo "AUDIT ok $3"; return 0; }; '
+                     'claude_git_plugin testplug7 tp7 Owner/plug7 plug7@tp7 || echo rc=$?') % bad
+    code, out = bash(script, env)
+    known, plugins = claude_files(home)
+    assert known["tp7"]["source"]["ref"] == "v1.0.0" and plugins["plug7@tp7"][0]["gitCommitSha"] == shas["1.0.0"], (out, known)
+    assert "bridge/x.cjs" in out and "not installable" in out, "1.1.0 lacks its MCP server file: " + out
+    assert "moved to v1.0.0, the newest version that passes the audit (1.3.0 failed it)" in out, out
+    st = json.load(open(state))["tools"]["testplug7"]
+    assert st["installed"]["version"] == "1.0.0" and st["installed"]["scanned"] is True, st
+    assert st["rejected"]["version"] == "1.3.0", "the newest rejected version stays on record: %s" % st
+    code, out = bash(script, env)
+    assert "rejected by skill-scanner before" in out and "the installed 1.0.0 (audited) stays" in out, out
+    # none passes: the installed failing version stays, loudly
+    code, out = bash(LIBS + 'AI_DRY_RUN=0; claude_plugin tp7 "Owner/plug7#v1.3.0" plug7@tp7 %s' % shas["1.3.0"], env)
+    write(state, json.dumps({"tools": {"testplug7": {"installed": {"version": "1.3.0", "sha": shas["1.3.0"]}}}}))
+    code, out = bash(LIBS + 'audit_ok() { resolver reject testplug7 --version "$R_VERSION" --sha "$3"; return 1; }; '
+                            'claude_git_plugin testplug7 tp7 Owner/plug7 plug7@tp7 || echo rc=$?', env)
+    assert "rc=1" in out and "LOUD: plug7@tp7 1.3.0 is installed and fails the audit itself" in out, out
+    st = json.load(open(state))["tools"]["testplug7"]
+    assert st["rejected"]["version"] == st["installed"]["version"] == "1.3.0", st
 
 
 def t_codex_plugin_refresh(work):

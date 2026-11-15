@@ -257,7 +257,9 @@ def t_doctor_devmac(work):
     # installed is a WARN, not a FAIL; other rejected items are listed as WARN too.
     write(os.path.join(state, "resolved.json"), json.dumps({"version": 1, "tools": {
         "last30days": {"rejected": {"version": "3.39.0", "sha": "f" * 40, "findings": "HIGH: x", "by": "skill-scanner"}},
-        "ponytail": {"rejected": {"version": "5.3.4", "sha": "e" * 40, "findings": "CRITICAL: y", "by": "skill-scanner"}}}}))
+        "ponytail": {"rejected": {"version": "5.3.4", "sha": "e" * 40, "findings": "CRITICAL: y", "by": "skill-scanner"}},
+        "omc-plugin": {"installed": {"version": "5.8.6"},       # QA 2026-11-15: installed before the rule
+                       "rejected": {"version": "5.8.6", "sha": "d" * 40, "findings": "HIGH: z", "by": "skill-scanner"}}}}))
     stub = os.path.join(work, "doc-bin")
     write(os.path.join(stub, "claude"), "#!/bin/sh\nexit 0\n", 0o755)
     code2 = code.replace("m.check_profile()", "m.check_drops_and_defaults()")
@@ -272,6 +274,7 @@ def t_doctor_devmac(work):
         else:       # dev-mac: last30days is not a default there, so no line about it being missing
             assert "rejected by skill-scanner: last30days" not in text, text
         assert "rejected by skill-scanner: ponytail 5.3.4" in text, text
+        assert "FAIL installed version is rejected by skill-scanner: omc-plugin 5.8.6" in text, text
 
 
 def t_devmac_last30days(work):
