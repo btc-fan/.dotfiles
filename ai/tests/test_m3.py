@@ -38,7 +38,7 @@ def main():
         for test in (t_drop_claude, t_drop_keeps_shared_marketplace, t_drop_codex_and_serena, t_off_plugins,
                      t_serena_take, t_rtk_brew, t_rtk_no_brew, t_omx_node_fix, t_last30days, t_doctor,
                      t_omc_companion, t_drop_failures, t_rtk_brew_mismatch, t_codex_restore_quoted,
-                     t_yaml_top_set_block_list, t_skill_dups, t_omx_nvm_fix):
+                     t_yaml_top_set_block_list, t_skill_dups, t_omx_nvm_fix, t_rejected_sha_cached):
             for k, v in saved.items():
                 if v is None:
                     os.environ.pop(k, None)
@@ -846,6 +846,28 @@ def t_yaml_top_set_block_list(work):
         assert got == "base_modes:\ndefault_modes: [no-memories]\n\nnext: 1\n", repr(got)
     subprocess.check_call(run, stdout=subprocess.DEVNULL)
     assert open(cfg).read() == "base_modes:\ndefault_modes: [no-memories]\n\nnext: 1\n", "second run changes nothing"
+
+
+def t_rejected_sha_cached(work):
+    """A plugin commit that skill-scanner rejected (agent-audit exit 4) is kept in rejected-shas; the next install
+    does not clone or scan it again and still refuses it (owner 2026-11-15: OMC re-scanned 6 tags each run)."""
+    home, bindir = os.path.join(work, "home"), os.path.join(work, "bin")
+    os.makedirs(home)
+    log = os.path.join(work, "calls.log")
+    stub(os.path.join(bindir, "agent-audit"), '#!/bin/sh\necho "agent-audit $*" >> %s\n'
+         'echo "REJECT skill-scanner CRITICAL: X a.ts"\nexit 4\n' % log)
+    stub(os.path.join(bindir, "git"), '#!/bin/sh\necho "git $*" >> %s\nmkdir -p "$4"\n' % log)
+    env = dict(os.environ, HOME=home, PATH=bindir + ":" + SYS_PATH, AI_HOME=REPO, PYTHONDONTWRITEBYTECODE="1")
+    sha = "a" * 40
+    code, out = bash(LIBS + 'git_source_audited omc-plugin https://x/omc v9.9.9 %s' % sha, env)
+    assert code != 0 and "REJECTED omc-plugin" in out, out
+    assert read(os.path.join(home, STATE, "rejected-shas")) == "%s omc-plugin\n" % sha
+    open(log, "w").close()
+    code, out = bash(LIBS + 'git_source_audited omc-plugin https://x/omc v9.9.9 %s' % sha, env)
+    assert code != 0 and "rejected this commit before" in out, out
+    assert read(log) == "", "no clone, no scan: " + read(log)
+    code, out = bash(LIBS + 'git_source_audited omc-plugin https://x/omc v9.9.8 %s' % ("b" * 40), env)
+    assert "agent-audit dir" in read(log), "another commit is still scanned"
 
 
 if __name__ == "__main__":

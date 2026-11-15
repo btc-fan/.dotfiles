@@ -342,6 +342,8 @@ audit_ok() {
         warn "skill-scanner REJECTED $name${ver:+ $ver} (HIGH or CRITICAL finding): not installed or updated (an installed copy stays), no override: $found"
         AI_STATE_DIR="$AI_STATE_DIR" python3 "$AI_HOME/ai/lib/resolve.py" reject "$name" --version "${rver:--}" \
             --sha "$ver" --findings "$found" >/dev/null 2>&1 || true
+        # Every rejected commit is kept, so a later install does not clone and scan it again (OMC: 6 tags, 15 min).
+        if [ "$eco" = dir ] && [ -n "$ver" ]; then mkdir -p "$AI_STATE_DIR"; printf '%s %s\n' "$ver" "$name" >> "$AI_STATE_DIR/rejected-shas"; fi
         rm -f "$out" "$out.rc"; return 1
     fi
     if [ "$rc" = 5 ]; then

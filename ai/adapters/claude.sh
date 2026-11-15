@@ -207,6 +207,9 @@ git_source_audited() {
     local name=$1 repo=$2 ref=$3 sha=$4 tmp
     [ -n "$sha" ] || return 0
     [ "$(src_head "$(plugin_src_dir "$name")")" = "$sha" ] && return 0
+    if grep -qs "^$sha $name\$" "$AI_STATE_DIR/rejected-shas"; then
+        warn "$name ${ref:-${sha:0:12}}: skill-scanner rejected this commit before: not installed (no new scan)"; return 1
+    fi
     if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] git clone $repo at ${ref:-${sha:0:12}}; agent-audit dir"; return 0; fi
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/ai-$name.XXXXXX")
     git clone -q "$repo" "$tmp/$name" && git -C "$tmp/$name" -c advice.detachedHead=false checkout -q "$sha" \
