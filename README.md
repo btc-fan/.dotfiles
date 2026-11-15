@@ -8,6 +8,12 @@ One AI setup for every machine. Agents, tools, rules, hooks and gates. Audited, 
 - One usage contract per tool. It says when to use it, when not, how we enforce it and how we prove it fired.
 - Telemetry and the tools' own auto-update are off: updates come only from `install.sh`. Everything can be removed with one command.
 
+## Start here: docs/GUIDE.md
+
+The owner guide explains how the setup works inside (rules, router, gates, skills), how it builds, and what it reports.
+It has full example sessions: adopt a messy repo, start an iOS and Android app, fix a bug, build V2, triage.
+In any session, ask "which skill for X?" to get the global `skills-guide` skill.
+
 Status: server first. macOS later. Windows planned, not supported yet. Items marked **coming** are designed but not in the code yet.
 
 ## Where we stopped (2026-11-13) and what to do next

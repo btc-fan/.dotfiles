@@ -112,11 +112,12 @@ def t_plan_keeps_targets(work):
 
 # ---------------------------------------------------------------- T1 + T5: ai-adopt
 
-def t_adopt_try_tier_own_done(work):
+def t_adopt_own_done(work):
     repo, env = adopt_repo(work, "own-done", {
         "Makefile": "check:\n\tuv run pytest\n",
         "AGENTS.md": "# own\n\n## Done\n- tests pass\n- docs updated\n"})
     res = adopt(repo, env, "--tier", "try")
+    assert "--tier is ignored" in res.stdout, res.stdout
     assert res.returncode == 0, res.stdout
     assert "keep: AGENTS.md has its own Done section" in res.stdout, res.stdout
     assert "keep: Makefile already has a check target" in res.stdout, res.stdout
@@ -124,9 +125,9 @@ def t_adopt_try_tier_own_done(work):
     assert agents.count("## Done") == 1 and "<!-- AI:done" not in agents, agents
     mk = read(os.path.join(repo, "Makefile"))
     assert mk.startswith("check:\n\tuv run pytest\n") and mk.count("\ncheck:") == 0 and "check-fast:" in mk, mk
-    assert "tier: try" in read(os.path.join(repo, ".ai", "enabled")).splitlines()
-    assert not os.path.exists(os.path.join(repo, "docs", "REGRESSIONS.md")), "try tier gets no ledger"
-    assert "nothing to change" in adopt(repo, env).stdout, "rerun keeps the tier and changes nothing"
+    assert "tier: long" in read(os.path.join(repo, ".ai", "enabled")).splitlines(), "no tiers: always long"
+    assert os.path.exists(os.path.join(repo, "docs", "REGRESSIONS.md")), "every project gets the ledger"
+    assert "nothing to change" in adopt(repo, env).stdout, "a rerun changes nothing"
 
 
 def t_adopt_long_tier(work):
@@ -139,10 +140,25 @@ def t_adopt_long_tier(work):
     agents = read(os.path.join(repo, "AGENTS.md"))
     assert "a line in docs/REGRESSIONS.md" in agents, agents
     assert "ai-ratchet" in read(os.path.join(repo, "Makefile"))
-    # tier change: the managed Done block and the check block follow the new tier
+    # no tiers (owner 2026-11-15): an old --tier flag changes nothing
     res = adopt(repo, env, "--tier", "mvp")
-    assert "a line in docs/REGRESSIONS.md" not in read(os.path.join(repo, "AGENTS.md")), "Done block not updated"
-    assert "ai-ratchet" not in read(os.path.join(repo, "Makefile")), "check block not updated"
+    assert "--tier is ignored" in res.stdout and "nothing to change" in res.stdout, res.stdout
+    assert "a line in docs/REGRESSIONS.md" in read(os.path.join(repo, "AGENTS.md")), "Done block lost the ledger"
+    assert "ai-ratchet" in read(os.path.join(repo, "Makefile")), "check block lost the ratchet"
+
+
+def t_adopt_ignores_global_excludes(work):
+    """M3 2026-11-15: a personal global ignore (core.excludesFile) hides AGENTS.md, CLAUDE.md and .claude/: the
+    adopt commit must still hold them (only the repo's .gitignore counts)."""
+    repo, env = adopt_repo(work, "global-ignore", {})
+    excl = os.path.join(work, "global-ignore-excludes")
+    write(excl, "AGENTS.md\n**/CLAUDE.md\n.claude/\n.serena/\n")
+    env = dict(env, GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="core.excludesFile", GIT_CONFIG_VALUE_0=excl)
+    res = adopt(repo, env)
+    assert res.returncode == 0, res.stdout
+    files = run(["git", "-C", repo, "show", "--name-only", "--format=", "HEAD"]).stdout.split()
+    for rel in ("AGENTS.md", "CLAUDE.md"):
+        assert rel in files, "%s not committed under a global ignore: %s" % (rel, files)
 
 
 def t_adopt_monorepo_refused(work):
@@ -235,8 +251,11 @@ def t_typed_only_skill_paths(work):
 # ---------------------------------------------------------------- mattpocock opt-in skills per project
 
 OPTIN = ("grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd", "codebase-design", "code-review", "pr",
-         "diagnosing-bugs", "improve-codebase-architecture")
-DEFAULT_LINKS = ["grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd", "codebase-design", "code-review"]
+         "diagnosing-bugs", "improve-codebase-architecture", "implement", "implement-spec", "research", "handoff",
+         "wayfinder", "prototype", "triage", "wizard", "to-questionnaire", "teach", "setup-matt-pocock-skills")
+# The defaults (owner 2026-11-15) plus callees, without "pr" (the fake source below skips it).
+DEFAULT_LINKS = ["grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd", "codebase-design", "code-review",
+                 "diagnosing-bugs", "implement", "research", "handoff", "wayfinder", "prototype"]
 
 
 def fake_plugin_src(work, name, skip=()):
@@ -258,7 +277,8 @@ def t_adopt_project_skills(work):
     res = adopt(repo, env)
     assert res.returncode == 0, res.stdout
     enabled = read(os.path.join(repo, ".ai", "enabled")).splitlines()
-    assert "skills: grill-with-docs, domain-modeling, to-spec, to-tickets, tdd" in enabled, enabled
+    assert "skills: grill-with-docs, domain-modeling, to-spec, to-tickets, tdd, pr, diagnosing-bugs, implement, research, handoff, wayfinder, prototype" in enabled, enabled
+    assert "## Wayfinding operations" in read(os.path.join(repo, "docs", "agents", "issue-tracker.md"))
     for sub in (".claude/skills", ".agents/skills"):
         assert links(repo, sub) == sorted(DEFAULT_LINKS), (sub, links(repo, sub))
     target = os.readlink(os.path.join(repo, ".agents", "skills", "tdd"))
@@ -278,13 +298,13 @@ def t_adopt_project_skills(work):
     assert "skills: tdd, pr" in read(os.path.join(repo, ".ai", "enabled")).splitlines()
 
 
-def t_adopt_try_no_skills(work):
-    repo, env = adopt_repo(work, "skills-try", {})
-    env["AI_PLUGIN_SRC"] = fake_plugin_src(work, "try")
-    res = adopt(repo, env, "--tier", "try")
+def t_adopt_skills_none(work):
+    repo, env = adopt_repo(work, "skills-none", {})
+    env["AI_PLUGIN_SRC"] = fake_plugin_src(work, "none")
+    res = adopt(repo, env, "--skills", "none")
     assert res.returncode == 0, res.stdout
     assert "skills: none" in read(os.path.join(repo, ".ai", "enabled")).splitlines()
-    assert links(repo, ".claude/skills") == [] and links(repo, ".agents/skills") == [], "try tier: plain grilling only"
+    assert links(repo, ".claude/skills") == [] and links(repo, ".agents/skills") == [], "--skills none: plain grilling only"
     assert not os.path.exists(os.path.join(repo, "docs", "agents")), "no tracker docs without to-spec/to-tickets"
 
 
@@ -874,10 +894,10 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
     return res
 
 
-TESTS_LIST = [t_verify_skills_copy, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_try_no_skills, t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_go_rust, t_detect_monorepo,
+TESTS_LIST = [t_verify_skills_copy, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_skills_none, t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_go_rust, t_detect_monorepo,
               t_detect_probe_drops_missing_tool, t_adopt_failing_check_turns_stop_off, t_adopt_decline_undoes_intent_to_add,
               t_typed_only_skill_paths,
-              t_plan_keeps_targets, t_adopt_try_tier_own_done, t_adopt_long_tier, t_adopt_monorepo_refused,
+              t_plan_keeps_targets, t_adopt_own_done, t_adopt_long_tier, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused,
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_continuation_checks_the_fix, t_stop_chain_cap, t_stop_no_baseline_uses_head,
               t_stop_recipe_changed, t_stop_skipped_only_and_group_kill,
               t_stop_success_silent_both_agents, t_stop_codex_block_and_timeout, t_stop_floor_zero_tests,

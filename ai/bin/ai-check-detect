@@ -47,7 +47,7 @@ LEDGER_LINE = ('@if command -v ai-ledger >/dev/null 2>&1; then ai-ledger --check
 
 def main(argv):
     root = os.path.abspath(arg(argv, "--dir") or ".")
-    tier = arg(argv, "--tier") or "mvp"
+    tier = arg(argv, "--tier") or "long"      # no tiers since 2026-11-15: every project is long
     if tier not in ("try", "mvp", "long"):
         sys.exit("ai-check-detect: --tier must be try, mvp or long")
     info = detect(root, probe="--no-probe" not in argv)

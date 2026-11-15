@@ -529,8 +529,13 @@ def check_claude_permissions():
     miss_d = [r for r in need_deny if r not in deny]
     say("PASS" if not miss_a else "FAIL", "Claude permissions.allow has the read-only tools (%d rules)" % len(allow),
         ("missing: " + ", ".join(miss_a)) if miss_a else "")
-    say("PASS" if not miss_d else "FAIL", "Claude permissions.deny protects rule and config files",
-        ("missing: " + ", ".join(miss_d)) if miss_d else "")
+    if PROFILE_KEYS.get("PROFILE_GUARDS", "1") == "0":
+        # Full agent autonomy (owner 2026-11-15, dev-mac): no ask/deny rules on purpose.
+        say("PASS", "Claude permissions.deny: off on this profile (full autonomy; gates: secret-scan, pr-rules)")
+        miss_d = None
+    if miss_d is not None:
+        say("PASS" if not miss_d else "FAIL", "Claude permissions.deny protects rule and config files",
+            ("missing: " + ", ".join(miss_d)) if miss_d else "")
     bad = [r for r in allow if r in ("Bash", "Bash(*)", "Edit", "Write", "Bash(graphify *)", "Bash(rtk *)")
            or r.startswith(("Bash(git push", "Bash(sudo"))]
     # rtk forms that pass arguments to a program that can run others: their exec forms must be denied.
@@ -539,7 +544,7 @@ def check_claude_permissions():
                                   ("Bash(rtk git diff*)", "Bash(rtk git * --ext-diff*)")):
         if allow_rule in allow and deny_rule not in deny:
             bad.append("%s without the deny %s" % (allow_rule, deny_rule))
-    if bad:
+    if bad and miss_d is not None:      # full autonomy profile: broad allow rules are intended
         say("FAIL", "Claude allow list has write or push rules", ", ".join(bad))
 
 

@@ -373,8 +373,8 @@ def t_adopt_knowledge(work, server):
     assert "AGENTS.md" in files and "CLAUDE.md" in files and "Makefile" in files, files
     mk = open(os.path.join(repo, "Makefile")).read()
     assert "check-fast:\n\tuv run pytest -x -q" in mk and "check:\n\tuv run pytest -q" in mk, mk
-    assert "ai-ratchet" not in mk, "mvp tier: no ratchet in check"
-    assert "tier: mvp" in open(os.path.join(repo, ".ai", "enabled")).read().splitlines()
+    assert "ai-ratchet" in mk, "every project (tier long): ratchet in check"
+    assert "tier: long" in open(os.path.join(repo, ".ai", "enabled")).read().splitlines()
     assert ".serena/project.yml" in files, files
     assert not any(f.startswith(("graphify-out", ".ai/libs.md", ".serena/cache")) for f in files), files
     assert os.path.isfile(os.path.join(repo, ".git", "hooks", "post-commit")), "graphify hooks not installed"
@@ -395,7 +395,7 @@ def t_adopt_knowledge(work, server):
     assert "| httpx | 0.28.1 |" in text, "Libraries block missing"
     done = text[text.index("## Done"):text.index("<!-- AI:done END -->")]
     assert len([ln for ln in done.splitlines() if ln[:2] in ("1.", "2.", "3.", "4.", "5.", "6.")]) == 6, done
-    assert "`make check` passes" in done and "REGRESSIONS" not in done, done
+    assert "`make check` passes" in done and "REGRESSIONS" in done, done
     assert "## Lessons" in text, "Lessons section missing"
     res = run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--yes"], env=env, cwd=repo)
     assert "nothing to change" in res.stdout, "rerun must be idempotent: " + res.stdout
@@ -433,7 +433,8 @@ def t_adopt_optin_serena_graph(work, server):
 GI_BLOCK = [".omc/*", "!.omc/skills/", ".omx/", ".codex/", ".claude/*", "!.claude/settings.json", "!.claude/skills/",
             ".claude/skills/*", "!.claude/skills/verify-*", ".serena/*", "!.serena/project.yml", "graphify-out/",
             ".ai/*", "!.ai/enabled", "!.ai/ratchet.json", "!.ai/destructive.txt"]
-GI_SKILL_LINKS = ["grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd", "codebase-design", "code-review"]
+GI_SKILL_LINKS = ["grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd", "codebase-design", "code-review", "pr",
+                 "diagnosing-bugs", "implement", "research", "handoff", "wayfinder", "prototype"]
 
 
 def t_adopt_gitignore_block(work, server):
@@ -451,7 +452,8 @@ def t_adopt_gitignore_block(work, server):
     assert res.returncode == 0, res.stdout
     files = set(run(["git", "-C", repo, "show", "--name-only", "--format=", "HEAD"]).stdout.split())
     want = {"AGENTS.md", "CLAUDE.md", ".gitignore", ".claude/settings.json", ".ai/enabled", ".serena/project.yml",
-            "Makefile", "docs/agents/issue-tracker.md", "docs/agents/domain.md"}
+            "Makefile", "docs/agents/issue-tracker.md", "docs/agents/domain.md", "docs/REGRESSIONS.md",
+            ".ai/ratchet.json"}
     assert files == want, "committed %s, want %s" % (sorted(files), sorted(want))
     status = run(["git", "-C", repo, "status", "--porcelain", "--untracked-files=all"]).stdout
     assert status.strip() == "", "local tool files not ignored:\n" + status

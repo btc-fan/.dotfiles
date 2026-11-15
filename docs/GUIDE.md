@@ -1,0 +1,1466 @@
+# The AI setup: owner guide
+
+Status: 2026-11-15. Branch `ai`. Profile `dev-mac` on all 3 machines (M3, old Intel Mac, ubuntu01).
+
+Read this guide from the top once. After that, use the table of contents and the cheat sheet (section 12).
+
+Rules for this document:
+- Every command and every output block below is real output from the M3, unless the block says "example" or
+  "not verified".
+- Secrets are replaced with `<REDACTED>`.
+- The agent can answer questions about skills for you: ask "which skill for X?" in any session. That starts the
+  global `skills-guide` skill (`ai/skills/skills-guide/SKILL.md`).
+
+## Contents
+
+1. [The idea in one page](#1-the-idea-in-one-page)
+2. [The layers: what loads, from where, and why](#2-the-layers-what-loads-from-where-and-why)
+3. [Inside the router: hooks, nudges, gates](#3-inside-the-router-hooks-nudges-gates)
+4. [Skills: how they load, where they live, which are on](#4-skills-how-they-load-where-they-live-which-are-on)
+5. [Project knowledge: where it lives](#5-project-knowledge-where-it-lives)
+6. [How the setup builds: install.sh, ai-sync, ai-doctor, ai-info](#6-how-the-setup-builds-installsh-ai-sync-ai-doctor-ai-info)
+7. [What the setup reports, with real output](#7-what-the-setup-reports-with-real-output)
+8. [ai-start and ai-adopt: the project layer, file by file](#8-ai-start-and-ai-adopt-the-project-layer-file-by-file)
+9. [The flows: idea to ship, phase boundaries](#9-the-flows-idea-to-ship-phase-boundaries)
+10. [Scenarios with full example sessions](#10-scenarios-with-full-example-sessions)
+11. [Pull requests: the template and the gate](#11-pull-requests-the-template-and-the-gate)
+12. [Cheat sheet](#12-cheat-sheet)
+13. [Troubleshooting](#13-troubleshooting)
+14. [What is not verified](#14-what-is-not-verified)
+
+---
+
+## 1. The idea in one page
+
+The setup has one job: every agent (Claude Code, Codex) on every machine starts with the same rules, the same
+tools and the same project knowledge. You do not repeat yourself. The agent does not guess.
+
+Five ideas carry the whole design:
+
+1. **One source of rules.** You edit `ai/agents-md/*.md` and `ai/routing.yaml` in this repo. `ai-render` builds
+   one file, `ai/AGENTS.md`. Every agent reads that file. Claude reads it through an `@` import. Codex gets a
+   copy.
+2. **Knowledge lives in the repo, next to the code.** Each project has an `AGENTS.md` with a Map, a Libraries
+   table, a Done list and Lessons. Specs, tickets, decisions and research notes are Markdown files in the repo.
+   No hidden memory store.
+3. **A deterministic router, not an LLM, decides when to remind the agent.** One Python script (`router.py`)
+   runs on every hook event. It uses regex and project state. It is fast (50 ms measured) and it cannot
+   hallucinate.
+4. **Two gates only.** On `dev-mac` the agent is fully autonomous except for two hard stops: `secret-scan`
+   (no key, token or password in a commit or push) and `pr-rules` (a PR body must have the agreed parts).
+5. **Skills do the method.** Matt Pocock's skills give the engineering flow (grill, spec, tickets, tdd,
+   review, PR, retro). Our own skills add verification (`verify-<app>`), prompting other agents and the
+   `skills-guide`.
+
+What changed recently (owner decisions, 2026-11-15):
+- `skill-scanner` is off on every machine. Installs are not blocked by scanner rejects.
+- Every tool installs at its newest stable release.
+- Full autonomy on `dev-mac`: `no-sudo`, `no-destroy`, the Stop check and the Claude ask/deny permission rules
+  are off. Only `secret-scan` and `pr-rules` gate.
+- Project tiers are removed. Every project gets the full set: Done list, regression ledger
+  (`docs/REGRESSIONS.md`), ratchet (`.ai/ratchet.json`), PR extras (Docs, Changed guards, Ledger on fix PRs).
+- All 27 skills of Matt Pocock's official plugin are available. 6 are global. 12 are linked in every project by
+  default. 7 are opt-in per project. Details in section 4.
+- The PR body follows Matt's `pr` template, plus a required Mermaid diagram.
+
+---
+
+## 2. The layers: what loads, from where, and why
+
+### 2.1 The picture
+
+```mermaid
+flowchart TD
+    subgraph Repo["dotfiles repo, branch ai (~/.dotfiles-ai on each machine)"]
+        SRC["ai/agents-md/*.md + ai/routing.yaml"]
+        RENDER["ai-render"]
+        AG["ai/AGENTS.md (rendered rules)"]
+        RJ["ai/build/routing.json (rendered router table)"]
+        SRC --> RENDER --> AG
+        RENDER --> RJ
+    end
+
+    subgraph Machine["One machine (M3, old Mac, ubuntu01)"]
+        CFG["~/.config/ai/AGENTS.md (link to ai/AGENTS.md)"]
+        CCM["~/.claude/CLAUDE.md: OMC block + @~/.config/ai/AGENTS.md + host line"]
+        CDX["~/.codex/AGENTS.md: OMX block + copy of the rules (ai-sync)"]
+        PLUG["Claude plugin ai-core: hooks.json -> router.py, hooklib.py, routing.json"]
+        SK["Global skills: ~/.claude/skills, ~/.agents/skills"]
+    end
+
+    subgraph Project["One project repo"]
+        PCL["CLAUDE.md: @AGENTS.md"]
+        PAG["AGENTS.md: Map, Libraries, Done, Lessons"]
+        EN[".ai/enabled: skills line, opt-in tools"]
+        PSK[".claude/skills/* and .agents/skills/* (links)"]
+        DOCS["docs/specs, docs/tickets, docs/maps, docs/research, docs/adr, GLOSSARY.md"]
+    end
+
+    AG --> CFG --> CCM
+    AG --> CDX
+    RJ --> PLUG
+    CCM -->|"session start"| SESSION(("Claude session"))
+    CDX -->|"session start"| SESSION2(("Codex session"))
+    PCL --> PAG
+    PAG --> SESSION
+    PAG --> SESSION2
+    PLUG -->|"every hook event"| SESSION
+    EN --> PLUG
+    PSK --> SESSION
+    SK --> SESSION
+```
+
+### 2.2 Layer by layer
+
+| Layer | File | Who writes it | Who reads it | When |
+|---|---|---|---|---|
+| Rule sources | `ai/agents-md/00-owner.md` ... `90-toolbox-and-vendor-rules.md`, `ai/routing.yaml` | You (or an agent) in this repo | `ai-render` | When you change a rule |
+| Rendered rules | `ai/AGENTS.md` | `ai-render` | Everything below | Built, committed |
+| Global rules for Claude | `~/.claude/CLAUDE.md` | install.sh (managed blocks `AI:core`, `AI:host`), OMC (its own block) | Claude Code | Every Claude session start |
+| The rules file Claude imports | `~/.config/ai/AGENTS.md` | install.sh (a link into `~/.dotfiles-ai/ai/AGENTS.md`) | Claude, through `@~/.config/ai/AGENTS.md` | Every Claude session start |
+| Global rules for Codex | `~/.codex/AGENTS.md` | install.sh and `ai-sync` (block `AI:core`, a copy), OMX (its own blocks) | Codex | Every Codex session start |
+| Host line | `AI:host` block in the two files above | install.sh | Both agents | "This machine: projects live in ~/work ..." |
+| Router | Claude plugin `ai-core`: `hooks/hooks.json`, `router.py`, `hooklib.py`, `routing.json` | install.sh (from `ai/marketplace/plugins/ai-core`) | Claude Code hooks; Codex hooks (`codex-hooks.json`) | Every hook event |
+| Project rules | `<repo>/AGENTS.md` | `ai-adopt` (managed blocks), agents and you (everything else) | Claude (through `<repo>/CLAUDE.md` = `@AGENTS.md`), Codex (reads `AGENTS.md` natively) | Every session in that repo |
+| Project switches | `<repo>/.ai/enabled` | `ai-adopt` | Router, ai-adopt | Every hook event in that repo |
+
+Why Claude needs `CLAUDE.md` and Codex does not: Claude Code reads `CLAUDE.md` files, not `AGENTS.md`. The one
+line `@AGENTS.md` makes Claude import the same file Codex reads. One file, two agents.
+
+Why the global rules are a link for Claude but a copy for Codex: Claude can import a file (`@path`). Codex
+cannot. So `ai-sync` copies the text into the `AI:core` block of `~/.codex/AGENTS.md`. Run `ai-sync` after a
+`git pull` of the dotfiles (or install its git hook: `ai-sync --install-hook`).
+
+### 2.3 What loads into a session, and what it costs
+
+Measured on the M3 (2026-11-15):
+
+| Item | Size | Loads |
+|---|---|---|
+| `~/.config/ai/AGENTS.md` (our global rules) | 2,032 words, about 2.7k tokens | Claude and Codex, every session |
+| OMC block in `~/.claude/CLAUDE.md` | 679 words, about 0.9k tokens | Claude only |
+| `~/.codex/AGENTS.md` total | 5,455 words, about 7k tokens (OMX about 3,400 words + our copy) | Codex only |
+| i-have-adhd ruleset | about 1,200 words | Claude, injected at session start |
+| Project `AGENTS.md` | 500 to 1,500 words (radar999: 518, scriptube: 1,305) | Every session in the repo |
+| Each skill | name + description only, about 50 tokens | Every session; the body loads only when the skill runs |
+| A typed-only skill (`disable-model-invocation: true`) | 0 tokens | Only when you type `/name` |
+| Session start status lines (router) | about 150 words | Every session start |
+
+Total fixed cost: about 6k tokens for Claude. That is about 3 percent of a 200k context window. The largest
+single item is OMC (its block plus 35 skill and 19 agent descriptions).
+
+---
+
+## 3. Inside the router: hooks, nudges, gates
+
+### 3.1 One script for every event
+
+`ai/marketplace/plugins/ai-core/hooks/hooks.json` connects every Claude hook event to one command:
+
+```
+/usr/bin/python3 "${CLAUDE_PLUGIN_ROOT}/hooks/router.py" --agent claude <EventName>
+```
+
+The router reads only `routing.json` (rendered from `ai/routing.yaml`). It uses the Python standard library
+only, so it starts fast. It never breaks a session: an internal error goes to `router-errors.log` and the hook
+exits 0. A deny decided before the error still counts.
+
+| Event | Matcher | What the router does |
+|---|---|---|
+| `SessionStart` | startup, resume, clear, compact | Status line for this repo (Map, Libraries, Serena, Graph, Verify skill) and the session-start rules. After `compact` or `clear` it sends the routing table again. |
+| `UserPromptSubmit` | every prompt | Regex on your prompt. When a rule matches, it adds an "L2" checklist: the agent must answer YES or NO per tool before it acts. |
+| `UserPromptExpansion` | typed `/skill` | Logs that a typed skill fired (proof). |
+| `PreToolUse` | Bash, Read, Edit, Write, Grep, Glob, Agent, Task | The gates (`secret-scan`, `pr-rules`) and some nudges (ledger areas). |
+| `PostToolUse` | Bash, Edit, Write, Skill, context7 tools | Nudges after the fact: after `git commit` (update the Map), after a write with an em dash, after a docs lookup. |
+| `Stop` | every stop | Miss log: a rule fired but the agent never called the tool it named. Then `claude-notify`. The `stop-check` (runs check-fast before "done") is off on `dev-mac`. |
+| `SessionEnd` | every end | Drops the session state file, cleans Serena. |
+| `Notification` | permission or idle prompt | `claude-notify` (a desktop or phone note). |
+
+Codex has the same router through `codex-hooks.json`. Codex has no "ask", so an ask becomes a deny there.
+
+### 3.2 The layers L0 to L7
+
+The design names each kind of help with a layer number. You see these names in the agent's context:
+
+| Layer | Name | What it is | Example you will see |
+|---|---|---|---|
+| L0 | Routing table | The table at the end of the global rules. Always in context. | "pr-rules (gate) - before gh pr create or edit - PR body: ..." |
+| L1 | Session start | Rules with `when: session_start`, plus the status line. | `[ai router: project-knowledge] Read the Map and Libraries ...` |
+| L2 | Forced evaluation | After a prompt rule matched: answer YES or NO per tool, then use every YES tool first. | `[ai router L2] Before you act, answer YES or NO ...` |
+| L3 | Regex nudge | A rule whose trigger matched (a prompt word, a command, a file). | `[ai router: no-em-dash] Remove the em dash ...` |
+| L4 | Gate | The tool call is denied. | `[ai gate secret-scan] Secret scan found ...` |
+| L7 | Miss log | `~/.local/state/ai/misses.jsonl`: a rule fired, the agent did not follow it. | Read it to find rules that do not work. |
+
+Why a gate and not a nudge: a nudge is a reminder. The agent can ignore it. A gate cannot be ignored. Only two
+things are important enough to block on `dev-mac`: leaked secrets and PR quality.
+
+### 3.3 The rules (routing.yaml v4)
+
+Global rules (every repo):
+
+| Rule | Kind | Fires when | Says |
+|---|---|---|---|
+| project-knowledge | nudge | session start in a code repo | Read the Map and Libraries of AGENTS.md first, then search narrowly. Plus the status line. |
+| no-ai-base | nudge | session start, repo without `.ai/base-version` | Suggest `ai-adopt`. |
+| knowledge-check | nudge | after `git commit` | Update the Map, run `ai-libs --sync`, as the commit needs. |
+| secret-scan | **gate** | before `git commit` or `git push` | Remove the secret first. |
+| pr-rules | **gate** | before `gh pr create` or `gh pr edit` with a body | The PR body template (section 11). |
+| ledger-nudge | nudge | before an edit in a file that `docs/REGRESSIONS.md` covers | Keep its R-IDs green, run their tests. |
+| no-em-dash | nudge | after a write that contains U+2014 | Use "-", ":" or a new sentence. |
+| docs-lookup | nudge | a prompt about a library, SDK or API | context7 with the Libraries ID first. |
+| feature-grill | nudge | a feature request prompt (EN, RO, RU) | Grill first, then to-spec and to-tickets for 3+ files. |
+| verify-before-done | nudge | after a code edit, project with a `verify-<app>` skill | check-fast, then verify-<app> evidence, then e2e. |
+| seo-, blog-, browser-not-enabled | nudge | SEO, blog or browser prompt in a project without that tool | Suggest `ai-adopt --tools <id>`. Do not install it. |
+
+Opt-in rows (only where the project turned the tool on): serena, graph (both on by default), omc, seo, blog,
+browser, ui, tracker-flow, domain-docs, knowledge-wiki.
+
+Rows that exist but are off on `dev-mac` (server profile only): `no-sudo`, `no-destroy`, `audit-before-install`.
+
+### 3.4 Known stale text (open follow-ups)
+
+- The `knowledge-check` row text in the rendered table still says "Update mem:core". It must say "Update the
+  Map". The router itself sends the correct text (`{knowledge_delta}`).
+- The `knowledge-wiki` row points to `llm-wiki-compiler`, which is not installed and which the audit rejected
+  for code repos. Ignore that row.
+
+---
+
+## 4. Skills: how they load, where they live, which are on
+
+### 4.1 How a skill loads
+
+A skill is a folder with a `SKILL.md` file. The file starts with frontmatter:
+
+```yaml
+---
+name: implement
+description: "Implement a piece of work based on a spec or set of tickets."
+disable-model-invocation: true
+---
+```
+
+1. At session start, Claude reads only `name` and `description` of every skill it can see. About 50 tokens each.
+2. When your request matches a description, the model calls the Skill tool. Only then the full `SKILL.md` body
+   loads. This is an **auto** skill (the model can start it).
+3. With `disable-model-invocation: true`, the skill is **typed**: it is not in the model's list at all. It costs
+   0 tokens. Only you can start it, by typing `/<name>`. Codex uses `policy.allow_implicit_invocation: false`
+   in `agents/openai.yaml` for the same effect.
+4. A skill can call another skill with the Skill tool (for example `implement` calls `tdd` and `code-review`).
+   That callee must be visible in the same project. That is why `ai-adopt` links callees too.
+
+Where Claude looks: `~/.claude/skills/` (global), `<repo>/.claude/skills/` (project), and plugin skills.
+Where Codex looks: `~/.agents/skills/` (global) and `<repo>/.agents/skills/` (project).
+
+### 4.2 Where the files are on disk
+
+| What | Path | Note |
+|---|---|---|
+| Matt Pocock originals (audited copy) | `~/.local/share/ai/plugins/mattpocock-skills/<name>/` | Unchanged copies of upstream (0 lines differ, checked 2026-11-15). install.sh refreshes them at the newest stable tag. |
+| Global links (Claude) | `~/.claude/skills/<name>` -> the copy above | 6 Matt skills |
+| Global copies (Codex) | `~/.agents/skills/<name>` | Same 6, plus our own |
+| Our own skills | `~/.dotfiles-ai/ai/skills/<name>/` | skills-guide, prompting-claude-and-codex, create- and maintain-verification-skill |
+| Project links | `<repo>/.claude/skills/<name>`, `<repo>/.agents/skills/<name>` | Made by `ai-adopt` from the `skills:` line. Gitignored. Made again on each machine. |
+| Project verify skill | `<repo>/.agents/skills/verify-<app>/` and a committed link `.claude/skills/verify-<app>` | Made by `/create-verification-skill` |
+
+### 4.3 Which skills are on
+
+| Scope | Skills | Change it with |
+|---|---|---|
+| Global, every repo | Matt: grilling, grill-me, wait-what, writing-for-agents, retro, ask-matt. Ours: skills-guide, prompting-claude-and-codex, create-verification-skill, maintain-verification-skill | install.sh |
+| Plugins, global | ai-core (router, context7 MCP, prompting-claude-and-codex), ai-serena (Serena MCP), ponytail (6 skills), i-have-adhd, oh-my-claudecode (35 skills, 19 agents) | install.sh |
+| Project default (every project) | grill-with-docs, domain-modeling, to-spec, to-tickets, tdd, pr, diagnosing-bugs, implement, research, handoff, wayfinder, prototype. Callees linked with them: codebase-design, code-review | `skills:` line in `.ai/enabled` |
+| Project opt-in | implement-spec, improve-codebase-architecture, triage, wizard, to-questionnaire, teach, setup-matt-pocock-skills | `ai-adopt --skills <full list>` |
+| Plugins, opt-in per project | claude-seo, claude-blog, ui-ux-pro-max, ai-playwright | `ai-adopt --tools <id>` (seo, blog, ui, browser) |
+| Not installed | Matt's in-progress (chief-of-staff, claude-handoff, loop-me, software-factory, writing-*) and misc (git-guardrails, shoehorn, scaffold-exercises, setup-pre-commit, setup-ts-deep-modules) | Matt's own plugin leaves them out too |
+
+A rerun of `ai-adopt` adds new defaults and keeps the extra opt-ins already on the `skills:` line.
+
+Do not run `/setup-matt-pocock-skills` in a repo that `ai-adopt` set up. `ai-adopt` already wrote
+`docs/agents/issue-tracker.md` and `docs/agents/domain.md` in the format the skills read. The upstream setup
+also tries to write into `CLAUDE.md` and may create GitHub labels.
+
+### 4.4 Every Matt skill in one table
+
+Typed = you type `/<name>`. Auto = the model starts it when the task fits (you can also type it).
+
+| Skill | Start | What it does | Writes |
+|---|---|---|---|
+| grilling | auto | Interview in rounds. A recommended answer per question. Facts are the agent's job, decisions are yours. | nothing |
+| grill-me | typed | grilling with no repo (a plan, a text, a life decision) | nothing |
+| grill-with-docs | typed | grilling plus domain-modeling, in a repo | `GLOSSARY.md`, `docs/adr/NNNN-*.md` |
+| domain-modeling | auto | Sharpens terms, splits overloaded words, records ADRs | `GLOSSARY.md`, `docs/adr/` |
+| codebase-design | auto | Deep-module words: module, interface, depth, seam, adapter | nothing |
+| wayfinder | typed | Map of decision tickets for a huge, unclear effort. One ticket per session. Decisions, not code. | `docs/maps/<effort>/map.md`, `issues/NN-*.md` |
+| prototype | auto | Throwaway code for one design question (logic: one HTML file; UI: variants on one route) | branch `prototype/<name>` |
+| research | auto | Background agent reads primary sources, writes a cited note | `docs/research/<topic>.md` |
+| to-spec | typed | The current conversation becomes a spec. No new interview. | `docs/specs/<feature>.md` |
+| to-tickets | typed | Spec becomes tracer-bullet tickets with "Blocked by" edges | `docs/tickets/<feature>/NN-*.md` |
+| implement | typed | One ticket: tdd at agreed seams, tests, code-review, commit | code, tests, a commit |
+| implement-spec | typed | Whole spec: one subagent per ready ticket, own worktrees, one integration branch | a branch, commits |
+| tdd | auto | Red, green, refactor. One vertical slice at a time. | tests, code |
+| code-review | auto | Two parallel reviews of a diff: Standards and Spec | a report |
+| pr | auto | The PR body template | the PR body |
+| diagnosing-bugs | auto | Fast red command first, then shrink, rank guesses, probe, regression test, fix, clean up | a test, a fix |
+| triage | typed | Moves raw incoming issues through triage states, writes agent-ready briefs | tracker files |
+| improve-codebase-architecture | typed | Survey for "deepening" chances, HTML report, then grill one | a report |
+| wizard | auto | A bash script that walks a human through manual steps (keys, dashboards) | a script you run |
+| handoff | typed | Session summary for another agent, machine or person | a file in `$TMPDIR` |
+| retro | typed | After a session: fixes for the environment, not the code | suggestions |
+| wait-what | typed | "That did not land": the agent explains again in plain words | nothing |
+| to-questionnaire | typed | A questionnaire for the person who has the missing answer | a Markdown file |
+| teach | typed | Teaches a concept over several sessions | learning record files |
+| writing-for-agents | auto | Rules for skills, AGENTS.md, CLAUDE.md | nothing |
+| ask-matt | typed | Router: "which flow fits?" | nothing |
+| setup-matt-pocock-skills | typed | Upstream repo setup (do not use in adopted repos) | `docs/agents/*` |
+
+### 4.5 Overlaps: which one wins
+
+| Need | Use | Not |
+|---|---|---|
+| Kickoff or feature interview | grill-with-docs | OMC deep-interview (only when you want an "ambiguity score") |
+| Plan a well-scoped feature | to-spec, to-tickets | OMC plan, ralplan |
+| Plan a huge unclear effort | wayfinder | OMC ultragoal |
+| Build tickets | implement, implement-spec | OMC execute, team (use those for ad-hoc parallel work) |
+| Research a library | research (context7 first) | OMC research, web search |
+| Review a diff | Matt code-review (say "Matt code-review skill") | built-in `/code-review`, OMC review |
+| Prove a feature works | verify-<app> | "tests pass" alone |
+| Store knowledge | AGENTS.md, GLOSSARY.md, docs/* | Serena memories, OMC wiki, llm-wiki-compiler |
+
+---
+
+## 5. Project knowledge: where it lives
+
+| Knowledge | Place | Who updates it | Read when |
+|---|---|---|---|
+| How the repo is built, where things live | `AGENTS.md` Map (max 60 lines, between `<!-- AI:map START/END -->`) | `ai-adopt` first; agents after commits; `ai-adopt --refresh-map` | Every session start |
+| Libraries, versions, docs IDs | `AGENTS.md` Libraries (between `<!-- AI:libraries START/END -->`) | `ai-libs --sync` | Before library code |
+| What "done" means | `AGENTS.md` Done (6 lines, managed) | `ai-adopt` | Before "done" |
+| Mistakes that no check catches yet | `AGENTS.md` Lessons (max 15 lines) | Agents | Every session |
+| Words of the domain | `GLOSSARY.md` | grill-with-docs, domain-modeling | During grilling, PR text, wait-what |
+| Hard-to-reverse decisions | `docs/adr/NNNN-<title>.md` | grill-with-docs, domain-modeling | Before a change in that area |
+| What to build | `docs/specs/<feature>.md` | to-spec | implement, code-review (Spec axis) |
+| Progress | `docs/tickets/<feature>/NN-*.md`, closed in `done/` | to-tickets, implement, you | Next session |
+| Big unclear efforts | `docs/maps/<effort>/map.md` | wayfinder | Each wayfinder session |
+| Facts from outside | `docs/research/<topic>.md` | research | grill-with-docs |
+| Bugs that came back | `docs/REGRESSIONS.md` (R-NNN rows) | you, agents (`ai-ledger`) | Before an edit in that area (ledger-nudge) |
+| Test, skip, lint counts | `.ai/ratchet.json` | `ai-ratchet` | `make check` |
+| Code structure | graphify graph (`graphify-out/`, gitignored) | rebuilds after commit, checkout, merge | `graphify query` before `rg` |
+| Symbols | Serena (live, from the code) | nobody (always current) | find_symbol, find_referencing_symbols |
+
+What is **not** knowledge storage:
+- Serena memories: off on purpose. The Map is the one place.
+- `/handoff` files: they go to `$TMPDIR`. They carry work to another place. They are not kept.
+- OMC `.omc/` state: local, gitignored, except `.omc/skills/`.
+
+Why this design: a second copy of knowledge (a wiki, a memory store) goes stale. The Map is in the repo, small,
+read every session, and the router asks for an update after each commit. The graph rebuilds itself.
+
+---
+
+## 6. How the setup builds: install.sh, ai-sync, ai-doctor, ai-info
+
+### 6.1 install.sh
+
+Run it from the install copy on each machine:
+
+```bash
+cd ~/.dotfiles-ai && git pull && ./install.sh
+```
+
+What it does, in order (simplified):
+1. Reads the profile: `--profile NAME`, else `~/.config/ai/profile`, else the default. All 3 machines use
+   `dev-mac` (saved in `~/.config/ai/profile`).
+2. Resolves the newest stable version of each tool (npm, PyPI, GitHub releases or tags) and records it.
+3. Installs or upgrades each tool: Claude Code, Codex, RTK, graphify, Serena, context7 MCP, OMC, OMX, the Claude
+   plugins (ai-core, ai-serena, ponytail, i-have-adhd, OMC), Matt Pocock skills, pstack verification skills.
+4. Writes the global rules (`~/.claude/CLAUDE.md` blocks, `~/.config/ai/AGENTS.md` link, `~/.codex/AGENTS.md`
+   copy), Claude settings (env switches, allow rules), Codex config, hook trust.
+5. Links the global skills.
+
+Profile `dev-mac` switches (file `ai/profiles/dev-mac.env`):
+
+| Switch | Value | Effect |
+|---|---|---|
+| PROFILE_SCANNERS | empty | No skill-scanner, guarddog, osv-scanner |
+| PROFILE_PACKAGE_AUDIT | 0 | No package audit before an install |
+| PROFILE_AUDIT_GATE | 0 | No audit-before-install gate |
+| PROFILE_ROOT_LAYER | 0 | Linux: everything in the home folder, no sudo, no /etc files |
+| PROFILE_GUARDS | 0 | No ask/deny permission rules, no Stop check, no-sudo and no-destroy rows off |
+| PROFILE_OPENCODE, PROFILE_BOX, PROFILE_LAST30DAYS | 0 | Those tools are not installed |
+
+Useful flags:
+- `--skip-scan <tool,...|all>`: skip the scanner for these tools (only matters on a profile with scanners).
+- `--dry-run`: print the plan, change nothing.
+- A rerun is an upgrade. It moves each tool to the newest stable release. It does not reinstall what is current.
+
+### 6.2 ai-sync
+
+```
+ai-sync                       ai-render, then refresh the copies below
+ai-sync --check               exit 1 when a copy differs from the current ai/AGENTS.md (ai-doctor)
+ai-sync --install-hook [dir]  git post-merge + post-rewrite hooks, so `git -C ~/.dotfiles-ai pull` runs ai-sync
+ai-sync --dry-run             print what would change
+```
+
+Use it after you edit a rule, or after a `git pull` when you do not want a full install.
+
+### 6.3 ai-info: what is on this machine
+
+Real output on the M3 (from inside `~/work/mail-domain`, a repo that is not adopted):
+
+```
+AI setup on this machine (ai-info). Names and versions only.
+
+Profile: dev-mac (~/.config/ai/profile) (ai/profiles; install.sh --profile NAME changes it)
+
+Agents:
+  claude    2.1.325
+  codex     0.165.0
+  opencode  not installed
+  hermes    not installed
+  herdr     not installed
+
+Claude plugins (on for you / on in this folder):
+  ai-core       on                     global
+  OMC           on                     global (macOS); servers: per project, ai-adopt --tools omc
+  Ponytail      on                     global
+  i-have-adhd   on                     global
+  claude-seo    off                    per project: ai-adopt --tools seo
+  claude-blog   off                    per project: ai-adopt --tools blog
+  ai-serena     on                     global (every project; off here: no-serena in .ai/enabled)
+  ai-playwright off                    per project: ai-adopt --tools browser
+
+Skills (10): 999-ads, create-verification-skill, grill-me, grilling, maintain-verification-skill, omc-reference,
+prompting-claude-and-codex, retro, wait-what, writing-for-agents
+  mattpocock: grilling, grill-me, wait-what, retro, writing-for-agents
+
+MCP servers: context7 (global, library docs; IDs in the Libraries section of a repo AGENTS.md),
+  serena (global, symbols: context claude-code / codex / ide, --project-from-cwd, no memories).
+  Per project only: playwright (ai-adopt --tools browser).
+  graphify: CLI, on in every project (graphify query; ai-adopt builds the graph and its git hooks).
+
+Gates: secret-scan, pr-rules
+  No gate skip on this profile: the owner runs a blocked command himself
+  Agents never use sudo; a blocked gate or a sandbox error is final for them.
+
+This project (mail-domain): Map missing (ai-adopt), Libraries not needed (no dependencies), enabled: none
+  Not adopted yet: ai-adopt writes the Map and Libraries sections.
+```
+
+Note: this output is from before the rollout of ask-matt and skills-guide. After the next `install.sh` the
+skill list also shows `ask-matt` and `skills-guide` (not verified at the time of writing).
+
+### 6.4 ai-doctor: is everything healthy
+
+`ai-doctor` prints one PASS, WARN or FAIL line per check. Real output on the M3 (trimmed):
+
+```
+PASS profile dev-mac (/Users/<you>/.config/ai/profile)
+PASS dev-mac: no guarddog from this setup
+PASS dev-mac: no osv-scanner from this setup
+PASS dev-mac: no audit-before-install gate row in the rendered routing
+PASS routing.json, L0.md, AGENTS.md rendered and current
+PASS AGENTS.md size 12238 of 30720 bytes
+PASS AGENTS.md has no em dash
+PASS router answers a prompt in 50 ms (limit 1000)
+PASS Claude: plugin ai-core installed
+PASS Codex: plugin ai-core installed
+WARN update available: codex 0.165.0 -> 0.169.0
+     re-run install.sh (it moves the tool after agent-audit)
+PASS graphify 0.9.110 is the newest stable
+PASS mattpocock-skills d1478fcb140d is the newest stable
+WARN update available: omc-plugin 5.8.5 -> 5.8.6
+PASS rtk 1.2.0 is the newest stable
+PASS serena 2.1.0 is the newest stable
+PASS contract pr-rules complete
+...
+PASS Codex ~/.codex/AGENTS.md: AI:core block is current
+WARN ~/.config/ai/secrets.env present
+PASS Codex: 15 of 15 of our hooks trusted (ai-core, rtk, graphify)
+FAIL Claude permissions.deny protects rule and config files
+     missing: Edit(~/.claude/settings.json), Edit(//etc/claude-code/**), Edit(~/.codex/config.toml), ...
+FAIL Claude allow list has write or push rules
+     Bash(rtk find *) without the deny Bash(rtk find *-exec*), ...
+PASS Codex MCP: serena (on by default, context codex)
+PASS dropped Claude plugins gone (caveman@caveman mattpocock-skills@claude-plugins-official)
+```
+
+How to read it:
+- `WARN update available`: run `install.sh` again.
+- `WARN omc-plugin 5.8.5 -> 5.8.6`: expected. OMC is held at 5.8.5 on purpose: 5.8.6 is missing
+  `bridge/mcp-server.cjs`, so its MCP server does not start.
+- `WARN secrets.env present`: expected. The context7 key lives there.
+- The two `FAIL` lines about deny rules are expected on `dev-mac` after the full-autonomy decision (no deny
+  rules). The doctor check was not changed for that profile yet. It is a known false alarm, not a broken setup.
+
+`ai-doctor --project` (inside a repo) adds project checks: Map, Libraries, verify skill, Lessons length.
+
+### 6.5 Other commands
+
+| Command | Use |
+|---|---|
+| `ai-libs`, `ai-libs --sync`, `ai-libs --check` | The Libraries table: versions from lockfiles, context7 IDs |
+| `ai-check-detect` | Prints the stack and the `check-fast` / `check` commands it would write |
+| `ai-ledger [--check|--hits FILE]` | The regression ledger `docs/REGRESSIONS.md` and its honesty checks |
+| `ai-ratchet [--init|--show]` | Test, skip and lint counts that may only get better |
+| `pr-resume [<pr>]` | Resume the agent sessions that wrote a PR (from its author-sessions block) |
+| `ai-render` | Build `ai/AGENTS.md` and `routing.json` from the sources |
+
+---
+
+## 7. What the setup reports, with real output
+
+### 7.1 Session start: the status line
+
+When you start Claude in a repo, the router sends this (real, demo repo before `ai-adopt`):
+
+```
+[ai router: project-knowledge] Read the Map and Libraries sections of this repo's AGENTS.md first, then search
+narrowly. tier: none (not adopted; ai-adopt sets it). Map: missing (ai-adopt writes it). Libraries: no lockfile.
+Serena on. Graph: missing, run GRAPHIFY_BACKEND=none graphify extract . --code-only. Verify skill: missing, run
+/create-verification-skill (typed-only; agent: read ~/.claude/skills/create-verification-skill/SKILL.md and
+follow it).
+
+[ai router: no-ai-base] No AI base or Map here. Suggest the owner runs ai-adopt.
+
+[ai router: serena] Serena is on here (no memories, the Map is the knowledge place): get_symbols_overview /
+find_symbol for definitions, find_referencing_symbols for users, replace_symbol_body for edits.
+
+[ai router: graph] graphify is on here: graphify query for structure before rg; the graph refreshes itself after
+commits, merges and checkouts.
+```
+
+Read each field:
+
+| Field | Meaning | Your action |
+|---|---|---|
+| Map | present (N lines), missing, or stale | missing: `ai-adopt`. stale: `ai-adopt --refresh-map` or ask the agent to update it |
+| Libraries | current, stale, no lockfile | stale: `ai-libs --sync` |
+| Serena | on or off (`no-serena`) | nothing |
+| Graph | present or missing | missing: the command it prints |
+| Verify skill | `verify-<app> (N features)`, stale, missing | missing: type `/create-verification-skill` once |
+
+Note: the word "tier" in the status line is from the version installed today. Tiers are removed in the next
+rollout (every project is the full set). Not verified at the time of writing.
+
+### 7.2 A prompt nudge (L2)
+
+You type "add a refunds endpoint to the cart feature". The router adds (real):
+
+```
+[ai router L2] Before you act, answer YES or NO for each item in one short line, then use every YES tool first.
+If nothing fits, answer "none needed".
+- feature-grill: Feature work: before any code, run the grilling skill (one round of questions first), unless
+  the change is trivial (typo, rename, one-line fix, a config value).
+```
+
+So the agent answers "feature-grill: YES" and starts grilling you before it writes code.
+
+### 7.3 An after-the-fact nudge (L3)
+
+The agent writes a file with an em dash. The router adds (real):
+
+```
+[ai router: no-em-dash] Remove the em dash (U+2014). Use '-', ':' or a new sentence. (.../README.md, 1 line(s))
+```
+
+### 7.4 Gate: secret-scan (L4)
+
+The agent stages `app/settings.py` with a GitHub token in it and runs `git commit -m wip`. The router denies
+(real):
+
+```
+[ai gate secret-scan] Secret scan found: assigned-secret, github-token. Remove it from the files to commit before
+you commit or push.
+Only the owner can let it through, by running the command himself. Do not try to get around the gate.
+```
+
+The agent must stop and tell you. If the hit is a false alarm (a test fixture), you run the commit yourself.
+
+### 7.5 Gate: pr-rules (L4)
+
+The agent runs `gh pr create --title x --body 'just a summary'`. Today's installed router answers (real):
+
+```
+[ai gate pr-rules] PR not ready, missing: a ```mermaid diagram; the <!-- author-sessions block; Verify: (the
+check command and the tail of its output); Risk: (one line: what can break). ...
+```
+
+After the rollout the gate checks the new template (section 11): Summary with Mermaid, Evidence, Door, Blast
+Radius, Docs, Changed guards, Ledger on fix PRs, author-sessions block. The exact new message is not verified at
+the time of writing.
+
+### 7.6 ai-adopt plan and diff
+
+See section 8.3 for a full real run.
+
+---
+
+## 8. ai-start and ai-adopt: the project layer, file by file
+
+### 8.1 Two names, one script
+
+- `ai-start`: a new project. It writes the layer and commits.
+- `ai-adopt`: an existing repo. It shows the diff, asks one y/N, commits, and pushes (owner repos only).
+- A rerun of either one is an upgrade. Managed blocks are replaced by their markers. Your text outside the
+  blocks is never touched.
+
+Flags:
+
+| Flag | Effect |
+|---|---|
+| `--dir PATH` | Work on another folder |
+| `--tools id,id` | Opt-in tools: omc, seo, blog, browser, ui, ... |
+| `--skills a,b` or `none` | The project skill list (replaces the `skills:` line; defaults are added on rerun) |
+| `--yes` | No question: commit (and push in `ai-adopt`). Never use it in a repo you do not want pushed. |
+| `--dry-run` | Print the plan only |
+| `--no-onboard` | Skip the headless Claude pass that proposes Map conventions |
+| `--refresh-map` | Write the Map again |
+| `--no-measure` | Do not run check-fast once to time it |
+| `--no-knowledge` | Skip Map and Libraries |
+
+### 8.2 Every file it writes
+
+| File | Content | Committed |
+|---|---|---|
+| `.ai/base-version` | The routing.yaml version | no (gitignored) |
+| `.ai/enabled` | The `skills:` line, opt-in tool ids, opt-outs (`no-serena`, `no-graph`) | yes |
+| `Makefile` (or justfile) | A managed block with `check-fast` (lint + unit, under 60 s) and `check` (everything, plus `ai-ledger --check` and `ai-ratchet`) | yes |
+| `AGENTS.md` | Map, Done, Lessons, Libraries | yes |
+| `CLAUDE.md` | `@AGENTS.md` | yes |
+| `.claude/settings.json` | Plugin opt-ins, skill overrides (for example `oh-my-claudecode:tdd: off`, so Matt's tdd wins) | yes |
+| `.gitignore` | One managed block: `.omc/*`, `.claude/*`, `.serena/*`, `graphify-out/`, `.ai/*`, the skill link names | yes |
+| `docs/agents/issue-tracker.md` | Where specs, tickets, research and wayfinder maps live | yes |
+| `docs/agents/domain.md` | GLOSSARY.md and docs/adr layout | yes |
+| `docs/REGRESSIONS.md` | The regression ledger (format inside) | yes |
+| `.ai/ratchet.json` | Baseline counts | yes |
+| `.serena/project.yml` | Serena language config | yes |
+| `graphify-out/` | The code graph and its git hooks | no |
+| `.claude/skills/*`, `.agents/skills/*` | Links to the Matt copies | no (made on each machine) |
+
+### 8.3 A real run on a small demo repo
+
+Demo repo: `shop-api` (FastAPI in `pyproject.toml`, `app/cart.py`, `tests/test_cart.py`).
+
+Plan first (real, `ai-start --no-onboard --no-measure --dry-run`, from the working tree of this branch):
+
+```
+check targets: python: no ruff config, so no lint command
+would write .ai/base-version
+would write .ai/enabled
+would write Makefile
+would write AGENTS.md
+would write docs/REGRESSIONS.md
+would write CLAUDE.md
+would write .claude/settings.json
+would write .gitignore
+would write docs/agents/issue-tracker.md
+would write docs/agents/domain.md
+would run serena project create --index
+would run GRAPHIFY_BACKEND=none graphify extract . --code-only
+would run graphify hook install (graph rebuilds after commit, checkout, merge, rebase)
+would run ai-libs --sync
+would run ai-ratchet --init (test, skip and lint counts that may only improve)
+would run link project skills for Claude (.claude/skills) and Codex (.agents/skills): code-review,
+  codebase-design, diagnosing-bugs, domain-modeling, grill-with-docs, pr, tdd, to-spec, to-tickets
+Makefile would get:
+# >>> ai checks (ai-adopt; edit freely inside, a rerun replaces this block) >>>
+.PHONY: check-fast check
+# check-fast: lint + unit tests, no network, target under 60 s (the agent Stop hook runs it)
+check-fast:
+	python3 -m pytest -x -q
+# check: everything; run it before a PR and in CI
+check:
+	python3 -m pytest -q
+	@if command -v ai-ledger >/dev/null 2>&1; then ai-ledger --check; else echo "ai-ledger not on PATH: ledger check skipped"; fi
+	@if command -v ai-ratchet >/dev/null 2>&1; then ai-ratchet; else echo "ai-ratchet not on PATH: ratchet skipped"; fi
+# <<< ai checks <<<
+```
+
+That run also printed: `skip skill links implement, research, handoff, wayfinder, prototype: not installed on
+this machine`. The new default skills are linked only after `install.sh` copies them to the machine. So: run
+`install.sh` first, then `ai-adopt`.
+
+Real files after a full run (installed version, answer N, so nothing committed). `AGENTS.md`:
+
+```markdown
+# shop-api
+
+<!-- AI:map START (ai-adopt; edit freely inside, keep it under 60 lines) -->
+## Map
+- What: shop-api (Python).
+- Where things live: `app/` (1 code files), `tests/` (1 code files).
+- Test: `pytest`.
+- Library versions and docs IDs: the Libraries section below.
+<!-- AI:map END -->
+
+<!-- AI:done START (ai-adopt; 6 lines, a rerun replaces it) -->
+## Done
+1. In this order: check-fast green; then verify-<app> on the changed feature (launch, doctor, drive every entry
+   point its feature file lists, evidence kept); only then add e2e tests for the proven journey; The project check
+   (the Map says which) passes. The PR Verify field cites the output, the evidence path and the e2e test.
+2. New behaviour has a test; a bug fix has a test that failed before the fix.
+3. No test is deleted, skipped or weakened unless the owner said so in this session.
+4. Docs touched by the change are updated (Map, README), or the PR says "Docs: none, because ...".
+5. Only what was asked; a refactor goes in its own commit or PR.
+6. A PR stays under about 400 changed lines (generated files excluded), else split it or say why.
+<!-- AI:done END -->
+
+## Lessons
+<!-- One line per repeated mistake that no check catches yet; ... At most 15 lines ... -->
+
+<!-- AI:libraries START lock: none -->
+## Libraries
+Docs: context7 query-docs with the ID below; skip resolve-library-id. ...
+
+| lib | version | context7 | note |
+|---|---|---|---|
+| fastapi | ? | /websites/fastapi_tiangolo |  |
+<!-- AI:libraries END -->
+```
+
+Notes on this output:
+- The Map is thin because `--no-onboard` skipped the Claude pass. Without that flag, a headless `claude -p` with
+  read-only tools adds convention lines (naming, layering, test layout).
+- Version `?` means there is no lockfile. Add `uv.lock` (run `uv lock`) and run `ai-libs --sync`.
+- Done item 1 still names the "PR Verify field". After the PR template change it means the Evidence section.
+
+`CLAUDE.md`:
+
+```
+@AGENTS.md
+```
+
+`.claude/skills/` (links, real):
+
+```
+code-review -> ~/.local/share/ai/plugins/mattpocock-skills/code-review
+codebase-design -> ~/.local/share/ai/plugins/mattpocock-skills/codebase-design
+domain-modeling -> ~/.local/share/ai/plugins/mattpocock-skills/domain-modeling
+grill-with-docs -> ~/.local/share/ai/plugins/mattpocock-skills/grill-with-docs
+tdd -> ~/.local/share/ai/plugins/mattpocock-skills/tdd
+to-spec -> ~/.local/share/ai/plugins/mattpocock-skills/to-spec
+to-tickets -> ~/.local/share/ai/plugins/mattpocock-skills/to-tickets
+```
+
+Important finding on the M3: the global git ignore file `~/.config/git/ignore` ignores `AGENTS.md`,
+`**/CLAUDE.md`, `.claude/` and `.serena/`. In the demo repo `git status` did not list `AGENTS.md` or
+`CLAUDE.md`. In a new repo on the M3, add them with `git add -f AGENTS.md CLAUDE.md .claude/settings.json
+.serena/project.yml`, or remove those lines from the global ignore file. Repos that already track these files
+are not affected (git ignores the ignore file for tracked files).
+
+### 8.4 docs/agents/issue-tracker.md (what the skills read)
+
+```markdown
+# Issue tracker
+
+Local, in this repo. No GitHub issues, labels or remote calls without the owner's OK in this session.
+
+- Specs (to-spec): `docs/specs/<feature-slug>.md`.
+- Tickets (to-tickets): `docs/tickets/<feature-slug>/NN-<slice>.md`, one file per vertical slice: title,
+  acceptance criteria, blocked by, and the verify-<app> feature the slice must pass. A ticket is done when
+  check-fast is green, the verify run left evidence, and an e2e test encodes the proven journey.
+- Close a ticket by moving its file to `docs/tickets/<feature-slug>/done/` in the PR that finishes it.
+- Research notes (research): `docs/research/<topic>.md`, each claim with its source.
+
+## Wayfinding operations
+- Map: `docs/maps/<effort>/map.md`.
+- Child ticket: `docs/maps/<effort>/issues/NN-<slug>.md`, with `Type:` and `Status:` lines.
+- Blocking: a `Blocked by: NN, NN` line. Frontier: open, unblocked, unclaimed; first by number wins.
+- Claim: `Status: claimed`. Resolve: `## Answer`, `Status: resolved`, a pointer in Decisions-so-far.
+```
+
+A repo adopted before this change keeps its old file (ai-adopt writes it only when it is missing). Add the
+"Research notes" line and the "Wayfinding operations" section by hand, or delete the file and run `ai-adopt`.
+
+---
+
+## 9. The flows: idea to ship, phase boundaries
+
+### 9.1 The main flow
+
+```mermaid
+flowchart TD
+    I["Idea"] --> G["/grill-with-docs<br/>GLOSSARY.md, docs/adr"]
+    G --> Q{"Needs a runnable answer?"}
+    Q -->|yes| P["prototype<br/>branch prototype/name"] --> G
+    Q -->|no| S{"Fits one session?"}
+    S -->|yes| IM1["/implement here"]
+    S -->|no| SP["/to-spec<br/>docs/specs/x.md"] --> TT["/to-tickets<br/>docs/tickets/x/NN-*.md"]
+    TT --> IMT["/implement ticket<br/>(/clear between tickets)"]
+    TT --> IMS["/implement-spec<br/>(parallel, integration branch)"]
+    IM1 --> D["Done order: check-fast, verify-app evidence, e2e"]
+    IMT --> D
+    IMS --> D
+    D --> PR["pr: Summary + Mermaid, Evidence, Merge Danger"]
+    PR --> R["/retro: fix the environment"]
+    W["Huge unclear effort"] --> WF["/wayfinder<br/>docs/maps/effort"] --> SP
+    B["Hard bug"] --> DB["diagnosing-bugs"] --> D
+```
+
+What `/implement` does inside (from its SKILL.md): it reads the ticket and says its title, calls `tdd` at the
+agreed seams, runs typecheck and single test files often, runs the full suite once at the end, calls
+`code-review`, then commits to the current branch. Our Done order adds verify-<app> evidence and e2e after that.
+
+Context hygiene (Matt's rule): keep grill-with-docs, to-spec and to-tickets in one unbroken session. Do not
+compact before to-tickets: the spec needs the grilling verbatim. Each `/implement` then starts fresh from its
+ticket file.
+
+### 9.2 Phase boundaries: continue, clear, handoff, subagent, compact
+
+A phase is one chunk of work (the grilling, one ticket, the QA). Decide only between phases. Ask in this order;
+the first yes wins:
+
+1. **Continue?** Yes when the next phase needs this one as a primary source (grill -> to-spec), or when there is
+   room left (about 150k tokens of sharp reasoning).
+2. **Context not relevant any more?** `/clear`. Cheapest. The old session can still be resumed.
+3. **Must the work travel?** To Codex, to another machine, another repo, a colleague, or a side task you found in
+   the middle: `/handoff`. The file goes to `$TMPDIR`.
+4. **Can it run alone?** A review, a research question: a subagent.
+5. **Otherwise:** `/compact <what the next phase needs>`.
+
+Why `/compact` is last: every move except Continue turns a primary source into a summary. A summary can drop the
+"why" behind a decision. Then the next session is confidently wrong.
+
+---
+
+## 10. Scenarios with full example sessions
+
+The sessions below are examples. The owner prompts are what you type. The agent actions are what the setup
+makes the agent do. File names and commands are real conventions of this setup. Skill behaviour is from the
+skill files; the exact agent wording is an example.
+
+### 10.A Adopt an existing mess
+
+Starting point: `~/work/legacy-shop`. A Python and JavaScript repo. No tests for most code. No README. `ruff`
+reports 400 findings. Old commits may contain a key.
+
+#### Step A1: check secrets in the history first
+
+Why first: `ai-adopt` commits and may push. A leaked key in old history is already public on the remote, but you
+must know before you add more work on top.
+
+```bash
+cd ~/work/legacy-shop
+git log --all -p | rg -n "ghp_|sk-[A-Za-z0-9]{20}|AKIA[0-9A-Z]{16}|-----BEGIN .*PRIVATE KEY" | head
+```
+
+If you find one: rotate the key at the provider today. History rewriting is a separate decision (it is a
+one-way door for everyone who cloned the repo).
+
+The secret-scan gate protects only new commits and pushes.
+
+#### Step A2: run ai-adopt
+
+```bash
+cd ~/work/legacy-shop
+ai-adopt --dry-run          # read the plan
+ai-adopt                    # writes the layer, shows the diff, asks y/N
+```
+
+What you see (shape of a real run):
+
+```
+check targets: python: ruff found, 412 findings: check-fast would be red
+write .ai/base-version
+write .ai/enabled
+write Makefile
+write AGENTS.md
+...
+run link project skills for Claude (.claude/skills) and Codex (.agents/skills): code-review, codebase-design,
+  diagnosing-bugs, domain-modeling, grill-with-docs, handoff, implement, pr, prototype, research, tdd, to-spec,
+  to-tickets, wayfinder
+Commit this? [y/N]
+```
+
+The first line is an example; the real text depends on what `ai-check-detect` finds.
+
+Answer `y`. It commits only its own files (`git commit -- <paths>`). Your uncommitted work stays as it was.
+
+What to check after:
+- `cat AGENTS.md`: the Map must name the real entry points. If it is thin, run `ai-adopt --refresh-map`
+  (without `--no-onboard`).
+- `make check-fast`: it will probably be red. That is step A3.
+- `ai-libs`: the Libraries table must list your direct dependencies.
+
+#### Step A3: make check-fast green first
+
+Why: every later step uses check-fast as its proof. A red baseline means no proof.
+
+Example session:
+
+```
+You:    check-fast is red with 412 ruff findings. Make it green without changing behaviour.
+        Plan first, then do it in small commits.
+Agent:  [L2: feature-grill: NO (no new feature)]
+        Plan:
+        1. ruff --fix for the safe rules only (imports, unused vars): about 300 findings.
+        2. Add per-file ignores for the 3 generated folders.
+        3. Fix the remaining 60 by hand, one commit per rule.
+        No test exists for most code, so I will not touch logic.
+You:    go
+Agent:  [runs uv run rtk ruff check --fix --select I,F401,F841]
+        [commit 1 of 4] ... [check-fast green]
+        [router after git commit: knowledge-check: update the Map if modules changed]
+```
+
+Rule from the global rules: a failing test is a blocker, never "pre-existing". The agent fixes the code; it
+changes a test only when it is sure the test is wrong, and says why.
+
+#### Step A4: lock current behaviour with characterization tests
+
+Why: you cannot refactor a mess without a safety net. tdd is red-green, but here the code already exists, so the
+first tests describe what the code does today.
+
+```
+You:    Write characterization tests for app/pricing.py through its public functions. Use the tdd skill.
+        Do not change pricing.py.
+Agent:  [Skill: tdd]
+        Seams: calculate_total(cart), apply_coupon(cart, code). I test through these two only.
+        [writes tests/test_pricing_characterization.py, 14 cases from real fixtures]
+        [runs: uv run rtk pytest tests/test_pricing_characterization.py: 14 passed]
+        [ai-ratchet: tests 3 -> 17, baseline tightened]
+```
+
+#### Step A5: survey the architecture
+
+Add the opt-in skill first:
+
+```bash
+ai-adopt --skills grill-with-docs,domain-modeling,to-spec,to-tickets,tdd,pr,diagnosing-bugs,implement,research,handoff,wayfinder,prototype,improve-codebase-architecture
+```
+
+Then:
+
+```
+You:    /improve-codebase-architecture
+Agent:  [reads GLOSSARY.md, ADRs, the Map]
+        [writes an HTML report: 5 deepening candidates]
+        1. Pricing logic is spread over 4 modules (shallow modules, no seam).
+        2. The payment adapter is called directly from views (no adapter seam).
+        ...
+        Which one do we grill through?
+You:    1
+Agent:  [Skill: grilling + codebase-design]
+        Q1: Should coupons be part of the pricing module or a separate module? Recommended: inside pricing,
+            behind calculate_total, because ...
+```
+
+The result is an idea. It goes into the main flow at grill-with-docs, then to-spec.
+
+#### Step A6: fix the first real bugs
+
+See scenario 10.D. In a mess, the first bug usually has no seam for a regression test. diagnosing-bugs then says
+so ("no correct seam exists, that itself is the finding"). That finding goes to the architecture survey.
+
+#### Step A7: retro
+
+```
+You:    /retro
+Agent:  Most severe first:
+        1. The agent searched for the payment code 3 times: add "Payments: app/payments/adapter.py" to the Map.
+        2. ruff was red for 2 years: check-fast now runs it; keep it.
+        3. Two tests touch the network: mark them and move them out of check-fast.
+```
+
+Mechanical mistakes become checks. Judgement calls become coding standards or Lessons lines.
+
+### 10.B Start a mobile project for iOS and Android
+
+Stack choice: React Native with Expo is shown end to end. Kotlin Multiplatform (shared Kotlin, native UI) also
+works with the same flow; only the build and verify commands change. The tool choices below (Expo, EAS, Maestro)
+are suggestions. They are not tested with this setup yet.
+
+#### Step B1: create the repo
+
+```bash
+mkdir -p ~/work/tripnotes && cd ~/work/tripnotes
+git init
+ai-start
+```
+
+Every project gets the full set: Done list, ledger, ratchet, 12 default skills (wayfinder and prototype
+included). There is no tier question.
+
+On the M3: `git add -f AGENTS.md CLAUDE.md .claude/settings.json` if the global ignore hides them (section 8.3).
+
+#### Step B2: wayfinder for the foggy start
+
+Why wayfinder and not grill-with-docs: a mobile app with offline sync, auth and store releases is too big and too
+unclear for one session. grill-with-docs sharpens an idea you can hold in one session. wayfinder charts the
+decisions first.
+
+```
+You:    /wayfinder A travel notes app for iOS and Android. Offline first, syncs when online, photo upload,
+        push reminders, sign in with Apple and Google. Ship to both stores.
+Agent:  [Skill: grilling + domain-modeling: name the destination]
+        Q1: What is the destination of this map: a spec for v1, or a decision on the stack only?
+            Recommended: a v1 spec, because the stack decision alone does not unblock building.
+You:    v1 spec
+Agent:  [breadth-first grilling: the whole space, not deep on one thread]
+        [writes docs/maps/tripnotes-v1/map.md]
+        [writes docs/maps/tripnotes-v1/issues/01-..md to 07-..md, then wires "Blocked by" in a second pass]
+        [starts research subagents for the research tickets, in parallel]
+        Charting is done. This session resolves nothing else.
+```
+
+The map file (example):
+
+```markdown
+## Destination
+A buildable v1 spec for TripNotes (iOS + Android), ready for /to-spec.
+
+## Notes
+Domain: travel notes. Skills every session: grilling, domain-modeling. Stack leaning: React Native + Expo.
+
+## Decisions so far
+
+## Not yet specified
+- Conflict rules when two devices edit the same note offline.
+- Store listing content and screenshots.
+
+## Out of scope
+```
+
+The tickets (example):
+
+| File | Type | Question | Blocked by |
+|---|---|---|---|
+| `01-stack.md` | grilling | Expo managed workflow or bare React Native? | - |
+| `02-auth-provider.md` | research | Which auth service supports Apple + Google sign-in with offline sessions? | - |
+| `03-offline-store.md` | research | Which local store syncs best (SQLite + own sync, WatermelonDB, a hosted sync service)? | - |
+| `04-sync-model.md` | grilling | Last-write-wins or per-field merge? | 03 |
+| `05-push.md` | research | Expo push vs native APNs/FCM: limits, cost | 01 |
+| `06-ui-shape.md` | prototype | Note list and editor: which layout? | 01 |
+| `07-build-pipeline.md` | task | Create Apple developer and Google Play accounts, app ids | - |
+
+Research tickets run as background agents with the `research` skill. Each writes a cited note, for example
+`docs/research/auth-provider.md`, on a throwaway `research/<name>` branch that is pushed but never merged.
+
+#### Step B3: work the map, one ticket per session
+
+```
+You:    /wayfinder docs/maps/tripnotes-v1/map.md
+Agent:  [loads the map, not every ticket]
+        Frontier: 01-stack (unblocked, unclaimed). Claiming it: Status: claimed.
+        [grilling]
+        Q1: Do you need a native module that Expo does not support (for example a custom camera filter)?
+            Recommended: no, so Expo managed + EAS Build.
+You:    no
+Agent:  [writes "## Answer" in 01-stack.md, Status: resolved, adds a line to Decisions so far]
+        [05-push.md and 06-ui-shape.md are unblocked now]
+```
+
+Next session: `/clear`, then `/wayfinder docs/maps/tripnotes-v1/map.md` again. One ticket per session (research
+tickets are the exception).
+
+Ticket 06 is a prototype ticket:
+
+```
+You:    /wayfinder docs/maps/tripnotes-v1/map.md 06
+Agent:  [Skill: prototype, UI branch]
+        Three very different layouts on one route, switched with ?variant=a|b|c and a bottom bar.
+        Start: npx expo start, open the route, press w for the web preview or i for the iOS simulator.
+        [commits to branch prototype/note-list-layouts]
+You:    b, but with the search bar of a
+Agent:  [records the verdict in 06-ui-shape.md, closes it; main keeps only the decision]
+```
+
+Ticket 07 is a task that only a human can do. The `wizard` skill is opt-in. Add it (`ai-adopt --skills <list>,wizard`):
+
+```
+You:    For 07, use the wizard skill.
+Agent:  [Skill: wizard]
+        [writes scripts/setup-stores.sh: opens the Apple developer page, asks for the team id, opens Google Play
+         console, asks for the package name, runs `eas login` and `eas credentials`, saves values to the
+         places you confirm]
+        Run it yourself: bash scripts/setup-stores.sh
+```
+
+The agent does not edit `.env`. You run the script. New setting names go into `.env.example`.
+
+#### Step B4: map clear, then to-spec and to-tickets
+
+When "Not yet specified" is empty and no tickets are open:
+
+```
+You:    /to-spec from docs/maps/tripnotes-v1/map.md
+Agent:  [reads the map and the linked decisions; no new interview]
+        [writes docs/specs/tripnotes-v1.md: modules, data model, sync rules, screens, out of scope]
+You:    /to-tickets docs/specs/tripnotes-v1.md
+Agent:  [tracer-bullet slices, each end to end through UI, store and sync]
+        docs/tickets/tripnotes-v1/01-create-note-offline.md
+        docs/tickets/tripnotes-v1/02-sync-note-up.md        Blocked by: 01
+        docs/tickets/tripnotes-v1/03-sign-in-apple.md
+        ...
+```
+
+Keep this in one session (no compact between to-spec and to-tickets).
+
+#### Step B5: the verify skill for a mobile app
+
+Do this once the app launches. It is the proof tool for every later ticket.
+
+```
+You:    /create-verification-skill
+Agent:  [reads ~/.claude/skills/create-verification-skill/SKILL.md]
+        [writes .agents/skills/verify-tripnotes/SKILL.md: Launch, Doctor, Drive, Evidence, Cleanup, Helpers]
+        Launch:   npx expo run:ios / npx expo run:android (simulator and emulator)
+        Doctor:   xcrun simctl list devices booted; adb devices
+        Drive:    Maestro flows per feature (features/create-note.md -> flows/create-note.yaml)
+        Evidence: xcrun simctl io booted screenshot artifacts/create-note/ios.png;
+                  adb exec-out screencap -p > artifacts/create-note/android.png; app logs
+        [runs it once end to end; a skill that never ran is a draft]
+```
+
+Then rerun `ai-adopt` to add the committed link `.claude/skills/verify-tripnotes`.
+
+Why not Playwright: Playwright drives web browsers. It cannot tap a native iOS or Android screen. It only helps
+for the Expo web build (and the `browser` tool is opt-in: `ai-adopt --tools browser`). For native, use Maestro
+or Detox (React Native) and the simulator or emulator screenshot commands. Not verified with this setup.
+
+#### Step B6: implement ticket by ticket
+
+```
+You:    /implement docs/tickets/tripnotes-v1/01-create-note-offline.md
+Agent:  Ticket: "Create a note offline".
+        [Skill: tdd] seam: notesRepository.create(); first test: a note created offline is in the local store.
+        RED: 1 failed. GREEN: 1 passed. ... 6 slices.
+        [typecheck: npx tsc --noEmit] [single test files] [full suite once: npm test]
+        [Skill: code-review]  Standards: 1 finding (naming). Spec: matches the ticket.
+        [fixes the finding] [commit: feat(notes): create a note offline]
+        [verify-before-done nudge] check-fast green; verify-tripnotes create-note: evidence in
+        artifacts/create-note/; then e2e: flows/create-note.yaml added.
+        [moves the ticket to docs/tickets/tripnotes-v1/done/]
+You:    /clear
+You:    /implement docs/tickets/tripnotes-v1/02-sync-note-up.md
+```
+
+`/clear` between tickets: each ticket file is self-contained, so the old context is not needed.
+
+#### Step B7: builds and store releases
+
+- Builds: `eas build --platform all`. Submissions: `eas submit`. Store credentials are human steps (wizard,
+  step B3).
+- Never deploy to production or touch a production host without your explicit OK for that deploy (global rule).
+  A store submission counts as a production deploy.
+
+### 10.C Manage it day to day
+
+#### Session start
+
+1. `cd ~/work/<repo> && claude`.
+2. Read the status line (section 7.1). Act on "missing" or "stale".
+3. Say what you want. The router adds nudges (feature-grill, docs-lookup) when they fit.
+
+#### Which agent, which machine
+
+| Situation | Do |
+|---|---|
+| Continue a Claude session on the same machine | `claude --resume` |
+| Move work from Claude to Codex | `/handoff continue in Codex: finish ticket 03`, then `codex` and paste the file path |
+| Move from the M3 to ubuntu01 | Commit and push the branch. `/handoff` with the next step. On ubuntu01: `ssh -o RemoteCommand=none ubuntu01`, `cd ~/work/<repo> && git pull`, start the agent with the handoff file. `$TMPDIR` is per machine: copy the file (`scp`) or paste its text. |
+| A side task found in the middle | `/handoff` it to a new session; continue the current phase |
+| Resume the sessions that wrote a PR | `pr-resume <pr>` |
+
+#### Parallel work
+
+- `/implement-spec` (opt-in): one implementer subagent per ready ticket, each in its own git worktree, merged into
+  one integration branch, one code-review at the end. Use it when the tickets have a clear "Blocked by" graph.
+- OMC `/team`: ad-hoc parallel agents on a shared task list. Use it when there is no ticket graph.
+- Your own worktrees: `git worktree add ../<repo>-<feature> -b <feature>`. Run `ai-adopt` once in the new
+  worktree folder so the skill links exist there (links are gitignored).
+
+#### Keep the knowledge fresh
+
+- After a commit that adds, deletes or renames modules: the router asks the agent to update the Map.
+- After a dependency change: `ai-libs --sync`.
+- When a lesson repeats twice: add one line to Lessons (max 15). When a check covers it: delete the line.
+- Every month in an active project: `/maintain-verification-skill` (the status line says when it is stale).
+
+#### Upgrade a project after a setup change
+
+```bash
+cd ~/.dotfiles-ai && git pull && ./install.sh     # machine
+cd ~/work/<repo> && ai-adopt                      # project: new defaults, new blocks, your text kept
+```
+
+### 10.D Fix a bug
+
+Report: "The cart total is sometimes 1 cent off for orders with a coupon."
+
+```
+You:    Users report the cart total is sometimes 1 cent off with a coupon. Diagnose it.
+Agent:  [Skill: diagnosing-bugs]
+        Phase 1: a feedback loop first. No theory yet.
+        [writes tests/regressions/test_r014_coupon_rounding.py with 1,000 random carts and coupons
+         against a decimal reference]
+        Command: uv run rtk pytest tests/regressions/test_r014_coupon_rounding.py -q
+        Output:  1 failed: 37 of 1000 carts differ by 0.01 (example: 3 x 19.99, coupon 15%)
+        Red-capable: yes. Deterministic: seeded. Fast: 0.8 s.
+
+        Phase 2: minimised: 1 item, price 19.99, coupon 15%, quantity 3.
+
+        Phase 3: ranked guesses (please re-rank if you know something):
+        1. If float math is the cause, then computing in Decimal makes it pass.
+        2. If rounding per line instead of per order is the cause, then rounding once at the end makes it pass.
+        3. If the coupon is applied after tax, then moving it before tax changes the result.
+You:    we changed tax code last week
+Agent:  Re-ranked: 3 first.
+        Phase 4: [DEBUG-a4f2] logs at the coupon and tax boundary. Coupon applied after tax: confirmed.
+        Phase 5: the regression test is red. Fix: apply the coupon before tax. Test green. Original loop green.
+        Phase 6: [DEBUG-a4f2] removed (rg finds 0). Commit message names the cause:
+        "fix(pricing): apply coupon before tax (cause: tax refactor moved the coupon step)".
+```
+
+Then the ledger. Every project has `docs/REGRESSIONS.md`. Add a row:
+
+```
+R-014 | 2026-11-15 | app/pricing/** | tests/regressions/test_r014_coupon_rounding.py | reopened: 0
+```
+
+`ai-ledger --check` (part of `make check`) fails if the test file is missing or its name does not carry the id.
+From now on, an edit in `app/pricing/**` gets the ledger-nudge: keep R-014 green.
+
+The PR (section 11) for a fix: title `fix(pricing): ...`, a test file in the diff (the gate checks it), Evidence
+with Before (the red run) and After (the green run), and `Ledger: R-014`.
+
+### 10.E Enhance a feature or build V2
+
+Goal: "Cart V2: saved carts across devices, shared carts."
+
+1. Grill it:
+
+   ```
+   You:    /grill-with-docs Cart V2: saved carts across devices and shared carts.
+   Agent:  [Skill: grilling + domain-modeling]
+           Q1: "Shared cart": can two people edit at the same time, or does one own it? Recommended: one owner,
+               others suggest items, because concurrent edits need a merge model.
+           ...
+           [GLOSSARY.md: + "Saved cart", + "Cart owner", + "Suggestion"]
+           [docs/adr/0007-cart-ownership.md: one owner per cart (one-way door: the data model depends on it)]
+   ```
+
+   An ADR is for a hard-to-reverse decision. That is the same idea as "one-way door" in the PR.
+
+2. Foggy? If the questions open more questions than they close (payments for shared carts, privacy, sync), stop
+   and use `/wayfinder` instead (scenario 10.B).
+
+3. Spec and tickets in the same session: `/to-spec`, then `/to-tickets`.
+
+4. Build. For many tickets with a clear graph, use `/implement-spec` (add it with `ai-adopt --skills ...,implement-spec`):
+
+   ```
+   You:    /implement-spec docs/specs/cart-v2.md
+   Agent:  Task graph: frontier = 01, 03, 05.
+           [integration branch cart-v2]
+           [3 implementer subagents in worktrees, each runs tdd, merges the integration tip before it reports]
+           [merger subagent merges each finished ticket]
+           [new frontier: 02, 04 ...]
+           [all done: code-review on cart-v2, one fixer subagent for the findings]
+           [worktrees cleaned up]
+   ```
+
+5. Verify every user-visible change (verify-<app>, evidence, e2e), then the PR.
+
+6. `/retro` in the same session, before you clear.
+
+### 10.F Triage, ask a colleague, learn something new
+
+#### Triage incoming bug reports (opt-in skill `triage`)
+
+Use it for reports you did not write (users, support, other teams). Not for tickets from to-tickets: those are
+already agent-ready.
+
+```
+You:    /triage the 6 reports in docs/inbox/
+Agent:  [moves each through triage states: needs-info, verified, ready-for-agent, wontfix]
+        [grills you only where a decision is yours]
+        [writes agent-ready briefs into docs/tickets/triage/NN-*.md]
+```
+
+Our tracker is local. No GitHub issues or labels without your OK. Not verified: how `triage` maps its states to
+local files with our tracker doc.
+
+#### Ask a colleague (opt-in skill `to-questionnaire`)
+
+```
+You:    /to-questionnaire I need the finance team to decide refund rules for shared carts.
+Agent:  [asks about the send: who reads it, what you need back, by when]
+        [writes docs/questionnaires/refund-rules.md: short questions aimed at the gap]
+```
+
+The answers go into grill-with-docs or to-spec.
+
+#### Learn a new technology (opt-in skill `teach`)
+
+```
+You:    /teach me Kotlin Multiplatform, with this repo as the workspace.
+Agent:  [writes a mission, a glossary, a learning record; one lesson per session]
+```
+
+---
+
+## 11. Pull requests: the template and the gate
+
+### 11.1 The template
+
+The body follows Matt Pocock's `pr` skill, plus our required Mermaid diagram and our extras:
+
+````markdown
+## Summary
+
+```mermaid
+flowchart LR
+    Cart -->|coupon before tax| Pricing --> Total
+```
+
+One or two lines: what changed and why.
+
+## Evidence
+
+- **Before:** `uv run pytest tests/regressions/test_r014_coupon_rounding.py`: 1 failed (37 of 1000 carts off by 0.01)
+  **After:** same command: 1 passed. `make check-fast`: 212 passed in 14 s.
+- verify-shop: `artifacts/checkout/coupon.png`, e2e `tests/e2e/test_checkout_coupon.py`
+
+## Merge Danger
+
+**Door:** two-way. A revert restores the old order of steps. No data migration.
+
+**Blast Radius:** checkout totals, invoices, the coupon report.
+
+Docs: none, because the pricing docs do not describe the step order.
+Changed guards: none.
+Ledger: R-014
+
+<!-- author-sessions
+updated: 2026-11-15
+main:   <session-id>  dir: ~/work/shop  # diagnosed and fixed the coupon rounding
+-->
+````
+
+Rules:
+- Summary: the smallest visual that makes the change clear. A Mermaid diagram is required (gate). Other visuals
+  (call tree, file tree, diff sketch) are optional extras.
+- Evidence: Before and After. Screenshots are best for visual changes. Test output is next best. Include the
+  check-fast tail. With a `verify-<app>` skill and app code in the diff: the verify evidence path and the e2e
+  test path.
+- Door: one-way (hard to reverse: migrations, deletions, public API) or two-way (a revert fixes it).
+- Blast Radius: what else can break.
+- Docs, Changed guards: every project. Ledger: on fix PRs.
+- A `fix:` PR must have a test file in its diff.
+- The author-sessions block goes last. `pr-resume` reads it.
+- Use the GLOSSARY.md words.
+
+### 11.2 What the gate checks
+
+`pr-rules` runs before `gh pr create` and before `gh pr edit` with a body. It denies when a part is missing or
+is placeholder text (`TODO`, `TBD`, `<...>`, `n/a`). It refuses `--fill` and `--web` (they hide the body). Over
+400 changed lines (lockfiles and generated files left out) is a warning, not a block.
+
+The exact field names checked after the rollout are not verified at the time of writing. The gate change is in
+progress on a separate branch.
+
+---
+
+## 12. Cheat sheet
+
+| Situation | Do | Output |
+|---|---|---|
+| Which skill fits? | Ask "which skill for X?" (skills-guide) or `/ask-matt` | An answer with the command |
+| New machine or upgrade | `cd ~/.dotfiles-ai && git pull && ./install.sh` | Tools at newest stable |
+| Health check | `ai-doctor`, `ai-doctor --project` | PASS / WARN / FAIL lines |
+| What is installed | `ai-info` | Profile, agents, plugins, skills, MCPs, gates |
+| New project | `mkdir ~/work/x && cd ~/work/x && git init && ai-start` | Project layer, commit |
+| Existing repo | `cd ~/work/x && ai-adopt` | Diff, y/N, commit, push |
+| Add an opt-in skill | `ai-adopt --skills <full list>,<name>` | New links |
+| Add a tool | `ai-adopt --tools <id>` (omc, seo, blog, browser, ui) | settings, links |
+| Rewrite the Map | `ai-adopt --refresh-map` | `AGENTS.md` Map |
+| Dependencies changed | `ai-libs --sync` | `AGENTS.md` Libraries |
+| Feature idea | `/grill-with-docs <idea>` | `GLOSSARY.md`, `docs/adr/` |
+| Huge unclear effort | `/wayfinder <idea>` | `docs/maps/<effort>/` |
+| Need facts | "research <question>" | `docs/research/<topic>.md` |
+| Design question | "prototype <question>" | branch `prototype/<name>` |
+| Write the spec | `/to-spec` | `docs/specs/<feature>.md` |
+| Split into tickets | `/to-tickets` | `docs/tickets/<feature>/NN-*.md` |
+| Build one ticket | `/implement <ticket path>` | code, tests, commit |
+| Build a whole spec in parallel | `/implement-spec <spec>` (opt-in) | integration branch |
+| Hard bug | "diagnose <symptom>" | regression test, fix, ledger row |
+| Prove a feature | verify-<app> (make it once: `/create-verification-skill`) | `artifacts/<feature>/` |
+| Review a diff | "Matt code-review skill since main" | Standards + Spec report |
+| Open a PR | ask the agent; the pr skill shapes the body | PR that passes the gate |
+| Session must travel | `/handoff <next focus>` | file in `$TMPDIR` |
+| Message did not land | `/wait-what` | plain re-explanation |
+| After a session | `/retro` | environment fixes |
+| Incoming reports | `/triage` (opt-in) | agent-ready briefs |
+| Answer is in someone's head | `/to-questionnaire` (opt-in) | a questionnaire |
+| Learn a topic | `/teach` (opt-in) | learning record |
+| Human-only steps | wizard (opt-in) | a script you run |
+
+---
+
+## 13. Troubleshooting
+
+### A gate blocked the agent
+
+1. Read the deny reason. It names what is missing.
+2. secret-scan: remove the secret from the staged files, or unstage the file. If it is a false alarm (a fake key
+   in a test fixture), run the commit yourself in your terminal. The agent must not try to get around the gate
+   (no other command, no other agent).
+3. pr-rules: fill the missing parts of the body (section 11) and pass it with `--body-file`.
+
+### An MCP server is not connected
+
+1. In Claude: `/mcp` shows the state. "Connection closed" for Serena usually means the project is not a git repo
+   or Serena failed to start; retry with `/mcp` reconnect.
+2. `ai-doctor` checks the Codex and Claude MCP entries.
+3. context7: the key is in `~/.config/ai/secrets.env`. Do not print it.
+4. Timeouts: `MCP_TIMEOUT=60000` is set in the Claude settings env.
+5. OMC MCP: keep omc-plugin at 5.8.5 (5.8.6 lacks `bridge/mcp-server.cjs`).
+
+### A skill is not found in a project
+
+1. `ls -l .claude/skills .agents/skills`: are the links there?
+2. `grep '^skills:' .ai/enabled`: is the name on the line?
+3. Add it: `ai-adopt --skills <full list>,<name>`.
+4. "not installed on this machine" in the ai-adopt output: run `install.sh` first. It copies the Matt skills.
+5. A new worktree or a fresh clone has no links (they are gitignored): run `ai-adopt` there once.
+
+### RTK changed my command
+
+A hook rewrites shell commands to `rtk <cmd>` to cut output. That is normal.
+- Need full output (security tools, debugging): `rtk bypass <cmd>`.
+- `uv run` is not rewritten: write `uv run rtk pytest` by hand.
+- A refused command: `rtk pipeline explain` shows the rule.
+
+### Rules look old in Codex
+
+Run `ai-sync`. Check with `ai-sync --check`.
+
+### Something is broken after an upgrade
+
+1. `ai-doctor` and read the FAIL lines.
+2. Run `install.sh` again. It is safe to rerun.
+3. Router errors: `~/.local/state/ai/router-errors.log`.
+4. Rules the agent ignores: `~/.local/state/ai/misses.jsonl`.
+
+### AGENTS.md or CLAUDE.md does not show in git status (M3)
+
+The global git ignore file hides them. Use `git add -f` (section 8.3).
+
+---
+
+## 14. What is not verified
+
+At the time of writing (2026-11-15):
+- The new pr-rules gate field names and deny message (the change is in progress on a separate branch).
+- The `ai-info` skill list after the rollout of `ask-matt` and `skills-guide`.
+- The status line after tiers are removed (today it still prints "tier").
+- The full default skill links in a new project (the demo machine did not have the new Matt copies yet).
+- How `triage`, `implement-spec` and `wizard` behave with our local tracker in a real project.
+- The mobile tool choices (Expo, EAS, Maestro, Detox, simulator screenshot commands) with this setup.
+- Which `code-review` runs when Claude Code's built-in `/code-review` and Matt's skill have the same name.
+- A live Ubuntu MCP proof after the last login on ubuntu01.
+
+Next step for each item: run it once in a real project and update this guide.

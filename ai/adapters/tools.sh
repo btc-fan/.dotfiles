@@ -299,13 +299,13 @@ plugin_clone() {
 # mattpocock/skills (rules/mattpocock-skills.md step 2): the five picked folders only, at the resolved tag,
 # audited. The repo has a symlink (AGENTS.md), so the tree is not moved as a whole: only the five folders,
 # checked for links, are copied to <plugin src>/mattpocock-skills/<name>.
-MATTPOCOCK_PICKS="productivity/grilling productivity/grill-me productivity/wait-what productivity/writing-for-agents engineering/retro"
+MATTPOCOCK_PICKS="productivity/grilling productivity/grill-me productivity/wait-what productivity/writing-for-agents engineering/retro engineering/ask-matt"
 # Opt-in per project (owner plan section 9, pocock-skills-audit): copied and audited with the five, but linked only
 # into a project that lists them on its `skills:` line in .ai/enabled (ai-adopt makes the project links). Bare
 # names: the folder is found under any category except misc/ and in-progress/. A name missing upstream is
-# skipped with a warning; it never stops the five. Skipped on purpose: implement, implement-spec, research,
-# triage, wayfinder, misc/*, in-progress/*.
-MATTPOCOCK_OPTIN_PICKS="grill-with-docs domain-modeling to-spec to-tickets tdd codebase-design code-review pr diagnosing-bugs improve-codebase-architecture"
+# skipped with a warning; it never stops the five. Owner 2026-11-15: the whole official plugin set (27 skills =
+# the 6 global ones above + these 21); misc/* and in-progress/* stay out (Matt's plugin leaves them out too).
+MATTPOCOCK_OPTIN_PICKS="grill-with-docs domain-modeling to-spec to-tickets tdd codebase-design code-review pr diagnosing-bugs improve-codebase-architecture implement implement-spec research handoff wayfinder prototype triage wizard to-questionnaire teach setup-matt-pocock-skills"
 
 mattpocock_src() {
     local dest tmp p n have repo
@@ -422,7 +422,7 @@ mattpocock_link() {
     local dir=$1 src n
     src=$(plugin_src_dir mattpocock-skills)
     [ -d "$src" ] || { [ "$AI_DRY_RUN" = 1 ] || skip "mattpocock skills not installed ($src): not linked into $dir"; return 0; }
-    for n in grilling grill-me wait-what writing-for-agents retro; do
+    for n in grilling grill-me wait-what writing-for-agents retro ask-matt; do
         [ -f "$src/$n/SKILL.md" ] || continue
         if [ -d "$dir/$n" ] && [ ! -L "$dir/$n" ]; then warn "$dir/$n is a real folder (not ours): not linked"; continue; fi
         aiconf link "$dir/$n" "$src/$n"

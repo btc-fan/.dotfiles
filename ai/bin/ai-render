@@ -331,7 +331,7 @@ def top_level_split(s):
 # How the L0 table shows an action placeholder (the router fills the real text at fire time).
 PLACEHOLDER_WORDS = {
     "knowledge_index": "(status line: memories, graph, docs map)",
-    "knowledge_delta": "Update mem:core, run ai-libs --sync or graphify update, as the commit needs.",
+    "knowledge_delta": "Update the Map section of AGENTS.md, run ai-libs --sync or graphify update, as the commit needs.",
     "libs_hits": "(cached IDs)",
     "ledger_hits": "Edit in a docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests.",
     "feature_flow": "grill-with-docs (where the project links it; else grilling), for 3+ files to-spec then to-tickets, then per slice: check-fast, verify-<app> evidence, e2e. Trivial: none needed.",
