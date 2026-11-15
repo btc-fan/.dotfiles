@@ -50,7 +50,7 @@ main() {
     # and root's files: they are refreshed only from a tree no agent can change (root-owned, e.g.
     # /opt/ai-setup, or root-guard passed). From a user's own work tree they are left to the admin.
     if ! tree_trusted; then
-        if hermes_exists || [ "$AI_OS" = linux ]; then
+        if hermes_exists || root_layer; then
             info "Hermes copies and /etc rules are not refreshed from $AI_HOME (owned by $(tree_owner))."
             info "Admin: sudo /opt/ai-setup/install.sh --update --for-user $(id -un)"
         fi
@@ -64,7 +64,7 @@ main() {
             warn "Hermes copies not refreshed: needs sudo -n to user $HERMES_USER."
         fi
     fi
-    if [ "$AI_OS" = linux ]; then
+    if root_layer; then
         if sudo_ready noninteractive; then
             base_admin_layer
         else
@@ -79,7 +79,7 @@ tree_owner() { stat -c %U "$AI_HOME" 2>/dev/null || stat -f %Su "$AI_HOME" 2>/de
 # Root-owned tree: trusted (root-guard checks it further when ai-sync runs as root). macOS keeps the old
 # one-user behaviour (no other users, no admin layer).
 tree_trusted() {
-    [ "$AI_OS" = linux ] || return 0
+    root_layer || return 0
     [ "$(tree_owner)" = root ] || return 1
     if [ "$(id -u)" -eq 0 ]; then
         . "$AI_HOME/ai/lib/root-guard.sh"
@@ -93,6 +93,9 @@ load_libs() {
     . "$AI_HOME/ai/lib/common.sh"
     for f in base tools claude codex hermes; do . "$AI_HOME/ai/adapters/$f.sh"; done
     detect_os
+    # The profile decides the root layer (Hermes, /etc rules): a light Linux has none (owner 2026-11-15).
+    . "$AI_HOME/ai/lib/profile.sh"
+    ai_profile_resolve "$AI_HOME/ai" "$AI_OS" "" 2>/dev/null || true
     load_pins       # sources and SCANNER_PYTHON etc. for the adapters (set -u)
 }
 
