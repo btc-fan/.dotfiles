@@ -21,7 +21,7 @@ NOT FOUND (our own tool; nixpacks has no rules text for agents).
 
 ## Enforcement
 - L4 (hooks): `stop-check` runs `check-fast` before the agent stops (see `stop-check.md`); the PR gate wants
-  `Verify:` with the command and its output.
+  `Evidence:` with the command and its output.
 - L7: `ai-doctor --project` warns when an adopted repo has no `check-fast` or `check` target.
 - Rules text: the Done block in the repo AGENTS.md (item 1: `make check` passes).
 

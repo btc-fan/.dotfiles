@@ -22,7 +22,7 @@
    "payload": {
     "tool_name": "Bash",
     "tool_input": {
-     "command": "gh pr create --title x --body \"$(cat <<'EOF'\nSummary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: `make check`: 12 passed\nRisk: low, docs only\n<!-- author-sessions\nupdated: 2026-11-11\nmain: abc dir: ~/w # did it\n-->\nEOF\n)\""
+     "command": "gh pr create --title x --body \"$(cat <<'EOF'\nSummary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: `make check`: 12 passed\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-11\nmain: abc dir: ~/w # did it\n-->\nEOF\n)\""
     }
    },
    "project": {
@@ -89,7 +89,7 @@
    }
   },
   {
-   "name": "body file complete",
+   "name": "body file complete (Matt template, heading form)",
    "expect": "allow",
    "event": "PreToolUse",
    "payload": {
@@ -101,7 +101,7 @@
    "project": {
     "git": true,
     "files": {
-     "pr.md": "```mermaid\ngraph TD; a-->b\n```\n**Verify:**\n```\nmake check\n12 passed in 0.3s\n```\n**Risk:** the parser only\n<!-- author-sessions\n-->\n"
+     "pr.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **Before:** make check -> 1 failed\n  **After:**\n```\nmake check\n12 passed in 0.3s\n```\n## Merge Danger\n**Door:** two-way\n\n**Blast Radius:** the parser only\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\n-->\n"
     }
    }
   },
@@ -134,25 +134,7 @@
    }
   },
   {
-   "name": "try tier: no Verify or Risk needed",
-   "expect": "allow",
-   "event": "PreToolUse",
-   "payload": {
-    "tool_name": "Bash",
-    "tool_input": {
-     "command": "gh pr create --title 'x' --body-file pr.md"
-    }
-   },
-   "project": {
-    "git": true,
-    "files": {
-     ".ai/enabled": "tier: try\n",
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
-    }
-   }
-  },
-  {
-   "name": "mvp (default): Verify and Risk missing",
+   "name": "Evidence, Door and Blast Radius missing",
    "expect": "deny",
    "event": "PreToolUse",
    "payload": {
@@ -164,16 +146,15 @@
    "project": {
     "git": true,
     "files": {
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     }
    },
    "contains": [
-    "Verify: (the check command",
-    "Risk: (one line"
+    "Evidence: (Before and After"
    ]
   },
   {
-   "name": "mvp: placeholder Verify",
+   "name": "placeholder Evidence",
    "expect": "deny",
    "event": "PreToolUse",
    "payload": {
@@ -185,13 +166,13 @@
    "project": {
     "git": true,
     "files": {
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: TODO\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: TODO\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     }
    },
-   "contains": "placeholder, in Verify"
+   "contains": "placeholder, in Evidence"
   },
   {
-   "name": "mvp: angle-bracket placeholder",
+   "name": "angle-bracket placeholder",
    "expect": "deny",
    "event": "PreToolUse",
    "payload": {
@@ -203,13 +184,13 @@
    "project": {
     "git": true,
     "files": {
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: <command and output>\nRisk: <one line>\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: <command and output>\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     }
    },
-   "contains": "placeholder, in Risk"
+   "contains": "placeholder, in Evidence"
   },
   {
-   "name": "long: Docs and Changed guards missing",
+   "name": "Docs and Changed guards missing",
    "expect": "deny",
    "event": "PreToolUse",
    "payload": {
@@ -221,8 +202,7 @@
    "project": {
     "git": true,
     "files": {
-     ".ai/enabled": "tier: long\n",
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check -> 12 passed\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     }
    },
    "contains": [
@@ -231,7 +211,7 @@
    ]
   },
   {
-   "name": "long: Docs: none without a reason",
+   "name": "Docs: none without a reason",
    "expect": "deny",
    "event": "PreToolUse",
    "payload": {
@@ -243,14 +223,13 @@
    "project": {
     "git": true,
     "files": {
-     ".ai/enabled": "tier: long\n",
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\nDocs: none\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check -> 12 passed\nDocs: none\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     }
    },
    "contains": "a reason after Docs: none"
   },
   {
-   "name": "long: complete body",
+   "name": "complete body",
    "expect": "allow",
    "event": "PreToolUse",
    "payload": {
@@ -262,13 +241,12 @@
    "project": {
     "git": true,
     "files": {
-     ".ai/enabled": "tier: long\n",
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check -> 12 passed\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     }
    }
   },
   {
-   "name": "long: fix PR without Ledger",
+   "name": "fix PR without Ledger",
    "expect": "deny",
    "event": "PreToolUse",
    "payload": {
@@ -280,8 +258,7 @@
    "project": {
     "git": true,
     "files": {
-     ".ai/enabled": "tier: long\n",
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\nDocs: README\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check -> 12 passed\nDocs: README\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     }
    },
    "contains": "R-NNN"
@@ -300,7 +277,7 @@
     "git_init": true,
     "files": {
      "src/a.py": "x = 1\n",
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check -> 12 passed\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     },
     "commit": "init",
     "extra_commits": [
@@ -325,7 +302,7 @@
     "git_init": true,
     "files": {
      "src/a.py": "x = 1\n",
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check -> 12 passed\nDocs: none, because only tests changed\nChanged guards: none\nLedger: R-001 tests/test_price.py\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     },
     "commit": "init",
     "extra_commits": [
@@ -350,7 +327,7 @@
     "git_init": true,
     "files": {
      "src/a.py": "x = 1\n",
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check -> 12 passed\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     },
     "commit": "init",
     "extra_commits": [
@@ -375,7 +352,7 @@
     "git_init": true,
     "files": {
      "src/a.py": "x = 1\n",
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check -> 12 passed\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     },
     "commit": "init",
     "extra_commits": [
@@ -424,7 +401,7 @@
    "project": {
     "git": true,
     "files": {
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     }
    },
    "payload": {
@@ -433,10 +410,10 @@
      "command": "gh pr edit 12 --body-file pr.md"
     }
    },
-   "contains": "Verify:"
+   "contains": "Evidence:"
   },
   {
-   "name": "verify skill project: Verify without the verify run",
+   "name": "verify skill project: Evidence without the verify run",
    "expect": "deny",
    "event": "PreToolUse",
    "project": {
@@ -444,7 +421,7 @@
     "files": {
      "src/cart.py": "x = 1\n",
      ".agents/skills/verify-shop/SKILL.md": "---\nname: verify-shop\n---\n",
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 40 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check -> 40 passed\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     },
     "commit": "init",
     "extra_commits": [
@@ -460,10 +437,10 @@
      "command": "gh pr create --title 'feat: cart' --body-file pr.md --base HEAD~1"
     }
    },
-   "contains": "Verify: the verify-shop run"
+   "contains": "Evidence: the verify-shop run"
   },
   {
-   "name": "verify skill project: Verify cites evidence and the e2e test",
+   "name": "verify skill project: Evidence cites evidence and the e2e test",
    "expect": "allow",
    "event": "PreToolUse",
    "project": {
@@ -471,7 +448,7 @@
     "files": {
      "src/cart.py": "x = 1\n",
      ".agents/skills/verify-shop/SKILL.md": "---\nname: verify-shop\n---\n",
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check-fast green; verify-shop cart: artifacts/cart/list.png; e2e tests/e2e/test_cart.py passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check-fast green; verify-shop cart: artifacts/cart/list.png; e2e tests/e2e/test_cart.py passed\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     },
     "commit": "init",
     "extra_commits": [
@@ -497,7 +474,7 @@
     "files": {
      "src/cart.py": "x = 1\n",
      ".agents/skills/verify-shop/SKILL.md": "---\nname: verify-shop\n---\n",
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 40 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check -> 40 passed\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     },
     "commit": "init",
     "extra_commits": [
@@ -521,7 +498,7 @@
     "git_init": true,
     "files": {
      "src/a.py": "x = 1\n",
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check -> 12 passed\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     },
     "commit": "init",
     "extra_commits": [
@@ -547,7 +524,7 @@
     "git_init": true,
     "files": {
      "src/a.py": "x = 1\n",
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check -> 12 passed\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     },
     "commit": "init",
     "extra_commits": [
@@ -571,7 +548,7 @@
     "git_init": true,
     "files": {
      "src/a.py": "x = 1\n",
-     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\nTwo-way door. Blast radius: small.\nVerify: make check -> 12 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check -> 12 passed\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     },
     "commit": "init",
     "extra_commits": [
@@ -583,7 +560,229 @@
    "payload": {
     "tool_name": "Bash",
     "tool_input": {
-     "command": "gh pr create --title 'feat: x' -b \"Verify: make check -> 12 passed\nRisk: low\n```mermaid\ngraph TD; a-->b\n```\n<!-- author-sessions\n-->\" --base HEAD~1"
+     "command": "gh pr create --title 'feat: x' -b \"Evidence: make check -> 12 passed\nDoor: two-way\nBlast Radius: small\n```mermaid\ngraph TD; a-->b\n```\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\n-->\" --base HEAD~1"
+    }
+   }
+  },
+  {
+   "name": "heading-form Evidence allowed",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **Before:** make check -> 1 failed\n  **After:** make check -> 12 passed\n## Merge Danger\n**Door:** two-way, config only\n**Blast Radius:** small\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-15\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   }
+  },
+  {
+   "name": "heading-form Evidence with a colon and a code fence allowed",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n### Evidence:\n```\n# run\nmake check\n12 passed\n```\n## Merge Danger\n**Door:** one-way, data migration\n**Blast Radius:** orders table\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-15\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   }
+  },
+  {
+   "name": "empty heading-form Evidence denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n## Merge Danger\n**Door:** two-way\n**Blast Radius:** small\n<!-- author-sessions\nupdated: 2026-11-15\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   }
+  },
+  {
+   "name": "Door missing",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **After:** make check -> 12 passed\n## Merge Danger\n**Blast Radius:** small\n<!-- author-sessions\nupdated: 2026-11-15\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   }
+  },
+  {
+   "name": "Door without one-way or two-way",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **After:** make check -> 12 passed\n## Merge Danger\n**Door:** probably fine\n**Blast Radius:** small\n<!-- author-sessions\nupdated: 2026-11-15\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   }
+  },
+  {
+   "name": "Door with the template text left in",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **After:** make check -> 12 passed\n## Merge Danger\n**Door:** one-way or two-way\n**Blast Radius:** small\n<!-- author-sessions\nupdated: 2026-11-15\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   }
+  },
+  {
+   "name": "Blast Radius missing",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **After:** make check -> 12 passed\n## Merge Danger\n**Door:** two-way\n<!-- author-sessions\nupdated: 2026-11-15\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   }
+  },
+  {
+   "name": "placeholder Evidence in heading form",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **Before:** <failing run>\n  **After:** <passing run>\n## Merge Danger\n**Door:** two-way\n**Blast Radius:** small\n<!-- author-sessions\nupdated: 2026-11-15\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   }
+  },
+  {
+   "name": "Evidence label with TODO",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\nEvidence: TODO\n**Door:** two-way\n**Blast Radius:** small\n<!-- author-sessions\nupdated: 2026-11-15\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   }
+  },
+  {
+   "name": "the old Verify and Risk fields no longer pass",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\nVerify: make check -> 12 passed\nRisk: low\n<!-- author-sessions\nupdated: 2026-11-15\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   }
+  },
+  {
+   "name": "no mermaid denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "summary\n<!-- author-sessions\nupdated: 2026-11-15\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   }
+  },
+  {
+   "name": "complete body in the Matt template (all fields)",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "pr.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **After:** make check -> 12 passed\n## Merge Danger\n**Door:** two-way\n**Blast Radius:** small\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-15\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   }
+  },
+  {
+   "name": "tier line in .ai/enabled is ignored: try does not relax the fields",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --title 'x' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tier: try\n",
+     "pr.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n<!-- author-sessions\nupdated: 2026-11-15\nmain: s1 dir: ~/x # pr\n-->\n"
     }
    }
   }

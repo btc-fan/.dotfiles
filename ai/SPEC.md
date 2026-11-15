@@ -65,7 +65,7 @@ Composed from, in this order:
    - Code navigation: graphify first, then Serena, then read only located lines (section 4 / contracts).
    - Audit before use: run `agent-audit` before any package, MCP server, skill or plugin; findings = stop and
      show the owner; no tool that uploads code, prompts or telemetry.
-   - Pull requests: summary, Mermaid diagram of the change, "one-way or two-way door?", blast radius.
+   - Pull requests: `pr` skill template (Matt Pocock): Summary with a required Mermaid diagram, Evidence, Merge Danger (Door, Blast Radius).
    - PR author-sessions note: owner block A.5 verbatim.
    - Characters: never the em dash (U+2014); use "-", ":" or a new sentence.
    - Prompting other agents (about 10 lines): goal + what is ruled out, name files, narrow scope, expected
@@ -580,7 +580,7 @@ restore where something existing is removed; dry-run safe.
   in AGENTS.md is limited to the 6-line Done block and the Lessons section (15 lines).
 - Tier per project: `tier: try|mvp|long` in `.ai/enabled` (default `mvp`, also for repos without the line;
   `ai-adopt --tier`, asked once when interactive). try = check targets, Done, no-destroy. mvp = + Stop hook, PR
-  fields Verify and Risk. long = + regression ledger and edit nudge, PR fields Docs, Changed guards, Ledger on fix
+  fields Evidence, Door, Blast Radius. long = + regression ledger and edit nudge, PR fields Docs, Changed guards, Ledger on fix
   PRs, ratchet.
 - T1 `ai-check-detect`: stack from lockfiles and manifests (uv/poetry/pip + pytest/ruff, npm/pnpm/yarn/bun, go,
   cargo); monorepos refused. `ai-adopt` writes `check-fast` (lint + unit, under 60 s) and `check` (everything) in

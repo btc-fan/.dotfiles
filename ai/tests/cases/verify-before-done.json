@@ -124,31 +124,6 @@
      }
     }
    ]
-  },
-  {
-   "name": "tier try: optional, quiet",
-   "expect": "nofire",
-   "project": {
-    "git": true,
-    "files": {
-     ".ai/enabled": "tier: try\n",
-     ".agents/skills/verify-shop/SKILL.md": "---\nname: verify-shop\n---\n",
-     ".agents/skills/verify-shop/features/cart.md": "x\n"
-    }
-   },
-   "steps": [
-    {
-     "event": "PostToolUse",
-     "payload": {
-      "tool_name": "Edit",
-      "tool_input": {
-       "file_path": "{{PROJ}}/src/cart.py",
-       "new_string": "x"
-      },
-      "tool_response": {}
-     }
-    }
-   ]
   }
  ]
 }

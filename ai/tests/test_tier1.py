@@ -359,12 +359,11 @@ def t_verify_status_and_doctor(work):
     assert "Verify skill: verify-shop (3 features)." in hooklib.knowledge_index(repo), "a map change resets it"
     bare = tree(work, "verify-none", {"src/app.py": "x = 1\n", ".ai/enabled": "tier: try\n"})
     run(["git", "init", "-q", bare])
-    assert "missing, run /create-verification-skill (optional in tier try)" in hooklib.knowledge_index(bare)
+    assert "missing, run /create-verification-skill" in hooklib.knowledge_index(bare)
     out = io.StringIO()
     with redirect_stdout(out):
-        doctor.check_verify_skill(bare, hooklib, "try")
         doctor.check_verify_skill(bare, hooklib, "long")
-    assert out.getvalue().count("WARN verify skill") == 1, "try tier: optional; long: warn: " + out.getvalue()
+    assert out.getvalue().count("WARN verify skill") == 1, "no tiers (every project is long): warn: " + out.getvalue()
 
 
 # ---------------------------------------------------------------- T5: ai-doctor budget
@@ -561,7 +560,7 @@ def t_stop_floor_zero_tests(work):
 
 
 def t_stop_off_switches(work):
-    for name, enabled in (("stop-try", "tier: try\n"), ("stop-optout", "no-stop-check\n"), ("stop-noadopt", None)):
+    for name, enabled in (("stop-optout", "no-stop-check\n"), ("stop-noadopt", None)):
         repo, env = stop_repo(work, name, enabled=enabled)
         hook(repo, env, "SessionStart")
         write(os.path.join(repo, "src", "app.py"), "x = 2\n")

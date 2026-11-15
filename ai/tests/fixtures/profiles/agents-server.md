@@ -62,13 +62,21 @@ Box work on a server: the box tool (MCP server box: list, new, exec, logs, statu
 
 
 Pull requests
-A PR body has four parts:
-1. Summary.
-2. A Mermaid diagram of the change.
-3. "One-way or two-way door?" with a reason.
-4. Blast radius: what else can break.
-5. Verify: the check command and the tail of its output; with a project verify-<app> skill also its evidence path and the e2e test. Risk: one line.
-Long tier (`tier: long` in .ai/enabled) also: Docs (files, or "none, because ..."), Changed guards (each edited or removed test and why, or "none"), and on a fix PR Ledger: R-NNN. A fix PR has a test file in its diff.
+The PR body follows the `pr` skill (Matt Pocock). Use this template:
+```markdown
+## Summary
+<smallest visual that shows the change; a ```mermaid diagram is required, other visuals are optional>
+## Evidence
+- **Before:** <failing test run, output or screenshot>
+  **After:** <passing run, output or screenshot>
+## Merge Danger
+**Door:** <one-way or two-way> <reason>
+**Blast Radius:** <what can break>
+```
+Summary must hold a Mermaid diagram of the change.
+Evidence is the check-fast command and the tail of its output as After. Add Before when a test went red first. A project with a verify-<app> skill also names the skill run, its evidence path and the e2e test.
+Door must say one-way or two-way. Blast Radius must say what can break.
+Also required: Docs (files, or "none, because ..."), Changed guards (each edited or removed test and why, or "none"), and on a fix PR Ledger: R-NNN. A fix PR has a test file in its diff.
 The author-sessions block goes at the end (next section). The pr-rules gate blocks a PR without these parts (placeholder text counts as missing).
 
 PR author-sessions note
@@ -115,7 +123,7 @@ opt-in = only in projects that enabled the tool (ai-start, ai-adopt).
 | secret-scan (gate) | before git commit or push | Secret scan found a key, token or password. Remove it before commit or push. |
 | no-sudo (gate) | any sudo, su, doas, pkexec | No sudo for agents: give the owner the exact command. Box work on a server: the box tool (MCP server box); outside a sandbox also plain proj-agent <subcommand>; never sudo. |
 | no-destroy (gate) | rm -r of data, home or repo root; force push or delete of main; reset --hard with changes; clean -x at the root; compose down -v; DROP/TRUNCATE on a protected DB | Destructive command: give the owner the exact command and the reason. Rebuildable folders (node_modules, .venv, dist, build) are fine. |
-| pr-rules (gate) | before gh pr create or edit | PR body: summary, Mermaid diagram, one-way or two-way door, blast radius, Verify and Risk (tier mvp, long), Docs and Changed guards (long; Ledger on fix PRs), author-sessions block at the end. |
+| pr-rules (gate) | before gh pr create or edit | PR body (pr skill template): Summary with a Mermaid diagram, Evidence (Before and After), Merge Danger (Door: one-way or two-way; Blast Radius), Docs, Changed guards (Ledger on fix PRs), author-sessions block at the end. |
 | ledger-nudge (nudge) | before an edit in a regression-ledger area (tier long) | Edit in a docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests. |
 | no-em-dash (nudge) | after a write with U+2014 | Remove the em dash (U+2014). Use '-', ':' or a new sentence. |
 | docs-lookup (nudge) | docs, SDK or library prompt | Library code: context7 query-docs with the ID from the Libraries section (resolve only if missing), then the official docs site. (cached IDs) |
