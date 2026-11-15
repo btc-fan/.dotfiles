@@ -1173,7 +1173,7 @@ def t_ai_sync_untrusted(work):
     tree = os.path.join(work, "usertree")
     shutil.copytree(AI_DIR, os.path.join(tree, "ai"), ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "tests"))
     env, home, _b = bash_env(work, {"AI_HOME": tree})
-    code, out = bash('AI_SYNC_NO_MAIN=1; . "$AI_HOME/ai/bin/ai-sync"; load_libs; AI_OS=linux; '
+    code, out = bash('AI_SYNC_NO_MAIN=1; . "$AI_HOME/ai/bin/ai-sync"; load_libs; AI_OS=linux; PROFILE_ROOT_LAYER=1; '
                      'if tree_trusted; then echo TRUSTED; else echo UNTRUSTED; fi', env)
     assert "UNTRUSTED" in out, out
 

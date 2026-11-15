@@ -72,11 +72,6 @@ undo --only ^cmd:uv(-root)?:guarddog$: 1 entr(y/ies) reversed
   [dry-run] undo    bin:osv-scanner echo undo bin:osv-scanner
 undo --only ^cmd:bin:osv-scanner$: 1 entr(y/ies) reversed
   planned: scanners not used by profile dev-mac removed: guarddog osv-scanner
-  skill-scanner: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 2.3.2
-  skill-scanner 2.3.2: first install, not audited (profile dev-mac audits no packages)
-  [dry-run] env UV_LINK_MODE=copy uv tool install --force --no-build --managed-python -p 3.12 cisco-ai-skill-scanner==2.3.2
-  [dry-run] record  uv:skill-scanner undo: uv tool uninstall cisco-ai-skill-scanner
-  planned: skill-scanner 2.3.2 (newest stable, wheels only, first install not audited (profile dev-mac))
   oh-my-claudecode: the Mac uses the plugin route; npm route is Ubuntu only (contracts-mcp-c 1.6)
   codex: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 0.169.0
   codex 1.0.0 is not from npm ($WORK/devmac/bin/codex): left as it is (newest stable: 0.169.0)
@@ -313,13 +308,12 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
 
 ==== summary ====
 
-done (37)
+done (36)
   - (planned) brew install curl
   - (planned) sources resolved (ai/pins.env)
   - (planned) links
   - (planned) ai-render: ai/AGENTS.md, ai/build/routing.json, ai/build/L0.md
   - (planned) scanners not used by profile dev-mac removed: guarddog osv-scanner
-  - (planned) skill-scanner 2.3.2 (newest stable, wheels only, first install not audited (profile dev-mac))
   - (planned) omx setup done
   - (planned) serena 2.1.0 (newest stable, audit skipped, wheels only)
   - (planned) graphify 0.9.108 (newest stable, audit skipped, wheels only)

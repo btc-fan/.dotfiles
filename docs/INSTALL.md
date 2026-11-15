@@ -68,10 +68,10 @@ The install header, `ai-doctor` and `ai-info` show the profile and where it came
 
 | | server | dev-mac |
 |---|---|---|
-| Scanners installed | guarddog, skill-scanner, osv-scanner | skill-scanner only (guarddog and osv-scanner from this setup are removed) |
+| Scanners installed | guarddog, osv-scanner | none (guarddog, osv-scanner and skill-scanner from this setup are removed) |
 | npm, PyPI, GitHub installs | agent-audit first | not audited; each one prints `audit skipped: profile dev-mac` |
-| Skills and plugin sources | agent-audit `dir` (all scanners) | skill-scanner only |
-| skill-scanner HIGH or CRITICAL | never installed | never installed |
+| Skills and plugin sources | agent-audit `dir` (guarddog, osv-scanner) | not scanned |
+| skill-scanner | off (2026-11-15; PROFILE_SCANNERS turns it on) | off |
 | `audit-before-install` gate | on | off (no routing row) |
 | opencode | macOS always, Linux with `AI_EXTRA_AGENTS=opencode` | never (an earlier install is undone) |
 | box MCP server (plugin `ai-box@ai`, Codex and Hermes `box`) | on | never installed or registered |

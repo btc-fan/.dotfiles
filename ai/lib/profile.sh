@@ -28,4 +28,4 @@ ai_profile_resolve() {
 }
 
 # profile_has_scanner <name>: true when this profile installs and runs that scanner.
-profile_has_scanner() { case " ${PROFILE_SCANNERS:-guarddog skill-scanner osv-scanner} " in *" $1 "*) return 0 ;; esac; return 1; }
+profile_has_scanner() { case " ${PROFILE_SCANNERS-guarddog skill-scanner osv-scanner} " in *" $1 "*) return 0 ;; esac; return 1; }

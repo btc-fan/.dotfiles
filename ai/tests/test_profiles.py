@@ -140,8 +140,7 @@ def t_devmac_plan(work):
     compare("devmac-macos-all.txt", out)
     assert "Profile: dev-mac (default for macos)." in out, out
     assert "[dry-run] write   ~/.config/ai/profile new file" in out, out
-    assert "skill-scanner 2.3.2: first install, not audited (profile dev-mac audits no packages)" in out, out
-    assert "uv tool install --force --no-build --managed-python -p 3.12 cisco-ai-skill-scanner==2.3.2" in out, out
+    assert "install --force --no-build --managed-python -p 3.12 cisco-ai-skill-scanner" not in out, out  # owner 2026-11-15: removed
     assert "audit skipped: profile dev-mac (pypi serena-agent 2.1.0)" in out, out
     assert "box MCP: not installed (profile dev-mac)" in out and "ai-box" not in out, out
     assert "last30days: not installed (profile dev-mac)" in out and "last30days-skill at" not in out, out
@@ -176,7 +175,7 @@ def t_profile_choice(work):
               'echo "$AI_PROFILE $AI_PROFILE_FROM $PROFILE_SCANNERS"; profile_has_scanner guarddog || echo no-guarddog'
               % (REPO, REPO))
     res = subprocess.run(["/bin/bash", "-c", script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    assert res.stdout.decode().split("\n")[:2] == ["dev-mac default skill-scanner", "no-guarddog"], res.stdout
+    assert res.stdout.decode().split("\n")[:2] == ["dev-mac default ", "no-guarddog"], res.stdout
 
 
 def t_render_profiles(work):
@@ -193,7 +192,8 @@ def t_render_profiles(work):
     srv, dev = out["server"][0], out["dev-mac"][0]
     compare("agents-server.md", srv)
     assert "skill-scanner HIGH or CRITICAL finding is never installed" in srv and "<!-- profiles" not in srv
-    assert "skill-scanner HIGH or CRITICAL finding is never installed" in dev and "<!-- profiles" not in dev
+    # Owner 2026-11-15: skill-scanner removed from the light setup; the line stays for the server profile only.
+    assert "skill-scanner" not in dev and "<!-- profiles" not in dev
     for gone in ("agent-audit npm|pypi|dir|skill", "sudo ai-gate-skip", "the box tool (MCP server box: list", "opencode", "Hermes",
                  "- last30days (Claude, on everywhere)",
                  "audit-before-install"):
@@ -263,7 +263,7 @@ def t_doctor_devmac(work):
     stub = os.path.join(work, "doc-bin")
     write(os.path.join(stub, "claude"), "#!/bin/sh\nexit 0\n", 0o755)
     code2 = code.replace("m.check_profile()", "m.check_drops_and_defaults()")
-    for prof, want in (("server", "WARN"), ("dev-mac", None)):
+    for prof, want in (("dev-mac", None),):    # owner 2026-11-15: no skill-scanner in the light setup
         env = {"HOME": home, "PATH": stub + ":/usr/bin:/bin", "AI_STATE_DIR": state, "AI_PROFILE": prof,
                "CODEX_HOME": os.path.join(home, ".codex")}
         res = subprocess.run([sys.executable, "-c", code2], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -273,8 +273,7 @@ def t_doctor_devmac(work):
             assert "rejected by skill-scanner: last30days 3.39.0" in text, text
         else:       # dev-mac: last30days is not a default there, so no line about it being missing
             assert "rejected by skill-scanner: last30days" not in text, text
-        assert "rejected by skill-scanner: ponytail 5.3.4" in text, text
-        assert "FAIL installed version is rejected by skill-scanner: omc-plugin 5.8.6" in text, text
+        assert "rejected by skill-scanner" not in text, text    # old records ignored: the scanner is gone
 
 
 def t_devmac_last30days(work):
@@ -321,7 +320,7 @@ def t_devmac_linux_plan(work):
     for word in ("sudo ", "/etc/", "/opt/", "/usr/local/", "bwrap", "apparmor", "managed-settings", "Hermes",
                  "system layer", "groupadd", "agent-audit npm"):
         assert word not in plan, (word, [ln for ln in plan.splitlines() if word in ln][:3])
-    assert "uv tool install --force --no-build --managed-python -p 3.12 cisco-ai-skill-scanner==2.3.2" in out, out
+    assert "install --force --no-build --managed-python -p 3.12 cisco-ai-skill-scanner" not in out, out
     assert "~/.local/share/ai/plugins/" in out, out
     assert "rules: projects live in ~/work (host block)" in out, out
     assert "[14/14] verify" in out, out

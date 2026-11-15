@@ -17,7 +17,8 @@ Gates are lint, not a sandbox: a script file or an unusual command can pass them
 
 ## Profiles (owner decision 2026-11-14)
 
-- Every profile: every skill and plugin source is scanned with skill-scanner before install. A HIGH or CRITICAL
+- skill-scanner is OFF in every profile since 2026-11-15 (owner decision; the code stays, PROFILE_SCANNERS turns it
+  on). When it is on: every skill and plugin source is scanned with skill-scanner before install. A HIGH or CRITICAL
   finding means it is never installed or updated (agent-audit exit 4); `ai/audit-accepted.txt` cannot let it
   through. INFO, LOW and MEDIUM are shown only. A skill or plugin that skill-scanner could not scan is not
   installed either (exit 5, no override). OMC 5.8.6 has two skill-scanner HIGH findings: it is rejected everywhere.

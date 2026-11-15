@@ -1067,7 +1067,8 @@ def check_drops_and_defaults():
             "%s; %s (points them to <brew prefix>/opt/node/bin/node)" % (cellar[0][:120], fix))
     elif "oh-my-codex" in json.dumps(hj):
         say("PASS", "OMX Codex hooks do not use a versioned Cellar node")
-    rej = rejected_tools()
+    # No skill-scanner in the profile (owner 2026-11-15): old reject records do not count.
+    rej = rejected_tools() if "skill-scanner" in PROFILE_KEYS.get("PROFILE_SCANNERS", "guarddog skill-scanner osv-scanner").split() else {}
     if shutil.which("claude") and PROFILE_KEYS.get("PROFILE_LAST30DAYS", "1") == "1":
         pk = "last30days@last30days-skill"
         ok = pk in installed and enabled.get(pk) is True

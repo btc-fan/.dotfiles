@@ -328,6 +328,10 @@ scan_skipped() {
     return 1
 }
 
+# skill_scan_off: this profile has no skill-scanner (owner 2026-11-15: removed from the setup), so skills and
+# plugin sources install with no scan and old reject records do not block them.
+skill_scan_off() { ! profile_has_scanner skill-scanner; }
+
 audit_ok() {
     # audit_ok <ecosystem> <target> [version] [name]
     # name: for `dir` audits of a temp folder, the tool name to look up in ai/audit-accepted.txt.
@@ -337,6 +341,10 @@ audit_ok() {
     # plugin sources (dir, skill) are still scanned: skill-scanner only there, HIGH or CRITICAL is final.
     if [ "${PROFILE_PACKAGE_AUDIT:-1}" = 0 ] && [ "$eco" != dir ] && [ "$eco" != skill ]; then
         info "audit skipped: profile $AI_PROFILE ($eco $name${ver:+ $ver})"
+        return 0
+    fi
+    if { [ "$eco" = dir ] || [ "$eco" = skill ]; } && skill_scan_off; then
+        info "not scanned: profile $AI_PROFILE has no skill-scanner ($eco $name${ver:+ $ver})"
         return 0
     fi
     if scan_skipped "$name"; then

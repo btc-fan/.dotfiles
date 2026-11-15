@@ -66,10 +66,9 @@ DRY RUN: commands are printed, nothing is changed.
   planned: ai-render: ai/AGENTS.md, ai/build/routing.json, ai/build/L0.md
 
 [5/16] agents: harness installs at the newest stable
+  scanners not used by profile server (guarddog, osv-scanner): none installed by this setup
   guarddog: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 3.2.0
   guarddog 1.0.0 kept (offline: not moved to 3.2.0)
-  skill-scanner: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 2.3.2
-  skill-scanner 1.0.0 kept (offline: not moved to 2.3.2)
   osv-scanner: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 2.7.1
   osv-scanner at $WORK/srv-all/bin/osv-scanner is not installed by this setup: left as it is
   oh-my-claudecode: Claude plugin route (installed in the user part); no npm CLI install

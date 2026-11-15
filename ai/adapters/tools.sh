@@ -717,10 +717,17 @@ tools_scanners() {
 # the recorded undo, else a copy that resolved.json says this setup installed (uv tool, binary in bin_dir).
 scanners_drop() {
     local s gone=""
-    profile_has_scanner guarddog && profile_has_scanner osv-scanner && return 0      # server: all scanners
-    for s in guarddog osv-scanner; do
+    profile_has_scanner guarddog && profile_has_scanner osv-scanner && profile_has_scanner skill-scanner && return 0
+    for s in guarddog osv-scanner skill-scanner; do
         profile_has_scanner "$s" && continue
-        if [ "$s" = guarddog ]; then
+        if [ "$s" = skill-scanner ]; then
+            # Owner 2026-11-15: skill-scanner removed from the setup (the code stays; PROFILE_SCANNERS turns it on).
+            if state_has cmd:uv:skill-scanner || state_has cmd:uv-root:skill-scanner; then
+                aiconf undo --only '^cmd:uv(-root)?:skill-scanner$'; gone="$gone skill-scanner"
+            elif uv tool list 2>/dev/null | grep -q '^cisco-ai-skill-scanner '; then
+                run uv tool uninstall cisco-ai-skill-scanner; gone="$gone skill-scanner"
+            fi
+        elif [ "$s" = guarddog ]; then
             if state_has cmd:uv:guarddog || state_has cmd:uv-root:guarddog; then
                 aiconf undo --only '^cmd:uv(-root)?:guarddog$'; gone="$gone guarddog"
             elif r_installed guarddog && uv tool list 2>/dev/null | grep -q '^guarddog '; then
