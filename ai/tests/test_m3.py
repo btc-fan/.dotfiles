@@ -38,7 +38,7 @@ def main():
         for test in (t_drop_claude, t_drop_keeps_shared_marketplace, t_drop_codex_and_serena, t_off_plugins,
                      t_serena_take, t_rtk_brew, t_rtk_no_brew, t_omx_node_fix, t_last30days, t_doctor,
                      t_omc_companion, t_drop_failures, t_rtk_brew_mismatch, t_codex_restore_quoted,
-                     t_yaml_top_set_block_list, t_skill_dups, t_omx_nvm_fix, t_rejected_sha_cached, t_omc_keep):
+                     t_yaml_top_set_block_list, t_skill_dups, t_omx_nvm_fix, t_rejected_sha_cached, t_omc_keep, t_nvm_node_path):
             for k, v in saved.items():
                 if v is None:
                     os.environ.pop(k, None)
@@ -876,6 +876,21 @@ def t_omc_keep(work):
     code, out = bash(LIBS + 'AI_OS=macos; AI_OMC_WIRING=keep; claude_git_plugin() { echo GIT_PLUGIN; }; '
                      'claude_omc_wiring', env)
     assert code == 0 and "GIT_PLUGIN" not in out and "AI_OMC_WIRING=keep" in out, out
+
+
+def t_nvm_node_path(work):
+    """No node on PATH (ssh or login shell) but nvm has one: prerequisites find it, no `brew install node`."""
+    home, bindir = os.path.join(work, "home"), os.path.join(work, "bin")
+    for v in ("v20.1.0", "v24.18.0", "v24.9.0"):
+        stub(os.path.join(home, ".nvm", "versions", "node", v, "bin", "node"), '#!/bin/sh\necho 24\n')
+    write(os.path.join(home, ".nvm", "alias", "default"), "24\n")
+    log = os.path.join(work, "brew.log")
+    stub(os.path.join(bindir, "brew"), '#!/bin/sh\necho "brew $*" >> %s\n' % log)
+    env = dict(os.environ, HOME=home, PATH=bindir + ":" + SYS_PATH, AI_HOME=REPO, PYTHONDONTWRITEBYTECODE="1")
+    env.pop("NVM_DIR", None)
+    code, out = bash(LIBS + 'AI_OS=macos; base_nvm_path; command -v node', env)
+    assert code == 0 and out.strip().endswith("/v24.18.0/bin/node"), out
+    assert not os.path.exists(log), read(log)
 
 
 if __name__ == "__main__":

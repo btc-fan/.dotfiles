@@ -11,8 +11,33 @@ HOSTING_DOC="$AI_TARGET_HOME/.dotfiles/docs/AGENTS-hosting.md"
 
 # ---------------------------------------------------------------- 1 prerequisites
 
+# base_nvm_path: node from nvm is on PATH only in an interactive shell (.zshrc). In a login or ssh shell the
+# install did not find it and ran `brew install node`, which builds llvm from source on macOS 12 (old Mac,
+# 2026-11-15). Put nvm's node on PATH first: the `current` link, else the default alias, else the newest one.
+base_nvm_path() {
+    has node && return 0
+    local d="${NVM_DIR:-$HOME/.nvm}" bin="" v
+    [ -d "$d/versions/node" ] || return 0
+    if [ -x "$d/current/bin/node" ]; then bin="$d/current/bin"
+    else
+        v=$(cat "$d/alias/default" 2>/dev/null || true)
+        [ -n "$v" ] && bin=$(ls -d "$d/versions/node/v${v#v}"*/bin 2>/dev/null | base_newest_version)
+        [ -n "$bin" ] || bin=$(ls -d "$d"/versions/node/v*/bin 2>/dev/null | base_newest_version)
+    fi
+    [ -n "$bin" ] && [ -x "$bin/node" ] || return 0
+    PATH="$bin:$PATH"; export PATH
+    info "node from nvm: $bin"
+}
+
+# base_newest_version: the line with the highest .../vX.Y.Z/... (no `sort -V`: macOS 12 sort does not have it).
+base_newest_version() {
+    awk '{ if (match($0, /\/v[0-9]+\.[0-9]+\.[0-9]+/)) { split(substr($0, RSTART + 2, RLENGTH - 2), a, ".")
+           printf "%06d%06d%06d %s\n", a[1], a[2], a[3], $0 } }' | sort | tail -n 1 | cut -d' ' -f2-
+}
+
 base_prereqs() {
     local missing="" c
+    base_nvm_path
     for c in git jq python3 node npm uv curl; do has "$c" || missing="$missing $c"; done
     if has python3 && ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)'; then
         die "python3 3.9 or newer is needed"
