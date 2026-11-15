@@ -21,6 +21,10 @@ The owner block A.4 is the source text. It sits in `ai/agents-md/20-rtk.md`. Ven
 - L0: block A.4. L1 to L3: none. L4: RTK's own pipeline gate (run `rtk pipeline explain` when refused).
 - L5: Claude subagents inherit the hook. Codex and Hermes use their own config.
 - L7: `rtk gain --history` lists rewritten commands. `rtk discover` lists misses.
+- Known limit (owner QA 2026-11-15): inside the Codex sandbox (workspace-write) rtk still rewrites and filters,
+  but it cannot write its stats database (`~/Library/Application Support/rtk/history.db`, outside the writable
+  roots), so `rtk gain` does not count Codex commands. Not changed: a writable root for it would widen the
+  sandbox, and `RTK_DB_PATH` in a temp folder would split the stats. Count Codex savings from its transcripts.
 - `git push` and `gh` are excluded from rewriting (rtk config `exclude_commands`).
 - Our gates read the Bash command and see through `rtk`, `rtk proxy`, `env`, `nice`, `timeout`, `stdbuf` and `command`. After a rewrite the text has `rtk` in front. Our regexes use `\b`. Test it. Put our gates before RTK when the order is configurable.
 

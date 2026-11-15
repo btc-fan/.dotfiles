@@ -578,6 +578,10 @@ def check_env_delivery():
             miss = ["(config.toml unreadable: %s)" % exc]
         say("PASS" if not miss else "FAIL", "Codex shell_environment_policy.set has the switches",
             ("missing: " + ", ".join(miss[:8])) if miss else "")
+        fsm = re.search(r'^GIT_CONFIG_KEY_0\s*=\s*"core\.fsmonitor"', cfg, re.M) and \
+            re.search(r'^GIT_CONFIG_VALUE_0\s*=\s*"false"', cfg, re.M)
+        say("PASS" if fsm else "WARN", "Codex: git fsmonitor off in shell_environment_policy.set",
+            "" if fsm else "re-run install.sh (else every git call in the sandbox prints fsmonitor_ipc errors)")
     if LINUX:
         etc = read_text_file("/etc/environment") or ""
         miss = [k for k in want if not re.search(r"^%s=" % k, etc, re.M)]

@@ -431,6 +431,8 @@ def t_codex_env(work):
     else:
         assert 'GRAPHIFY_BACKEND = "none"' in text
     assert 'GIT_GUARD_AGENT = "1"' in text, "git guard agent mode for every command Codex runs"
+    for line in ('GIT_CONFIG_COUNT = "1"', 'GIT_CONFIG_KEY_0 = "core.fsmonitor"', 'GIT_CONFIG_VALUE_0 = "false"'):
+        assert line in text, "git fsmonitor off in the Codex sandbox (QA 2026-11-15): " + line
 
 
 def t_dropped(work):

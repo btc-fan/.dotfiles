@@ -293,5 +293,11 @@ EOT
     # once per request, before it picks the sandbox, so an approved command outside the sandbox gets it too
     # (codex-rs 0.167 core/src/unified_exec/process_manager.rs open_session_with_sandbox: create_env first).
     aiconf toml-set "$f" shell_environment_policy.set GIT_GUARD_AGENT '"1"'
-    ok "Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches and GIT_GUARD_AGENT in shell_environment_policy.set"
+    # git fsmonitor off, as for Claude (managed env): a global core.fsmonitor=true makes every git call in the
+    # Codex sandbox print "fsmonitor_ipc__send_query: unspecified error" (the daemon socket is out of reach;
+    # owner QA 2026-11-15, old Mac). Also: a planted .git/config fsmonitor program never runs.
+    aiconf toml-set "$f" shell_environment_policy.set GIT_CONFIG_COUNT '"1"'
+    aiconf toml-set "$f" shell_environment_policy.set GIT_CONFIG_KEY_0 '"core.fsmonitor"'
+    aiconf toml-set "$f" shell_environment_policy.set GIT_CONFIG_VALUE_0 '"false"'
+    ok "Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches, GIT_GUARD_AGENT and git fsmonitor off in shell_environment_policy.set"
 }
