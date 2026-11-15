@@ -831,8 +831,10 @@ reverse) at the repo root. grill-with-docs and domain-modeling update them durin
 
 def plugin_src(name):
     """The installer's audited copy of a plugin source on this machine (tools.sh plugin_src_dir)."""
+    # Server (root layer): /opt/agent-plugins. Mac and a light Linux (profile dev-mac, owner 2026-11-15): the home copy.
+    home_src = os.path.expanduser("~/.local/share/ai/plugins")
     base = os.environ.get("AI_PLUGIN_SRC") or ("/opt/agent-plugins" if sys.platform.startswith("linux")
-                                               else os.path.expanduser("~/.local/share/ai/plugins"))
+                                               and not os.path.isdir(home_src) else home_src)
     return os.path.join(base, name)
 
 
