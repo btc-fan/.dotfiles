@@ -2091,6 +2091,174 @@
     "worktree": "../wt2"
    },
    "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "rm -rf a tracked source folder",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf src"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "src/lib/util.py": "y = 2\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "git-tracked"
+   ]
+  },
+  {
+   "name": "rm -rf a tracked subfolder",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf src/lib/"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "src/lib/util.py": "y = 2\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "git-tracked"
+   ]
+  },
+  {
+   "name": "rm -rf a wildcard in a tracked folder",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf src/*"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "src/lib/util.py": "y = 2\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "git-tracked"
+   ]
+  },
+  {
+   "name": "cd into a tracked folder, rm -rf .",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd src && rm -rf ."
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "src/lib/util.py": "y = 2\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "contains": [
+    "Destructive command blocked",
+    "git-tracked"
+   ]
+  },
+  {
+   "name": "rm -rf an untracked scratch folder",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf scratch"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "src/lib/util.py": "y = 2\n",
+     "README.md": "r\n"
+    },
+    "commit": "init",
+    "dirty": {
+     "scratch/a.txt": "a\n"
+    }
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "rm -rf tracked rebuildable folders",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf dist build node_modules .venv __pycache__ graphify-out"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "src/lib/util.py": "y = 2\n",
+     "README.md": "r\n",
+     "dist/app.js": "1\n",
+     "build/x.o": "1\n",
+     "node_modules/a/i.js": "1\n",
+     ".venv/pyvenv.cfg": "1\n",
+     "__pycache__/a.pyc": "1\n",
+     "graphify-out/graph.json": "{}\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
+  },
+  {
+   "name": "rm -r one tracked file",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -r src/app.py"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "x = 1\n",
+     "src/lib/util.py": "y = 2\n",
+     "README.md": "r\n"
+    },
+    "commit": "init"
+   },
+   "not_contains": "Destructive command blocked"
   }
  ]
 }
