@@ -1042,12 +1042,13 @@ claude_managed_policy() {
 
 # Owner decision 2026-11-12: OMC is a Claude plugin, as on the Mac (oh-my-claudecode@omc at the newest stable
 # tag since 2026-11-14, OMC_PLUGIN_SOURCE in pins.env), exa MCP off (claude_env). AI_OMC_WIRING=cli keeps the old npm-CLI
-# route (`omc setup --no-plugin`), remove uninstalls the npm CLI. Set it in the environment of install.sh.
+# route (`omc setup --no-plugin`), keep leaves the installed OMC alone (owner 2026-11-15), remove uninstalls the npm CLI. Set it in the environment of install.sh.
 AI_OMC_WIRING=${AI_OMC_WIRING:-plugin}
 
 claude_omc_wiring() {
     case "$AI_OMC_WIRING" in
         cli) return 0 ;;
+        keep) info "OMC: installed copy kept as it is, no update and no scan (AI_OMC_WIRING=keep)" ;;
         plugin)
             claude_git_plugin omc-plugin omc Yeachan-Heo/oh-my-claudecode oh-my-claudecode@omc || true
             if [ "$AI_OS" = linux ]; then
@@ -1062,7 +1063,7 @@ claude_omc_wiring() {
         remove)
             if has omc; then manual "AI_OMC_WIRING=remove: admin runs: sudo npm uninstall -g oh-my-claude-sisyphus"; fi
             ;;
-        *) warn "AI_OMC_WIRING=$AI_OMC_WIRING is not cli, plugin or remove: nothing changed" ;;
+        *) warn "AI_OMC_WIRING=$AI_OMC_WIRING is not cli, plugin, keep or remove: nothing changed" ;;
     esac
     return 0
 }

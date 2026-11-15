@@ -38,7 +38,7 @@ def main():
         for test in (t_drop_claude, t_drop_keeps_shared_marketplace, t_drop_codex_and_serena, t_off_plugins,
                      t_serena_take, t_rtk_brew, t_rtk_no_brew, t_omx_node_fix, t_last30days, t_doctor,
                      t_omc_companion, t_drop_failures, t_rtk_brew_mismatch, t_codex_restore_quoted,
-                     t_yaml_top_set_block_list, t_skill_dups, t_omx_nvm_fix, t_rejected_sha_cached):
+                     t_yaml_top_set_block_list, t_skill_dups, t_omx_nvm_fix, t_rejected_sha_cached, t_omc_keep):
             for k, v in saved.items():
                 if v is None:
                     os.environ.pop(k, None)
@@ -868,6 +868,14 @@ def t_rejected_sha_cached(work):
     assert read(log) == "", "no clone, no scan: " + read(log)
     code, out = bash(LIBS + 'git_source_audited omc-plugin https://x/omc v9.9.8 %s' % ("b" * 40), env)
     assert "agent-audit dir" in read(log), "another commit is still scanned"
+
+
+def t_omc_keep(work):
+    """AI_OMC_WIRING=keep: the installed OMC stays as it is, nothing is cloned, scanned or changed."""
+    env = dict(os.environ, HOME=work, PATH=SYS_PATH, AI_HOME=REPO, PYTHONDONTWRITEBYTECODE="1")
+    code, out = bash(LIBS + 'AI_OS=macos; AI_OMC_WIRING=keep; claude_git_plugin() { echo GIT_PLUGIN; }; '
+                     'claude_omc_wiring', env)
+    assert code == 0 and "GIT_PLUGIN" not in out and "AI_OMC_WIRING=keep" in out, out
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@
 #   macOS, or a Linux user with sudo (one process): ~/.dotfiles-ai/install.sh [options]
 #
 #   options: [--dry-run] [--agents claude,codex,hermes,opencode,herdr] [--skip-packages] [--profile server|dev-mac]
-#            [--allow-dirty] [--yes] [--keep-claudeai-connectors]   env: AI_OMC_WIRING=plugin|cli|remove
+#            [--allow-dirty] [--yes] [--keep-claudeai-connectors]   env: AI_OMC_WIRING=plugin|cli|keep|remove
 #   profile: --profile NAME > ~/.config/ai/profile > OS default (Linux server, macOS dev-mac); saved there.
 #
 # Distribution = each agent's own extension points (plugins, `mcp add`, `config set`). Our own merge

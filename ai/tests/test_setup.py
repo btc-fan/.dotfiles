@@ -910,7 +910,7 @@ def t_readiness(work):
         assert kv in text, (kv, text)
     stub(bindir, "claude", "exit 0")
     code, out = bash(LIBS + "claude_plugin() { :; }; claude_has_plugin() { return 1; }; plugin_src_dir() { echo /none; }; "
-                     "claude_plugins", env)
+                     "claude_git_plugin() { :; }; claude_plugins", env)
     plugins = json.load(open(os.path.join(home, ".claude", "settings.json")))["enabledPlugins"]
     assert plugins.get("ai-serena@ai") is True and plugins.get("ai-playwright@ai") is False, plugins
 
