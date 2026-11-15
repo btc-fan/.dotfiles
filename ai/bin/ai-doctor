@@ -346,10 +346,13 @@ def check_validate():
 
 
 def check_tests():
-    runner = os.path.join(AI_DIR, "tests", "run.sh")
+    """The router cases only (about 400, under a minute). The whole suite (bash ai/tests/run.sh: installer, resolver,
+    tier 1) runs over 20 minutes and timed out here on both Macs (owner QA 2026-11-15): run it by hand."""
+    runner = os.path.join(AI_DIR, "tests", "test_router.py")
     if os.path.isfile(runner):
-        code, out = run(["bash", runner], timeout=900)    # about 200 router cases plus setup tests: minutes on a slow box
-        say("PASS" if code == 0 else "FAIL", "router tests (ai/tests/run.sh)", out[-600:] if code else "")
+        code, out = run([sys.executable, runner], timeout=600)
+        say("PASS" if code == 0 else "FAIL", "router tests (ai/tests/test_router.py; whole suite: bash ai/tests/run.sh)",
+            out[-600:] if code else "")
 
 
 def check_evals():

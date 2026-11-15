@@ -2083,7 +2083,8 @@ def knowledge_index(root, agent="claude"):
     Serena / graph only where the project enabled them. Empty outside a git repo."""
     if not root:
         return ""
-    bits = []
+    adopted = os.path.isfile(os.path.join(root, ".ai", "enabled"))
+    bits = ["tier: %s." % (project_tier(root) if adopted else "none (not adopted; ai-adopt sets it)")]
     mp = map_block(root)
     if mp is None:
         bits.append("Map: missing (ai-adopt writes it).")

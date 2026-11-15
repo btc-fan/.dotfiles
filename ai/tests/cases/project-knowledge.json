@@ -73,6 +73,37 @@
      "README.md": "# hi\n"
     }
    }
+  },
+  {
+   "name": "status line shows the project tier",
+   "expect": "fire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "main.py": "print(1)\n",
+     ".ai/enabled": "tier: long\nno-serena\nno-graph\n"
+    }
+   },
+   "contains": "tier: long. Map:"
+  },
+  {
+   "name": "status line: no tier before ai-adopt",
+   "expect": "fire",
+   "event": "SessionStart",
+   "payload": {
+    "source": "startup"
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "main.py": "print(1)\n"
+    }
+   },
+   "contains": "tier: none (not adopted; ai-adopt sets it)."
   }
  ]
 }
