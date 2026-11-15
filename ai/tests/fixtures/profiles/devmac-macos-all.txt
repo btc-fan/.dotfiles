@@ -72,7 +72,8 @@ undo --only ^cmd:uv(-root)?:guarddog$: 1 entr(y/ies) reversed
   [dry-run] undo    bin:osv-scanner echo undo bin:osv-scanner
 undo --only ^cmd:bin:osv-scanner$: 1 entr(y/ies) reversed
   planned: scanners not used by profile dev-mac removed: guarddog osv-scanner
-  oh-my-claudecode: the Mac uses the plugin route; npm route is Ubuntu only (contracts-mcp-c 1.6)
+  omc: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 5.8.4
+  omc 5.8.4 present (newest stable)
   codex: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 0.169.0
   codex 1.0.0 is not from npm ($WORK/devmac/bin/codex): left as it is (newest stable: 0.169.0)
   omx: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 0.22.6

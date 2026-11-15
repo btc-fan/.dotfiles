@@ -478,7 +478,10 @@ tools_harnesses() {
 
 tools_omc() {
     if ! root_layer; then
-        info "oh-my-claudecode: the Mac uses the plugin route; npm route is Ubuntu only (contracts-mcp-c 1.6)"
+        # Mac and light Linux: OMC is the Claude plugin; the npm package adds only the `omc` launcher
+        # (omc, omc launch, omc ask). No `omc setup`: the plugin route owns hooks and skills (owner 2026-11-15:
+        # `omc` was missing on Ubuntu).
+        npm_global omc oh-my-claude-sisyphus omc omc || true
         return 0
     fi
     case "${AI_OMC_WIRING:-plugin}" in
