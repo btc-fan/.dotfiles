@@ -94,10 +94,11 @@ npm_global() {
         fi
     fi
     audit_ok npm "$pkg" "$R_VERSION" || { [ -z "$have" ] || warn "$bin $have kept"; return 1; }
-    prefix=$(npm prefix -g 2>/dev/null || echo /usr)
-    if [ -w "$prefix/lib" ] || [ -w "$prefix" ]; then
+    prefix=${NPM_CONFIG_PREFIX:-$(npm prefix -g 2>/dev/null || echo /usr)}
+    [ -z "${NPM_CONFIG_PREFIX:-}" ] || run mkdir -p "$prefix/lib" "$prefix/bin"
+    if [ -n "${NPM_CONFIG_PREFIX:-}" ] || [ -w "$prefix/lib" ] || [ -w "$prefix" ]; then
         run npm install -g --ignore-scripts "$pkg@$R_VERSION" || { warn "npm install -g $pkg@$R_VERSION failed"; return 1; }
-    elif [ "$AI_MODE" = user ]; then
+    elif [ "$AI_MODE" = user ] || ! root_layer; then
         manual "needs admin: npm install -g --ignore-scripts $pkg@$R_VERSION ($(admin_cmd))"; return 1
     else
         run_root npm install -g --ignore-scripts "$pkg@$R_VERSION" || { warn "npm install -g $pkg@$R_VERSION failed"; return 1; }
@@ -178,11 +179,11 @@ uv_tool_linked() {
     [ -n "$(find "$d" -type f -links +1 -print -quit 2>/dev/null)" ]
 }
 
-bin_dir() { if [ "$AI_OS" = linux ]; then echo /usr/local/bin; else echo "$HOME/.local/bin"; fi; }
+bin_dir() { if root_layer; then echo /usr/local/bin; else echo "$HOME/.local/bin"; fi; }
 
 install_bin() {
     # install_bin <file> <name>
-    if [ "$AI_OS" = linux ]; then run_root install -m 755 "$1" "/usr/local/bin/$2"
+    if root_layer; then run_root install -m 755 "$1" "/usr/local/bin/$2"
     else run mkdir -p "$HOME/.local/bin" && run install -m 755 "$1" "$HOME/.local/bin/$2"; fi
 }
 
@@ -203,7 +204,7 @@ download_checked() {
 
 # Audited plugin source at the resolved tag. Linux: /opt/agent-plugins/<name>, root-owned, read-only.
 plugin_src_dir() {
-    if [ "$AI_OS" = linux ]; then echo "/opt/agent-plugins/$1"; else echo "$HOME/.local/share/ai/plugins/$1"; fi
+    if root_layer; then echo "/opt/agent-plugins/$1"; else echo "$HOME/.local/share/ai/plugins/$1"; fi
 }
 
 # src_head <dir>: the commit a plugin source clone is at (read from .git/HEAD: a detached checkout holds the
@@ -221,7 +222,7 @@ src_head() {
 # read-only for others (S8: the caller checked the tree has no links).
 src_swap() {
     local new=$1 dest=$2 key=$3 tag=".new.$$" old=".old.$$"
-    if [ "$AI_OS" = linux ]; then
+    if root_layer; then
         run_root mkdir -p "$(dirname "$dest")"
         run_root rm -rf "$dest$tag" "$dest$old"
         run_root mv "$new" "$dest$tag"
@@ -451,7 +452,7 @@ tools_harnesses() {
 
     if want claude; then
         if ! has claude; then
-            if [ "$AI_OS" = linux ]; then manual "install Claude Code from its signed apt repo (ubuntu-server base, phase 5c)"
+            if root_layer; then manual "install Claude Code from its signed apt repo (ubuntu-server base, phase 5c)"
             else manual "install Claude Code (official installer), then re-run"; fi
         fi
         tools_omc
@@ -467,7 +468,7 @@ tools_harnesses() {
 }
 
 tools_omc() {
-    if [ "$AI_OS" = macos ]; then
+    if ! root_layer; then
         info "oh-my-claudecode: the Mac uses the plugin route; npm route is Ubuntu only (contracts-mcp-c 1.6)"
         return 0
     fi
@@ -692,7 +693,7 @@ tools_scanners() {
             aud=", NOT audited (bootstrap)"
             warn "bootstrap: $bin $R_VERSION installed WITHOUT audit (no guarddog on this machine yet to audit it)"
         fi
-        if [ "$AI_OS" = linux ]; then
+        if root_layer; then
             run_root env UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin UV_LINK_MODE=copy \
                 uv tool install --force --no-build -p "$SCANNER_PYTHON" "$name==$R_VERSION" \
                 || { warn "$bin $R_VERSION install failed${have:+: $have kept}"; continue; }
@@ -812,7 +813,7 @@ tools_rtk() {
     fi
     if [ -n "$have" ] && [ "$R_STATUS" = cached ]; then info "rtk $have kept (offline: not rebuilt)"; return 0; fi
     if ! has cargo; then
-        if [ "$AI_OS" = linux ] && confirm "apt-get install cargo rustc pkg-config libssl-dev (to build RTK)?" y; then
+        if root_layer && confirm "apt-get install cargo rustc pkg-config libssl-dev (to build RTK)?" y; then
             run_root apt-get install -y -q cargo rustc pkg-config libssl-dev
         elif [ "$AI_OS" = macos ] && has brew && confirm "brew install rust (to build RTK)?" y; then
             run brew install rust
@@ -950,7 +951,7 @@ DROPPED_SYSTEM_KEYS='^(cmd:npm:docs-mcp|cmd:systemd:ai-docs-mcp|cmd:ufw:.*:6280|
 DROPPED_USER_KEYS='^(cmd|restore):(codex|hermes)-mcp:(github|grounded-docs)$|^json:.*opencode\.json:mcp/(github|grounded-docs)$'
 
 tools_drop_system() {
-    [ "$AI_OS" = linux ] || return 0
+    root_layer || return 0
     [ "$AI_MODE" = user ] && return 0
     if [ -f "$AI_SYSTEM_STATE_FILE" ] || [ "$AI_DRY_RUN" = 1 ]; then
         aiconf_root undo --only "$DROPPED_SYSTEM_KEYS"
@@ -1010,7 +1011,7 @@ tools_drop_user() {
 AI_BWRAP=/usr/local/lib/ai/bwrap
 
 tools_sandbox_deps() {
-    [ "$AI_OS" = linux ] || return 0
+    root_layer || return 0
     local missing="" c
     for c in bwrap socat rg; do has "$c" || missing="$missing $c"; done
     if [ -n "$missing" ]; then

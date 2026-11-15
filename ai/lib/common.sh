@@ -91,6 +91,11 @@ has() { command -v "$1" >/dev/null 2>&1; }
 # One agreed path: /usr/local/sbin/proj-agent (a normal user's call hands over to the socket).
 AI_PROJ_AGENT=${AI_PROJ_AGENT_PATH:-/usr/local/sbin/proj-agent}
 AI_PROJ_AGENT_SOCK=${AI_PROJ_AGENT_SOCK:-/run/proj-agent.sock}
+# root_layer: true on a Linux server with the root layer (profile server): sandbox, /etc, managed settings,
+# tools system-wide in /usr/local and /opt. Profile dev-mac on Linux (owner 2026-11-15): everything in the
+# user's home, as on the Mac; never sudo.
+root_layer() { [ "$AI_OS" = linux ] && [ "${PROFILE_ROOT_LAYER:-1}" = 1 ]; }
+
 box_present() {
     [ "${PROFILE_BOX:-1}" = 1 ] || return 1      # profile dev-mac: no box, ever
     [ "$AI_OS" = linux ] || return 1
@@ -100,7 +105,7 @@ box_present() {
 # Run a command line as the hermes user (login shell for its PATH). Only on Linux.
 # Always from hermes' own home: the caller's cwd (admin's home) is closed to hermes, and tools that
 # look at the cwd (serena --project-from-cwd in `hermes mcp add` probes) fail there.
-hermes_exists() { [ "$AI_OS" = linux ] && getent passwd "$HERMES_USER" >/dev/null 2>&1; }
+hermes_exists() { root_layer && getent passwd "$HERMES_USER" >/dev/null 2>&1; }
 hermes_home()   { getent passwd "$HERMES_USER" | cut -d: -f6; }
 as_hermes()     {
     if [ "$AI_MODE" = user ]; then manual "needs admin (Hermes): $1"; return 0; fi
@@ -147,7 +152,7 @@ aiconf_root() {
 # --allow-dirty (or AI_ALLOW_DIRTY=1). Then copy the helper to a root-owned place.
 # sudo_ready [noninteractive]
 sudo_ready() {
-    [ "$AI_OS" = linux ] || return 0
+    root_layer || return 0
     [ "$AI_MODE" = user ] && return 0     # the user part never calls sudo
     [ "$AI_MODE" = system ] && return 0   # system mode prepared by root_prepare
     [ "$AI_DRY_RUN" = 1 ] && { info "[dry-run] repo gate, sudo -v, install $AI_ROOT_HELPER (root:root)"; return 0; }

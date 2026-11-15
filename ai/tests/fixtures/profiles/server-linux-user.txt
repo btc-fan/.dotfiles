@@ -207,6 +207,8 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
   planned: Claude: house rules from /etc/claude-code/CLAUDE.md (no per-user import on Linux)
   [dry-run] block   ~/.codex/AGENTS.md AI:core v1 (N bytes)
   planned: Codex: managed block in ~/.codex/AGENTS.md (OMX blocks kept)
+  same    ~/.claude/CLAUDE.md no block AI:host
+  same    ~/.codex/AGENTS.md no block AI:host
 
 [11/13] environment: telemetry and auto-update off
   [dry-run] write   ~/.config/ai/env.sh new file

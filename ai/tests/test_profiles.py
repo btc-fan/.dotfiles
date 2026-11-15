@@ -308,7 +308,26 @@ def t_devmac_last30days(work):
     assert "undo --only ^cmd:codex-mcp:box$: 1 entr" in out and "mcp add box" not in out, out
 
 
-TESTS_LIST = [t_devmac_last30days, t_doctor_devmac, t_render_profiles, t_server_plan_unchanged, t_devmac_plan, t_profile_choice]
+def t_devmac_linux_plan(work):
+    """Profile dev-mac on Ubuntu (owner 2026-11-15: the same light setup as the Mac): everything in the user's
+    home, no sudo, nothing in /etc, /opt or /usr/local, no sandbox, no Hermes; skill-scanner as a user uv tool;
+    the projects folder line in the rules."""
+    env, home, bindir = fake_env(work, "devlinux", ("claude", "codex", "node", "npm", "uv"))
+    os.makedirs(os.path.join(home, "work"))
+    code, out = install(dict(env, AI_OS_FORCE="linux"), "--profile", "dev-mac", "--dry-run", "--yes")
+    assert code == 0, out
+    assert "Profile: dev-mac (--profile)." in out, out
+    plan = "\n".join(ln for ln in out.splitlines() if "manual:" not in ln and "ask the admin" not in ln)
+    for word in ("sudo ", "/etc/", "/opt/", "/usr/local/", "bwrap", "apparmor", "managed-settings", "Hermes",
+                 "system layer", "groupadd", "agent-audit npm"):
+        assert word not in plan, (word, [ln for ln in plan.splitlines() if word in ln][:3])
+    assert "uv tool install --force --no-build --managed-python -p 3.12 cisco-ai-skill-scanner==2.3.2" in out, out
+    assert "~/.local/share/ai/plugins/" in out, out
+    assert "rules: projects live in ~/work (host block)" in out, out
+    assert "[14/14] verify" in out, out
+
+
+TESTS_LIST = [t_devmac_last30days, t_doctor_devmac, t_render_profiles, t_server_plan_unchanged, t_devmac_plan, t_devmac_linux_plan, t_profile_choice]
 
 if __name__ == "__main__":
     sys.exit(main())

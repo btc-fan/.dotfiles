@@ -68,7 +68,8 @@ base_prereqs() {
             for c in $missing; do
                 case "$c" in git|jq|python3|curl) apt="$apt $c" ;; *) rest="$rest $c" ;; esac
             done
-            [ -n "$apt" ] && run_root apt-get install -y -q $apt && ok "apt-get install$apt"
+            if [ -n "$apt" ] && ! root_layer; then manual "ask the admin: sudo apt-get install -y$apt"
+            elif [ -n "$apt" ]; then run_root apt-get install -y -q $apt && ok "apt-get install$apt"; fi
             # node (NodeSource) and uv (sha256-checked release) come from the ubuntu-server base branch
             if [ -n "$rest" ]; then
                 manual "install$rest with the ubuntu-server base setup (signed repo / checksummed release), then re-run"
@@ -208,7 +209,7 @@ base_serena_config() {
 # source; also kept on Linux). ai-sync calls this too: without passwordless sudo it skips.
 # Never set allowManagedHooksOnly (it would block the oh-my-claudecode hooks).
 base_admin_layer() {
-    [ "$AI_OS" = linux ] || return 0
+    root_layer || return 0
     if [ ! -f "$AI_HOME/ai/AGENTS.md" ]; then warn "admin layer: ai/AGENTS.md not built, skipped"; return 0; fi
     if [ "$AI_DRY_RUN" != 1 ] && ! sudo -n true 2>/dev/null; then
         warn "admin layer: no passwordless sudo, /etc copies not refreshed"; return 0
@@ -247,7 +248,7 @@ base_sync_hook() {
 # A root helper (COPY, never a link) posts for it through one sudoers rule. The URL is never
 # copied into the user's home.
 base_webhook_helper() {
-    [ "$AI_OS" = linux ] || return 0
+    root_layer || return 0
     local src="$AI_HOME/ai/hooks/root/ai-webhook-post"
     [ -f "$src" ] || { skip "webhook helper: ai/hooks/root/ai-webhook-post not built (agent B)"; return 0; }
     if ! sudo -n test -f /etc/server/webhooks/info.url 2>/dev/null; then
@@ -304,6 +305,27 @@ claude_omc_companion_block() {
     ok "Claude: managed block also in $f (omc launch reads only that file)"
 }
 
+# base_host_block: one line per machine in the Claude and Codex rules: where the projects live (owner
+# 2026-11-15). Folder: AI_PROJECTS_DIR (saved in ~/.config/ai/projects-dir) > that file > ~/work if it exists.
+# No folder: the block is removed.
+base_host_block() {
+    local f="${AI_TARGET_HOME:-$HOME}/.config/ai/projects-dir" dir="${AI_PROJECTS_DIR:-}" tmp
+    if [ -n "$dir" ]; then
+        tmp=$(mktemp "${TMPDIR:-/tmp}/ai-pdir.XXXXXX"); printf '%s\n' "$dir" > "$tmp"
+        aiconf file-put "$f" "$tmp" --mode 644; rm -f "$tmp"
+    elif [ -r "$f" ]; then dir=$(sed -n '1{s/[[:space:]]*$//;p;}' "$f")
+    elif [ -d "${AI_TARGET_HOME:-$HOME}/work" ]; then dir="~/work"
+    fi
+    tmp=$(mktemp "${TMPDIR:-/tmp}/ai-host.XXXXXX")
+    printf 'This machine: projects live in %s (one folder per project, each a git repo). Look there first for a project the owner names.\n' "$dir" > "$tmp"
+    local file
+    for file in $(want claude && echo "$CLAUDE_DIR/CLAUDE.md") $(want codex && echo "$CODEX_DIR/AGENTS.md"); do
+        if [ -n "$dir" ]; then aiconf block-upsert "$file" host 1 "$tmp"; else aiconf block-remove "$file" host; fi
+    done
+    rm -f "$tmp"
+    [ -z "$dir" ] || ok "rules: projects live in $dir (host block)"
+}
+
 base_rules_user() {
     local tmp
     if [ ! -f "$AI_HOME/ai/AGENTS.md" ]; then
@@ -311,7 +333,7 @@ base_rules_user() {
         return 0
     fi
 
-    if want claude && [ "$AI_OS" = linux ]; then
+    if want claude && root_layer; then
         # Linux: house rules come from /etc/claude-code/CLAUDE.md (admin layer, cannot be excluded).
         # A per-user import would load them twice: none, and ours is removed if an older install added it.
         aiconf block-remove "$CLAUDE_DIR/CLAUDE.md" core
@@ -335,6 +357,7 @@ base_rules_user() {
         aiconf json-add "$OPENCODE_JSON" instructions "\"$HOME/.config/ai/AGENTS.md\""
         ok "opencode: instructions -> ~/.config/ai/AGENTS.md"
     fi
+    base_host_block
     return 0
 }
 
@@ -454,7 +477,7 @@ env_sh_file() {
 
 # Ubuntu, root: every user and user services get the switches; Claude managed settings merged.
 base_env_system() {
-    [ "$AI_OS" = linux ] || return 0
+    root_layer || return 0
     local tmp k
     tmp=$(mktemp "${TMPDIR:-/tmp}/ai-env.XXXXXX")
     env_sh_file > "$tmp"

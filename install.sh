@@ -89,6 +89,15 @@ main() {
     # Profile (owner decision 2026-11-14): server or dev-mac, ai/profiles/<name>.env. System mode: the target user's file.
     AI_PROFILE_FILE="${AI_TARGET_HOME:-$HOME}/.config/ai/profile"
     ai_profile_resolve "$AI_HOME/ai" "$AI_OS" "$AI_PROFILE_ARG" || exit 1
+    if [ "$AI_OS" = linux ] && ! root_layer; then
+        # Profile without the root layer on Linux (owner 2026-11-15): all in the user's home, as on the Mac.
+        [ "$AI_MODE" = system ] && die "profile $AI_PROFILE has no root layer: run ~/.dotfiles-ai/install.sh as the user"
+        SUDO_UNDO=""
+        # npm -g into ~/.local (codex, omx) when the system prefix is not writable; ~/.local/bin is on PATH.
+        if [ -z "${NPM_CONFIG_PREFIX:-}" ] && has npm && ! [ -w "$(npm prefix -g 2>/dev/null || echo /usr)/lib" ]; then
+            NPM_CONFIG_PREFIX=$HOME/.local; export NPM_CONFIG_PREFIX
+        fi
+    fi
     for f in base tools claude codex hermes opencode herdr; do . "$AI_HOME/ai/adapters/$f.sh"; done
     load_pins
     # Each tool is resolved once per run (the sources step fills this; the install steps read it).
@@ -180,7 +189,7 @@ run_user() {
 # macOS, or a Linux user with sudo: one process, today's behaviour.
 run_all() {
     STEP_TOTAL=14
-    [ "$AI_OS" = linux ] && STEP_TOTAL=16
+    root_layer && STEP_TOTAL=16
     if pgrep -x claude >/dev/null 2>&1; then
         warn "a Claude session is running: settings are written atomically, restart the session after install"
     fi
@@ -196,12 +205,12 @@ run_all() {
     step "hooks (plugin owns them; vendor hooks: RTK, herdr, graphify)"; do_hooks
     step "root rules (managed blocks; other blocks kept)";      base_rules_user
     step "environment: telemetry and auto-update off";          base_env_user
-    if [ "$AI_OS" = linux ]; then
+    if root_layer; then
         step "system layer: /etc env, managed settings, admin rules, webhook helper"; do_system_layer
         step "Hermes (user $HERMES_USER)";                       do_hermes
     fi
     step "git hooks: ai-sync after each pull";                  base_sync_hook
-    [ "$AI_OS" = linux ] && { tools_drop_system; agents_drop_system; }
+    root_layer && { tools_drop_system; agents_drop_system; }
     step "verify";                                              do_verify
 }
 
@@ -229,7 +238,7 @@ run_user_part() {
 # ---------------------------------------------------------------- step groups
 
 first_question() {
-    [ "$AI_OS" = linux ] || return 0
+    root_layer || return 0
     if confirm_default_no "Is this a new Ubuntu server that needs the base server setup first?"; then
         cat <<'EOF'
 

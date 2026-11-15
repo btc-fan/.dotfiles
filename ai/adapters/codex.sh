@@ -176,7 +176,7 @@ stable_node() {
 # workspace-write keeps the network off by default. Codex cannot deny reads of home files (no read deny list
 # in its sandbox): a documented gap, covered by no network in workspace-write.
 codex_system_policy() {
-    [ "$AI_OS" = linux ] && [ "$AI_MODE" != user ] || return 0
+    root_layer && [ "$AI_MODE" != user ] || return 0
     want codex || return 0
     local tmp; tmp=$(mktemp "${TMPDIR:-/tmp}/ai-codex-req.XXXXXX")
     cat > "$tmp" <<'EOR'
@@ -204,7 +204,7 @@ EOR
 # hooks file, so Codex does not also load an untrusted plugin copy ("Hooks need review" every start).
 # Not used in "all" mode (AI_HOME is a user-writable work tree) or on macOS: there, trust hashes.
 codex_system_hooks() {
-    [ "$AI_OS" = linux ] && [ "$AI_MODE" = system ] || return 0
+    root_layer && [ "$AI_MODE" = system ] || return 0
     want codex || return 0
     local p tmp th extra=""
     p=$(PLUGIN_DIR)

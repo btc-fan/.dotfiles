@@ -1005,7 +1005,7 @@ EOS
 # managed-settings.json keys (merge; only these keys): the Bash sandbox, the planted-config lock, the RTK
 # hook as a managed hook, and a git setting that a planted .git/config cannot turn into code execution.
 claude_managed_policy() {
-    [ "$AI_OS" = linux ] || return 0
+    root_layer || return 0
     local ms=/etc/claude-code/managed-settings.json rtk_bin
     aiconf_root json-set "$ms" sandbox "$(claude_sandbox_json_final)" --mode 644
     # Planted project config: project/user/local settings hooks and project .mcp.json / ~/.claude.json MCP
@@ -1051,7 +1051,7 @@ claude_omc_wiring() {
         keep) info "OMC: installed copy kept as it is, no update and no scan (AI_OMC_WIRING=keep)" ;;
         plugin)
             claude_git_plugin omc-plugin omc Yeachan-Heo/oh-my-claudecode oh-my-claudecode@omc || true
-            if [ "$AI_OS" = linux ]; then
+            if root_layer; then
                 # Owner decision 2026-11-12 (servers only; the Mac keeps it on): installed, OFF at user scope
                 # (6.7k tokens per session, .omc/ in every repo). A project turns it on: ai-adopt --tools omc.
                 aiconf json-set "$CLAUDE_DIR/settings.json" "enabledPlugins/oh-my-claudecode@omc" false
