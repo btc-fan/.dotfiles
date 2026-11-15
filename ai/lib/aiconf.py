@@ -129,6 +129,10 @@ def main():
     s.add_argument("--needle", required=True, help="only handlers whose command contains this text")
     s.add_argument("--prefix", action="append", default=[], help="Homebrew prefix (repeatable)")
     s.add_argument("--config", default="", help="Codex config.toml: a trusted_hash of a changed hook moves along")
+    s.add_argument("--node", default="", help="the stable node for a handler whose node path no longer exists")
+    s.add_argument("--root", action="append", default=[],
+                   help="node install prefix (repeatable) where a missing <x>/lib/node_modules/<pkg> path is looked up")
+    s.add_argument("--nvm-dir", default="", help="~/.nvm: its versions/node/* are roots too, newest first")
 
     s = sub.add_parser("mcp-register", help="register our MCP servers in codex | hermes")
     s.add_argument("agent", choices=["codex", "hermes"])
@@ -635,35 +639,85 @@ def cmd_codex_drop_mcp(a):
 
 
 CELLAR_NODE_RX = r"(?P<prefix>%s)/Cellar/node/[^/\s\"']+/bin/node"
+PATH_TOKEN_RX = re.compile(r'"(/[^"]+)"|\'(/[^\']+)\'|(?<![\w"\'/])(/[^\s"\']+)')
+
+
+def nvm_versions(nvm_dir):
+    """<nvm>/current (NVM_SYMLINK_CURRENT), then <nvm>/versions/node/v*, newest first."""
+    if not nvm_dir:
+        return []
+    out = [os.path.join(nvm_dir, "current")] if os.path.isdir(os.path.join(nvm_dir, "current")) else []
+    base = os.path.join(nvm_dir, "versions", "node")
+    try:
+        names = [n for n in os.listdir(base) if re.match(r"^v\d+(\.\d+)*$", n)]
+    except OSError:
+        names = []
+    names.sort(key=lambda n: [int(x) for x in n[1:].split(".")], reverse=True)
+    return out + [os.path.join(base, n) for n in names]
+
+
+def relocate_missing(cmd, node, roots):
+    """cmd with a missing node interpreter replaced by `node` and a missing <x>/lib/node_modules/<rest> path moved
+    to the first root that has <root>/lib/node_modules/<rest>. A bare `node` interpreter of a command that changed
+    becomes `node` too (absolute: the hook runs without the login shell that loads nvm)."""
+    changed = [False]
+
+    def fix(m):
+        path = next(g for g in m.groups() if g)
+        if os.path.exists(path):
+            return m.group(0)
+        new = None
+        if os.path.basename(path) == "node" and node and os.path.isfile(node):
+            new = node
+        elif "/lib/node_modules/" in path:
+            rest = path.split("/lib/node_modules/", 1)[1]
+            new = next((c for c in (os.path.join(r.rstrip("/"), "lib", "node_modules", rest) for r in roots)
+                        if os.path.exists(c)), None)
+        if not new:
+            return m.group(0)
+        changed[0] = True
+        return m.group(0).replace(path, new)
+
+    out = PATH_TOKEN_RX.sub(fix, cmd)
+    if changed[0] and node and os.path.isfile(node) and re.match(r"^node(\s|$)", out):
+        out = '"%s"%s' % (node, out[4:])
+    return out
 
 
 def cmd_hooks_node_fix(a):
     """Hook handlers (command contains --needle) that start node from a versioned Homebrew Cellar folder break on
     the next `brew upgrade node`. Point them to <prefix>/opt/node/bin/node, Homebrew's stable link, when it
-    exists. Only that path changes. A Codex trusted_hash that matched the old handler moves to the new one (the
-    user trusted exactly that hook); any other trust entry stays as it is. Recorded; undo puts both back."""
+    exists. A handler whose node or script path no longer exists (an nvm version folder after an nvm update; owner
+    QA 2026-11-15: ~/.nvm/versions/node/v24.13.0, now v24.18.0) gets --node, and its <x>/lib/node_modules/<pkg>
+    script path the same path under the first --root or nvm version that has it. Only those paths change. A Codex
+    trusted_hash that matched the old handler moves to the new one (the user trusted exactly that hook); any other
+    trust entry stays as it is. Recorded; undo puts both back."""
     if not os.path.exists(a.file):
         return say("same", a.file, "missing")
     prefixes = [p.rstrip("/") for p in a.prefix if p and os.path.isfile(os.path.join(p, "opt", "node", "bin", "node"))]
-    if not prefixes:
-        return say("same", a.file, "no <brew prefix>/opt/node/bin/node: hook commands left as they are")
-    rx = re.compile(CELLAR_NODE_RX % "|".join(re.escape(p) for p in prefixes))
+    rx = re.compile(CELLAR_NODE_RX % "|".join(re.escape(p) for p in prefixes)) if prefixes else None
+    roots = [r for r in a.root if r] + nvm_versions(a.nvm_dir)
     data, _ = load_json(a.file)
     pairs, trust = {}, {}
     for event, groups in (data.get("hooks") or {}).items():
         for gi, g in enumerate(groups or []):
             for hi, h in enumerate(g.get("hooks") or []):
                 cmd = h.get("command", "")
-                if a.needle not in cmd or not rx.search(cmd):
+                if a.needle not in cmd:
+                    continue
+                new = rx.sub(lambda m: m.group("prefix") + "/opt/node/bin/node", cmd) if rx else cmd
+                new = relocate_missing(new, a.node, roots)
+                if new == cmd:
                     continue
                 old_hash = codex_hook_hash(event, g.get("matcher"), h)
-                new = rx.sub(lambda m: m.group("prefix") + "/opt/node/bin/node", cmd)
                 h["command"] = new
                 pairs[cmd] = new
                 trust["%s:%s:%d:%d" % (a.file, codex_event_label(event), gi, hi)] = \
                     (old_hash, codex_hook_hash(event, g.get("matcher"), h), cmd)
     if not pairs:
-        return say("same", a.file, "no %s hook on a versioned Cellar node" % a.needle)
+        if not prefixes:
+            return say("same", a.file, "no <brew prefix>/opt/node/bin/node: hook commands left as they are")
+        return say("same", a.file, "no %s hook on a versioned Cellar node or a missing node path" % a.needle)
     write_json(a.file, data)
     moved = {}
     if a.config and os.path.exists(a.config):

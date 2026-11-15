@@ -145,15 +145,32 @@ codex_hooks() {
 # OMX writes its Codex hooks with the node it ran under. With Homebrew node that is a versioned Cellar path
 # (/opt/homebrew/Cellar/node/<ver>/bin/node), gone after the next `brew upgrade node`. Owner decision
 # 2026-11-14: those oh-my-codex commands point to Homebrew's stable link <prefix>/opt/node/bin/node when it
-# exists (recorded; a trust hash the user gave the old command moves along). Nothing else of OMX changes.
+# exists (recorded; a trust hash the user gave the old command moves along). With nvm the node and the OMX
+# script live in ~/.nvm/versions/node/<ver>, gone after an nvm update (owner QA 2026-11-15): a missing path
+# gets the current node and the same script under the node prefix that has it. Nothing else of OMX changes.
 codex_omx_node_fix() {
     [ -f "$CODEX_DIR/hooks.json" ] || return 0
-    local args="" p
+    local args="" p node
     for p in $( { has brew && brew --prefix 2>/dev/null; } || true) ${AI_BREW_PREFIXES-/opt/homebrew /usr/local}; do
-        args="$args --prefix $p"
+        args="$args --prefix $p --root $p"
     done
+    node=$(stable_node)
+    [ -z "$node" ] || args="$args --node $node --root $(dirname "$(dirname "$node")")"
     # shellcheck disable=SC2086
-    aiconf hooks-node-fix "$CODEX_DIR/hooks.json" --needle oh-my-codex $args --config "$CODEX_DIR/config.toml"
+    aiconf hooks-node-fix "$CODEX_DIR/hooks.json" --needle oh-my-codex $args --nvm-dir "${NVM_DIR:-$HOME/.nvm}" \
+        --config "$CODEX_DIR/config.toml"
+}
+
+# The node a hook should name: Homebrew's stable <prefix>/opt/node/bin/node, else nvm's `current` link
+# (NVM_SYMLINK_CURRENT), else the node on PATH now (resolved at install time).
+stable_node() {
+    local p
+    for p in $( { has brew && brew --prefix 2>/dev/null; } || true) ${AI_BREW_PREFIXES-/opt/homebrew /usr/local}; do
+        [ -x "$p/opt/node/bin/node" ] && { printf '%s\n' "$p/opt/node/bin/node"; return 0; }
+    done
+    p="${NVM_DIR:-$HOME/.nvm}/current/bin/node"
+    [ -x "$p" ] && { printf '%s\n' "$p"; return 0; }
+    command -v node 2>/dev/null || true
 }
 
 # Linux admin installs: Codex sandbox and approvals pinned through the documented managed layer

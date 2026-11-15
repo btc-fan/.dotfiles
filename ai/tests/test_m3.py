@@ -38,7 +38,7 @@ def main():
         for test in (t_drop_claude, t_drop_keeps_shared_marketplace, t_drop_codex_and_serena, t_off_plugins,
                      t_serena_take, t_rtk_brew, t_rtk_no_brew, t_omx_node_fix, t_last30days, t_doctor,
                      t_omc_companion, t_drop_failures, t_rtk_brew_mismatch, t_codex_restore_quoted,
-                     t_yaml_top_set_block_list, t_skill_dups):
+                     t_yaml_top_set_block_list, t_skill_dups, t_omx_nvm_fix):
             for k, v in saved.items():
                 if v is None:
                     os.environ.pop(k, None)
@@ -539,6 +539,45 @@ def t_omx_node_fix(work):
     code, out = run_undo(env, home)
     assert code == 0 and "no longer exists" in out, out
     assert jload(hj)["hooks"]["Stop"][0]["hooks"][0]["command"] == omx_hook(stable), "undo keeps the working path"
+
+
+def t_omx_nvm_fix(work):
+    """QA 2026-11-15 item 6 (old Mac): every oh-my-codex hook named a script in ~/.nvm/versions/node/v24.13.0, gone
+    after an nvm update to v24.18.0. Install points it to the current node and the same script under the version
+    that has it (recorded; idempotent; undo puts it back); other hooks stay; ai-doctor FAILs a missing path."""
+    env, home, bindir = env_for(work)
+    env["AI_BREW_PREFIXES"] = ""
+    new = os.path.join(home, ".nvm", "versions", "node", "v24.18.0")
+    stub(os.path.join(new, "bin", "node"), "#!/bin/sh\n")
+    write(os.path.join(new, "lib", "node_modules", "oh-my-codex", "dist", "scripts", "codex-native-hook.js"), "")
+    os.makedirs(os.path.join(home, ".nvm", "versions", "node", "v9.1.0"))
+    env["PATH"] = os.path.join(new, "bin") + ":" + env["PATH"]
+    script = "lib/node_modules/oh-my-codex/dist/scripts/codex-native-hook.js"
+    old_cmd = 'node "%s/.nvm/versions/node/v24.13.0/%s"' % (home, script)
+    hj = os.path.join(home, ".codex", "hooks.json")
+    hooks = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": old_cmd}]}],
+                       "PreToolUse": [{"hooks": [{"type": "command", "command": "rtk hook codex"}]}]}}
+    write(hj, json.dumps(hooks))
+    code, out = bash(LIBS + "codex_omx_node_fix", env)
+    assert code == 0, out
+    want = '"%s/bin/node" "%s/%s"' % (new, new, script)
+    data = jload(hj)["hooks"]
+    assert data["Stop"][0]["hooks"][0]["command"] == want, (data, out)
+    assert data["PreToolUse"][0]["hooks"][0]["command"] == "rtk hook codex"
+    code, out = bash(LIBS + "codex_omx_node_fix", env)
+    assert code == 0 and jload(hj)["hooks"]["Stop"][0]["hooks"][0]["command"] == want, out
+    code, out = run_undo(env, home)
+    assert code == 0 and jload(hj) == hooks, out
+    os.environ.update({"HOME": home, "CODEX_HOME": os.path.join(home, ".codex"),
+                       "CLAUDE_CONFIG_DIR": os.path.join(home, ".claude")})
+    write(os.path.join(home, ".claude", "settings.json"), json.dumps({"hooks": {"Stop": [{"hooks": [
+        {"type": "command", "command": "/gone/bin/python3 /x/hook.py"}]}]}}))
+    doc = load_doctor(env)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        doc.check_hook_paths()
+    text = buf.getvalue()
+    assert "FAIL hook interpreter or script path missing" in text and "v24.13.0" in text and "/gone/bin/python3" in text, text
 
 
 def t_last30days(work):

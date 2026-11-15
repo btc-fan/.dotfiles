@@ -28,6 +28,7 @@ ai/rules/vendor/ holds byte copies of vendor templates and is not checked as con
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -90,6 +91,7 @@ def main(argv):
     check_drops_and_defaults()
     check_claude_policy()
     check_hooks_absolute()
+    check_hook_paths()
     check_serena_config()
     check_no_duplicate_layers()
     check_skill_dups()
@@ -763,6 +765,29 @@ def check_hooks_absolute():
     box = (mcp.get("mcpServers") or {}).get("box") or {}
     ok = box.get("command") == "/usr/bin/python3" and int(box.get("timeout") or 0) >= 3600 * 1000
     say("PASS" if ok else "FAIL", "box MCP server: absolute python, tool timeout covers a 3600 s exec")
+
+
+def check_hook_paths():
+    """Owner QA 2026-11-15 (old Mac): every OMX Codex hook named a node script in an nvm version folder that an
+    nvm update removed, so each hook failed. FAIL a user hook (Claude settings.json, Codex hooks.json) whose
+    interpreter or script path (the first two words) is absolute and does not exist."""
+    bad = []
+    for label, path in (("~/.claude/settings.json", os.path.join(CLAUDE_DIR, "settings.json")),
+                        ("~/.codex/hooks.json", os.path.join(CODEX_HOME, "hooks.json"))):
+        data = load_json_file(path) or {}
+        for groups in (data.get("hooks") or {}).values() if isinstance(data.get("hooks"), dict) else []:
+            for g in groups or []:
+                for h in (g.get("hooks") or []) if isinstance(g, dict) else []:
+                    try:
+                        words = shlex.split(h.get("command") or "")[:2]
+                    except ValueError:
+                        continue
+                    gone = [w for w in words if w.startswith("/") and not os.path.exists(w)]
+                    if gone:
+                        bad.append("%s: %s" % (label, gone[0]))
+    say("PASS" if not bad else "FAIL", "hook interpreter or script path missing" if bad else
+        "hook interpreters and scripts exist (Claude settings.json, Codex hooks.json)",
+        ("; ".join(sorted(set(bad))[:5]) + " (re-run install.sh: OMX hooks get the current node)") if bad else "")
 
 
 def check_uv_links():
