@@ -462,6 +462,8 @@ def check_codex_trust():
     for pid in ("ponytail@ponytail", "i-have-adhd@i-have-adhd"):
         if "agent-plugins/" + pid.split("@")[0] in mtext:
             cmd += ["--disable", pid, "--verify-source", "%s=/opt/agent-plugins/%s" % (pid, pid.split("@")[0])]
+        elif os.path.isdir(plugin_src(pid.split("@")[0])):
+            cmd += ["--verify-source", "%s=%s" % (pid, plugin_src(pid.split("@")[0]))]
     code, out = run(cmd)
     rows = [ln for ln in out.splitlines() if ln[:4] in ("PASS", "FAIL")]
     bad = [ln.split(": ", 1)[-1] for ln in rows if ln.startswith("FAIL")]
@@ -473,6 +475,11 @@ def check_codex_trust():
         % (len(rows) - len(bad), len(rows)), "" if code == 0 else
         "untrusted: %s\nfix: ai-sync (or re-run install.sh) writes the trust hashes; if Codex still lists them as "
         "untrusted in /hooks, trust them there once" % "; ".join(bad[:4]) if rows else out[-300:])
+
+
+def plugin_src(name):
+    """Audited vendor plugin source (adapters/tools.sh plugin_src_dir)."""
+    return os.path.join("/opt/agent-plugins" if LINUX else os.path.join(HOME, ".local", "share", "ai", "plugins"), name)
 
 
 def claude_settings():

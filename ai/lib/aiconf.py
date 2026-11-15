@@ -786,6 +786,10 @@ CODEX_SHORT_EVENTS = {"SessionEnd", "Interrupt"}
 # output_spill.rs: additionalContextLimit is part of the identity only on these events.
 CODEX_CONTEXT_LIMIT_EVENTS = {"PreToolUse", "PostToolUse", "SessionStart", "UserPromptSubmit", "SubagentStart"}
 CODEX_OUR_PLUGINS = [("ai-core", "ai")]
+# Audited vendor plugins (owner QA 2026-11-15: their Codex hooks were never trusted, so Codex sessions got no ADHD
+# or Ponytail). Trusted only with --verify-source: the content hash is approved when the cache equals the audited
+# source copy (never for a plugin whose hooks run from /etc/codex: --disable wins).
+CODEX_AUDITED_PLUGINS = [("ponytail", "ponytail"), ("i-have-adhd", "i-have-adhd")]
 # The exact commands our vendors write into ~/.codex/hooks.json (full match only):
 #   rtk v1.2.0 src/hooks/constants.rs CODEX_HOOK_COMMAND "rtk hook codex" (bare or absolute path);
 #   graphify 0.9.105 install.py _install_codex_hook: "<graphify path> hook-check" (quoted when it has spaces).
@@ -824,14 +828,16 @@ def codex_hook_hash(event, matcher, handler):
     return "sha256:" + hashlib.sha256(canonical_json(ident).encode("utf-8")).hexdigest()
 
 
-def codex_plugin_content_hash(root):
-    """plugin_fingerprint.rs: DFS over the installed plugin tree, names sorted, bytecode/venv skipped."""
+def codex_plugin_content_hash(root, skip=()):
+    """plugin_fingerprint.rs: DFS over the installed plugin tree, names sorted, bytecode/venv skipped.
+    skip: more names to leave out (the cache-equals-source check skips .git: a vendor clone's .git holds a
+    git fsmonitor socket and changes on every fetch; hooks never run from it)."""
     h = hashlib.sha256(b"codex-plugin-bundle-v1")
     pending = [""]
     while pending:
         rel = pending.pop()
         name = rel.rsplit("/", 1)[-1] if rel else ""
-        if name in ("__pycache__", ".venv") or name.endswith((".pyc", ".egg-info")):
+        if name in ("__pycache__", ".venv") or name.endswith((".pyc", ".egg-info")) or (rel and name in skip):
             continue
         raw = rel.encode("utf-8", "surrogateescape")
         h.update(struct_u64(len(raw)))
@@ -896,11 +902,12 @@ def codex_plugin_hook_files(root):
     return out
 
 
-def codex_default_sources(codex_home):
-    """Our hooks in this Codex home: [{key, file, match, root}] (empty when ai-core is not installed)."""
+def codex_default_sources(codex_home, audited=()):
+    """Our hooks in this Codex home: [{key, file, match, root}] (empty when ai-core is not installed), plus the
+    plugin hooks of the audited plugins named in `audited` (plugin@marketplace)."""
     codex_home = os.path.expanduser(codex_home)
     out, found = [], False
-    for plugin, market in CODEX_OUR_PLUGINS:
+    for plugin, market in CODEX_OUR_PLUGINS + [p for p in CODEX_AUDITED_PLUGINS if "%s@%s" % p in audited]:
         root = codex_active_plugin_root(codex_home, plugin, market)
         if not root:
             continue
@@ -995,8 +1002,9 @@ def codex_disable_keys(codex_home, plugin_ids):
 def cmd_codex_trust_hooks(a):
     home = os.path.dirname(os.path.abspath(os.path.expanduser(a.config)))
     sources = [parse_trust_source(x) for x in a.source]
+    audited = [s.partition("=")[0] for s in a.verify_source if s.partition("=")[0] not in a.disable]
     if a.auto:
-        sources += codex_default_sources(home)
+        sources += codex_default_sources(home, audited)
     want = {k: {"trusted_hash": h, "trusted_content_hash": c}
             for k, (h, c) in codex_wanted_trust(sources).items()}
     want.update(codex_disable_keys(home, a.disable))
@@ -1009,18 +1017,19 @@ def cmd_codex_trust_hooks(a):
         root = codex_active_plugin_root(home, name, market)
         if not any(k.startswith(pid + ":") for k in want):
             continue        # nothing of that plugin to approve (e.g. ai-core hooks live in /etc/codex)
-        if root and os.path.isdir(src) and codex_plugin_content_hash(root) != codex_plugin_content_hash(src):
+        same = lambda: codex_plugin_content_hash(root, (".git",)) == codex_plugin_content_hash(src, (".git",))  # noqa: E731
+        if root and os.path.isdir(src) and not same():
             if a.refresh_stale and not a.check:
                 # `codex plugin add` keeps a cache whose version number did not change: copy the source.
-                replace_tree(src, root)
+                replace_tree(src, root, ignore=(".git",))
                 say("refresh", root, "plugin cache replaced by its source %s" % src)
-                if codex_plugin_content_hash(root) == codex_plugin_content_hash(src):
+                if same():
                     for k in [k for k in want if k.startswith(pid + ":")]:
                         del want[k]
                     if pid in a.disable:
                         want.update(codex_disable_keys(home, [pid]))
                     else:
-                        fresh = [x for x in codex_default_sources(home) if x["key"].startswith(pid + ":")]
+                        fresh = [x for x in codex_default_sources(home, audited) if x["key"].startswith(pid + ":")]
                         want.update({k: {"trusted_hash": h, "trusted_content_hash": c}
                                      for k, (h, c) in codex_wanted_trust(fresh).items()})
                     continue
@@ -1203,15 +1212,16 @@ def absolute_command(cmd, safe_path, allow_user_owned=False):
     return m.group(1) + shlex.quote(path) + m.group(3), ""
 
 
-def replace_tree(src, dest):
-    """dest becomes an exact copy of src (links kept as links): copy next to it, swap, drop the old copy."""
+def replace_tree(src, dest, ignore=()):
+    """dest becomes an exact copy of src (links kept as links; `ignore` names left out): copy next to it, swap,
+    drop the old copy."""
     if DRY:
         print("  [dry-run] replace %s with a copy of %s" % (dest, src))
         return
     parent = os.path.dirname(dest.rstrip("/"))
     tmp = tempfile.mkdtemp(prefix=".ai-new-", dir=parent)
     new = os.path.join(tmp, "x")
-    shutil.copytree(src, new, symlinks=True)
+    shutil.copytree(src, new, symlinks=True, ignore=shutil.ignore_patterns(*ignore) if ignore else None)
     old = None
     if os.path.lexists(dest):
         old = os.path.join(tmp, "old")

@@ -32,7 +32,7 @@ def main():
     try:
         for test in (t_codex_trust, t_codex_trust_hash_pin, t_codex_managed, t_claude_permissions, t_path_block, t_hermes_disabled,
                      t_claude_handoff, t_codex_env, t_dropped, t_sandbox_policy, t_hooks_remove, t_knowledge_status, t_session_start_order,
-                     t_user_hook_match, t_verify_source, t_connectors_keep, t_sudo_gate, t_gate_skip_owner_only,
+                     t_user_hook_match, t_verify_source, t_audited_plugin_trust, t_connectors_keep, t_sudo_gate, t_gate_skip_owner_only,
                      t_root_guard, t_update_clone, t_ai_sync_untrusted, t_plugin_files_tracked,
                      t_hooks_absolute, t_uv_copy, t_box_registration, t_readiness, t_managed_router,
                      t_owner_2026_11_12, t_graph_refresh, t_env_key_outside_trust_block):
@@ -680,6 +680,44 @@ def t_verify_source(work):
     code, out = aiconf(os.devnull, "codex-trust-hooks", cfg, "--auto", "--check", "--verify-source",
                        "ai-core@ai=" + plugin_snapshot(work))
     assert code == 0, out
+
+
+def t_audited_plugin_trust(work):
+    """QA 2026-11-15 item 7: the audited Ponytail and i-have-adhd Codex hooks were never trusted (a manual /hooks
+    step), so Codex sessions got no ADHD or Ponytail. With --verify-source they are trusted like ai-core: only
+    while the cache equals the audited source (.git left out of that check: a vendor clone holds a git fsmonitor
+    socket there); never without --verify-source; --disable wins."""
+    home, _root = fake_codex_home(work)
+    cfg = os.path.join(home, "config.toml")
+    write(cfg, 'model = "x"\n')
+    src = os.path.join(work, "plugins", "ponytail")
+    write(os.path.join(src, ".codex-plugin", "plugin.json"), json.dumps({"name": "ponytail", "hooks": "./hooks/hooks.json"}))
+    write(os.path.join(src, "hooks", "hooks.json"), json.dumps({"hooks": {"SessionStart": [{"hooks": [
+        {"type": "command", "command": "node ./hooks/ponytail.js"}]}]}}))
+    write(os.path.join(src, "hooks", "ponytail.js"), "1\n")
+    cache = os.path.join(home, "plugins", "cache", "ponytail", "ponytail", "5.3.3")
+    shutil.copytree(src, cache)
+    os.makedirs(os.path.join(src, ".git"))
+    os.mkfifo(os.path.join(src, ".git", "fsmonitor--daemon.ipc"))       # not a file: the hash cannot read it
+    key = "ponytail@ponytail:hooks/hooks.json:session_start:0:0"
+    code, out = aiconf(os.path.join(work, "s.json"), "codex-trust-hooks", cfg, "--auto")
+    assert code == 0 and key not in read(cfg), "no --verify-source: not trusted\n" + out
+    vs = ["--verify-source", "ponytail@ponytail=" + src]
+    code, out = aiconf(os.path.join(work, "s.json"), "codex-trust-hooks", cfg, "--auto", *vs)
+    assert code == 0 and key in read(cfg), out
+    code, out = aiconf(os.devnull, "codex-trust-hooks", cfg, "--auto", "--check", *vs)
+    assert code == 0 and "PASS Codex hook trusted: " + key in out, out
+    with open(os.path.join(cache, "hooks", "ponytail.js"), "a") as fh:
+        fh.write("tampered\n")
+    code, out = aiconf(os.devnull, "codex-trust-hooks", cfg, "--auto", "--check", *vs)
+    assert code == 1 and "FAIL Codex plugin ponytail@ponytail" in out, out
+    code, out = aiconf(os.path.join(work, "s.json"), "codex-trust-hooks", cfg, "--auto", "--refresh-stale", *vs)
+    assert code == 0 and "tampered" not in read(os.path.join(cache, "hooks", "ponytail.js")), out
+    assert not os.path.exists(os.path.join(cache, ".git")), "the refresh copies no .git"
+    code, out = aiconf(os.devnull, "codex-trust-hooks", cfg, "--auto", "--check", "--disable", "ponytail@ponytail", *vs)
+    assert "PASS Codex hook trusted: " + key not in out, "--disable wins over --verify-source: " + out
+    sh = read(os.path.join(AI_DIR, "adapters", "codex.sh"))
+    assert "open /hooks once and trust the hooks of ponytail" not in sh, "the manual step is gone"
 
 
 def t_connectors_keep(work):

@@ -89,9 +89,6 @@ codex_plugins() {
     if [ -d "$(plugin_src_dir i-have-adhd)/.codex-plugin" ] || [ "$AI_DRY_RUN" = 1 ]; then
         codex_marketplace_plugin "$(plugin_src_dir i-have-adhd)" i-have-adhd i-have-adhd@i-have-adhd "$(src_sha_for i-have-adhd)" || true
     fi
-    if [ "$AI_OS" != linux ] || ! grep -qs 'agent-plugins/ponytail' /etc/codex/hooks.json; then
-        manual "Codex: open /hooks once and trust the hooks of ponytail and i-have-adhd (ai-core, rtk, graphify are trusted by install)"
-    fi
 
     # Remote curated plugins installed without our audit (SPEC 20): show, owner decides.
     local others
@@ -255,10 +252,14 @@ codex_trust() {
     if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] aiconf codex-trust-hooks $CODEX_DIR/config.toml --auto"; return 0; fi
     # Plugins whose hooks run from /etc/codex/hooks.json: their plugin copies are switched off (and marked
     # reviewed, so Codex does not ask about them at every start).
+    # The audited Ponytail and i-have-adhd plugin hooks are trusted like ai-core: only while the Codex cache
+    # equals the audited source copy (owner QA 2026-11-15: no manual /hooks step).
     local args="--verify-source ai-core@ai=$(PLUGIN_DIR)" pid rc=0
     for pid in ponytail@ponytail i-have-adhd@i-have-adhd; do
         if grep -qs "agent-plugins/${pid%@*}" /etc/codex/hooks.json; then
             args="$args --disable $pid --verify-source $pid=$(plugin_src_dir "${pid%@*}")"
+        elif [ -d "$(plugin_src_dir "${pid%@*}")" ]; then
+            args="$args --verify-source $pid=$(plugin_src_dir "${pid%@*}")"
         fi
     done
     # The plugin cache is user-writable: a content hash is approved only when the cache equals its source.
@@ -267,7 +268,7 @@ codex_trust() {
     # shellcheck disable=SC2086
     aiconf codex-trust-hooks "$CODEX_DIR/config.toml" --auto --refresh-stale $args || rc=$?
     case "$rc" in
-        0) ok "Codex: hook entries for ai-core, rtk, graphify (and switched-off plugin copies) in $CODEX_DIR/config.toml" ;;
+        0) ok "Codex: hook entries for ai-core, rtk, graphify, Ponytail, i-have-adhd (or their switched-off plugin copies) in $CODEX_DIR/config.toml" ;;
         4) warn "Codex plugin copy still differs from its source after a reinstall: its hooks are not trusted" ;;
         *) warn "Codex hook trust not written: open /hooks in Codex once and trust the ai-core hooks" ;;
     esac
