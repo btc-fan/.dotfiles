@@ -1451,7 +1451,8 @@ def rm_target_problem(t, cwd, session_root=None):
             return None
         if (len(rel) == 1 and rel[0].lower() in DATA_NAMES) or rel[-1].lower().endswith(DATA_EXT):
             return "a data folder or database file"
-        if os.path.isdir(path) and git_quick(root, ["ls-files", "-z", "--", path]):
+        if os.path.isdir(path) and (git_quick(root, ["rev-parse", "-q", "--verify", "HEAD:" + "/".join(rel)])
+                                    or git_quick(root, ["ls-files", "-z", "--", path])):
             return "a folder with git-tracked files (only rebuildable folders pass)"
         return None
     if root and is_worktree_of(root, path):
