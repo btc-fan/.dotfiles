@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""ai-check-detect: find the one check command of a repo from its files (no network, nothing runs).
+"""ai-check-detect: find the one check command of a repo from its files, then probe each tool.
 
   ai-check-detect [--dir PATH]               print the stack and the check-fast / check commands
   ai-check-detect [--dir PATH] --json        the same as JSON
+  ai-check-detect [--dir PATH] --no-probe    from the files only (nothing runs)
   ai-check-detect [--dir PATH] --plan [--tier try|mvp|long] --json
                                              also the Makefile or justfile text with the missing targets
                                              (ai-adopt writes it; existing targets are never changed)
@@ -18,6 +19,9 @@ Detection (stack from lockfiles and manifests, the nixpacks ladder; the test and
           typecheck (or type-check), test (the npm placeholder test script does not count).
   Go      go.mod: go vet + go test -short (check: go test, golangci-lint when configured).
   Rust    Cargo.toml: cargo clippy -D warnings + cargo test.
+Probe: each lint, type and test tool must really run here (`uv run ruff --version`, `.venv/bin/python -m pytest
+--version`, `golangci-lint --version`, `cargo clippy --version`). A tool that fails its probe is left out of the
+commands and printed as a suggestion (install it, then run ai-adopt again). Node scripts are not probed.
 Refused (exit 2, nothing written): monorepos (pnpm/npm/yarn workspaces, lerna, nx, turbo, rush, go.work, or
 two or more package manifests below the root): write one target per package by hand.
 Exit 1 when no stack is found.
@@ -25,6 +29,7 @@ Exit 1 when no stack is found.
 import json
 import os
 import re
+import subprocess
 import sys
 
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "target", "__pycache__", ".tox",
@@ -45,13 +50,15 @@ def main(argv):
     tier = arg(argv, "--tier") or "mvp"
     if tier not in ("try", "mvp", "long"):
         sys.exit("ai-check-detect: --tier must be try, mvp or long")
-    info = detect(root)
+    info = detect(root, probe="--no-probe" not in argv)
     if "--plan" in argv and info.get("ok"):
         info["plan"] = plan(root, info, tier)
     if "--json" in argv:
         print(json.dumps(info, indent=1))
     elif not info.get("ok"):
         print("ai-check-detect: %s" % info["refuse"])
+        for n in info.get("notes", []):
+            print("note: " + n)
     else:
         print("stack: %s" % ", ".join(info["stacks"]))
         print("check-fast: %s" % " && ".join(info["fast"]))
@@ -71,7 +78,8 @@ def arg(argv, name):
 
 # ---------------------------------------------------------------- detection
 
-def detect(root):
+def detect(root, probe=False):
+    """probe: run `<tool> --version` for each lint, type and test tool and leave out the ones that fail."""
     mono = monorepo(root)
     if mono:
         return {"ok": False, "monorepo": True,
@@ -82,6 +90,8 @@ def detect(root):
         got = fn(root)
         if got:
             name, f, c, n = got
+            if probe:
+                f, c, n = probed(root, f, c, n)
             stacks.append(name)
             fast += f
             full += c
@@ -92,8 +102,8 @@ def detect(root):
     if not stacks:
         return {"ok": False, "refuse": "no stack found (no pyproject.toml, package.json, go.mod or Cargo.toml)"}
     if not fast:
-        return {"ok": False, "refuse": "%s found, but no test or lint command could be told from the files"
-                                       % ", ".join(stacks)}
+        return {"ok": False, "notes": notes,
+                "refuse": "%s found, but no test or lint command could be told from the files" % ", ".join(stacks)}
     runner = "just" if any(os.path.isfile(os.path.join(root, n)) for n in ("justfile", "Justfile")) \
         and not os.path.isfile(os.path.join(root, "Makefile")) else "make"
     return {"ok": True, "stacks": stacks, "fast": fast, "full": full or list(fast), "notes": notes,
@@ -213,6 +223,61 @@ def rust(root):
         return None
     lint = "cargo clippy -q --all-targets -- -D warnings"
     return "rust", [lint, "cargo test -q"], [lint, "cargo test -q"], []
+
+
+# ---------------------------------------------------------------- probe: does the tool run here?
+
+PROBES = [   # (regex on a command, the tool name, how to make the probe command from the regex match)
+    (re.compile(r"^(.*?\b)(ruff|pytest|mypy)\b"), lambda m: m.group(1) + m.group(2) + " --version"),
+    (re.compile(r"^golangci-lint\b"), lambda m: "golangci-lint --version"),
+    (re.compile(r"^cargo clippy\b"), lambda m: "cargo clippy --version"),
+]
+INSTALL_HINT = {"uv run ": "uv add --dev %s", "poetry run ": "poetry add --group dev %s",
+                "pdm run ": "pdm add -dG dev %s", ".venv/bin/python -m ": ".venv/bin/python -m pip install %s",
+                "python3 -m ": "python3 -m pip install %s"}
+
+
+def probed(root, fast, full, notes):
+    """fast, full, notes without the commands whose tool does not run in this repo."""
+    cache = {}
+    for cmd in list(dict.fromkeys(fast + full)):
+        probe_cmd = probe_for(cmd)
+        if probe_cmd is None:
+            continue
+        if probe_cmd not in cache:
+            cache[probe_cmd] = runs(root, probe_cmd)
+        if not cache[probe_cmd]:
+            fast = [c for c in fast if c != cmd]
+            full = [c for c in full if c != cmd]
+            if not any(("`%s`" % probe_cmd) in n for n in notes):
+                notes = notes + ["`%s` fails here, so `%s` is left out. Suggestion: %s, then run ai-adopt again"
+                                 % (probe_cmd, cmd, install_hint(cmd))]
+    return fast, full, notes
+
+
+def probe_for(cmd):
+    for rx, make in PROBES:
+        m = rx.match(cmd)
+        if m:
+            return make(m)
+    return None
+
+
+def install_hint(cmd):
+    for prefix, hint in INSTALL_HINT.items():
+        m = re.match(re.escape(prefix) + r"(\w+)", cmd)
+        if m:
+            return "install it (`%s`)" % (hint % m.group(1))
+    return "install `%s`" % cmd.split()[0]
+
+
+def runs(root, cmd, timeout=120):
+    try:
+        res = subprocess.run(cmd.split(), cwd=root, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return res.returncode == 0
 
 
 # ---------------------------------------------------------------- the Makefile / justfile block

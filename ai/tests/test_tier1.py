@@ -152,6 +152,62 @@ def t_adopt_monorepo_refused(work):
     assert not os.path.exists(os.path.join(repo, "Makefile")), "monorepo: nothing written"
 
 
+def t_detect_probe_drops_missing_tool(work):
+    """QA 2026-11-15 (scriptube): `.venv/bin/python -m ruff` failed, so check-fast failed on a tool not installed."""
+    repo = tree(work, "py-probe", {"pyproject.toml": "[project]\nname='x'\n[tool.ruff]\n[tool.mypy]\n",
+                                   "tests/test_a.py": "def test_a(): pass\n",
+                                   ".venv/bin/python": "#!/bin/sh\ncase \"$2\" in ruff|mypy) exit 1;; esac\nexit 0\n"})
+    os.chmod(os.path.join(repo, ".venv", "bin", "python"), 0o755)
+    mod = load(os.path.join(BIN, "ai-check-detect"), "acd_probe")
+    assert mod.detect(repo)["fast"][0] == ".venv/bin/python -m ruff check .", "no probe: from the files only"
+    info = mod.detect(repo, probe=True)
+    assert info["fast"] == [".venv/bin/python -m pytest -x -q"], info
+    assert info["full"] == [".venv/bin/python -m pytest -q"], info
+    assert any("-m ruff --version` fails here" in n and "pip install ruff" in n for n in info["notes"]), info
+    res = run([sys.executable, os.path.join(BIN, "ai-check-detect"), "--dir", repo])
+    assert "check-fast: .venv/bin/python -m pytest -x -q\n" in res.stdout and "Suggestion" in res.stdout, res.stdout
+    write(os.path.join(repo, ".venv", "bin", "python"), "#!/bin/sh\nexit 1\n")
+    info = mod.detect(repo, probe=True)
+    assert not info["ok"] and "no test or lint command" in info["refuse"] and len(info["notes"]) >= 2, info
+
+
+FAIL_UV = "#!/bin/sh\ncase \"$*\" in *--version*) exit 0;; esac\necho \"1 failed\"\nexit 1\n"
+
+
+def t_adopt_failing_check_turns_stop_off(work):
+    """QA 2026-11-15: check-fast failed at adopt time, the armed Stop hook then blocked every owner session."""
+    repo, env = adopt_repo(work, "check-red", {})
+    write(os.path.join(env["PATH"].split(os.pathsep)[0], "uv"), FAIL_UV)
+    res = adopt(repo, env)
+    assert res.returncode == 0, res.stdout
+    assert "FAILS today" in res.stdout and "Stop hook off until check-fast is green: run make check-fast, fix, " \
+        "then remove no-stop-check" in res.stdout, res.stdout
+    enabled = read(os.path.join(repo, ".ai", "enabled"))
+    assert "no-stop-check  # check-fast failed at adopt time" in enabled, enabled
+    shown = run(["git", "-C", repo, "show", "HEAD:.ai/enabled"]).stdout
+    assert "no-stop-check" in shown, "the off switch is committed: " + shown
+    env = dict(env, AI_HOME=os.path.dirname(AI_DIR))
+    hook(repo, env, "SessionStart")
+    write(os.path.join(repo, "src", "new.py"), "y = 2\n")
+    assert hook(repo, env, "Stop") is None, "no-stop-check: the Stop hook stays quiet"
+    write(os.path.join(repo, ".ai", "enabled"), enabled.replace("no-stop-check", "# was"))
+    hook(repo, env, "SessionStart", session="s2")
+    write(os.path.join(repo, "src", "new2.py"), "y = 3\n")
+    assert hook(repo, env, "Stop", session="s2"), "control: without the line the red check-fast blocks"
+
+
+def t_adopt_decline_undoes_intent_to_add(work):
+    """QA 2026-11-15: N at the commit prompt left the `git add -N` entries (` A` in git status)."""
+    repo, env = adopt_repo(work, "decline", {})
+    write(os.path.join(repo, ".ai", "enabled"), "no-serena\nno-graph\n")
+    res = run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--no-onboard", "--no-knowledge",
+               "--no-measure", "--tier", "mvp"], env=env, cwd=repo, stdin="n\n")
+    assert "files written, not committed" in res.stdout, res.stdout
+    status = run(["git", "-C", repo, "status", "--porcelain"]).stdout
+    assert status and not any(ln.startswith(" A") or ln.startswith("A") for ln in status.splitlines()), status
+    assert "?? Makefile" in status and "?? .ai/" in status, status
+
+
 # ---------------------------------------------------------------- mattpocock opt-in skills per project
 
 OPTIN = ("grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd", "codebase-design", "code-review", "pr",
@@ -717,7 +773,7 @@ def t_stop_ratchet_long_tier(work):
 # ---------------------------------------------------------------- helpers
 
 def detect(repo):
-    res = run([sys.executable, os.path.join(BIN, "ai-check-detect"), "--dir", repo, "--json"])
+    res = run([sys.executable, os.path.join(BIN, "ai-check-detect"), "--dir", repo, "--json", "--no-probe"])
     return json.loads(res.stdout)
 
 
@@ -793,6 +849,7 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
 
 
 TESTS_LIST = [t_verify_skills_copy, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_try_no_skills, t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_go_rust, t_detect_monorepo,
+              t_detect_probe_drops_missing_tool, t_adopt_failing_check_turns_stop_off, t_adopt_decline_undoes_intent_to_add,
               t_plan_keeps_targets, t_adopt_try_tier_own_done, t_adopt_long_tier, t_adopt_monorepo_refused,
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_continuation_checks_the_fix, t_stop_chain_cap, t_stop_no_baseline_uses_head,
               t_stop_recipe_changed, t_stop_skipped_only_and_group_kill,

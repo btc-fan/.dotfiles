@@ -103,7 +103,7 @@ def main(argv):
     knowledge = opts["knowledge"]
     if knowledge and (opts["refresh_map"] or not MAP_RX.search(agents)):
         agents = upsert_map(agents, build_map(root))
-    checks = check_plan(root, tier)
+    checks = check_plan(root, tier, probe=not opts["dry_run"])
     if checks and checks.get("text") is not None:
         plan.append((os.path.join(root, checks["file"]), checks["text"]))
     if checks:
@@ -154,20 +154,25 @@ def main(argv):
     if not paths or not git(root, "status", "--porcelain", "--", *paths):
         print("ai-%s: nothing to commit (generated files are gitignored)" % mode)
         return 0
+    new_files = (git(root, "ls-files", "-z", "--others", "--exclude-standard", "--", *paths) or "").split("\0")
+    new_files = [f for f in new_files if f]
     subprocess.call(["git", "-C", root, "add", "-N"] + paths, stderr=subprocess.DEVNULL)
     subprocess.call(["git", "-C", root, "--no-pager", "diff", "--"] + paths)
     hits = knowledge_secret_hits(root)
     if hits:
+        undo_intent_to_add(root, new_files)
         print("ai-%s: secret scan found %s in AGENTS.md. Remove it, then run again. "
               "Files written, not committed." % (mode, ", ".join(sorted(set(hits)))))
         return 1
     # git var fails exactly where git commit would (no name or email it may use): check before, not after.
     if not (git(root, "var", "GIT_AUTHOR_IDENT") and git(root, "var", "GIT_COMMITTER_IDENT")):
+        undo_intent_to_add(root, new_files)
         print("ai-%s: files written, not committed: git does not know who you are here. Set it once, then run "
               "again:\n  git config --global user.name \"Your Name\"\n  git config --global user.email you@example.com"
               % mode)
         return 1
     if not opts["yes"] and not ask("Commit this%s? [y/N] " % (" and push" if mode == "adopt" else "")):
+        undo_intent_to_add(root, new_files)
         print("ai-%s: files written, not committed" % mode)
         return 0
     msg = ("chore(ai): adopt base AI setup v%s" if mode == "adopt" else "chore(ai): start project AI setup v%s") % version
@@ -181,6 +186,13 @@ def main(argv):
     if mode == "adopt" and has_remote(root):
         return subprocess.call(["git", "-C", root, "push"])
     return 0
+
+
+def undo_intent_to_add(root, files):
+    """Not committed: drop the `git add -N` entries (shown only for the diff), so git status shows ?? again."""
+    if files:
+        subprocess.call(["git", "-C", root, "rm", "-q", "--cached", "--ignore-unmatch", "--"] + files,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def parse(argv):
@@ -951,13 +963,16 @@ def check_detect_module():
     return mod
 
 
-def check_plan(root, tier):
-    """The check-fast / check targets for this repo (ai-check-detect), or None (no stack, monorepo: printed)."""
+def check_plan(root, tier, probe=True):
+    """The check-fast / check targets for this repo (ai-check-detect), or None (no stack, monorepo: printed).
+    probe: leave out a lint or test tool that does not run here (a dry run does not probe: probes can write)."""
     mod = check_detect_module()
-    info = mod.detect(root)
+    info = mod.detect(root, probe=probe)
     if not info.get("ok"):
         if info.get("monorepo") or "no test or lint" in info.get("refuse", ""):
             print("skip check targets: %s" % info["refuse"])
+            for n in info.get("notes", []):
+                print("check targets: " + n)
         return None
     out = mod.plan(root, info, tier)
     for t in out["kept"]:
@@ -1060,8 +1075,9 @@ def measure_check(root, checks):
             note = "measured %d s" % secs
             tail = "\n".join(res.stdout.decode("utf-8", "replace").splitlines()[-15:])
             if res.returncode != 0:
-                print("%s FAILS today (exit %d, %d s). Fix it or tune the target: the Stop hook blocks on a failing "
-                      "check-fast. Last lines:\n%s" % (checks["fast_cmd"], res.returncode, secs, tail))
+                print("%s FAILS today (exit %d, %d s). Last lines:\n%s" % (checks["fast_cmd"], res.returncode, secs,
+                                                                           tail))
+                stop_hook_off(root, checks["fast_cmd"])
             elif secs > 60:
                 print("%s took %d s, over the 60 s target: keep only lint and fast unit tests in it"
                       % (checks["fast_cmd"], secs))
@@ -1077,6 +1093,18 @@ def measure_check(root, checks):
     if new != text:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(new)
+
+
+def stop_hook_off(root, fast_cmd):
+    """check-fast fails at adopt time: arm no Stop hook that blocks every session on it (owner QA 2026-11-15)."""
+    path = os.path.join(root, ".ai", "enabled")
+    text = read(path) or ""
+    if "no-stop-check" not in read_lines(path):
+        text = text.rstrip("\n") + ("\n" if text else "") + \
+            "no-stop-check  # check-fast failed at adopt time: remove this line when it is green\n"
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    print("Stop hook off until check-fast is green: run %s, fix, then remove no-stop-check (.ai/enabled)" % fast_cmd)
 
 
 # ---------------------------------------------------------------- helpers
