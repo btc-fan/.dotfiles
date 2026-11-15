@@ -890,6 +890,9 @@ def t_nvm_node_path(work):
     env.pop("NVM_DIR", None)
     code, out = bash(LIBS + 'AI_OS=macos; base_nvm_path; command -v node', env)
     assert code == 0 and out.strip().endswith("/v24.18.0/bin/node"), out
+    write(os.path.join(home, ".nvm", "alias", "default"), "lts/*\n")   # old Mac: a name, not a version
+    code, out = bash('set -euo pipefail; ' + LIBS + 'AI_OS=macos; base_nvm_path; command -v node', env)
+    assert code == 0 and out.strip().endswith("/v24.18.0/bin/node"), out
     assert not os.path.exists(log), read(log)
 
 

@@ -20,9 +20,10 @@ base_nvm_path() {
     [ -d "$d/versions/node" ] || return 0
     if [ -x "$d/current/bin/node" ]; then bin="$d/current/bin"
     else
+        # The default alias is a version ("24", "v24.18.0") or a name ("lts/*", "node"): a name means the newest.
         v=$(cat "$d/alias/default" 2>/dev/null || true)
-        [ -n "$v" ] && bin=$(ls -d "$d/versions/node/v${v#v}"*/bin 2>/dev/null | base_newest_version)
-        [ -n "$bin" ] || bin=$(ls -d "$d"/versions/node/v*/bin 2>/dev/null | base_newest_version)
+        case "$v" in [0-9]*|v[0-9]*) bin=$(ls -d "$d/versions/node/v${v#v}"*/bin 2>/dev/null | base_newest_version || true) ;; esac
+        [ -n "$bin" ] || bin=$(ls -d "$d"/versions/node/v*/bin 2>/dev/null | base_newest_version || true)
     fi
     [ -n "$bin" ] && [ -x "$bin/node" ] || return 0
     PATH="$bin:$PATH"; export PATH
