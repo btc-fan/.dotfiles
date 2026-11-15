@@ -37,7 +37,8 @@ def main():
     try:
         for test in (t_drop_claude, t_drop_keeps_shared_marketplace, t_drop_codex_and_serena, t_off_plugins,
                      t_serena_take, t_rtk_brew, t_rtk_no_brew, t_omx_node_fix, t_last30days, t_doctor,
-                     t_omc_companion, t_drop_failures, t_rtk_brew_mismatch, t_codex_restore_quoted):
+                     t_omc_companion, t_drop_failures, t_rtk_brew_mismatch, t_codex_restore_quoted,
+                     t_yaml_top_set_block_list):
             for k, v in saved.items():
                 if v is None:
                     os.environ.pop(k, None)
@@ -741,6 +742,25 @@ def t_omc_companion(work):
         assert "<!-- AI:core v1 START -->" in read(comp)[len(OMC_COMPANION):], out
     dtext = read(os.path.join(AI_DIR, "bin", "ai-doctor"))
     assert "check_omc_companion()" in dtext
+
+
+
+def t_yaml_top_set_block_list(work):
+    """yaml-top-set replaces a block sequence written at column 0 ("key:\n- a\n- b", Serena 2.1's default_modes)
+    and repairs a file an older install left broken (the flow value followed by stray "- a" lines)."""
+    cfg = os.path.join(work, "serena_config.yml")
+    state = os.path.join(work, "keys.json")
+    run = [sys.executable, os.path.join(AI_DIR, "lib", "aiconf.py"), "--state", state, "yaml-top-set", cfg,
+           "default_modes", "[no-memories]"]
+    for start in ("base_modes:\ndefault_modes:\n- interactive\n- editing\n\nnext: 1\n",
+                  "base_modes:\ndefault_modes: [no-memories]\n- interactive\n- editing\n\nnext: 1\n"):
+        with open(cfg, "w") as fh:
+            fh.write(start)
+        subprocess.check_call(run, stdout=subprocess.DEVNULL)
+        got = open(cfg).read()
+        assert got == "base_modes:\ndefault_modes: [no-memories]\n\nnext: 1\n", repr(got)
+    subprocess.check_call(run, stdout=subprocess.DEVNULL)
+    assert open(cfg).read() == "base_modes:\ndefault_modes: [no-memories]\n\nnext: 1\n", "second run changes nothing"
 
 
 if __name__ == "__main__":

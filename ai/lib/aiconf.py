@@ -341,7 +341,10 @@ def cmd_yaml_top_set(a):
         lines.append(want)
     else:
         j = idx + 1
-        while j < len(lines) and re.match(r"^\s+-\s|^\s+\S", lines[j]) and not re.match(r"^\S", lines[j]):
+        # The old value's block: indented lines, and also a block sequence written at column 0
+        # ("key:\n- a\n- b" is valid YAML; Serena 2.1 writes default_modes that way). Leaving those
+        # lines behind after the new flow value breaks the file (seen on the M3, 2026-11-15).
+        while j < len(lines) and (re.match(r"^\s+-\s|^\s+\S|^-(\s|$)", lines[j])):
             j += 1
         prev_block = lines[idx:j]
         if prev_block == [want]:
