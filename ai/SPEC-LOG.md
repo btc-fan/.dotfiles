@@ -585,3 +585,7 @@ Seen on the owner's M3 Mac (macOS 15.5), read only:
   box server must not start on a Mac at all. The tool names change once (`mcp__plugin_ai-box_box__*`).
 - Rendered rules per profile with a line marker: the server text stays byte-identical, which a fixture proves.
 
+
+## 2026-11-15: PR body template (owner)
+- PR body follows Matt Pocock pr template + required Mermaid (owner).
+- Parts: Summary (Mermaid required), Evidence (Before/After), Merge Danger (Door, Blast Radius). The pr-rules gate checks them; tier long adds Docs, Changed guards, Ledger.

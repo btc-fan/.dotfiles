@@ -118,31 +118,6 @@
    ]
   },
   {
-   "name": "mvp tier: no ledger nudge",
-   "expect": "nofire",
-   "project": {
-    "git": true,
-    "files": {
-     ".ai/enabled": "tier: mvp\n",
-     "docs/REGRESSIONS.md": "# Regressions\n## Ledger\nR-012 | 2026-11-12 | area: src/billing/ | symptom: double refund | cause: retry path |\n        test: tests/regressions/test_r012_refund_once.py | reopened: 0\nR-019 | 2026-11-13 | area: src/billing/, src/api/stripe.py | symptom: quote != charge | cause: rounding |\n        test: tests/regressions/test_r019_quote_equals_charge.py | reopened: 1\n## Quarantine\n",
-     "src/billing/refund.py": "x = 1\n"
-    }
-   },
-   "steps": [
-    {
-     "event": "PreToolUse",
-     "payload": {
-      "tool_name": "Edit",
-      "tool_input": {
-       "file_path": "{{PROJ}}/src/billing/refund.py",
-       "old_string": "a",
-       "new_string": "b"
-      }
-     }
-    }
-   ]
-  },
-  {
    "name": "no ledger file",
    "expect": "nofire",
    "project": {

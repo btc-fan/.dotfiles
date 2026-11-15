@@ -1,12 +1,20 @@
 
 Pull requests
-A PR body has four parts:
-1. Summary.
-2. A Mermaid diagram of the change.
-3. "One-way or two-way door?" with a reason.
-4. Blast radius: what else can break.
-5. Verify: the check command and the tail of its output; with a project verify-<app> skill also its evidence path and the e2e test. Risk: one line.
-Long tier (`tier: long` in .ai/enabled) also: Docs (files, or "none, because ..."), Changed guards (each edited or removed test and why, or "none"), and on a fix PR Ledger: R-NNN. A fix PR has a test file in its diff.
+The PR body follows the `pr` skill (Matt Pocock). Use this template:
+```markdown
+## Summary
+<smallest visual that shows the change; a ```mermaid diagram is required, other visuals are optional>
+## Evidence
+- **Before:** <failing test run, output or screenshot>
+  **After:** <passing run, output or screenshot>
+## Merge Danger
+**Door:** <one-way or two-way> <reason>
+**Blast Radius:** <what can break>
+```
+Summary must hold a Mermaid diagram of the change.
+Evidence is the check-fast command and the tail of its output as After. Add Before when a test went red first. A project with a verify-<app> skill also names the skill run, its evidence path and the e2e test.
+Door must say one-way or two-way. Blast Radius must say what can break.
+Also required: Docs (files, or "none, because ..."), Changed guards (each edited or removed test and why, or "none"), and on a fix PR Ledger: R-NNN. A fix PR has a test file in its diff.
 The author-sessions block goes at the end (next section). The pr-rules gate blocks a PR without these parts (placeholder text counts as missing).
 
 PR author-sessions note

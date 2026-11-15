@@ -1004,17 +1004,21 @@ def allowed_secrets():
 
 # ---------------------------------------------------------------- pr-rules
 
-# Tier fields (owner plan Tier 1 T4): mvp needs Verify and Risk; long also Docs, Changed guards and (fix: PRs)
-# Ledger. try: only the two blocks above. A fix: PR needs a test file in its diff (mvp and long); over 400 changed
+# Body template (owner 2026-11-15): Matt Pocock's `pr` skill (Summary, Evidence, Merge Danger) plus a required
+# Mermaid diagram. Fields: Evidence, Door, Blast Radius, Docs, Changed guards and (fix: PRs) Ledger. No tiers
+# (removed 2026-11-15, every project is long). A fix: PR needs a test file in its diff; over 400 changed
 # lines (lockfiles and generated files left out) is a warning, never a block.
 PR_FILL = {"--fill", "--fill-first", "--fill-verbose", "--web", "-f", "-w"}
-PR_FIELDS = {"try": (), "mvp": ("Verify", "Risk"), "long": ("Verify", "Risk", "Docs", "Changed guards")}
-PR_FIELD_HELP = {"Verify": "the check command and the tail of its output", "Risk": "one line: what can break",
+PR_FIELDS = ("Evidence", "Door", "Blast Radius", "Docs", "Changed guards")
+PR_FIELD_HELP = {"Evidence": "Before and After: the check command and the tail of its output",
+                 "Door": "one-way or two-way, with a reason", "Blast Radius": "what can break",
                  "Docs": "the docs changed, or \"none, because ...\"",
                  "Changed guards": "every edited or removed test with the reason, or \"none\"",
                  "Ledger": "R-NNN and the test path (docs/REGRESSIONS.md)"}
 PR_PLACEHOLDER = re.compile(r"^(<[^>]*>|todo|tbd|\.{2,}|xxx+|\?+|-+|n/?a|fill (it )?in|placeholder|same|see above|"
                             r"(add|describe|write)\b.*\bhere)\W*$", re.I)
+PR_DOOR = re.compile(r"\b(one|two)[- ]way\b", re.I)
+PR_DOOR_UNFILLED = re.compile(r"\bone[- ]way\s*(or|/)\s*two[- ]way\b", re.I)    # the template text left in
 PR_FIX_TITLE = re.compile(r"^\s*(fix|bugfix|hotfix)(\([^)]*\))?!?:", re.I)     # conventional titles only
 PR_TEST_PATH = re.compile(r"(^|/)test_[^/]*\.py$|_test\.(go|py)$|\.(test|spec)\.[cm]?[jt]sx?$|"
                           r"(^|/)(tests?|spec|__tests__)/(.*/)?[^/]+\.(py|[cm]?[jt]sx?|go|rs|rb|java|kt|php|cs|swift)$")
@@ -1044,28 +1048,28 @@ def gate_pr(ctx, cmd, stages):
         if "<!-- author-sessions" not in text:
             missing.append("the <!-- author-sessions block")
         root = project_root(ctx.cwd)
-        tier = project_tier(root) if root else "mvp"
-        fields = list(PR_FIELDS[tier])
+        fields = list(PR_FIELDS)
         fix = bool(PR_FIX_TITLE.match(flag_value(args, ("--title", "-t")) or ""))
-        if fix and tier == "long":
+        if fix:
             fields.append("Ledger")
         for name in fields:
             why = pr_field_problem(name, pr_field(text, name))
             if why:
                 missing.append(why)
-        if sub == "create" and root and tier != "try":
+        if sub == "create" and root:
             diff_problems, files = pr_diff_checks(ctx, root, args, fix)
             missing.extend(diff_problems)
-            why = pr_verify_evidence(root, pr_field(text, "Verify"), files)
+            why = pr_verify_evidence(root, pr_field(text, "Evidence"), files)
             if why:
                 missing.append(why)
         problems.extend(m for m in missing if m not in problems)
     if not problems:
         return None
-    return ("deny", "PR not ready, missing: %s. Body needs: summary, Mermaid diagram of the change, one-way or "
-            "two-way door, blast radius, the fields of this project's tier (mvp: Verify, Risk; long: also Docs, "
-            "Changed guards, Ledger on fix PRs), author-sessions block at the end. Pass it with --body or "
-            "--body-file." % "; ".join(problems))
+    return ("deny", "PR not ready, missing: %s. Body follows the pr skill template: ## Summary (with a ```mermaid "
+            "diagram), ## Evidence (Before and After: command and output tail), ## Merge Danger (**Door:** one-way "
+            "or two-way and why; **Blast Radius:** what can break). Also: Docs, Changed guards, Ledger "
+            "on fix PRs. Author-sessions block at the end. Pass it with --body or --body-file."
+            % "; ".join(problems))
 
 
 def pr_body_text(ctx, cmd, args):
@@ -1091,10 +1095,11 @@ def flag_value(args, names):
 
 def pr_field(text, name):
     """The text after `Name:` (markdown bold, heading or list marks allowed before it), or the next lines when
-    the label stands alone. None when the label is missing."""
+    the label stands alone. Also the heading form: a `## Name` line (any level, optional colon) and the section
+    body up to the next heading or `<!--`. None when the label is missing."""
     m = re.search(r"(?im)^[ \t>*#_-]*\**%s\**[ \t]*:\**[ \t]*(.*)$" % re.escape(name), text)
     if not m:
-        return None
+        return pr_heading_section(text, name)
     value = m.group(1).strip()
     if value:
         return value
@@ -1109,18 +1114,40 @@ def pr_field(text, name):
     return " ".join(lines)
 
 
+def pr_heading_section(text, name):
+    m = re.search(r"(?im)^[ \t]*#{1,6}[ \t]+%s[ \t]*:?[ \t]*$" % re.escape(name), text)
+    if not m:
+        return None
+    lines, fenced = [], False
+    for ln in text[m.end():].splitlines():
+        if ln.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and (re.match(r"^[ \t]*#{1,6}[ \t]", ln) or ln.startswith("<!--")):
+            break
+        if ln.strip():
+            lines.append(ln.strip())
+        if len(lines) >= 40:
+            break
+    return " ".join(lines)
+
+
 def pr_field_problem(name, value):
     help_text = "%s: (%s)" % (name, PR_FIELD_HELP[name])
     if value is None:
         return help_text
     plain = re.sub(r"[`*_]", "", value).strip()
-    if len(re.sub(r"\W", "", plain)) < 3 or PR_PLACEHOLDER.match(plain):
+    bare = re.sub(r"<[^>]*>", "", plain)           # unfilled <...> template slots
+    if name == "Evidence":
+        bare = re.sub(r"(?i)\b(before|after)\b\s*:", "", bare)
+    if len(re.sub(r"\W", "", bare)) < 3 or PR_PLACEHOLDER.match(plain):
         return "real text, not a placeholder, in " + help_text
+    if name == "Door" and (PR_DOOR_UNFILLED.search(plain) or not PR_DOOR.search(plain)):
+        return "one-way or two-way (pick one) in " + help_text
     if name == "Docs" and re.match(r"^none\b", plain, re.I) and \
             not re.search(r"\b(because|since|as)\b|[,:;]\s*\w{3,}", plain[4:], re.I):
         return "a reason after Docs: none (\"none, because ...\")"
     if name == "Ledger" and not re.search(r"\bR-\d+\b", plain):
-        return "an R-NNN id in Ledger: (fix PRs in a long-tier project)"
+        return "an R-NNN id in Ledger: (fix PRs)"
     return None
 
 
@@ -1157,21 +1184,21 @@ def pr_diff_checks(ctx, root, args, fix):
     return out, files
 
 
-def pr_verify_evidence(root, verify, files):
-    """A project with a verify-<app> skill (tier mvp, long) and a PR that changes app code: Verify names the skill
+def pr_verify_evidence(root, evidence, files):
+    """A project with a verify-<app> skill and a PR that changes app code: Evidence names the skill
     run, its evidence path and the e2e test (the Done order: check-fast, verify evidence, then e2e)."""
-    if verify is None or files is None:
+    if evidence is None or files is None:
         return None
     info = verify_skill(root)
     if not info or not any(is_code_file(f) and not PR_TEST_PATH.search(f) and not f.startswith(info["path"] + "/")
                            for f in files):
         return None
-    tokens = re.findall(r"[\w.@~-]*/[\w./@~-]+", verify)
+    tokens = re.findall(r"[\w.@~-]*/[\w./@~-]+", evidence)
     has_test = any(PR_TEST_PATH.search(t) for t in tokens)
     has_evidence = any(not PR_TEST_PATH.search(t) for t in tokens)
-    if info["name"] in verify and has_test and has_evidence:
+    if info["name"] in evidence and has_test and has_evidence:
         return None
-    return ("Verify: the %s run (its evidence path, e.g. artifacts/<feature>/...) and the e2e test it led to "
+    return ("Evidence: the %s run (its evidence path, e.g. artifacts/<feature>/...) and the e2e test it led to "
             "(a tests/... path): app code changed and this project has a verify skill" % info["name"])
 
 
@@ -1277,13 +1304,8 @@ DESTROY_EXES = {"rm", "git", "docker", "podman", "docker-compose", "podman-compo
 
 
 def project_tier(root):
-    """try | mvp | long from a `tier: <name>` line in .ai/enabled; mvp when the line or the file is missing."""
-    text = read_text(os.path.join(root, ".ai", "enabled")) if root else None
-    for ln in (text or "").splitlines():
-        m = re.match(r"^\s*tier\s*:\s*(try|mvp|long)\s*(#.*)?$", ln, re.I)
-        if m:
-            return m.group(1).lower()
-    return "mvp"
+    """Tiers removed 2026-11-15 (owner): every project is long. Kept so callers still work."""
+    return "long"
 
 
 def destructive_config(root):

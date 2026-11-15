@@ -53,7 +53,7 @@ Why small: the root file is loaded into every session. A big file costs tokens o
 | 30 code navigation | read the repo Map first, search narrowly, docs before code | "In a repo, read the Map and Libraries sections of its AGENTS.md first." |
 | 40 audit | the audit rule and gate summary | "A finding means stop. Show it to me. Do not install." |
 | 45 no root | agents never escalate; the owner runs root commands | "When something needs root, stop and give me the exact command to run." |
-| 50 pull requests | PR shape and the author-sessions block | "Mermaid diagram of the change, one-way or two-way door?, blast radius." |
+| 50 pull requests | PR shape and the author-sessions block | "pr skill template: Summary with Mermaid diagram, Evidence, Merge Danger (Door, Blast Radius)." |
 | 60 characters | one character rule | "Never the em dash." |
 | 70 prompting others | the brief in one line | "Goal and what is ruled out, absolute file paths, one narrow task." |
 | 80 other agents | the non-interactive commands | `opencode run "<task>" --format json` |
