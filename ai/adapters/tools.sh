@@ -455,7 +455,14 @@ tools_harnesses() {
     if want claude; then
         if ! has claude; then
             if root_layer; then manual "install Claude Code from its signed apt repo (ubuntu-server base, phase 5c)"
-            else manual "install Claude Code (official installer), then re-run"; fi
+            else
+                # Mac and light Linux (owner 2026-11-15: no manual step): the official native installer, into
+                # ~/.local/bin, no sudo. Auto-update stays off (DISABLE_AUTOUPDATER=1); `claude update` moves it.
+                run bash -c 'curl -fsSL https://claude.ai/install.sh | bash' \
+                    && { PATH="$HOME/.local/bin:$PATH"; export PATH; } \
+                    && ok "Claude Code installed ($(claude --version 2>/dev/null | head -n 1))" \
+                    || manual "install Claude Code (official installer: curl -fsSL https://claude.ai/install.sh | bash), then re-run"
+            fi
         fi
         tools_omc
     fi
