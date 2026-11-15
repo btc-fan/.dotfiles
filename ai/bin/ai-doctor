@@ -1252,7 +1252,9 @@ def check_project(path, explicit=False):
     gi = read_text_file(os.path.join(root, ".gitignore")) or ""
     need = [x for x in GITIGNORE_NEED if (x != "graphify-out/" or "graph" in ids) and
             (not x.startswith(".serena") or "serena" in ids)]
-    miss = [x for x in need if x not in gi.splitlines()]
+    # Text first, then git itself: a broader pattern (.serena/*) or Serena's own .serena/.gitignore covers it too.
+    miss = [x for x in need if x not in gi.splitlines()
+            and run(["git", "-C", root, "check-ignore", "-q", "--no-index", x.rstrip("/") + ("/x" if x.endswith("/") else "")])[0] != 0]
     if need:
         say("PASS" if not miss else "WARN", ".gitignore keeps tool caches out of git",
             ("missing: " + ", ".join(miss)) if miss else "")
