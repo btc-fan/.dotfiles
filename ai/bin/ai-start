@@ -27,6 +27,7 @@ What it writes (project root):
                      callees codebase-design, code-review; a rerun adds new defaults). Local, gitignored.
   docs/agents/issue-tracker.md, docs/agents/domain.md   (with to-spec / to-tickets / grill-with-docs, when missing):
                      tickets stay in docs/tickets/<feature>/ in the repo; GLOSSARY.md and docs/adr/ at the root
+  CODING_STANDARDS.md  (when missing; with code-review) judgement-call rules the reviewer enforces; retro adds to it
   always             docs/REGRESSIONS.md (the regression ledger, format inside) and .ai/ratchet.json (ai-ratchet
                      --init: test, skip and lint counts that may only improve)
   AGENTS.md          project knowledge every agent reads with no tool call (owner decision 2026-11-12):
@@ -131,6 +132,8 @@ def main(argv):
                                                                             with_defaults(enabled), root,
                                                                             skill_closure(skills))))
     plan.extend(tracker_docs_plan(root, skill_closure(skills)))
+    if "code-review" in skill_closure(skills) and not os.path.exists(os.path.join(root, "CODING_STANDARDS.md")):
+        plan.append((os.path.join(root, "CODING_STANDARDS.md"), CODING_STANDARDS_DOC))
     plan = [p for p in plan if p]
     steps = knowledge_steps(root, opts, with_defaults(enabled)) + check_steps(root, opts, tier, checks, plan) \
         + ratchet_steps(root) + skill_link_steps(root, skill_closure(skills)) + verify_link_steps(root)
@@ -840,6 +843,8 @@ Local, in this repo. No GitHub issues, labels or remote calls without the owner'
   verify skill). A ticket is done when check-fast is green, the verify run left evidence, and an e2e test encodes
   the proven journey.
 - Close a ticket by moving its file to `docs/tickets/<feature-slug>/done/` in the PR that finishes it.
+- Work closes through PRs: one branch per feature (named after the slug), a draft PR after the first ticket,
+  `gh pr ready` when all tickets pass `make check`. The owner merges.
 - Research notes (research): `docs/research/<topic>.md`, each claim with its source.
 
 ## Wayfinding operations
@@ -858,6 +863,21 @@ Used by `/wayfinder`. The **map** is a file with one **child** file per ticket.
 - **Claim**: set `Status: claimed` and save before any work.
 - **Resolve**: append the answer under an `## Answer` heading, set `Status: resolved`, then append a context
   pointer (gist + link) to the map's Decisions-so-far in `map.md`.
+"""
+# Matt Pocock code-review reads this file on its Standards axis; retro adds rules to it (owner 2026-11-15).
+CODING_STANDARDS_DOC = """# Coding standards
+
+The reviewer reads this file (Matt Pocock `code-review`, Standards axis), not the implementer. `/retro` adds rules
+here after a session where the review missed a mistake.
+
+Only judgement calls go here: cross-file consistency, "matches the surrounding style", design choices no tool can
+check. A mechanical rule (a banned API, an import shape, a file location, a naming pattern) becomes a check
+instead: a linter rule, a pre-commit hook or a CI job.
+
+One rule per line, with the reason. Example:
+- Handlers stay thin: parse the request, call one service function, return. Why: logic in a handler has no unit test.
+
+## Rules
 """
 DOMAIN_DOC = """# Domain docs
 

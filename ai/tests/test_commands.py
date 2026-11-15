@@ -62,7 +62,7 @@ def t_hook_files(work):
         "caffeinate must be guarded to macOS, with absolute programs"
     assert not any("serena-hook" in c and "activate" in c for c in owner), \
         "Claude must not run vendor serena activate (activate_project is off in single-project mode)"
-    assert claude["Notification"][0]["matcher"] == "permission_prompt|idle_prompt", "A.2 notification matcher"
+    assert "Notification" not in claude, "owner 2026-11-15: no desktop notification hook (claude-notify stays, unwired)"
 
 
 def t_no_em_dash(work):

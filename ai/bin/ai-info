@@ -36,12 +36,12 @@ PLUGINS = [
     ("ai-serena@ai", "ai-serena", "global (every project; off here: no-serena in .ai/enabled)"),
     ("ai-playwright@ai", "ai-playwright", "per project: ai-adopt --tools browser"),
 ]
-MATT_SKILLS = ["grilling", "grill-me", "wait-what", "retro", "writing-for-agents"]
+MATT_SKILLS = ["grilling", "grill-me", "wait-what", "retro", "writing-for-agents", "ask-matt"]
 SKILL_DIRS = ["~/.agents/skills", "~/.claude/skills", "~/.hermes/skills"]
 GATE_HINT = "Owner only opens a gate: sudo ai-gate-skip <gate> <minutes max 60> <why>"
 GATE_HINT_DEVMAC = "No gate skip on this profile: the owner runs a blocked command himself"
 PROFILE_FROM = {"env": "AI_PROFILE", "file": "~/.config/ai/profile", "default": "OS default"}
-DOCS = ["README.md", "docs/TOOLS.md", "docs/SECURITY.md", "docs/AUDIT-BRIEF.md"]
+DOCS = ["docs/GUIDE.md", "README.md", "docs/TOOLS.md", "docs/SECURITY.md", "docs/AUDIT-BRIEF.md"]
 
 
 def main(argv):
@@ -201,7 +201,8 @@ def render_full(f):
                                                      " / off here" if on_user and not on_here else "")
         out.append("  %-13s %-22s %s" % (short, state, scope))
     out += ["", "Skills (%d): %s" % (len(f["skills"]), ", ".join(f["skills"]) or "none"),
-            "  mattpocock: " + ", ".join("%s%s" % (s, "" if s in f["skills"] else " (missing)") for s in MATT_SKILLS)]
+            "  mattpocock global: " + ", ".join("%s%s" % (s, "" if s in f["skills"] else " (missing)") for s in MATT_SKILLS),
+            "  mattpocock per project: 12 default of 21 (ai-adopt --skills). Which skill for what: the skills-guide skill."]
     out += ["", "MCP servers: context7 (global, library docs; IDs in the Libraries section of a repo AGENTS.md),"]
     if f["box"]:
         out += ["  box (global, server boxes: list, new, exec, logs, status, restart, ports, url, snapshot, doctor, help)."]
@@ -209,11 +210,12 @@ def render_full(f):
             "  Per project only: playwright (ai-adopt --tools browser).",
             "  graphify: CLI, on in every project (graphify query; ai-adopt builds the graph and its git hooks)."]
     out += ["", "Gates: " + (", ".join(f["gates"]) or "none"), "  " + f["gate_hint"],
-            "  Agents never use sudo; a blocked gate or a sandbox error is final for them."]
+            "  Full autonomy on this profile: only these gates block; a blocked gate is final for agents."
+            if f["gate_hint"] == GATE_HINT_DEVMAC else "  Agents never use sudo; a blocked gate or a sandbox error is final for them."]
     out += ["", "On by default in every project: serena, graph (a project turns one off: no-serena / no-graph in .ai/enabled).",
             "Opt-in tools (run in the repo):"]
     for rid, tool in f["optin"]:
-        if rid not in ("serena", "graph"):
+        if rid not in ("serena", "graph", "tracker-flow", "domain-docs"):   # those two: nudges of default skills
             out.append("  ai-adopt --tools %-14s %s" % (rid, tool))
     p = f["project"]
     out += [""]

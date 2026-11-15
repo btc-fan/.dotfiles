@@ -23,7 +23,8 @@ Rules for this document:
 8. [ai-start and ai-adopt: the project layer, file by file](#8-ai-start-and-ai-adopt-the-project-layer-file-by-file)
 9. [The flows: idea to ship, phase boundaries](#9-the-flows-idea-to-ship-phase-boundaries)
 10. [Scenarios with full example sessions](#10-scenarios-with-full-example-sessions)
-11. [Pull requests: the template and the gate](#11-pull-requests-the-template-and-the-gate)
+   - [10.G New feature on scriptube, prompt to draft PR](#10g-simulation-a-new-feature-on-scriptube-from-prompt-to-draft-pr)
+11. [Pull requests: the template, the gate, the git workflow](#11-pull-requests-the-template-and-the-gate)
 12. [Cheat sheet](#12-cheat-sheet)
 13. [Troubleshooting](#13-troubleshooting)
 14. [What is not verified](#14-what-is-not-verified)
@@ -217,12 +218,10 @@ browser, ui, tracker-flow, domain-docs, knowledge-wiki.
 
 Rows that exist but are off on `dev-mac` (server profile only): `no-sudo`, `no-destroy`, `audit-before-install`.
 
-### 3.4 Known stale text (open follow-ups)
+### 3.4 Fixed stale text (2026-11-15)
 
-- The `knowledge-check` row text in the rendered table still says "Update mem:core". It must say "Update the
-  Map". The router itself sends the correct text (`{knowledge_delta}`).
-- The `knowledge-wiki` row points to `llm-wiki-compiler`, which is not installed and which the audit rejected
-  for code repos. Ignore that row.
+- The `knowledge-check` row now says "Update the Map section of AGENTS.md" (it said "Update mem:core").
+- The `knowledge-wiki` row is removed. `llm-wiki-compiler` is not installed; the audit rejected it for code repos.
 
 ---
 
@@ -1300,6 +1299,65 @@ You:    /teach me Kotlin Multiplatform, with this repo as the workspace.
 Agent:  [writes a mission, a glossary, a learning record; one lesson per session]
 ```
 
+### 10.G Simulation: a new feature on scriptube, from prompt to draft PR
+
+scriptube lives on the old Mac in `~/openclaw/projects/scriptube` (remote `btc-fan/yt-transcripts`, branch
+`master`). It was adopted before the 2026-11-15 changes, so step 0 upgrades it.
+
+```
+0. ssh oldmac  (tmux)          cd ~/openclaw/projects/scriptube && ai-adopt
+   ai-adopt: note: tier long (was mvp); write .ai/enabled, docs/REGRESSIONS.md, CODING_STANDARDS.md,
+             docs/agents/issue-tracker.md (+ Wayfinding operations); link 12 skills; ai-ratchet --init
+   Commit this and push? [y/N] y
+
+1. claude
+   [status] tier long · Map ok · Libraries 14 IDs · Serena on · Graph ok · Verify skill: missing
+   You:   add CSV export of a transcript to the download menu
+   [L2 nudge feature-grill] branch <feature-slug> first; grill-with-docs ...
+   Agent: git switch -c csv-export                      <- the git workflow rule
+          [Skill: grill-with-docs]
+          Q1. One CSV row per segment or per sentence? Recommended: per segment (matches the segments table).
+          Q2. Include start and end timestamps? Recommended: yes, as seconds.
+          Q3. Free plan or paid only? Recommended: paid (GLOSSARY: "credits"); this is a one-way door for users.
+   You:   1 yes, 2 yes, 3 paid
+   Agent: GLOSSARY.md += "Export: a download of one transcript as CSV"
+          docs/adr/0003-export-is-paid.md
+
+2. /to-spec      -> docs/specs/csv-export.md
+3. /to-tickets   -> docs/tickets/csv-export/01-export-endpoint.md
+                    docs/tickets/csv-export/02-download-menu-item.md   Blocked by: 01
+                    docs/tickets/csv-export/03-charge-credits.md      Blocked by: 01
+   (steps 1 to 3 stay in one session: no /compact before to-tickets)
+
+4. /clear
+   /implement docs/tickets/csv-export/01-export-endpoint.md
+   Agent: [tdd] tests/test_export.py::test_csv_has_one_row_per_segment  RED
+          [code] app/export.py, app/routes/export.py                   GREEN
+          [code-review] Standards (CODING_STANDARDS.md + smell list) | Spec (ticket 01): 1 finding fixed
+          make check-fast: 41 passed
+          git mv docs/tickets/csv-export/01-export-endpoint.md docs/tickets/csv-export/done/
+          git commit -m "feat(export): CSV endpoint for one transcript"     [secret-scan gate: pass]
+          git push -u origin csv-export
+          gh pr create --draft --title "CSV export" --body-file /tmp/pr.md   [pr-rules gate: pass]
+          -> Draft PR #57
+
+5. /clear   /implement .../02-download-menu-item.md   -> commit, git push (PR #57 updates)
+   /clear   /implement .../03-charge-credits.md       -> commit, git push
+
+6. Agent: all 3 tickets in done/, make check green (ledger + ratchet included)
+          gh pr edit 57 --body-file /tmp/pr.md   (Evidence: before 404, after 200 + test output)
+          gh pr ready 57
+   You:   review on GitHub, merge.
+
+7. /retro
+   Agent: 1. check-fast takes over 300 s: move the slow e2e tests out of check-fast (a Makefile change).
+          2. The review missed a raw SQL string: add "no f-string SQL" as a ruff rule, not as a standard.
+```
+
+A bug in the same repo (for example "the CSV drops the last segment"): the agent creates `fix-csv-last-segment`,
+`diagnosing-bugs` builds one failing command, writes `tests/regressions/test_r001_...py` first, fixes, adds the
+`R-001` line to `docs/REGRESSIONS.md`, then the same draft PR flow. The PR needs `Ledger: R-001` and a test file.
+
 ---
 
 ## 11. Pull requests: the template and the gate
@@ -1359,8 +1417,28 @@ Rules:
 is placeholder text (`TODO`, `TBD`, `<...>`, `n/a`). It refuses `--fill` and `--web` (they hide the body). Over
 400 changed lines (lockfiles and generated files left out) is a warning, not a block.
 
-The exact field names checked after the rollout are not verified at the time of writing. The gate change is in
-progress on a separate branch.
+Verified on all 3 machines after the rollout (2026-11-15): a body in the template above is allowed; an old body
+with `Verify:` and `Risk:` instead of Evidence and Merge Danger is denied. `**Door:**` must say one-way or
+two-way. `gh pr create --draft` and `gh pr edit --body-file` go through the same check; `gh pr ready` does not.
+
+### 11.3 Git workflow: branches, commits, draft PR
+
+The rule is in the global rules (`ai/agents-md/55-git-workflow.md`). It follows how the Matt Pocock skills work:
+`implement` commits on the current branch, `implement-spec` builds one integration branch and opens a draft PR
+after the first ticket, `prototype/` and `research/` branches are never merged, `code-review` diffs against the
+merge-base. Our tracker is local, and work closes through PRs.
+
+| When | The agent does | Command |
+|---|---|---|
+| Before the first edit of a feature or fix | Creates a branch named after the feature slug | `git switch -c csv-export` (a fix: `fix-<slug>`) |
+| After each ticket | Commits on that branch; moves the ticket file to `done/` in the same commit | `/implement` ends with `git commit` |
+| After the first ticket | Pushes and opens a draft PR with the full body | `git push -u origin csv-export`, `gh pr create --draft --body-file ...` |
+| After later tickets | Pushes to the same PR | `git push` |
+| All tickets done, `make check` green | Updates Evidence, marks the PR ready | `gh pr edit --body-file ...`, `gh pr ready` |
+| Merge | Never. You merge. | (you) |
+| A prototype or research branch | Pushes it, never merges it, no PR, links it from the ticket | `prototype/<name>`, `research/<name>` |
+
+Never: a commit on `main` or `master`, `git add -A` without `git status` first, a merge by the agent.
 
 ---
 
@@ -1447,20 +1525,20 @@ Run `ai-sync`. Check with `ai-sync --check`.
 
 ### AGENTS.md or CLAUDE.md does not show in git status (M3)
 
-The global git ignore file hides them. Use `git add -f` (section 8.3).
+The global git ignore file hides them. `ai-adopt` ignores the global file since 2026-11-15, so its commit holds
+them. For your own later edits: `git add -f AGENTS.md`.
 
 ---
 
 ## 14. What is not verified
 
 At the time of writing (2026-11-15):
-- The new pr-rules gate field names and deny message (the change is in progress on a separate branch).
-- The `ai-info` skill list after the rollout of `ask-matt` and `skills-guide`.
-- The status line after tiers are removed (today it still prints "tier").
-- The full default skill links in a new project (the demo machine did not have the new Matt copies yet).
+- The git workflow rule (branch first, draft PR after the first ticket) in a real feature session: the rule is
+  in place on all 3 machines; the first real run will show how well the agent follows it.
 - How `triage`, `implement-spec` and `wizard` behave with our local tracker in a real project.
 - The mobile tool choices (Expo, EAS, Maestro, Detox, simulator screenshot commands) with this setup.
 - Which `code-review` runs when Claude Code's built-in `/code-review` and Matt's skill have the same name.
-- A live Ubuntu MCP proof after the last login on ubuntu01.
+- A live Ubuntu MCP proof: ubuntu01 has no Claude or Codex login yet (run `claude` then `/login`, and
+  `codex login --device-auth`).
 
 Next step for each item: run it once in a real project and update this guide.

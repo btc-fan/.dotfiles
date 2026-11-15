@@ -45,6 +45,10 @@ On-ramps: a hard bug -> diagnosing-bugs     raw incoming issues -> /triage
 Upkeep:   /improve-codebase-architecture every few days -> pick one -> /grill-with-docs
 ```
 
+Git (global rule "Git workflow"): a branch named after the feature slug before the first edit; /implement commits
+each ticket there; push and a draft PR after the first ticket; gh pr ready when all tickets pass make check; the
+owner merges. prototype/ and research/ branches are never merged.
+
 Context hygiene: keep grill-with-docs, to-spec and to-tickets in one unbroken session (no /compact before
 to-tickets). Each /implement starts fresh from its ticket.
 

@@ -73,18 +73,6 @@
         ]
       }
     ],
-    "Notification": [
-      {
-        "matcher": "permission_prompt|idle_prompt",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/claude-notify\"",
-            "timeout": 15
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [

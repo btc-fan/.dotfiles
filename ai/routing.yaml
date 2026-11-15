@@ -243,15 +243,6 @@ rules:
     proof: 'skill:\S*(grill-with-docs|domain-model)|(grill-with-docs|domain-modeling)/SKILL\.md'
     strength: nudge
 
-  - id: knowledge-wiki
-    scope: opt-in
-    summary: 'wiki or knowledge base prompt'
-    tool: llm-wiki-compiler
-    trigger: {prompt: '\b(wiki|knowledge base|research notes|compile (the )?docs)\b'}
-    action: "Use llm-wiki-compiler (costs LLM tokens per compile)."
-    proof: 'wiki'
-    strength: nudge
-
 # ---------- tie-breaks (single source for L0, L2, L3) ----------
 # trigger -> winner; losers named so the router never suggests both.
 tiebreaks:

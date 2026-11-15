@@ -41,7 +41,7 @@ Code navigation
 - Serena and graphify are on in every project unless .ai/enabled says no-serena or no-graph (the session start line says so). Serena keeps no memories: the Map is the one knowledge place.
 - After a commit that adds, deletes or renames modules, update the Map section. After a dependency change, run ai-libs --sync. Never put secrets or personal data in AGENTS.md.
 - Library, SDK, API or CLI code: look up docs before you write it. Use context7 query-docs with the ID from the Libraries section (resolve-library-id only when there is no ID). If context7 has nothing: the official docs site, then the library source, and say so. No general web search for docs (Codex too). No secrets or private code in a docs query.
-- GitHub: the gh CLI, read-only (view, list, diff, checks) unless I ask for a change. A PR follows the pull request rules below.
+- GitHub: the gh CLI, read-only (view, list, diff, checks) unless I ask for a change. Exception: the git workflow below (push the feature branch, draft PR, gh pr ready). A PR follows the pull request rules below.
 
 
 Audit and gates
@@ -96,6 +96,17 @@ If an ID is empty, write main: unknown (or herdr: unknown) and tell me. Do not g
 pr-resume parses this block. Keep the line format exact: one ID, dir:, one path without spaces.
 
 
+Git workflow (from the Matt Pocock skills; owner 2026-11-15)
+- Feature or fix work: before the first edit, create a branch named after the feature slug. Use the same slug as docs/specs/<slug>.md and docs/tickets/<slug>/ (a fix: fix-<slug>). Never commit on main or master. A trivial change (typo, one line) also gets its own branch.
+- Commit each ticket on that branch (/implement commits at the end). Move the finished ticket file to docs/tickets/<slug>/done/ in the same commit.
+- After the first ticket commit: push the branch and open a draft PR (gh pr create --draft, with the full PR body). Push each later ticket to it.
+- When all tickets are done and make check is green: update the PR body (Evidence), then gh pr ready. Never merge: the owner merges.
+- /implement-spec: the feature branch is the integration branch, one worktree per ticket. Remove the worktrees at the end.
+- prototype/<name> and research/<name> branches: push them, never merge them, never open a PR for them. Link them from the ticket.
+- code-review compares against the merge-base with main (git diff main...HEAD).
+- A fix commit and its PR state the cause that turned out right.
+
+
 Characters
 Never write the em dash character (U+2014). Not in code, docs, commit messages, PR text or replies.
 Use "-", ":" or a new sentence. A hook lints every file you write.
@@ -131,7 +142,7 @@ opt-in = only in projects that enabled the tool (ai-start, ai-adopt).
 | ledger-nudge (nudge) | before an edit in a regression-ledger area | Edit in a docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests. |
 | no-em-dash (nudge) | after a write with U+2014 | Remove the em dash (U+2014). Use '-', ':' or a new sentence. |
 | docs-lookup (nudge) | docs, SDK or library prompt | Library code: context7 query-docs with the ID from the Libraries section (resolve only if missing), then the official docs site. (cached IDs) |
-| feature-grill (nudge) | feature request prompt (add, implement, build ... a feature, endpoint, page; RO, RU) | grill-with-docs (where the project links it; else grilling), for 3+ files to-spec then to-tickets, then per slice: check-fast, verify-<app> evidence, e2e. Trivial: none needed. |
+| feature-grill (nudge) | feature request prompt (add, implement, build ... a feature, endpoint, page; RO, RU) | branch <feature-slug> before the first edit; grill-with-docs (where the project links it; else grilling), for 3+ files to-spec then to-tickets, then /implement per ticket (check-fast, verify-<app> evidence, e2e, commit; draft PR after the first ticket, gh pr ready when all pass make check). Trivial: none needed. |
 | verify-before-done (nudge) | after a code edit in a project with a verify-<app> skill | Before done: check-fast, then verify-<app> on the changed feature (evidence), then e2e tests. |
 | seo-not-enabled (nudge) | SEO prompt, project without claude-seo | claude-seo is off in this project. Suggest: ai-adopt --tools seo. Do not enable it yourself. |
 | blog-not-enabled (nudge) | blog prompt, project without claude-blog | claude-blog is off in this project. Suggest: ai-adopt --tools blog. Do not enable it yourself. |
@@ -145,7 +156,6 @@ opt-in = only in projects that enabled the tool (ai-start, ai-adopt).
 | ui (nudge, opt-in) | UI prompt or UI file | UI work: use ui-ux-pro-max. Ask before paid image generation or any npx ...@latest. |
 | tracker-flow (nudge, opt-in) | tickets, spec, triage, backlog prompt | to-spec, then to-tickets (on when the project's skills line lists them). Tickets go to docs/tickets/<feature>/ (docs/agents/issue-tracker.md); never GitHub issues or labels without the owner. |
 | domain-docs (nudge, opt-in) | glossary, domain model, ADR prompt | Use grill-with-docs / domain-modeling (GLOSSARY.md, docs/adr/). |
-| knowledge-wiki (nudge, opt-in) | wiki or knowledge base prompt | Use llm-wiki-compiler (costs LLM tokens per compile). |
 
 Tie-breaks (use the first, not the second):
 - one post file, or a post to be written: claude-blog:blog-*, not claude-seo:seo-*

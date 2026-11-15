@@ -453,7 +453,7 @@ def t_adopt_gitignore_block(work, server):
     files = set(run(["git", "-C", repo, "show", "--name-only", "--format=", "HEAD"]).stdout.split())
     want = {"AGENTS.md", "CLAUDE.md", ".gitignore", ".claude/settings.json", ".ai/enabled", ".serena/project.yml",
             "Makefile", "docs/agents/issue-tracker.md", "docs/agents/domain.md", "docs/REGRESSIONS.md",
-            ".ai/ratchet.json"}
+            ".ai/ratchet.json", "CODING_STANDARDS.md"}
     assert files == want, "committed %s, want %s" % (sorted(files), sorted(want))
     status = run(["git", "-C", repo, "status", "--porcelain", "--untracked-files=all"]).stdout
     assert status.strip() == "", "local tool files not ignored:\n" + status

@@ -39,7 +39,7 @@ def t_full(home, fake, repo):
     out = run(home, fake, repo).stdout
     for want in ("claude    2.1.5", "codex     0.120.0", "hermes    not installed",
                  "ai-core       on", "claude-seo    off / on here", "ai-serena     not installed",
-                 "mattpocock: grilling, grill-me, wait-what, retro, writing-for-agents (missing)",
+                 "mattpocock global: grilling, grill-me, wait-what, retro, writing-for-agents (missing), ask-matt (missing)",
                  "context7 (global", "box (global, server boxes", "Gates: audit-before-install, secret-scan, no-sudo, no-destroy, pr-rules",
                  "sudo ai-gate-skip", "On by default in every project: serena, graph", "ai-adopt --tools browser",
                  "serena (global", "docs/SECURITY.md"):
