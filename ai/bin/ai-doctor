@@ -92,6 +92,7 @@ def main(argv):
     check_hooks_absolute()
     check_serena_config()
     check_no_duplicate_layers()
+    check_skill_dups()
     check_uv_links()
     check_codex_policy()
     check_hermes()
@@ -815,6 +816,18 @@ def check_no_duplicate_layers():
     if re.search(r"graphify (hook-guard|hook-check)|serena-hooks remind", hooks):
         hits.append("~/.claude/settings.json: graphify or serena remind hook")
     say("PASS" if not hits else "WARN", "no duplicate instruction or hook layers (graphify, Serena)", "; ".join(hits))
+
+
+def check_skill_dups():
+    """Owner QA 2026-11-15: 164-191 skills per session, some names two or three times (a marketplace copy, a
+    vendor plugin copy, our link). No skill name may load twice: ~/.claude/skills and every enabled plugin."""
+    claude_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(HOME, ".claude")
+    if not os.path.isdir(claude_dir):
+        return
+    dups = aiconf_module().claude_skill_dups(claude_dir)
+    say("PASS" if not dups else "FAIL", "Claude: no skill name loaded twice (~/.claude/skills, enabled plugins)",
+        "; ".join("%s from %s" % (n, ", ".join(s for s, _k in v)) for n, v in sorted(dups.items()))
+        + (" (re-run install.sh: ours win, a vendor copy gets skillOverrides off)" if dups else ""))
 
 
 def check_codex_policy():

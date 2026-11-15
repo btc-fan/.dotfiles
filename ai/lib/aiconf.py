@@ -169,6 +169,10 @@ def main():
     s = sub.add_parser("tree-hash", help="sha256 over a directory tree (change detection)")
     s.add_argument("dir")
 
+    s = sub.add_parser("claude-skill-dups", help="skill names Claude loads twice (~/.claude/skills + enabled plugins); "
+                       "--offs prints the skillOverrides keys to turn off (a vendor plugin copy of our skill)")
+    s.add_argument("claude_dir", help="~/.claude"); s.add_argument("--offs", action="store_true")
+
     s = sub.add_parser("json-get", help="print a JSON value (path a/b/c), empty if absent")
     s.add_argument("file"); s.add_argument("path")
 
@@ -1180,6 +1184,56 @@ def cmd_tree_hash(a):
             with open(p, "rb") as fh:
                 h.update(fh.read())
     print(h.hexdigest())
+
+
+def claude_skill_sources(claude_dir):
+    """{bare skill name: [(source, skillOverrides key)]} that Claude loads: ~/.claude/skills/<n>/SKILL.md and the
+    skills/ folder of every enabled user-scope plugin. A source whose skillOverrides value is "off" is left out."""
+    out = {}
+    skills = os.path.join(claude_dir, "skills")
+    for n in sorted(os.listdir(skills)) if os.path.isdir(skills) else []:
+        if os.path.isfile(os.path.join(skills, n, "SKILL.md")):
+            out.setdefault(n, []).append(("~/.claude/skills", n))
+    try:
+        settings = json.loads(read_text(os.path.join(claude_dir, "settings.json")) or "{}")
+        installed = json.loads(read_text(os.path.join(claude_dir, "plugins", "installed_plugins.json")) or "{}")
+    except ValueError:
+        settings, installed = {}, {}
+    enabled = settings.get("enabledPlugins") or {}
+    offs = settings.get("skillOverrides") or {}
+    for key, entries in sorted((installed.get("plugins") or {}).items()):
+        if enabled.get(key) is not True:
+            continue
+        for e in entries if isinstance(entries, list) else [entries]:
+            if not isinstance(e, dict) or e.get("scope", "user") != "user" or not e.get("installPath"):
+                continue
+            d = os.path.join(e["installPath"], "skills")
+            for n in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+                if os.path.isfile(os.path.join(d, n, "SKILL.md")):
+                    out.setdefault(n, []).append((key, "%s:%s" % (key.split("@")[0], n)))
+    return {n: [x for x in v if offs.get(x[1]) != "off"] for n, v in out.items()}
+
+
+def claude_skill_dups(claude_dir):
+    return {n: v for n, v in claude_skill_sources(claude_dir).items() if len(v) > 1}
+
+
+OWN_PLUGINS = ("@ai",)      # our marketplace: its skills are the ones Claude keeps
+
+
+def cmd_claude_skill_dups(a):
+    """Owner QA 2026-11-15: 164-191 skills per session, some names two or three times. Ours win: a vendor plugin's
+    copy of a name that ~/.claude/skills or one of our plugins also has gets skillOverrides "<plugin>:<name>" off."""
+    dups = claude_skill_dups(a.claude_dir)
+    for n, srcs in sorted(dups.items()):
+        own = [s for s in srcs if s[0] == "~/.claude/skills" or s[0].endswith(OWN_PLUGINS)]
+        if a.offs:
+            for src, key in srcs:
+                if own and (src, key) not in own:
+                    print(key)
+        else:
+            print("%s: %s" % (n, ", ".join(s for s, _k in srcs)))
+    return 0
 
 
 def cmd_json_get(a):

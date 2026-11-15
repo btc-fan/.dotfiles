@@ -607,12 +607,20 @@ claude_drop_hooks() {
 # ---------------------------------------------------------------- step 9: skills
 
 link_skills() {
-    # link_skills <target dir>: every ai/skills/<name>/SKILL.md becomes <target>/<name> (a link)
-    local dir=$1 s n
+    # link_skills <target dir> [<plugin skills dir>]: every ai/skills/<name>/SKILL.md becomes <target>/<name> (a
+    # link), except a name the plugin skills dir also ships: the plugin serves it, so our earlier link goes (one
+    # copy per session; owner QA 2026-11-15: prompting-claude-and-codex loaded twice in Claude).
+    local dir=$1 served=${2:-} s n
     [ -d "$AI_HOME/ai/skills" ] || return 0
     for s in "$AI_HOME"/ai/skills/*/; do
         [ -f "$s/SKILL.md" ] || continue
         n=$(basename "$s")
+        if [ -n "$served" ] && [ -f "$served/$n/SKILL.md" ]; then
+            if [ -L "$dir/$n" ] && [ "$(readlink "$dir/$n")" = "${s%/}" ]; then
+                run rm -f "$dir/$n" && ok "skill $n: the plugin copy serves it, link $dir/$n removed"
+            fi
+            continue
+        fi
         if [ -d "$dir/$n" ] && [ ! -L "$dir/$n" ]; then
             warn "$dir/$n is a real folder (not ours): skill $n not linked"; continue
         fi
@@ -621,10 +629,20 @@ link_skills() {
 }
 
 claude_skills() {
-    link_skills "$CLAUDE_DIR/skills"
+    link_skills "$CLAUDE_DIR/skills" "$(PLUGIN_DIR)/skills"
     mattpocock_link "$CLAUDE_DIR/skills"
     pstack_link "$CLAUDE_DIR/skills"
+    claude_skill_dups_off
     ok "Claude: shared skills and the 5 mattpocock skills linked into $CLAUDE_DIR/skills"
+}
+
+# A vendor plugin that ships a skill under one of our names (OMC: create-verification-skill,
+# maintain-verification-skill) loads it twice. Ours win: skillOverrides "<plugin>:<name>" = "off" (recorded).
+claude_skill_dups_off() {
+    local key
+    for key in $(aiconf claude-skill-dups "$CLAUDE_DIR" --offs 2>/dev/null); do
+        aiconf json-set "$CLAUDE_DIR/settings.json" "skillOverrides/$key" '"off"'
+    done
 }
 
 # ---------------------------------------------------------------- step 10: hooks

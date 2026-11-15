@@ -115,7 +115,7 @@ def main(argv):
                                read(os.path.join(root, "docs", "REGRESSIONS.md")) or LEDGER_TEMPLATE))
     plan.append(write_plan(os.path.join(root, "CLAUDE.md"), claude_md(read(os.path.join(root, "CLAUDE.md")))))
     plan.extend(project_mcp_plan(root, enabled, opts["dry_run"]))
-    plan.append(claude_plugins_plan(root, enabled))
+    plan.append(claude_plugins_plan(root, enabled, skill_closure(skills)))
     plan.append(write_plan(os.path.join(root, ".gitignore"), gitignore_text(read(os.path.join(root, ".gitignore")),
                                                                             with_defaults(enabled), root,
                                                                             skill_closure(skills))))
@@ -304,23 +304,41 @@ CLAUDE_PLUGINS = {"seo": "claude-seo@agricidaniel-claude-seo", "blog": "claude-b
                   "omc": "oh-my-claudecode@omc"}      # server: off at user scope (owner 2026-11-12); Mac: always on
 
 
-def claude_plugins_plan(root, enabled):
-    """Project .claude/settings.json: enabledPlugins true for each enabled opt-in plugin (merge, keep other keys)."""
+def claude_plugins_plan(root, enabled, skill_links=()):
+    """Project .claude/settings.json: enabledPlugins true for each enabled opt-in plugin, and skillOverrides off
+    for a vendor plugin's copy of a skill this project links (OMC tdd next to mattpocock tdd; owner QA
+    2026-11-15: one copy per session). Merge, keep other keys."""
     want = [CLAUDE_PLUGINS[r] for r in enabled if r in CLAUDE_PLUGINS]
-    if not want:
+    offs = plugin_skill_offs(skill_links)
+    if not want and not offs:
         return None
     path = os.path.join(root, ".claude", "settings.json")
     try:
         data = json.loads(read(path) or "{}")
     except ValueError:
-        print("skip .claude/settings.json: not valid JSON (enable %s by hand)" % ", ".join(want))
+        print("skip .claude/settings.json: not valid JSON (enable %s by hand)" % ", ".join(want + offs))
         return None
-    plugins = data.setdefault("enabledPlugins", {})
-    if all(plugins.get(w) is True for w in want):
+    plugins = data.get("enabledPlugins") or {}
+    overrides = data.get("skillOverrides") or {}
+    if all(plugins.get(w) is True for w in want) and all(overrides.get(k) == "off" for k in offs):
         return None
     for w in want:
-        plugins[w] = True
+        data.setdefault("enabledPlugins", {})[w] = True
+    for k in offs:
+        data.setdefault("skillOverrides", {})[k] = "off"
     return (path, json.dumps(data, indent=2) + "\n")
+
+
+def plugin_skill_offs(names):
+    """skillOverrides keys ("<plugin>:<name>") of enabled user plugins (not ours) that ship one of these names."""
+    if not names:
+        return []
+    sys.path.insert(0, os.path.join(AI_DIR, "lib"))
+    import aiconf
+    claude_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    sources = aiconf.claude_skill_sources(claude_dir)
+    return sorted(key for n in names for src, key in sources.get(n, [])
+                  if src != "~/.claude/skills" and not src.endswith(aiconf.OWN_PLUGINS))
 
 
 def project_mcp_plan(root, enabled, dry_run=False):

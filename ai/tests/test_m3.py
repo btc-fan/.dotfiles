@@ -38,7 +38,7 @@ def main():
         for test in (t_drop_claude, t_drop_keeps_shared_marketplace, t_drop_codex_and_serena, t_off_plugins,
                      t_serena_take, t_rtk_brew, t_rtk_no_brew, t_omx_node_fix, t_last30days, t_doctor,
                      t_omc_companion, t_drop_failures, t_rtk_brew_mismatch, t_codex_restore_quoted,
-                     t_yaml_top_set_block_list):
+                     t_yaml_top_set_block_list, t_skill_dups):
             for k, v in saved.items():
                 if v is None:
                     os.environ.pop(k, None)
@@ -341,6 +341,52 @@ def t_off_plugins(work):
     assert json.loads(text)["enabledPlugins"] == {"ui-ux-pro-max@ui-ux-pro-max-skill": True}, text
     routing = read(os.path.join(AI_DIR, "routing.yaml"))
     assert "- id: ui\n    scope: opt-in" in routing, "ui is an opt-in routing id"
+
+
+def t_skill_dups(work):
+    """QA 2026-11-15 item 5: one copy of each skill name per Claude session. A skill the ai-core plugin ships is not
+    linked into ~/.claude/skills (an old link goes; Codex keeps its link); a vendor plugin's copy of one of our
+    names gets skillOverrides off; a project that links tdd turns the vendor tdd off in its settings; the
+    marketplace mattpocock plugin is on the drop list."""
+    env, home, bindir = claude_env(work)
+    cdir = os.path.join(home, ".claude")
+    omc = os.path.join(work, "omc-cache")
+    for n in ("create-verification-skill", "tdd", "autopilot"):
+        write(os.path.join(omc, "skills", n, "SKILL.md"), "---\nname: %s\n---\n" % n)
+    core = os.path.join(AI_DIR, "marketplace", "plugins", "ai-core")
+    write(os.path.join(cdir, "plugins", "installed_plugins.json"), json.dumps({"version": 2, "plugins": {
+        "oh-my-claudecode@omc": [{"scope": "user", "installPath": omc}],
+        "ai-core@ai": [{"scope": "user", "installPath": core}]}}))
+    set_settings(home, enabledPlugins={"oh-my-claudecode@omc": True, "ai-core@ai": True})
+    own = os.path.join(AI_DIR, "skills", "prompting-claude-and-codex")
+    os.makedirs(os.path.join(cdir, "skills"))
+    os.symlink(own, os.path.join(cdir, "skills", "prompting-claude-and-codex"))
+    assert sorted(aiconf.claude_skill_dups(cdir)) == ["prompting-claude-and-codex"], aiconf.claude_skill_dups(cdir)
+    code, out = bash(LIBS + 'claude_skills; link_skills "$HOME/.agents/skills" "$(PLUGIN_DIR)/skills"; '
+                     'link_skills "$HOME/.agents/skills"', env)
+    assert code == 0, out
+    assert not os.path.lexists(os.path.join(cdir, "skills", "prompting-claude-and-codex")), out
+    assert os.path.islink(os.path.join(cdir, "skills", "create-verification-skill")), out
+    assert os.readlink(os.path.join(home, ".agents", "skills", "prompting-claude-and-codex")) == own, "Codex link"
+    offs = jload(os.path.join(cdir, "settings.json")).get("skillOverrides")
+    assert offs == {"oh-my-claudecode:create-verification-skill": "off"}, offs
+    assert aiconf.claude_skill_dups(cdir) == {}, aiconf.claude_skill_dups(cdir)
+    os.environ["CLAUDE_CONFIG_DIR"] = cdir
+    from importlib.machinery import SourceFileLoader
+    import importlib.util
+    loader = SourceFileLoader("ai_start_dups", os.path.join(AI_DIR, "bin", "ai-start"))
+    spec = importlib.util.spec_from_loader("ai_start_dups", loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    root = os.path.join(work, "proj")
+    os.makedirs(root)
+    path, text = mod.claude_plugins_plan(root, [], ["tdd", "to-spec"])
+    assert json.loads(text) == {"skillOverrides": {"oh-my-claudecode:tdd": "off"}}, text
+    write(path, text)
+    assert mod.claude_plugins_plan(root, [], ["tdd"]) is None, "a rerun changes nothing"
+    pins = read(os.path.join(AI_DIR, "pins.env"))
+    assert "mattpocock-skills@claude-plugins-official" in [ln for ln in pins.splitlines()
+                                                           if ln.startswith("AI_DROP_CLAUDE_PLUGINS=")][0], pins
 
 
 def t_serena_take(work):
