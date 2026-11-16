@@ -8,10 +8,11 @@ Each ai/tests/cases/<rule>.json holds {"rule": id, "cases": [...]}. A case:
   expect   fire | nofire | log | deny | ask | allow | block | miss | nomiss
            (fire/nofire/log: did the rule fire in the LAST step; deny/ask/allow: the gate decision;
            block: a Stop hook block in the last step)
-  steps    [{event, payload, transcript_append: [json rows]}]  (or one "event" + "payload")
+  steps    [{event, payload, transcript_append: [json rows], state_files: {rel: text}}]  (or one "event" + "payload")
   agent    claude (default) | codex
   project  {git: true, git_init: true, files: {rel: text}, stage: {rel: text}, commit: "<message>",
-           dirty: {rel: text} (written after the commit), worktree: "../wt" (git worktree add), extra_commits: [{rel: text}, ...] (after the commit)}
+           dirty: {rel: text} (written after the commit), worktree: "../wt" (git worktree add), extra_commits: [{rel: text}, ...] (after the commit),
+           age_days: {rel: days} (file mtime set back, e.g. a stale graph)}
   audit_log  lines for ~/.local/state/ai/audit.log
   ai_mcp   text for $AI_HOME/ai/mcp/context7.json, committed (secret-scan allowlist reads HEAD);
            ai_mcp_commit: false keeps it uncommitted
@@ -202,6 +203,8 @@ def run_case(rule_id, case, work, build):
         for row in step.get("transcript_append", []):
             with open(transcript, "a") as fh:
                 fh.write(json.dumps(row) + "\n")
+        for rel, text in step.get("state_files", {}).items():      # e.g. an emptied fired.jsonl (log rotation)
+            write(os.path.join(state, rel), sub(text, subs))
         payload = sub(step.get("payload", {}), subs)
         payload.setdefault("session_id", session)
         payload.setdefault("cwd", proj)
@@ -310,6 +313,9 @@ def setup_project(proj, spec):
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for rel, text in spec.get("dirty", {}).items():     # changed after the commit (uncommitted work)
         write(os.path.join(proj, rel), text)
+    for rel, days in spec.get("age_days", {}).items():
+        old = time.time() - float(days) * 86400
+        os.utime(os.path.join(proj, rel), (old, old))
 
 
 def sub(obj, subs):

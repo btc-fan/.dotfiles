@@ -340,7 +340,7 @@ def report_logs():
     print("last 7 days: skills used %s" % fmt(skills))
     print("last 7 days: misses %s" % fmt(misses))
     report_skill_stats(time.time() - 30 * 86400)
-    skips =[ln for ln in read_lines(os.path.join(STATE, "gates.log")) if " SKIP " in ln]
+    skips = [ln for ln in read_lines(os.path.join(STATE, "gates.log")) if " SKIP " in ln]
     if skips:
         say("WARN", "%d gate skip(s) logged (last: %s)" % (len(skips), skips[-1][:120]))
     errors = read_lines(os.path.join(STATE, "router-errors.log"))
@@ -352,7 +352,7 @@ def report_skill_stats(since):
     """Per-skill use and the misses of gated skills (require_skill rules). Router logs only, never transcripts."""
     used = {}
     for name, n in count_jsonl(os.path.join(STATE, "fired.jsonl"), "skill", since).items():
-        short = name.split(":")[-1]         # ai-core:ship and a read of ship/SKILL.md are the same skill
+        short = hooklib_module().short_skill(name)     # ai-core:ship and a read of ship/SKILL.md: one skill
         used[short] = used.get(short, 0) + n
     print("last 30 days: skills used %s" % fmt(used))
     rules = (load_json_file(os.environ.get("AI_ROUTING_JSON") or os.path.join(AI_DIR, "build", "routing.json"))
@@ -1540,8 +1540,9 @@ def run(cmd, timeout=60, cwd=None):
 
 
 def count_jsonl(path, kind, since):
+    """Rows of one kind since a time, the rotated log (.1, cut at 5 MB) included."""
     counts = {}
-    for line in read_lines(path):
+    for line in read_lines(path + ".1") + read_lines(path):
         try:
             row = json.loads(line)
         except ValueError:
@@ -1565,7 +1566,7 @@ def parse_ts(ts):
 def fmt(counts):
     if not counts:
         return "none"
-    return ", ".join("%s %d" % (k, v) for k, v in sorted(counts.items(), key=lambda kv: -kv[1])[:15])
+    return ", ".join("%s %d" % (k, v) for k, v in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:15])
 
 
 def read_lines(path):

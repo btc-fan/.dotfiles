@@ -35,7 +35,7 @@ from hooklib import (GATES, GATE_PROBES, ai_home, append_jsonl, command_text, ga
                      log_line, one_line, project_skills, project_tier, verify_skill, is_code_file, skill_md,
                      origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
                      state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
-                     graph_status, git_history,
+                     graph_status, git_history, short_skill, write_targets,
                      owner_merge_ok, merge_review_note, nav_note, upgrade_note, legacy_memory_note)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -179,7 +179,7 @@ def on_session_start(ctx):
     card = skill_card(routing.get("skills") or {}, ctx)
     if card:
         parts.append(card)
-    resend =str(ctx.payload.get("source") or "") in L0_RESEND_SOURCES
+    resend = str(ctx.payload.get("source") or "") in L0_RESEND_SOURCES
     if resend and (routing.get("layers", {}).get("L1_session_start") is not None or routing.get("rules")):
         l0 = read_text(first_existing(l0_candidates()))
         if l0:
@@ -259,6 +259,10 @@ def on_pre_tool(ctx):
         return
     if tool == "Skill":
         winner_gate(ctx, tin.get("skill") or tin.get("name") or "")
+    if ctx.agent == "codex":
+        # Codex runs a skill by reading its file, so a read of a losing OMX or OMC skill file meets the winner gate.
+        for name in loser_reads(read_paths(tool, tin, ctx.stages), ctx.cwd):
+            winner_gate(ctx, name)
     for rule in ctx.routing.get("rules", []):
         trig = rule.get("trigger", {})
         if not trig.get("tool_before") or not tool_matches(trig["tool_before"], tool):
@@ -266,7 +270,8 @@ def on_pre_tool(ctx):
         if not rule_enabled(rule, ctx):
             continue
         if rule.get("require_skill"):
-            if skill_rule_hit(rule, tool, tin, cmd, ctx) and not skill_used(ctx, rule["require_skill"]):
+            if skill_rule_hit(rule, tool, tin, cmd, ctx) and not skill_used(ctx, rule["require_skill"]) \
+                    and not owner_skip(ctx, rule["id"], cmd or file_of(tin)):
                 ctx.decide("deny", "[ai gate %s] %s\nProof in this session: a Skill call, a typed /%s or a read of "
                            "its SKILL.md. Then retry." % (rule["id"], render_action(rule, ctx), rule["require_skill"]))
                 skill_missed(rule, ctx, "PreToolUse")
@@ -281,10 +286,11 @@ def on_pre_tool(ctx):
         text = render_action(rule, ctx)
         if text and ctx.state.allow_nudge(rule, nudge_key(rule, tool, tin, cmd)):
             ctx.fired(rule, "PreToolUse")
-            if rule["id"] == "nav-first" and graph_first(ctx):
-                # once per session (the nudge key above), so the next search passes
-                ctx.decide("deny", "[ai router: nav-first] This repo has a graph: run graphify query first. %s "
-                                   "Then search again: the next search passes." % text)
+            deny = graph_deny(rule, ctx)
+            # once per session (the nudge key above), so the next search passes
+            if deny and not owner_skip(ctx, rule["id"], cmd or tool):
+                ctx.decide("deny", "[ai router: %s] %s %s Then search again: the next search passes."
+                           % (rule["id"], deny, text))
             else:
                 ctx.add_context("[ai router: %s] %s" % (rule["id"], text))
     abs_rewrite(ctx, tool, tin, cmd)
@@ -294,7 +300,8 @@ def on_pre_tool(ctx):
 # paths of root-owned programs) get that absolute path, so a copy planted on PATH is never the one that runs:
 # `git push ...` becomes `/usr/bin/git push ...` and so on. Only an exact single command is rewritten (no
 # operators, redirection or substitution); everything else is left alone and stays sandboxed. Box work is
-# not rewritten: it goes through the box MCP tools (the no-sudo gate says so).
+# not rewritten: it goes through the box MCP tools (the no-sudo gate says so). In auto mode (permission_mode
+# "auto") nothing is rewritten: a deny gives the absolute command to run, so the auto mode classifier reviews it.
 MANAGED_SETTINGS = os.environ.get("AI_CLAUDE_MANAGED_SETTINGS") or "/etc/claude-code/managed-settings.json"
 SAFE_ARGS = r"((?:\s+[^;&|<>`$()\\\n]+)?)\s*"
 
@@ -325,7 +332,13 @@ def abs_rewrite(ctx, tool, tin, cmd):
               + "".join(r"\s+" + re.escape(w) for w in words) + SAFE_ARGS)
         m = re.fullmatch(rx, cmd)
         if m and os.path.isfile(prog):
-            ctx.updated_input = dict(tin, command=" ".join([prog] + words) + m.group(1).rstrip())
+            new = " ".join([prog] + words) + m.group(1).rstrip()
+            if ctx.payload.get("permission_mode") == "auto":
+                # auto mode reviews the command it sees; a rewrite would run a command it never reviewed
+                ctx.decide("deny", "[ai router: abs-path] This command leaves the sandbox only by the absolute path "
+                                   "of the root-owned program, not a copy found on PATH. Run exactly: %s" % new)
+                return
+            ctx.updated_input = dict(tin, command=new)
             # Read-only gh forms run unattended (they are on the allow list); git push, gh pr create/edit ask.
             kind = "allow" if words and words[-1] in READ_ONLY_WORDS and os.path.basename(prog) == "gh" else "ask"
             ctx.updated_decision = (kind, "runs outside the sandbox: absolute path of the root-owned program, "
@@ -341,13 +354,13 @@ def on_post_tool(ctx):
     if tool == "Skill":
         name = tin.get("skill") or tin.get("name") or tin.get("command") or ""
         if name:
-            append_jsonl("fired.jsonl", ctx.row(kind="skill", via="tool", skill=name))
-    for name in skill_reads(tool, tin, ctx.stages):
-        append_jsonl("fired.jsonl", ctx.row(kind="skill", via="read", skill=name))
+            record_skill(ctx, name, "tool")
+    for name in skill_reads(tool, tin, ctx.stages, ctx.cwd):
+        record_skill(ctx, name, "read")
     if is_docs_tool(tool):
         log_docs_ids(ctx, tool, tin)
     if "serena" in tool.lower() or any(st.exe == "graphify" for st in ctx.stages):
-        mark_nav_used(ctx)
+        set_flag(ctx, "nav_used")
     try:
         ctx.graph_refresh = graph_refresh(ctx)
     except Exception as exc:     # never break the session
@@ -376,9 +389,9 @@ def on_post_tool(ctx):
 def on_prompt_expansion(ctx):
     name = ctx.payload.get("command_name") or ctx.payload.get("skill") or ""
     if name:
-        append_jsonl("fired.jsonl", ctx.row(kind="skill", via="expansion", skill=name))
+        record_skill(ctx, name, "expansion")
         if is_orchestration(ctx, name):
-            mark_orchestration(ctx)
+            set_flag(ctx, "orchestration")
 
 
 def on_stop(ctx):
@@ -422,7 +435,7 @@ class Ctx(object):
         self._root = False
         self.stages = []          # parsed shell stages of the Bash command (hooklib.parse_command)
         self.cmd_text = ""        # the command with quoted words removed, for rule regexes
-        self.skips = ({}, [])
+        self._skips = None
         self.named_libs = None    # libraries named by the prompt or the dependency change ({libs_hits})
         self.updated_input = None  # PreToolUse rewrite to an absolute program path (abs_rewrite)
         self.updated_decision = ("allow", "")
@@ -444,7 +457,13 @@ class Ctx(object):
         if cmd:
             self.stages = parse_command(cmd)
             self.cmd_text = command_text(self.stages)
-            self.skips = gate_skips(self.stages)
+
+    @property
+    def skips(self):
+        """The owner's valid gate skips and notes (read only when a gate is about to deny)."""
+        if self._skips is None:
+            self._skips = gate_skips(self.stages)
+        return self._skips
 
     @property
     def routing(self):
@@ -563,6 +582,8 @@ def match_tiebreaks(tiebreaks, prompt):
 CARD_CAP = 1500     # the skill card stays under this (spec: under 1.5k characters); ai-render checks the worst case
 SKILL_MD_RX = re.compile(r"(?:^|/)([\w.:-]+)/SKILL\.md$")
 FILE_READERS = {"cat", "head", "tail", "sed", "less", "more", "bat", "nl", "awk"}
+# Where installed skills live (project and home links, plugin caches); SKILL_SOURCES adds the machine copies.
+SKILL_HOMES = ("/.claude/skills/", "/.agents/skills/", "/.claude/plugins/", "/.codex/plugins/")
 
 
 def skill_card(skills, ctx):
@@ -589,14 +610,38 @@ def render_card(skills, dirs):
     return "\n".join(lines)
 
 
-def skill_reads(tool, tin, stages):
-    """Skill names whose SKILL.md this tool call read (a Read, or cat and the like in a shell command)."""
+def read_paths(tool, tin, stages):
+    """Files this tool call reads: a Read, or cat and the like in a shell command."""
     if tool == "Read":
-        paths = [file_of(tin)]
-    else:
-        paths = [a for st in stages
-                 if st.exe in FILE_READERS or (st.exe == "rtk" and st.args[:1] == ["read"]) for a in st.args]
-    return [m.group(1) for m in map(SKILL_MD_RX.search, paths) if m]
+        return [file_of(tin)]
+    return [a for st in stages
+            if st.exe in FILE_READERS or (st.exe == "rtk" and st.args[:1] == ["read"]) for a in st.args]
+
+
+def skill_reads(tool, tin, stages, cwd):
+    """Skill names whose installed SKILL.md this tool call read. A SKILL.md anywhere else (a repo's own
+    ai/skills/ship/SKILL.md that is being edited) is not a proof."""
+    out = []
+    for p in read_paths(tool, tin, stages):
+        full = os.path.normpath(os.path.join(cwd, os.path.expanduser(p)))
+        m = SKILL_MD_RX.search(full)
+        if m and (any(h in full for h in SKILL_HOMES) or any(full.startswith(s + os.sep) for s in SKILL_SOURCES)):
+            out.append(m.group(1))
+    return out
+
+
+def loser_reads(paths, cwd):
+    """OMX and OMC skill files: ~/.codex/skills/<n>/SKILL.md is oh-my-codex:<n>, a SKILL.md in an
+    oh-my-claudecode folder (plugin cache) is oh-my-claudecode:<n>. Matt's skills in .agents/skills are not."""
+    out = []
+    for p in paths:
+        full = os.path.normpath(os.path.join(cwd, os.path.expanduser(p)))
+        m = SKILL_MD_RX.search(full)
+        if m and "/.codex/skills/" in full:
+            out.append("oh-my-codex:" + m.group(1))
+        elif m and "/oh-my-claudecode/" in full:
+            out.append("oh-my-claudecode:" + m.group(1))
+    return out
 
 
 # ---------------------------------------------------------------- skill gates (require_skill, strength stop)
@@ -606,16 +651,34 @@ PATCH_FILE_RX = re.compile(r"(?m)^\*\*\* (?:(?:Add|Update|Delete) File|Move to):
 
 def skill_used(ctx, name):
     """A proof in this session: a Skill call (plugin prefix allowed), a typed /name or a read of its SKILL.md."""
-    return any(s.split(":")[-1] == name for s in recent_skills(ctx.session))
+    return short_skill(name) in (ctx.state.load().get("skills") or [])
+
+
+def record_skill(ctx, name, via):
+    """The shared log (ai-doctor stats) and the session state. The gates read the proof only from the session
+    state: a rotation or a busy shared log can not drop it."""
+    append_jsonl("fired.jsonl", ctx.row(kind="skill", via=via, skill=name))
+    used = ctx.state.load().setdefault("skills", [])
+    if short_skill(name) not in used:
+        used.append(short_skill(name))
+        ctx.state.dirty = True
 
 
 def skill_rule_hit(rule, tool, tin, cmd, ctx):
-    """A paths rule matches the edited files (Codex apply_patch: every file in the patch); else the command."""
+    """A paths rule matches the edited files (see edited_files); else the command."""
     paths = rule.get("trigger", {}).get("paths")
     if not paths:
         return conditions_match(rule, tool, tin, cmd, ctx)
-    files = PATCH_FILE_RX.findall(command_of(tin)) if tool == "apply_patch" else [file_of(tin)]
-    return any(f and glob_match(paths, f, ctx.cwd) for f in files)
+    return any(f and glob_match(paths, f, ctx.cwd) for f in edited_files(tool, tin, ctx))
+
+
+def edited_files(tool, tin, ctx):
+    """Codex apply_patch: every file in the patch. A shell command: the files it writes. Else the file path."""
+    if tool == "apply_patch":
+        return PATCH_FILE_RX.findall(command_of(tin))
+    if ctx.stages:
+        return write_targets(ctx.stages, ctx.cwd)
+    return [file_of(tin)]
 
 
 def skill_missed(rule, ctx, event):
@@ -641,7 +704,7 @@ def check_stop_rules(ctx):
             continue
         rules[rid] = "done"
         ctx.state.dirty = True
-        if skill_used(ctx, rule["require_skill"]):
+        if skill_used(ctx, rule["require_skill"]) or owner_skip(ctx, rid, ""):
             continue
         ctx.stop_block.append("[ai router: %s] %s Then finish the turn." % (rid, render_action(rule, ctx)))
         skill_missed(rule, ctx, "Stop")
@@ -670,9 +733,8 @@ def conditions_match(rule, tool, tin, cmd, ctx):
         return True
     if trig.get("command") and tool in ("Bash", "shell", "exec_command", "local_shell"):
         return False
-    fpath = file_of(tin)
     if paths:
-        return bool(fpath) and glob_match(paths, fpath, ctx.cwd)
+        return any(f and glob_match(paths, f, ctx.cwd) for f in edited_files(tool, tin, ctx))
     return True
 
 
@@ -832,20 +894,28 @@ def _state_code_repo(ctx):
     return ctx.root is not None and ctx.state.has_code(ctx.root)
 
 
-def graph_first(ctx):
-    """The first broad search of a session is denied when the repo has code and a fresh graph (graph on), and
-    the session has not used graphify or Serena yet."""
+GRAPH_DENY = {"fresh": "This repo has a graph: run graphify query first.",
+              "stale": "This repo has a stale graph: run graphify update, then graphify query."}
+
+
+def graph_deny(rule, ctx):
+    """A rule with `deny_once_when: graph`: the deny text when the repo has code and a graph (graph on) and the
+    session has not used graphify or Serena yet; else "". No graph, or no-graph: no deny."""
     root = ctx.root
-    if not root or ctx.state.load().get("nav_used") or "graph" not in enabled_tools(root):
-        return False
-    return ctx.state.has_code(root) and graph_status(root, git_history(root)) == "fresh"
+    if rule.get("deny_once_when") != "graph" or not root or ctx.state.load().get("nav_used") \
+            or "graph" not in enabled_tools(root) or not ctx.state.has_code(root):
+        return ""
+    return GRAPH_DENY.get(graph_status(root, git_history(root)), "")
 
 
-def mark_nav_used(ctx):
+def set_flag(ctx, key):
+    """Set a session flag; False when it was already set."""
     d = ctx.state.load()
-    if not d.get("nav_used"):
-        d["nav_used"] = True
-        ctx.state.dirty = True
+    if d.get(key):
+        return False
+    d[key] = True
+    ctx.state.dirty = True
+    return True
 
 
 # routing.yaml `state:` strings -> predicates. ai-render fails on a state string not listed here.
@@ -899,12 +969,7 @@ def graph_build(ctx):
             or not os.path.isfile(os.path.join(root, ".ai", "enabled")) \
             or os.path.isfile(os.path.join(root, "graphify-out", "graph.json")) or not ctx.state.has_code(root):
         return False
-    st = ctx.state.load()
-    if st.get("graph_build"):
-        return False
-    st["graph_build"] = True
-    ctx.state.dirty = True
-    return start_graph_refresh(root, build=True)
+    return set_flag(ctx, "graph_build") and start_graph_refresh(root, build=True)
 
 
 def _ph_libs_hits(ctx):
@@ -1125,10 +1190,7 @@ def log_docs_ids(ctx, tool, tin):
         return
     append_jsonl("docs-ids.jsonl", ctx.row(kind="docs-id", repo=ctx.root or "", tool=tool, lib=lib.lower(),
                                            version=version, context7=c7, grounded=grounded))
-    d = ctx.state.load()
-    if not d.get("docs_ids_new"):
-        d["docs_ids_new"] = True
-        ctx.state.dirty = True
+    set_flag(ctx, "docs_ids_new")
 
 
 # ---------------------------------------------------------------- gates (L4); logic lives in hooklib.py
@@ -1138,16 +1200,7 @@ def run_gate(rule, ctx, cmd):
     if gate is None:
         return
     verdict = gate(ctx, cmd, ctx.stages)        # None = pass, ("deny"|"ask", message)
-    if verdict is None:
-        return
-    skips, problems = ctx.skips
-    for p in problems:
-        if p not in ctx.contexts:
-            ctx.add_context("[ai gate] " + p)
-    if rule["id"] in skips:
-        log_line("gates.log", "%s SKIP %s session=%s reason=%s cmd=%s" % (
-            iso_now(), rule["id"], ctx.session, redact(skips[rule["id"]]), redact(one_line(cmd))[:200]))
-        ctx.add_context("[ai gate %s] skipped by the owner (/etc/ai/gate-skip, logged)." % rule["id"])
+    if verdict is None or owner_skip(ctx, rule["id"], cmd):
         return
     decision, msg = verdict
     # Decide first: logging below never raises, and a failure there must not lose the decision.
@@ -1162,15 +1215,33 @@ def run_gate(rule, ctx, cmd):
     ctx.fired(rule, "PreToolUse")
 
 
+def owner_skip(ctx, gate, what):
+    """True when the owner let this gate through (sudo ai-gate-skip <gate> ...): logged, and the agent is told.
+    Every deny path asks this first, just before it would deny."""
+    skips, problems = ctx.skips
+    tell = ctx.event != "Stop"      # Stop output has no additionalContext
+    for p in problems:
+        if tell and "[ai gate] " + p not in ctx.contexts:
+            ctx.add_context("[ai gate] " + p)
+    if gate not in skips:
+        return False
+    log_line("gates.log", "%s SKIP %s session=%s reason=%s cmd=%s" % (
+        iso_now(), gate, ctx.session, redact(skips[gate]), redact(one_line(what))[:200]))
+    if tell:
+        ctx.add_context("[ai gate %s] skipped by the owner (/etc/ai/gate-skip, logged)." % gate)
+    return True
+
+
 # ---------------------------------------------------------------- winner gate (routing.yaml `winners`)
 
 def winner_gate(ctx, name):
-    """Deny a Skill tool call of a skill that loses in the overlap table; the message names the winner."""
+    """Deny a skill that loses in the overlap table (Claude: a Skill tool call; Codex: a read of its file);
+    the message names the winner."""
     name = str(name).strip().lstrip("/")
     if not name:
         return
     if is_orchestration(ctx, name):
-        mark_orchestration(ctx)
+        set_flag(ctx, "orchestration")
         return
     # shortcut: one orchestration call lets every later loser pass for the rest of the session (OMC keeps no
     # cheap "flow ended" signal); upgrade when OMC state files mark the end of a flow.
@@ -1178,23 +1249,33 @@ def winner_gate(ctx, name):
         return
     for row in (ctx.routing.get("winners") or {}).get("table") or []:
         if name.lower() in [str(x).lower() for x in row.get("losers") or []]:
-            ctx.decide("deny", "[ai router: winner-gate] %s: use %s, not %s (skills guide, section 5). Call the "
-                               "winner instead. Only the owner can run this one, by typing /%s."
-                       % (row["job"], row["use"], name, name))
+            if owner_skip(ctx, "winner-gate", name):
+                return
+            ctx.decide("deny", "[ai router: winner-gate] %s: use %s, not %s (skills guide, section 5). %s Only the "
+                               "owner can run this one, by typing /%s."
+                       % (row["job"], row["use"], name, winner_how(ctx, row["use"]), name))
             ctx.fired({"id": "winner-gate"}, "PreToolUse")
             return
 
 
+def winner_how(ctx, use):
+    """Call a winner that has a Skill tool. A typed-only winner (no Skill tool call) is read and followed."""
+    where = {}
+    for n in (ctx.routing.get("skills") or {}).get("typed_only") or []:
+        m = re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(n), use)
+        if m:
+            where[n] = m.start()
+    if not where:
+        return "Call the winner instead."
+    first = min(where, key=where.get)
+    path = skill_md(ctx.root, first, ctx.agent) or "the %s SKILL.md" % first
+    return "%s is typed-only (no Skill tool call): read %s and follow it." % (first, path)
+
+
 def is_orchestration(ctx, name):
-    short = str(name).strip().lstrip("/").split(":")[-1].lower()
-    return short in [str(x).lower() for x in (ctx.routing.get("winners") or {}).get("orchestration") or []]
-
-
-def mark_orchestration(ctx):
-    d = ctx.state.load()
-    if not d.get("orchestration"):
-        d["orchestration"] = True
-        ctx.state.dirty = True
+    """Orchestration skills unlock the losers they call (owner 2026-11-16: autopilot, ralph, team, ultragoal)."""
+    orch = (ctx.routing.get("winners") or {}).get("orchestration") or []
+    return short_skill(name) in [short_skill(x) for x in orch]
 
 
 # ---------------------------------------------------------------- docs-on-dependency
@@ -1210,7 +1291,7 @@ def check_misses(ctx):
     if not pending:
         return
     stream = transcript_events(pending)
-    skills = recent_skills(ctx.session)
+    skills = ["skill:" + s for s in ctx.state.load().get("skills") or []]
     for item in pending:
         rx = item.get("proof")
         if not rx:
@@ -1267,21 +1348,6 @@ def events_of_line(line):
         elif c.get("type") == "text":
             evs.append("text:" + str(c.get("text", ""))[:2000])
     return evs
-
-
-def recent_skills(session):
-    text = read_text(state_path("fired.jsonl")) or ""
-    out = []
-    for line in text.splitlines()[-2000:]:
-        if '"skill"' not in line or session not in line:
-            continue
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue
-        if row.get("kind") == "skill" and row.get("session") == session:
-            out.append("skill:" + row.get("skill", ""))
-    return out
 
 
 def run_notify(ctx):

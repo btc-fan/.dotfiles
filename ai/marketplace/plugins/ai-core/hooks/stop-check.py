@@ -5,7 +5,8 @@ Usage (hooks.json / codex-hooks.json):
   python3 stop-check.py --agent claude|codex SessionStart   < hook JSON   (records the tree baseline)
   python3 stop-check.py --agent claude|codex Stop           < hook JSON   (runs the check when files changed)
 
-A separate script, not the router: the router never blocks a session; this hook must (owner plan, Tier 1 T2).
+A separate script, not the router: the router must stay fast and blocks a Stop only for a missing must-use
+skill (strength stop); this hook runs the project's check, up to 55 s (owner plan, Tier 1 T2).
 Python stdlib only (/usr/bin/python3 3.9 too). An internal error is logged and the hook stays silent: it is a
 quality check, not a security gate (the gates are in the router).
 

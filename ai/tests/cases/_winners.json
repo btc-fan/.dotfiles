@@ -56,6 +56,134 @@
    "payload": {"tool_name": "Skill", "agent_id": "a1", "agent_type": "executor",
                "tool_input": {"skill": "oh-my-claudecode:research"}},
    "contains": "research"
+  },
+  {
+   "name": "owner skip (sudo ai-gate-skip winner-gate): allow, logged",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:tdd"}},
+   "gate_skip": "winner-gate {{SOON}} trying the OMC flow",
+   "contains": "skipped by the owner",
+   "state_contains": {"gates.log": "SKIP winner-gate"}
+  },
+  {
+   "name": "cancel passes but does not unlock losers",
+   "expect": "deny",
+   "steps": [
+    {"event": "PreToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:cancel"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:tdd"}}}
+   ]
+  },
+  {
+   "name": "ask, babysit and fix-ci pass themselves",
+   "expect": "allow",
+   "steps": [
+    {"event": "PreToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:ask"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:babysit"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:fix-ci"}}}
+   ]
+  },
+  {
+   "name": "fix-ci does not unlock losers",
+   "expect": "deny",
+   "steps": [
+    {"event": "PreToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:fix-ci"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:review"}}}
+   ]
+  },
+  {
+   "name": "a typed /cancel never unlocks",
+   "expect": "deny",
+   "steps": [
+    {"event": "UserPromptExpansion", "payload": {"command_name": "oh-my-claudecode:cancel"}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:tdd"}}}
+   ]
+  },
+  {
+   "name": "a typed /ask never unlocks",
+   "expect": "deny",
+   "steps": [
+    {"event": "UserPromptExpansion", "payload": {"command_name": "oh-my-claudecode:ask"}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:tdd"}}}
+   ]
+  },
+  {
+   "name": "team unlocks losers",
+   "expect": "allow",
+   "steps": [
+    {"event": "PreToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:team"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:execute"}}}
+   ]
+  },
+  {
+   "name": "typed-only winner installed: read its SKILL.md and follow it, not call it",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:plan"}},
+   "project": {"git": true, "files": {".claude/skills/to-spec/SKILL.md": "---\nname: to-spec\ndisable-model-invocation: true\n---\n"}},
+   "contains": ["read {{PROJ}}/.claude/skills/to-spec/SKILL.md and follow it"],
+   "not_contains": "Call the winner"
+  },
+  {
+   "name": "typed-only winner not installed: read its SKILL.md and follow it",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:execute"}},
+   "contains": "read the implement SKILL.md and follow it",
+   "not_contains": "Call the winner"
+  },
+  {
+   "name": "a winner with a Skill tool: call it",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:tdd"}},
+   "contains": "Call the winner"
+  },
+  {
+   "name": "Codex: a shell read of a losing OMX skill file is denied with the winner",
+   "expect": "deny",
+   "agent": "codex",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "turn_id": "t1", "tool_input": {"command": "cat {{HOME}}/.codex/skills/plan/SKILL.md"}},
+   "contains": ["to-spec", "not oh-my-codex:plan"]
+  },
+  {
+   "name": "Codex: OMX code-review loses to Matt code-review",
+   "expect": "deny",
+   "agent": "codex",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "turn_id": "t1", "tool_input": {"command": "sed -n 1,200p ~/.codex/skills/code-review/SKILL.md"}},
+   "contains": "Matt code-review"
+  },
+  {
+   "name": "Codex: a read of a losing OMC skill file in the plugin cache is denied",
+   "expect": "deny",
+   "agent": "codex",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "turn_id": "t1", "tool_input": {"command": "cat {{HOME}}/.claude/plugins/cache/omc/oh-my-claudecode/4.0.0/skills/tdd/SKILL.md"}},
+   "contains": "use tdd"
+  },
+  {
+   "name": "Codex: Matt code-review skill file passes",
+   "expect": "allow",
+   "agent": "codex",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "turn_id": "t1", "tool_input": {"command": "cat {{HOME}}/.agents/skills/code-review/SKILL.md"}}
+  },
+  {
+   "name": "Codex: after the OMX autopilot skill file, the losers it reads pass",
+   "expect": "allow",
+   "agent": "codex",
+   "steps": [
+    {"event": "PreToolUse", "payload": {"tool_name": "Bash", "turn_id": "t1", "tool_input": {"command": "cat {{HOME}}/.codex/skills/autopilot/SKILL.md"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Bash", "turn_id": "t1", "tool_input": {"command": "cat {{HOME}}/.codex/skills/ralplan/SKILL.md"}}}
+   ]
+  },
+  {
+   "name": "Claude: a Read of an OMX skill file is not gated (Claude runs skills by the Skill tool)",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Read", "tool_input": {"file_path": "{{HOME}}/.codex/skills/plan/SKILL.md"}}
   }
  ]
 }

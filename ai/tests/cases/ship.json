@@ -49,6 +49,15 @@
    "agent": "codex",
    "event": "PreToolUse",
    "payload": {"tool_name": "Bash", "turn_id": "t1", "tool_input": {"command": "gh pr ready"}}
+  },
+  {
+   "name": "owner skip (sudo ai-gate-skip ship): allow, logged",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "gh pr ready 12"}},
+   "gate_skip": "ship {{SOON}} docs-only PR",
+   "contains": "skipped by the owner",
+   "state_contains": {"gates.log": "SKIP ship"}
   }
  ]
 }

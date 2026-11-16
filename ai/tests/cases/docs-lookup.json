@@ -2,12 +2,44 @@
  "rule": "docs-lookup",
  "cases": [
   {
-   "name": "sdk question",
+   "name": "sdk question about a library in the Libraries block",
    "expect": "fire",
    "event": "UserPromptSubmit",
    "payload": {
     "prompt": "how do I use the stripe sdk for refunds"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "AGENTS.md": "<!-- AI:libraries START lock: none -->\n## Libraries\n| lib | version | context7 | note |\n|---|---|---|---|\n| stripe | 9.0.0 | /stripe/stripe-python | |\n<!-- AI:libraries END -->\n"
+    }
    }
+  },
+  {
+   "name": "a well-known library that is not in the Libraries block stays quiet (owner 2026-11-16)",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "how do I use the stripe sdk for refunds"
+   }
+  },
+  {
+   "name": "Codex apply_patch of a dependency file",
+   "expect": "fire",
+   "agent": "codex",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "apply_patch", "turn_id": "t1",
+               "tool_input": {"command": "*** Begin Patch\n*** Update File: pyproject.toml\n@@\n-a\n+b\n*** End Patch\n"}},
+   "project": {"git": true, "files": {"pyproject.toml": "[project]\nname='x'\n"}},
+   "contains": "context7"
+  },
+  {
+   "name": "Codex apply_patch of code only stays quiet",
+   "expect": "nofire",
+   "agent": "codex",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "apply_patch", "turn_id": "t1",
+               "tool_input": {"command": "*** Begin Patch\n*** Update File: src/app.py\n@@\n-a\n+b\n*** End Patch\n"}}
   },
   {
    "name": "prompt that only says docs stays quiet",
@@ -52,16 +84,16 @@
    }
   },
   {
-   "name": "prompt only names a library (built-in list)",
-   "expect": "fire",
+   "name": "a library of the old built-in list, not in the Libraries block, stays quiet",
+   "expect": "nofire",
    "event": "UserPromptSubmit",
    "payload": {
     "prompt": "add a fastapi endpoint that returns the user list"
    }
   },
   {
-   "name": "prompt names a project dependency",
-   "expect": "fire",
+   "name": "a manifest dependency that is not in the Libraries block stays quiet",
+   "expect": "nofire",
    "event": "UserPromptSubmit",
    "payload": {
     "prompt": "switch the cache to frobnicate-kv"
@@ -157,6 +189,7 @@
    "project": {
     "git_init": true,
     "files": {
+     "AGENTS.md": "<!-- AI:libraries START lock: none -->\n| lib | version | context7 | note |\n|---|---|---|---|\n| fastapi | 0.115.0 | /fastapi/fastapi | |\n<!-- AI:libraries END -->\n",
      "pyproject.toml": "[project]\nname='itsdangerous'\n",
      "src/itsdangerous/encoding.py": "def want_bytes(s):\n    return s\n"
     }
@@ -172,6 +205,7 @@
    "project": {
     "git_init": true,
     "files": {
+     "AGENTS.md": "<!-- AI:libraries START lock: none -->\n| lib | version | context7 | note |\n|---|---|---|---|\n| stripe | 9.0.0 | /stripe/stripe-python | |\n<!-- AI:libraries END -->\n",
      "pyproject.toml": "[project]\nname='itsdangerous'\n",
      "src/itsdangerous/encoding.py": "def want_bytes(s):\n    return s\n"
     }

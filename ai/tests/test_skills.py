@@ -62,6 +62,8 @@ def t_doctor_skill_stats(work):
             {"ts": now, "kind": "skill", "via": "expansion", "skill": "to-spec"},
             {"ts": old, "kind": "skill", "via": "tool", "skill": "retro"}]
     write(os.path.join(state, "fired.jsonl"), "".join(json.dumps(r) + "\n" for r in rows))
+    rotated = {"ts": now, "kind": "skill", "via": "tool", "skill": "/To-Spec"}     # the log rotated at 5 MB
+    write(os.path.join(state, "fired.jsonl.1"), json.dumps(rotated) + "\n")
     misses = [{"ts": now, "rule": "edit-agent-docs"}, {"ts": now, "rule": "edit-agent-docs"},
               {"ts": now, "rule": "docs-lookup"}, {"ts": old, "rule": "edit-agent-docs"}]
     write(os.path.join(state, "misses.jsonl"), "".join(json.dumps(r) + "\n" for r in misses))
@@ -78,7 +80,7 @@ def t_doctor_skill_stats(work):
     finally:
         del os.environ["AI_ROUTING_JSON"]
     text = out.getvalue()
-    assert "last 30 days: skills used ship 2, to-spec 1" in text, text
+    assert "last 30 days: skills used ship 2, to-spec 2" in text, text
     assert "retro" not in text.split("last 30 days: skills used")[1].splitlines()[0], "40 days old: not counted"
     assert "last 30 days: gated skill misses edit-agent-docs (writing-for-agents) 2" in text, text
 
