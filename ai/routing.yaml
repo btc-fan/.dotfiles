@@ -165,6 +165,15 @@ rules:
     action: "Bug or performance work: use the diagnosing-bugs skill (Skill tool) and follow its loop before you end the turn."
     strength: stop
 
+  - id: tdd
+    scope: global
+    summary: 'test-first prompt (tests first, tdd, red-green, failing test first; RO, RU)'
+    # owner 2026-11-16: the baseline showed 0/3 tdd skill use (Claude works test-first by hand without the skill)
+    trigger: {prompt: '\b(tests? first|test-first|tdd|red[- ]green|(write|add) (the |a )?(failing )?tests? (first|before)|failing tests? first)\b|\b(teste(le)? (mai )?[iî]nt[aâ]i|test(e|ul)? [iî]nainte|mai [iî]nt[aâ]i (un |testele|testul))\b|(?<!\w)(сначала тест|тесты сначала|тест сначала|красн\w* зел[её]н)\w*'}
+    require_skill: tdd
+    action: "Test-first work: use the tdd skill (Skill tool) and follow its red-green slices before you end the turn."
+    strength: stop
+
   - id: ship
     scope: global
     summary: 'before gh pr ready'
@@ -370,5 +379,6 @@ skills:
     - {name: writing-for-agents, when: 'before an edit of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md'}
     - {name: diagnosing-bugs, when: 'a bug, crash, slow or performance prompt, before the turn ends'}
     - {name: ship, when: 'the branch is done, before gh pr ready'}
+    - {name: tdd, when: 'a tests-first or red-green prompt, before the turn ends'}
   typed_only: [grill-with-docs, to-spec, to-tickets, implement, handoff, wayfinder, improve-codebase-architecture,
                retro, create-verification-skill, maintain-verification-skill]

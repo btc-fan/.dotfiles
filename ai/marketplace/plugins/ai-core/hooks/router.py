@@ -660,17 +660,24 @@ PATCH_FILE_RX = re.compile(r"(?m)^\*\*\* (?:(?:Add|Update|Delete) File|Move to):
 
 
 def skill_used(ctx, name):
-    """A proof in this session: a Skill call (plugin prefix allowed), a typed /name or a read of its SKILL.md."""
-    return short_skill(name) in (ctx.state.load().get("skills") or [])
+    """A proof in this session: a Skill call (plugin prefix allowed), a typed /name or a read of its SKILL.md.
+    A vendor copy of the same name is not proof: oh-my-claudecode:tdd does not prove Matt's tdd."""
+    want = short_skill(name)
+    return any(s == want or (short_skill(s) == want and s.split(":")[0] not in VENDOR_PREFIXES)
+               for s in ctx.state.load().get("skills") or [])
+
+
+VENDOR_PREFIXES = ("oh-my-claudecode", "oh-my-codex")
 
 
 def record_skill(ctx, name, via):
     """The shared log (ai-doctor stats) and the session state. The gates read the proof only from the session
-    state: a rotation or a busy shared log can not drop it."""
+    state: a rotation or a busy shared log can not drop it. The full name is kept, so a vendor copy stays apart."""
     append_jsonl("fired.jsonl", ctx.row(kind="skill", via=via, skill=name))
     used = ctx.state.load().setdefault("skills", [])
-    if short_skill(name) not in used:
-        used.append(short_skill(name))
+    full = str(name).strip().lstrip("/").lower()
+    if full not in used:
+        used.append(full)
         ctx.state.dirty = True
 
 

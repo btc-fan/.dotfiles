@@ -104,7 +104,7 @@ def t_render_checks_skill_rules(work):
     routing = rendered(work)
     gated = {r["id"]: (r["strength"], r["require_skill"]) for r in routing["rules"] if r.get("require_skill")}
     assert gated == {"writing-for-agents": ("gate", "writing-for-agents"), "diagnosing-bugs": ("stop", "diagnosing-bugs"),
-                     "ship": ("gate", "ship")}, gated
+                     "tdd": ("stop", "tdd"), "ship": ("gate", "ship")}, gated
 
 
 def t_eval_turns_let_stop_fire(work):

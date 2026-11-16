@@ -162,6 +162,7 @@ opt-in = only in projects that enabled the tool (ai-start, ai-adopt).
 | no-verify (gate) | git commit or push with --no-verify (or commit -n) | Never skip the git hooks: fix what the pre-commit check reports, then commit again. |
 | writing-for-agents (gate) | before an edit of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md | Agent docs: load the writing-for-agents skill first (Skill tool, or read its SKILL.md), then edit. |
 | diagnosing-bugs (stop) | bug or performance prompt (slow, perf, broken, debug, crash, regression; RO, RU) | Bug or performance work: use the diagnosing-bugs skill (Skill tool) and follow its loop before you end the turn. |
+| tdd (stop) | test-first prompt (tests first, tdd, red-green, failing test first; RO, RU) | Test-first work: use the tdd skill (Skill tool) and follow its red-green slices before you end the turn. |
 | ship (gate) | before gh pr ready | Run the ship skill first (checks, review, Evidence), then gh pr ready. |
 | gh-write (gate) | gh write other than the PR commands | gh reads run freely; other gh writes ask the owner first. |
 | ledger-nudge (nudge) | before an edit in a regression-ledger area | Edit in a docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests. |
