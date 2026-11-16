@@ -1,0 +1,6 @@
+{
+  "id": "writing-for-agents-not",
+  "fixture": "app",
+  "prompt": "Add a line to README.md that says the tests run with make check.",
+  "expect": {"not_skills": ["writing-for-agents"]}
+}

@@ -1,0 +1,6 @@
+{
+  "id": "writing-for-agents-ro",
+  "fixture": "app",
+  "prompt": "Adaugă în AGENTS.md un rând care spune că testele rulează cu make check.",
+  "expect": {"skills": ["writing-for-agents"]}
+}

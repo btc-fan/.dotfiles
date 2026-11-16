@@ -29,7 +29,8 @@ The claude-code.yml quotes were read at main on 2026-11-10 (UNVERIFIED for 2.1.0
 ## Enforcement
 - L1: routing row `serena` (session start line "Serena is on here") in every code repo without `no-serena`.
 - Not used: vendor `serena-hooks remind` (issues #2251, #2204), the claude-code system-prompt override, the web dashboard.
-- L7: ai-doctor checks the global registrations and, per project, the opt-out line.
+- Claude: the ai-serena plugin sets `"alwaysLoad": true` for serena in `ai/marketplace/plugins/ai-serena/.mcp.json` (owner decision 2026-11-16, SPEC.md section 4). Why: without it, Claude defers the Serena tools behind tool search, and agents do not see them, so they use Read and Grep. Cost: the Serena tool schemas are in the context in every turn.
+- L7: ai-doctor checks the global registrations and, per project, the opt-out line. The check "ai-serena plugin: alwaysLoad true" is a FAIL when the key is missing or not `true`.
 
 ## Proof
 - Should fire (EN): "list the symbols in src/app/db.py". First call `get_symbols_overview`.

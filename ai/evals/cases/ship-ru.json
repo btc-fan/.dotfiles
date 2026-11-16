@@ -1,0 +1,6 @@
+{
+  "id": "ship-ru",
+  "fixture": "app",
+  "prompt": "Готово, ветка закончена. Подготовь её к ревью.",
+  "expect": {"skills": ["ship"]}
+}

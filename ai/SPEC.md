@@ -104,8 +104,7 @@ Composed from, in this order:
 | context7 (upstash) | global | local thin-client MCP, docs from context7.com; API key hardcoded (section 13); free plan 1,000 calls/month; the only library docs tool |
 | Playwright MCP (microsoft) | per project only | NOT registered at user scope (Claude has no default-off switch for user servers); added per project (`claude mcp add --scope project` / project `.codex/config.toml`) by ai-adopt / ai-start; `--headless --isolated` on servers |
 - No extra remote/screen/camera MCPs now (revisit GhostDesk and Mac screen tools in the Mac phase).
-- Dropped 2026-11-12 and not installed: Grounded Docs (library docs: context7) and the GitHub MCP (GitHub: the gh
-  CLI, read-only). See ai/SPEC-LOG.md, 2026-11-16 "enforcement over text", MCP deviations.
+- Grounded Docs and the GitHub MCP are not installed: see section 16 "Not adopted".
 
 ### Serena rules (global, owner style; vendor contexts claude-code/codex/ide are the source)
 - In a code project, use Serena first to read and edit code. Load its tools before any read, grep or bash on code.
@@ -293,6 +292,9 @@ Every MCP and skill gets `ai/rules/<tool>.md` + routing.yaml rows + evals:
 ## 16. Not adopted
 superpowers (second kickoff, conflicts with OMC), Docker Dynamic MCP, Smithery (AGPL, hosted), MetaMCP (stale),
 Nix tools, per-tool YAML registry, sfw (forced telemetry), context7 On-Premise (paid), LLM classifier router.
+- Grounded Docs (@arabold/docs-mcp-server): dropped 2026-11-12. Library docs come from context7.
+- GitHub MCP (github-mcp-server): dropped 2026-11-12. GitHub work uses the gh CLI, read-only.
+Why: ai/SPEC-LOG.md, 2026-11-16 "enforcement over text", MCP deviations. The intake record is in section 21.
 
 ## Appendix A: owner blocks, VERBATIM
 ### A.1 AGENTS.md owner text
@@ -469,7 +471,7 @@ Catalog: `omc ask <provider> --prompt` (markdown only); `omx exec` passes to `co
 - Verified: Codex's Ponytail cache equals the audited /opt/agent-plugins/ponytail copy (diff clean).
 
 ## 21. MCP server intake (2026-11-11, agent-audit on the server + code read)
-Grounded Docs and the GitHub MCP were dropped on 2026-11-12 (section 4); their lines below are the intake record only.
+Grounded Docs and the GitHub MCP were dropped on 2026-11-12 (section 16 "Not adopted"); their lines below are the intake record only.
 - @arabold/docs-mcp-server 3.4.1 (Grounded Docs, MIT): INSTALL at intake, dropped later. guarddog threat hits benign (provider-key presence
   checks as booleans; a scraper file-type list incl. .env used only when a GitHub repo is added as a source: index only
   public library docs). Telemetry (PostHog app.posthog.com, persistent installation.id) ON by default: set

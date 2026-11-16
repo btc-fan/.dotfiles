@@ -149,12 +149,15 @@ def t_doctor_checks(work):
     m3.write(md, OMC_LONG + short)
     m3.write(settings, json.dumps({"hooks": {"PreToolUse": [
         {"matcher": "Bash", "hooks": [{"type": "command", "command": "rtk hook claude"}]}]},
-        "autoMode": {"environment": ["$defaults", "Trusted repo: ~/work/radar, push to its origin is fine"]}}))
+        "autoMode": {"environment": ["$defaults", "Trusted repo: ~/work/example-app, push to its origin is fine"]}}))
     out = doctor_out(env)
     assert line_of(out, "CLAUDE.md").startswith("FAIL") and "install.sh" in line_of(out, "CLAUDE.md"), out
     assert line_of(out, "RTK hook").startswith("FAIL"), out
     auto = line_of(out, "autoMode.environment")
-    assert auto.startswith("WARN") and ".claude/settings.local.json" in auto and "~/work/radar" in auto, out
+    assert auto.startswith("WARN") and ".claude/settings.local.json" in auto and "~/work/example-app" in auto, out
+    # The exact move steps: which key in which file, in order (owner 2026-11-16: the file is not rewritten).
+    for step in ("1. in %s" % settings, "remove", "2. in the repo", "add", '"$defaults"', "3."):
+        assert step in auto, (step, auto)
     m3.write(md, short)
     m3.write(settings, json.dumps({"hooks": {"PreToolUse": [
         {"matcher": "Bash", "hooks": [{"type": "command", "command": '/usr/bin/python3 "%s" rtk' % WRAPPER}]}]},

@@ -70,7 +70,8 @@ def t_hook_files(work):
 def t_winners_table(work):
     """The overlap table of the skills guide and routing.yaml `winners` hold the same rows and losers."""
     import re
-    guide = open(os.path.join(AI_DIR, "skills", "skills-guide", "SKILL.md"), encoding="utf-8").read()
+    with open(os.path.join(AI_DIR, "skills", "skills-guide", "SKILL.md"), encoding="utf-8") as fh:
+        guide = fh.read()
     section = guide.split("## 5. Overlaps", 1)[1].split("\n## ", 1)[0]
     in_guide = {}
     for line in section.splitlines():
@@ -81,7 +82,8 @@ def t_winners_table(work):
     res = run([sys.executable, os.path.join(BIN, "ai-render"), "--profile", "server", "--out",
                os.path.join(work, "winners")])
     assert res.returncode == 0, "render failed: " + res.stdout
-    table = json.load(open(os.path.join(work, "winners", "routing.json")))["winners"]["table"]
+    with open(os.path.join(work, "winners", "routing.json"), encoding="utf-8") as fh:
+        table = json.load(fh)["winners"]["table"]
     in_data = {(r["job"], r["use"]): tuple(sorted(r["losers"])) for r in table}
     assert in_guide, "no overlap table rows found in the skills guide"
     diff = sorted(set(in_guide.items()) ^ set(in_data.items()))

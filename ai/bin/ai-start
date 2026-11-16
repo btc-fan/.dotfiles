@@ -9,7 +9,8 @@
                --no-measure (do not run check-fast once to time it),
                --skills a,b|none (mattpocock skills linked into this project; replaces the default list),
                --init (a folder without git: git init first; never in $HOME or /).
-  On main or master the commit goes on a new branch ai-adopt for the owner to merge. No remote: a warning, no push.
+  On main or master the commit goes on a new branch ai-adopt for the owner to merge (also on an unborn main). On main
+  with an ai-adopt branch that exists: exit 1 before any write. No remote: a warning, no push.
   No tiers (owner 2026-11-15): every project gets the full setup (`tier: long`). An old --tier flag is ignored.
 ai-adopt is a link to this file; the mode comes from the command name. Rerun = upgrade (blocks are
 replaced by marker, project text outside the blocks is never touched).
@@ -102,6 +103,13 @@ def main(argv):
         return 1
     if not owner_repo(root):
         print("ai-%s: refused, the origin remote is not one of the owner's repos" % mode, file=sys.stderr)
+        return 1
+    # Never on main or master (owner 2026-11-16): the commit goes on a branch ai-adopt, the owner merges it.
+    # An unborn main (no commit yet) counts too. Check before any write, so main stays clean.
+    on_main = (git(root, "branch", "--show-current") or "") in ("main", "master")
+    if on_main and git(root, "rev-parse", "-q", "--verify", "refs/heads/" + ADOPT_BRANCH):
+        print("ai-%s: nothing written: you are on main and the branch %s exists. Merge or delete it, or switch "
+              "to it (git switch %s), then run again." % (mode, ADOPT_BRANCH, ADOPT_BRANCH))
         return 1
     routing = load_routing()
     version = str(routing.get("version") or 1)
@@ -214,13 +222,6 @@ def main(argv):
         print("ai-%s: files written, not committed" % mode)
         return 0
     msg = ("chore(ai): adopt base AI setup v%s" if mode == "adopt" else "chore(ai): start project AI setup v%s") % version
-    # Never on main or master (owner 2026-11-16): the commit goes on a branch ai-adopt, the owner merges it.
-    on_main = (git(root, "branch", "--show-current") or "") in ("main", "master")
-    if on_main and git(root, "rev-parse", "-q", "--verify", "refs/heads/" + ADOPT_BRANCH):
-        undo_intent_to_add(root, new_files)
-        print("ai-%s: files written, not committed: the branch %s exists. Merge or delete it, then run again."
-              % (mode, ADOPT_BRANCH))
-        return 1
     try:
         if on_main:
             subprocess.check_call(["git", "-C", root, "switch", "-q", "-c", ADOPT_BRANCH])

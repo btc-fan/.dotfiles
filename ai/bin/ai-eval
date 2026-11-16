@@ -15,7 +15,8 @@ Fixtures: empty-git (git init only), docs-only (README.md, docs/*.md), no-git (a
 pytest test, Makefile with check, .claude/skills/verify-app/SKILL.md), project-copy (a clone of $AI_EVAL_PROJECT
 without its remotes; skipped when the variable is not set).
 Case file: {"id", "fixture", "prompt", "expect": {"skills": [...], "tools": [regex, ...], "rules": [rule id, ...],
-"not_skills": [...]}}. A run is a hit when every expected item is seen and no not_skills item is seen.
+"not_skills": [...], "not_rules": [...], "not_tools": [regex, ...]}}. A run is a hit when every expected item is
+seen and no not_* item is seen. A should-not-fire case has only not_* items.
 Seen: Skill tool calls, a Read or shell command on a skills/<name>/SKILL.md, tool calls ("Name {input json}"), and
 the rules and skills in fired.jsonl of the run.
 Child sessions: HC_TERMINAL_ID and HERDR_* are unset (the herdr PermissionRequest hook waits up to 30 minutes
@@ -277,12 +278,8 @@ def run_case(out, notes, agent, case, n):
 
 def run_error(text):
     """The error message of a failed run: a Codex error event, else the last output line."""
-    for line in reversed(text.splitlines()):
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(event, dict) and event.get("type") == "error" and event.get("message"):
+    for event in reversed(json_lines(text)):
+        if event.get("type") == "error" and event.get("message"):
             return event["message"][:200]
     return last_line(text)
 
@@ -296,13 +293,7 @@ def child_env(state):
 def score_stream(text):
     """Skills and tool calls in a Claude stream-json or Codex --json transcript (one JSON event per line)."""
     seen = {"skills": [], "tools": []}
-    for line in text.splitlines():
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(event, dict):
-            continue
+    for event in json_lines(text):
         for name, args in tool_calls(event):
             seen["tools"].append("%s %s" % (name, json.dumps(args, sort_keys=True)))
             if name == "Skill" and args.get("skill"):
@@ -344,14 +335,10 @@ def router_seen(state):
     seen = {"rules": [], "skills": []}
     try:
         with open(os.path.join(state, "fired.jsonl"), encoding="utf-8") as fh:
-            lines = fh.read().splitlines()
+            text = fh.read()
     except OSError:
         return seen
-    for line in lines:
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue
+    for row in json_lines(text):
         if row.get("kind") == "rule" and row.get("rule") and row["rule"] not in seen["rules"]:
             seen["rules"].append(row["rule"])
         if row.get("kind") == "skill" and row.get("skill"):
@@ -359,17 +346,33 @@ def router_seen(state):
     return seen
 
 
+def json_lines(text):
+    """The JSON objects of a JSONL text; a line that is not a JSON object is skipped."""
+    rows = []
+    for line in text.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
 def hit(expect, seen):
     return (all(s in seen["skills"] for s in expect.get("skills", []))
             and all(any(re.search(rx, t) for t in seen["tools"]) for rx in expect.get("tools", []))
             and all(r in seen.get("rules", []) for r in expect.get("rules", []))
-            and not any(s in seen["skills"] for s in expect.get("not_skills", [])))
+            and not any(s in seen["skills"] for s in expect.get("not_skills", []))
+            and not any(r in seen.get("rules", []) for r in expect.get("not_rules", []))
+            and not any(re.search(rx, t) for rx in expect.get("not_tools", []) for t in seen["tools"]))
 
 
 def expected_text(case):
     exp = case["expect"]
     parts = ["skill " + s for s in exp.get("skills", [])] + ["tool /%s/" % t for t in exp.get("tools", [])]
     parts += ["rule " + r for r in exp.get("rules", [])] + ["not " + s for s in exp.get("not_skills", [])]
+    parts += ["not rule " + r for r in exp.get("not_rules", [])] + ["not tool /%s/" % t for t in exp.get("not_tools", [])]
     return ", ".join(parts)
 
 

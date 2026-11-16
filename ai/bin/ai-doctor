@@ -404,8 +404,8 @@ def check_tests():
 
 
 def check_evals():
-    """ai/evals/*.md are prompt lists for people (HOWTO.md Appendix 5), not machine-readable: report them
-    as manual evals with their size. Automatic proof comes from the router tests and the fired/misses logs."""
+    """ai/evals/*.md are prompt lists for people (ai/evals/HOWTO.md), not machine-readable: report them
+    as manual evals with their size. ai-eval runs the JSON cases in ai/evals/cases/."""
     evals = os.path.join(AI_DIR, "evals")
     files = sorted(f for f in os.listdir(evals) if f.endswith(".md") and f != "HOWTO.md") if os.path.isdir(evals) else []
     if not files:
@@ -1059,9 +1059,12 @@ def check_claude_cleanup():
     if env is not None:
         # A local path or a single trusted repo is about one project ("repos under an org" is global).
         repo = [e for e in env if isinstance(e, str) and re.search(r"(~/|/Users/|/home/)\S|\brepo(sitory)?\b", e, re.I)]
+        # Owner 2026-11-16: a WARN with the steps; this setup does not rewrite the owner's settings file.
         say("WARN" if repo else "PASS", "global autoMode.environment names no single repo",
-            ("%r belongs to one repo: move it to that repo's .claude/settings.local.json (autoMode.environment) "
-             "and remove it from ~/.claude/settings.json" % repo[0][:120]) if repo else "")
+            ("%r belongs to one repo. Move it by hand: 1. in %s, key autoMode.environment, remove this entry; "
+             "2. in the repo it names, add it to .claude/settings.local.json, key autoMode.environment (a list: "
+             "\"$defaults\" first, then this entry); 3. restart Claude in that repo"
+             % (repo[0][:120], os.path.join(CLAUDE_DIR, "settings.json"))) if repo else "")
 
 
 def check_omc_companion():
