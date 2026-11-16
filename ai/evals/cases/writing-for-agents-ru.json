@@ -1,0 +1,6 @@
+{
+  "id": "writing-for-agents-ru",
+  "fixture": "app",
+  "prompt": "Добавь в AGENTS.md строку о том, что тесты запускаются через make check.",
+  "expect": {"skills": ["writing-for-agents"]}
+}

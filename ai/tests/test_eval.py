@@ -30,6 +30,9 @@ def main():
             except AssertionError as exc:
                 FAILS.append("%s: %s" % (test.__name__, exc))
                 print("FAIL %s: %s" % (test.__name__, exc))
+            except Exception as exc:        # a crash in one test must not stop the others
+                FAILS.append("%s: %s: %s" % (test.__name__, type(exc).__name__, exc))
+                print("FAIL %s: crashed: %s: %s" % (test.__name__, type(exc).__name__, exc))
     finally:
         shutil.rmtree(work, ignore_errors=True)
     print("%d eval tests failed" % len(FAILS))
@@ -152,6 +155,9 @@ def t_score_stream(work):
     assert not ev.hit({"skills": ["ship"]}, seen), "an Edit of a SKILL.md is not a use"
     assert ev.hit({"tools": ["graphify (query|affected)", "context7"], "rules": ["docs-lookup"]}, seen)
     assert not ev.hit({"rules": ["nav-first"]}, seen)
+    assert not ev.hit({"skills": ["tdd"], "not_rules": ["docs-lookup"]}, seen), "a rule that must not fire fired"
+    assert not ev.hit({"not_tools": ["graphify (query|affected)"]}, seen), "a tool that must not run ran"
+    assert ev.hit({"not_rules": ["nav-first"], "not_tools": ["^Write "], "not_skills": ["ship"]}, seen)
 
 
 def t_router_seen(work):
@@ -161,7 +167,7 @@ def t_router_seen(work):
         json.dumps({"kind": "rule", "rule": "docs-lookup", "event": "UserPromptSubmit"}),
         json.dumps({"kind": "rule", "rule": "docs-lookup", "event": "PreToolUse"}),
         json.dumps({"kind": "skill", "via": "tool", "skill": "ship"}),
-        "broken line"]) + "\n")
+        "broken line", "[1, 2]"]) + "\n")
     assert ev.router_seen(state) == {"rules": ["docs-lookup"], "skills": ["ship"]}
     assert ev.router_seen(os.path.join(work, "no-state")) == {"rules": [], "skills": []}
 
@@ -209,11 +215,18 @@ def t_cases_valid(work):
     ids = [c["id"] for c in cases]
     for want in ("writing-for-agents", "diagnosing-bugs", "graphify-first", "docs-lookup", "ship", "winner-tdd"):
         assert want in ids, "missing case %s: %s" % (want, ids)
+    # EXTENDING section 6: English, Romanian and Russian should-fire cases, and a should-not-fire case.
+    for base in ("writing-for-agents", "diagnosing-bugs", "graphify-first", "ship"):
+        for want in (base + "-ro", base + "-ru", base + "-not"):
+            assert want in ids, "missing case %s: %s" % (want, ids)
+        neg = [c for c in cases if c["id"] == base + "-not"][0]["expect"]
+        assert neg and all(k.startswith("not_") for k in neg), "%s-not expects only not_* items: %s" % (base, neg)
     assert len(set(ids)) == len(ids), ids
     for case in cases:
         assert set(case) == {"id", "fixture", "prompt", "expect"}, case
         assert case["fixture"] in ev.FIXTURES and case["prompt"].strip(), case
-        assert case["expect"] and set(case["expect"]) <= {"skills", "tools", "rules", "not_skills"}, case
+        assert case["expect"] and set(case["expect"]) <= {"skills", "tools", "rules", "not_skills", "not_rules",
+                                                           "not_tools"}, case
     tdd = [c for c in cases if c["id"] == "winner-tdd"][0]
     assert tdd["expect"] == {"skills": ["tdd"], "not_skills": ["oh-my-claudecode:tdd"]}, tdd
 

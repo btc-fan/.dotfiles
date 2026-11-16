@@ -1,0 +1,6 @@
+{
+  "id": "graphify-first-ro",
+  "fixture": "app",
+  "prompt": "Unde este folosită funcția add în acest repo?",
+  "expect": {"tools": ["graphify (query|affected)"]}
+}

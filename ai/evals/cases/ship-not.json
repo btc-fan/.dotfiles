@@ -1,0 +1,6 @@
+{
+  "id": "ship-not",
+  "fixture": "app",
+  "prompt": "Explain what make check runs in this repo.",
+  "expect": {"not_skills": ["ship"]}
+}

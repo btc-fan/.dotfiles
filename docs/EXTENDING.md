@@ -25,7 +25,7 @@ Judge the latest audited release for future machines. Do not rely on what one ma
 3. Description: triggers first, under 1,536 characters. Add Romanian and Russian trigger phrases.
 4. Contract: `ai/rules/<name>.md` (section 5).
 5. Routing: add a row in `ai/routing.yaml` (section 6) and a tie-break row if it overlaps another skill.
-6. Evals: 3 should-fire prompts (English, Romanian, Russian) and 2 should-not-fire prompts. Put them in `ai/evals/`.
+6. Evals: 3 should-fire prompts (English, Romanian, Russian) and should-not-fire prompts, as case files in `ai/evals/cases/` (section 6).
 7. Reinstall and check: macOS `~/.dotfiles-ai/install.sh`; server: the admin command `sudo /opt/ai-setup/install.sh --update --for-user <user>`. Then `ai-doctor`.
 Note: plugin skills cannot be hidden one by one. Think about the context cost.
 
@@ -72,9 +72,9 @@ Only if every agent needs it in every session: one short line in `ai/agents-md/9
 
 ## 6. Add evals
 
-1. Put cases in `ai/evals/`. Format: tool | FIRE (EN ; RO ; RU) | NOT (a ; b) | signal.
+1. Put one JSON case file per prompt in `ai/evals/cases/`: `<tool>.json` (English), `<tool>-ro.json`, `<tool>-ru.json` (should fire), and `<tool>-not.json` (should not fire). Form: `{"id", "fixture", "prompt", "expect"}`. A fire case expects `skills`, `tools` (regex) or `rules`. A should-not-fire case has only `not_skills`, `not_tools` or `not_rules`. `ai/bin/ai-eval behaviour` runs the cases; `ai/tests/test_eval.py` checks the files. A manual prompt list `ai/evals/<tool>.md` (tool | FIRE (EN ; RO ; RU) | NOT (a ; b) | signal) is only for a signal that ai-eval cannot see.
 2. Pass bar: all fire cases fire, no NOT case fires.
-3. Run method: `ai/evals/HOWTO.md`.
+3. Run method and the full case format: `ai/evals/HOWTO.md`.
 4. Re-run on every model change, and when a new release of the tool changes its rules text or triggers.
 
 ## 7. Add a toolbox entry

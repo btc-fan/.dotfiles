@@ -1,0 +1,6 @@
+{
+  "id": "ship-ro",
+  "fixture": "app",
+  "prompt": "Gata, branch-ul e terminat. Pregătește-l pentru review.",
+  "expect": {"skills": ["ship"]}
+}
