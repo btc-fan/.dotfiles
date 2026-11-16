@@ -9,3 +9,5 @@
 - [ ] Audit findings are tickets
 - [ ] server-start has the full setup and the owner tested it
 - [ ] Numbers after 7 days are better than the baseline
+- [ ] A fresh Claude session lists Serena tools without a tool search (`alwaysLoad: true`), moved here from ticket 10
+- [ ] audit-accepted has a line for graphify 0.9.111: run `agent-audit pypi graphifyy 0.9.111` on the server profile, then add the line, moved here from ticket 10

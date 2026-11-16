@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Install level green on the empty, docs-only and no-git fixtures
 - [x] Second run changes nothing
