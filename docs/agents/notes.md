@@ -12,6 +12,9 @@ Moved here from Claude auto memory on 2026-11-16 (auto memory is off: the repo i
 - Navigation: graphify for wide questions, Serena for exact symbols, rg for text.
 - Tool upgrades: install.sh records versions (ai-versions); the session start asks for upgrade-review.
 - No scheduler: every review runs on an event (a merge, a release, an upgrade, a session start).
+- Adopt an existing repo on a branch (or a worktree when there is open work), through a PR; never on main.
+- Run a session on the machine where the repo lives (not through ssh from another machine).
+- A repo's own setup files are unified into ours: ours first, the project's extras kept (scriptube #11).
 
 ## 2026-11-15
 - One light profile, `dev-mac`, on all 3 machines (M3, old Intel Mac, ubuntu01). No scanners, no package audit,

@@ -589,3 +589,21 @@ Seen on the owner's M3 Mac (macOS 15.5), read only:
 ## 2026-11-15: PR body template (owner)
 - PR body follows Matt Pocock pr template + required Mermaid (owner).
 - Parts: Summary (Mermaid required), Evidence (Before/After), Merge Danger (Door, Blast Radius). The pr-rules gate checks them; tier long adds Docs, Changed guards, Ledger.
+
+
+## 2026-11-16: ship, merge, release; one knowledge store (owner)
+- Every PR goes through the owner. A rule alone can be skipped, so a gate checks it: the router stores the owner's
+  latest prompt per session (merge or approve, not a question, not a negation) and denies gh pr merge, the merge
+  API and a push to main or master without it. A later prompt clears it. A push to a feature branch stays free.
+- no-verify gate: the pre-commit hook is the cheapest check; an agent that can skip it with one flag makes it
+  worthless.
+- Reviews run on events, not on a clock (owner: no scheduler): main moved (session start), release (owner's word),
+  tool upgrade (install.sh records versions). Typed-only Matt skills are started by these nudges.
+- Markdown placement is a check, not a rule: research (ETH Zurich 2026, OpenAI harness engineering) shows rule
+  text barely changes behaviour; a failing make check does. Adopted repos get a baseline so day one passes.
+- Claude auto memory off: a second knowledge store goes stale. Old memory moves into the repo once per project
+  (legacy-memory nudge), through a PR.
+- Navigation: graphify for wide questions, Serena for exact symbols. Both are local, free and per repo; agents
+  skip them, so the first broad search of a session gets one reminder.
+- Adopting from a worktree needs the main checkout's name and venv (found on scriptube); a branch made from its
+  base tracks the base, so the push needs -u origin HEAD (found on radar999 and scriptube).

@@ -14,9 +14,24 @@ The owner guide explains how the setup works inside (rules, router, gates, skill
 It has full example sessions: adopt a messy repo, start an iOS and Android app, fix a bug, build V2, triage.
 In any session, ask "which skill for X?" to get the global `skills-guide` skill.
 
-Status: server first. macOS later. Windows planned, not supported yet. Items marked **coming** are designed but not in the code yet.
+Status (2026-11-16): one profile, `dev-mac`, on all 3 machines (M3, old Intel Mac, ubuntu01). Windows planned, not supported yet.
 
-## Where we stopped (2026-11-13) and what to do next
+## Current state (2026-11-16)
+
+- **Flow:** feature branch, the `ship` skill, then every PR goes through the owner (the agent merges only after the
+  owner says merge). After a merge: `/improve-codebase-architecture` and `/retro`. The owner says release: the
+  `release` skill. Details: `docs/GUIDE.md` section 15. Decisions: `docs/agents/notes.md`.
+- **Gates (dev-mac):** secret-scan, pr-rules, merge-approval (no merge, no push to main without the owner's OK),
+  no-verify (no skipped git hooks). Everything else is a nudge.
+- **Per project (ai-adopt):** 13 Matt Pocock skills, ui-ux-pro-max, a pre-commit hook, `ai-docs-check` in
+  `make check`, `## Project rules` (add or tighten, never loosen), CODING_STANDARDS.md for the reviewer.
+- **One knowledge store:** the repo (Map, GLOSSARY.md, docs/). Claude auto memory is off.
+- **Navigation:** graphify for wide questions, Serena for exact symbols, rg for text.
+- **Run a session on the machine where the repo lives** (`ssh oldmac`, then `claude` in the repo). A session on
+  another machine that works through ssh has no gates, no Serena and no project rules for that repo.
+- **Adopted:** radar999 (ubuntu01) and scriptube (old Mac), through PRs. Other M3 projects: the owner picks them.
+
+## History: where we stopped on 2026-11-13 (server work)
 
 Read this first when you pick the work up again. Full history and design: `docs/AUDIT-BRIEF.md`.
 Audit reports (local, not in git) live next to the checkouts in `ai-audit/`.

@@ -1536,6 +1536,16 @@ Never: a commit on `main` or `master`, `git add -A` without `git status` first, 
    ("is it approved?") and a "don't merge yet" do not count. Your next message without the word clears it.
 5. no-verify: the agent fixes what the pre-commit hook reports and commits again.
 
+### Claude says "You've hit your weekly limit"
+
+The account on that machine reached its usage limit (HTTP 429). The setup is fine. Use Codex on that machine until
+the reset time in the message, or log in with another account (`claude`, then `/login`).
+
+### Auto mode blocks a merge
+
+The auto-mode classifier refuses an agent merge, even after "merge". Switch the session to manual mode (or merge on
+GitHub). Every PR goes through you either way.
+
 ### make check fails on stray Markdown
 
 `ai-docs-check` lists the files. Move each under `docs/<kind>/`, merge it into a doc, or delete it. A file that
@@ -1598,6 +1608,9 @@ At the time of writing (2026-11-15):
   (router cases and `ai/tests/test_flow.py` scenarios); the first real feature will show how well agents follow
   the skills.
 - Serena on Swift and Kotlin code: test it on the first mobile repo; `no-serena` is the fallback.
+- A real agent session that tries to merge or skip hooks: the auto-mode classifier refused the live test, so the
+  proof is the installed router (10 gate checks per machine) and the scenario tests. The first real refusal came
+  from the pre-commit hook in radar999 (`ruff format`).
 
 Next step for each item: run it once in a real project and update this guide.
 
@@ -1694,13 +1707,28 @@ adopted repo gets `.ai/docs-allow` with the files that were already there. A res
 
 | Repo | Machine | How | PR | Notes |
 |---|---|---|---|---|
-| radar999 | ubuntu01 | `~/work/radar999-main`, branch `ai-setup-2026-11-16` from `origin/main` | btc-fan/radar-999#1 | `AGENTS.md` and `CLAUDE.md` stay local (the repo lists them in `.git/info/exclude`). `make check-fast` has 3 ruff findings that are already on main: fix them in their own PR, then remove `no-stop-check`. |
-| scriptube | old Mac | a separate worktree `~/openclaw/projects/scriptube-worktrees/ai-setup-2026-11-16` from `origin/master`; your open work in the main checkout is not touched | btc-fan/yt-transcripts#10 | 191 Markdown files outside `docs/` are in the baseline. `make check-fast` takes over 300 s. After the merge: run `ai-adopt` once in the main checkout (it links the new skills there), then remove the worktree with `git worktree remove`. |
+| radar999 | ubuntu01 | `~/work/radar999-main`, branch `ai-setup-2026-11-16` from `origin/main` | btc-fan/radar-999#1 (merged) | `AGENTS.md` and `CLAUDE.md` stay local (the repo lists them in `.git/info/exclude`). The 3 ruff findings on main: btc-fan/radar-999#3 (open). `tests/test_intern_rute.py::test_panoul_htmx_cu_telefon_si_audit` fails on main too: fix it, then remove `no-stop-check`. The pre-commit hook blocked the first lint commit on `ruff format`: it works. |
+| scriptube | old Mac | a separate worktree from `origin/master` (removed after the merge); the open work in the main checkout was not touched | btc-fan/yt-transcripts#10 and #11 (merged) | #11 unifies the setup with the local extras: the old agents (sdev, sqa, srefactor, sskills) and two path rules are gone; their judgement rules are in CODING_STANDARDS.md, aligned with the 2026-09-15 docs audit; `verify-scriptube` lives in `.agents/skills/` with a `.claude/skills` link. 191 Markdown files outside `docs/` are in the baseline. Only the app work (2 templates, 2 tests) stays uncommitted. |
 
 Adopt an existing repo yourself, the same way:
 1. `git switch -c ai-setup-<date> origin/main` (or a worktree when you have open work: `git worktree add ../x-ai-setup -b ai-setup-<date> origin/main`).
 2. `ai-adopt`. It commits on that branch and pushes it with an upstream. In a worktree it uses the main checkout's name and its `.venv`.
 3. Ask the agent to open the PR, or open it on GitHub. Merge it yourself, or say "merge".
+
+### 15.9 Where to run a session
+
+Run Claude or Codex **on the machine where the repo lives**:
+
+| Repo | Machine | Start |
+|---|---|---|
+| scriptube | old Mac | `ssh oldmac`, then `cd ~/openclaw/projects/scriptube && claude` |
+| radar999 | ubuntu01 | `ssh ubuntu01`, then `cd ~/work/radar999-main && claude` |
+| Projects in `~/work` on the M3 | M3 | `cd ~/work/<project> && claude` |
+
+Why: the hooks, gates, Serena, graphify and the repo's `AGENTS.md` work on the machine that runs the agent. A
+session on the M3 that reaches the old Mac through `ssh` only shows `ssh ...` to the hooks, so the gates cannot see
+the real commands, and the repo's Map and rules never load. Start the session in `tmux` on that machine, so it
+survives a closed window.
 
 Found and fixed while doing these two: a new branch that tracks its base made `git push` fail (exit 128); a worktree
 got the worktree folder name in the Design line and the system `python3` in the Makefile.
