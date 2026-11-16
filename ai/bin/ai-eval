@@ -213,11 +213,16 @@ def behaviour(opts):
         for case in cases:
             mine = [r for r in results if r["agent"] == agent and r["case"] == case["id"]]
             hits = sum(1 for r in mine if r.get("hit"))
+            errors = sum(1 for r in mine if r.get("hit") is None and "error" in r)
+            scored = len(mine) - errors
             summary.append({"agent": agent, "case": case["id"], "expected": expected_text(case), "hits": hits,
-                            "runs": len(mine)})
-            rows.append([case["id"], expected_text(case), "%d/%d" % (hits, len(mine))])
+                            "runs": scored, "errors": errors})
+            rows.append([case["id"], expected_text(case), "%d/%d" % (hits, scored), errors or ""])
         print("\n%s" % agent)
-        print_table(["case", "expected", "hits/runs"], rows)
+        print_table(["case", "expected", "hits/runs", "errors"], rows)
+        first = next((r["error"] for r in results if r["agent"] == agent and r.get("error")), "")
+        if first:
+            print("first error: " + first)
     write_report(out, "behaviour", {"summary": summary, "runs": results})
     return 0
 
@@ -264,7 +269,22 @@ def run_case(out, notes, agent, case, n):
     router = router_seen(state)
     seen["skills"] += router["skills"]
     seen["rules"] = router["rules"]
+    if rc != 0 and not seen["tools"]:
+        # The agent never acted (usage limit, auth, crash): an error, not a miss. hit None keeps it out of the score.
+        return dict(result, rc=rc, hit=None, error=run_error(text), seen=seen)
     return dict(result, rc=rc, hit=hit(case["expect"], seen), seen=seen)
+
+
+def run_error(text):
+    """The error message of a failed run: a Codex error event, else the last output line."""
+    for line in reversed(text.splitlines()):
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("type") == "error" and event.get("message"):
+            return event["message"][:200]
+    return last_line(text)
 
 
 def child_env(state):

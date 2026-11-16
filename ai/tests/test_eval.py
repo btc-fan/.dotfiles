@@ -276,8 +276,31 @@ def t_copy_fixture_skips_socket(work):
     assert not os.path.exists(os.path.join(dst, ".git", "fsmonitor--daemon.ipc")), "the socket is skipped"
 
 
+def t_failed_run_is_error(work):
+    """Regression (hard baseline, 2026-11-16): Codex hit its usage limit, exited 1 with no tool call, and 24 runs
+    were scored as misses. A run that fails before any tool call is an error, out of the score."""
+    ev = load()
+    out = os.path.join(work, "err-out")
+    os.makedirs(os.path.join(out, "fixtures", "app"))
+    bin_dir = os.path.join(work, "err-bin")
+    os.makedirs(bin_dir)
+    fake = os.path.join(bin_dir, "codex")
+    with open(fake, "w") as fh:
+        fh.write("#!/bin/sh\necho '{\"type\":\"error\",\"message\":\"You have hit your usage limit.\"}'\nexit 1\n")
+    os.chmod(fake, 0o755)
+    case = {"id": "x", "fixture": "app", "prompt": "p", "expect": {"skills": ["ship"]}}
+    old = os.environ["PATH"]
+    os.environ["PATH"] = bin_dir + os.pathsep + old
+    try:
+        res = ev.run_case(out, {"app": None}, "codex", case, 1)
+    finally:
+        os.environ["PATH"] = old
+    assert res["hit"] is None and res["rc"] == 1, res
+    assert res["error"] == "You have hit your usage limit.", res
+
+
 TESTS_LIST = [t_fixtures, t_fixture_project_copy, t_copy_fixture_skips_socket, t_snapshot_skips_ignored, t_score_stream, t_router_seen,
-              t_child_env, t_cases_valid, t_behaviour_dry, t_install_fake_bins]
+              t_child_env, t_cases_valid, t_behaviour_dry, t_install_fake_bins, t_failed_run_is_error]
 
 if __name__ == "__main__":
     sys.exit(main())
