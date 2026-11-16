@@ -141,6 +141,7 @@ claude -p "<task>" --output-format stream-json --verbose (no --bare); codex exec
 ## Routing table (L0)
 Generated from ai/routing.yaml v4 by ai-render. Do not edit here.
 nudge = do it unless it clearly does not apply. gate = the step is blocked until the condition is met.
+stop = the turn cannot end until the named skill was used (once per session).
 opt-in = only in projects that enabled the tool (ai-start, ai-adopt).
 
 | Rule | When | Do |
@@ -159,6 +160,9 @@ opt-in = only in projects that enabled the tool (ai-start, ai-adopt).
 | pr-rules (gate) | before gh pr create or edit | PR body (pr skill template): Summary with a Mermaid diagram, Evidence (Before and After), Merge Danger (Door: one-way or two-way; Blast Radius), Docs, Changed guards (Ledger on fix PRs), author-sessions block at the end. |
 | merge-approval (gate) | before gh pr merge, or a git push to main or master | Merge only after the owner's latest message says merge or approve (after the ship skill). No push to main or master. |
 | no-verify (gate) | git commit or push with --no-verify (or commit -n) | Never skip the git hooks: fix what the pre-commit check reports, then commit again. |
+| writing-for-agents (gate) | before an edit of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md | Agent docs: load the writing-for-agents skill first (Skill tool, or read its SKILL.md), then edit. |
+| diagnosing-bugs (stop) | bug or performance prompt (slow, perf, broken, debug, crash, regression; RO, RU) | Bug or performance work: use the diagnosing-bugs skill (Skill tool) and follow its loop before you end the turn. |
+| ship (gate) | before gh pr ready | Run the ship skill first (checks, review, Evidence), then gh pr ready. |
 | ledger-nudge (nudge) | before an edit in a regression-ledger area | Edit in a docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests. |
 | no-em-dash (nudge) | after a write with U+2014 | Remove the em dash (U+2014). Use '-', ':' or a new sentence. |
 | docs-lookup (nudge) | docs, SDK or library prompt | Library code: context7 query-docs with the ID from the Libraries section (resolve only if missing), then the official docs site. (cached IDs) |
