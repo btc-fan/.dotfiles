@@ -101,11 +101,11 @@ Composed from, in this order:
 | Server | Scope | Settings |
 |---|---|---|
 | Serena (oraios, GPL-3.0) | global | agent_interface tools (never REPL); excluded_tools [execute_shell_command, serena_repl]; web_dashboard false; SERENA_USAGE_REPORTING=false; --project-from-cwd; contexts claude-code / codex / ide (Hermes); `alwaysLoad: true` in Claude (no deferred tools); trusted_project_path_patterns empty |
-| context7 (upstash) | global | local thin-client MCP, docs from context7.com; API key hardcoded (section 13); free plan 1,000 calls/month; fallback after Grounded Docs |
-| Grounded Docs (arabold/docs-mcp-server) | global | runs once on the home server, DOCS_MCP_TELEMETRY=false (PostHog is on by default), clients use read-only tools, full-text first, other machines over the private network (port 6280); default for library docs |
-| GitHub MCP (github/github-mcp-server) | global | FULL access; token from secrets.env |
+| context7 (upstash) | global | local thin-client MCP, docs from context7.com; API key hardcoded (section 13); free plan 1,000 calls/month; the only library docs tool |
 | Playwright MCP (microsoft) | per project only | NOT registered at user scope (Claude has no default-off switch for user servers); added per project (`claude mcp add --scope project` / project `.codex/config.toml`) by ai-adopt / ai-start; `--headless --isolated` on servers |
 - No extra remote/screen/camera MCPs now (revisit GhostDesk and Mac screen tools in the Mac phase).
+- Dropped 2026-11-12 and not installed: Grounded Docs (library docs: context7) and the GitHub MCP (GitHub: the gh
+  CLI, read-only). See ai/SPEC-LOG.md, 2026-11-16 "enforcement over text", MCP deviations.
 
 ### Serena rules (global, owner style; vendor contexts claude-code/codex/ide are the source)
 - In a code project, use Serena first to read and edit code. Load its tools before any read, grep or bash on code.
@@ -134,9 +134,8 @@ Composed from, in this order:
 
 ### Library docs rules (global, owner style; vendor rule: "use even when you think you know the answer")
 - For any library, framework, SDK, API or CLI question, look up docs before writing code.
-- Step 1 Grounded Docs: list_libraries, then search_docs with library and project version.
-- Step 2 if missing or thin: context7 resolve-library-id, then query-docs, one concept per call.
-- Step 3 if both fail: library source or official site, and say docs were not found.
+- Step 1: context7 resolve-library-id, then query-docs, one concept per call.
+- Step 2 if context7 fails: official site or library source, and say docs were not found.
 - Use the project's version. No secrets or private code in docs queries (context7 queries leave the machine).
 - Not for refactoring, debugging or general programming questions.
 
@@ -184,7 +183,7 @@ Opt-in per project (offered by the ai-adopt / ai-start picker, each with a one-l
   Vendor `remind` NOT used until its issues #2251 (blocks instead of reminding) and #2204 (false counts) are fixed.
 - Docs: context-only nudge on dependency changes (Bash `npm|pnpm|yarn|bun add|install`, `pip install`, `uv add`,
   `cargo add`, `go get`; Edit/Write of package.json, pyproject.toml, requirements*.txt, Cargo.toml, go.mod):
-  "look up docs for this library first: Grounded Docs, then context7". PostToolUse on docs tools records
+  "look up docs for this library first: context7". PostToolUse on docs tools records
   looked-up libraries so the nudge does not repeat in the session.
 - Router hooks (section 7).
 
@@ -424,8 +423,8 @@ pr-resume parses this block. Keep the line format exact: one ID, dir:, one path 
   AGENTS.md files still fit. ai-doctor fails above the cap.
 - Defaults taken (owner did not object): Linux keeps the systemd-inhibit caffeinate wrapper in SessionStart;
   audit gate blocks npm/pip/uv/npx-latest/curl-to-shell and ASKS for brew, cargo, go, gem, pipx (agent-audit
-  cannot scan those yet); secret scanner = gitleaks (pinned, audited); Grounded Docs = a server role in install.sh
-  (ufw 6280 from LAN + tailscale0 only); BUILD.md stays untracked (holds local paths).
+  cannot scan those yet); secret scanner = gitleaks (pinned, audited); Grounded Docs was a server role in install.sh
+  (dropped 2026-11-12, section 4); BUILD.md stays untracked (holds local paths).
 - Intake audits still owed before the build: oh-my-claudecode, oh-my-codex, opencode (installed always).
 - Pending research: project hosting and isolation on the server (rules + tools) feeds the `ubuntu-server` branch
   and an AGENTS.md section.
@@ -470,13 +469,14 @@ Catalog: `omc ask <provider> --prompt` (markdown only); `omx exec` passes to `co
 - Verified: Codex's Ponytail cache equals the audited /opt/agent-plugins/ponytail copy (diff clean).
 
 ## 21. MCP server intake (2026-11-11, agent-audit on the server + code read)
-- @arabold/docs-mcp-server 3.4.1 (Grounded Docs, MIT): INSTALL. guarddog threat hits benign (provider-key presence
+Grounded Docs and the GitHub MCP were dropped on 2026-11-12 (section 4); their lines below are the intake record only.
+- @arabold/docs-mcp-server 3.4.1 (Grounded Docs, MIT): INSTALL at intake, dropped later. guarddog threat hits benign (provider-key presence
   checks as booleans; a scraper file-type list incl. .env used only when a GitHub repo is added as a source: index only
   public library docs). Telemetry (PostHog app.posthog.com, persistent installation.id) ON by default: set
   `DOCS_MCP_TELEMETRY=false` (verified at dist/main-*.js config table); clients use `DOCS_MCP_READ_ONLY=true`.
   postinstall only echoes. Install `--ignore-scripts`.
 - @playwright/mcp 0.0.85 (Apache-2.0): INSTALL, 0 threat hits, no install scripts. Per project only.
-- github-mcp-server v2.1.0 (Go binary from GitHub releases): audit owed at install: `agent-audit dir` on the tag
+- github-mcp-server v2.1.0 (Go binary from GitHub releases, dropped later): audit was owed at install: `agent-audit dir` on the tag
   source + release checksum check; token from ~/.config/ai/secrets.env.
 
 ## 22. Audit acceptance (owner decision 2026-11-11, after the first real server install)

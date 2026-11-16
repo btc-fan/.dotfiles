@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-- [ ] A fresh Claude session lists Serena tools without a tool search
-- [ ] ai-doctor fails when alwaysLoad is missing
-- [ ] SPEC.md has no row that says GitHub MCP or Grounded Docs is installed
-- [ ] audit-accepted has a line for graphify 0.9.111
+- [ ] A fresh Claude session lists Serena tools without a tool search (config set: `alwaysLoad: true`; needs a real session after install, not run by the implementer)
+- [x] ai-doctor fails when alwaysLoad is missing
+- [x] SPEC.md has no row that says GitHub MCP or Grounded Docs is installed
+- [ ] audit-accepted has a line for graphify 0.9.111 (blocked: `agent-audit pypi graphifyy 0.9.111` on this Mac: SKIPPED on dev-mac, exit 3 "guarddog not installed" with AI_PROFILE=server; run it on the server, then add the line)
