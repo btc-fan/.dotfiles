@@ -185,7 +185,7 @@ EXPLICIT_DOCS = re.compile(r"\b(docs|documentation|api reference|changelog|relea
 
 def on_user_prompt(ctx):
     prompt = ctx.payload.get("prompt") or ""
-    if not prompt.strip():
+    if not prompt.strip() or is_notification(prompt):
         return
     remember_merge_ok(ctx, prompt)
     routing = ctx.routing
@@ -219,6 +219,11 @@ def on_user_prompt(ctx):
     for rule, _text in actions:
         ctx.fired(rule, "UserPromptSubmit")
     ctx.add_context(render_prompt_context(routing, actions, ties))
+
+
+def is_notification(prompt):
+    """A harness notification (a subagent or task finished) comes in as a prompt, but the owner did not write it."""
+    return "<task-notification>" in prompt or prompt.lstrip().startswith("[SYSTEM NOTIFICATION")
 
 
 def remember_merge_ok(ctx, prompt):

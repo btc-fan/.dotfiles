@@ -255,6 +255,8 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
 [11/16] root rules (managed blocks; other blocks kept)
   same    ~/.claude/CLAUDE.md no block AI:core
   planned: Claude: house rules from /etc/claude-code/CLAUDE.md (no per-user import on Linux)
+  same    ~/.claude/CLAUDE.md no block AI:omc-vendor
+  [dry-run] block   ~/.claude/CLAUDE.md AI:omc v1 (89 bytes)
   [dry-run] block   ~/.codex/AGENTS.md AI:core v1 (N bytes)
   planned: Codex: managed block in ~/.codex/AGENTS.md (OMX blocks kept)
   same    ~/.claude/CLAUDE.md no block AI:host

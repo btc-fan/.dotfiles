@@ -305,6 +305,18 @@ claude_omc_companion_block() {
     ok "Claude: managed block also in $f (omc launch reads only that file)"
 }
 
+# ~/.claude/CLAUDE.md holds only the root rules import, the machine line and this 3-line OMC note (owner
+# 2026-11-16): the long block that OMC setup writes competes with the root rules, so it goes (recorded, undo puts
+# it back). ai-doctor (check_claude_cleanup) FAILs when an OMC update writes it back.
+claude_omc_note() {
+    local f="$CLAUDE_DIR/CLAUDE.md" tmp
+    aiconf block-remove "$f" omc-vendor --markers '<!-- OMC:START -->' '<!-- OMC:END -->'
+    tmp=$(mktemp "${TMPDIR:-/tmp}/ai-omc.XXXXXX")
+    printf 'OMC and OMX are toolboxes.\nAGENTS.md and the gates win.\nCatalog: the omc-reference skill.\n' > "$tmp"
+    aiconf block-upsert "$f" omc 1 "$tmp"
+    rm -f "$tmp"
+}
+
 # base_host_block: one line per machine in the Claude and Codex rules: where the projects live (owner
 # 2026-11-15). Folder: AI_PROJECTS_DIR (saved in ~/.config/ai/projects-dir) > that file > ~/work if it exists.
 # No folder: the block is removed.
@@ -345,6 +357,7 @@ base_rules_user() {
         ok "Claude: managed block in $CLAUDE_DIR/CLAUDE.md (other blocks kept)"
         claude_omc_companion_block
     fi
+    want claude && claude_omc_note
 
     if want codex; then
         tmp=$(rules_text_file)

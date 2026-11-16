@@ -179,7 +179,7 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
   [dry-run] claude plugin install oh-my-claudecode@omc --scope user
   [dry-run] record  claude-plugin:oh-my-claudecode@omc undo: claude plugin uninstall oh-my-claudecode@omc
   planned: Claude plugin oh-my-claudecode@omc (user scope)
-  manual: OMC plugin route: run /oh-my-claudecode:omc-setup once in Claude (CLAUDE.md block, HUD)
+  manual: OMC plugin route: run /oh-my-claudecode:omc-setup once in Claude (HUD), then re-run install.sh
   [dry-run] claude plugin marketplace add $REPO/ai/marketplace
   [dry-run] record  claude-marketplace:ai undo: claude plugin marketplace remove ai
   [dry-run] claude plugin install ai-serena@ai --scope user
@@ -234,15 +234,10 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
 [10/14] hooks (plugin owns them; vendor hooks: RTK, herdr, graphify)
   same    ~/.claude/settings.json missing
   same    ~/.claude/settings.json missing
-  rtk init -g --hook-only --auto-patch --dry-run:
-    [dry-run] would patch settings.json (PreToolUse, matcher "Bash"): ~/.claude/settings.json
-    
-    [dry-run] Nothing written.
-  [dry-run] rtk init -g --hook-only --auto-patch
-  files unchanged
+  same    ~/.claude/settings.json missing
+  [dry-run] add     ~/.claude/settings.json hooks/PreToolUse += {"matcher": "Bash", "hooks": [{"type": "command", "command": "/usr/bin/python...
   same    ~/.claude/CLAUDE.md no line '@RTK.md'
-  [dry-run] record  rtk:claude undo: rtk init -g --uninstall
-  planned: RTK hook for Claude (proxy declined, no CLAUDE.md import)
+  planned: RTK hook for Claude (no rewrite in auto mode, no CLAUDE.md import)
   same    ~/.claude/settings.json no hook duplicates the plugin
   same    ~/.codex/hooks.json missing
   [dry-run] rtk init -g --codex
@@ -254,6 +249,8 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
 [11/14] root rules (managed blocks; other blocks kept)
   [dry-run] block   ~/.claude/CLAUDE.md AI:core v1 (N bytes)
   planned: Claude: managed block in ~/.claude/CLAUDE.md (other blocks kept)
+  same    ~/.claude/CLAUDE.md no block AI:omc-vendor
+  [dry-run] block   ~/.claude/CLAUDE.md AI:omc v1 (89 bytes)
   [dry-run] block   ~/.codex/AGENTS.md AI:core v1 (N bytes)
   planned: Codex: managed block in ~/.codex/AGENTS.md (OMX blocks kept)
   same    ~/.claude/CLAUDE.md no block AI:host
@@ -353,7 +350,7 @@ done (36)
   - (planned) Codex plugin i-have-adhd@i-have-adhd
   - (planned) Claude: shared skills and the 5 mattpocock skills linked into ~/.claude/skills
   - (planned) Codex/opencode: shared skills and the 5 mattpocock skills linked into ~/.agents/skills
-  - (planned) RTK hook for Claude (proxy declined, no CLAUDE.md import)
+  - (planned) RTK hook for Claude (no rewrite in auto mode, no CLAUDE.md import)
   - (planned) RTK for Codex
   - (planned) Claude: managed block in ~/.claude/CLAUDE.md (other blocks kept)
   - (planned) Codex: managed block in ~/.codex/AGENTS.md (OMX blocks kept)
@@ -373,7 +370,7 @@ warnings (1)
 
 manual steps left (6)
   - create ~/.config/ai/secrets.env: install -m 600 $REPO/secrets.env.example ~/.config/ai/secrets.env, then fill GITHUB_PERSONAL_ACCESS_TOKEN and CONTEXT7_API_KEY
-  - OMC plugin route: run /oh-my-claudecode:omc-setup once in Claude (CLAUDE.md block, HUD)
+  - OMC plugin route: run /oh-my-claudecode:omc-setup once in Claude (HUD), then re-run install.sh
   - Claude, once per machine, in a project with claude-seo on: /seo setup, then /seo doctor (venv + Chromium)
   - add to your shell rc: [ -f ~/.config/ai/env.sh ] && . ~/.config/ai/env.sh
   - log in once: claude (then /login)

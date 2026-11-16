@@ -101,6 +101,7 @@ def main(argv):
     check_codex_policy()
     check_hermes()
     check_omc()
+    check_claude_cleanup()
     check_handoff()
     check_gate_smoke()
     proj = argv[argv.index("--project") + 1] if "--project" in argv and argv.index("--project") + 1 < len(argv) \
@@ -713,7 +714,8 @@ def check_claude_policy():
     say("PASS" if ok else "FAIL", "Claude runs the ai-core router (gates) from the root-owned copy (managed hooks)",
         "" if ok else "admin: sudo /opt/ai-setup/install.sh --update --for-user <user>")
     if shutil.which("rtk") and locked:
-        say("PASS" if "rtk hook claude" in hooks else "WARN", "RTK hook runs as a managed hook (user hooks are locked)")
+        say("PASS" if "/hooks/rtk-hook" in hooks else "WARN", "RTK hook runs as a managed hook through hooks/rtk-hook "
+            "(user hooks are locked; no rewrite in auto mode)")
     if (claude_settings().get("enabledPlugins") or {}).get("ai-serena@ai") is not True and shutil.which("serena"):
         say("FAIL", "Serena on at user scope (enabledPlugins ai-serena@ai true; on by default)", "re-run install.sh")
     for n in ("claude-seo@agricidaniel-claude-seo", "claude-blog@agricidaniel-blog", "oh-my-claudecode@omc"):
@@ -985,6 +987,36 @@ def check_omc():
         say("PASS" if exa is False else "FAIL", "OMC exa MCP off (%s)" % path,
             "" if exa is False else "exa sends search queries to an outside service; re-run install.sh")
     check_omc_companion()
+
+
+def check_claude_cleanup():
+    """Owner 2026-11-16 (ticket 03): ~/.claude/CLAUDE.md holds only our blocks (root rules import, machine line, OMC
+    note); the user RTK hook is the wrapper that skips auto mode; the global autoMode.environment names no repo."""
+    md = read_text_file(os.path.join(CLAUDE_DIR, "CLAUDE.md"))
+    if md is not None:
+        extra = [ln for ln in re.sub(r"<!-- AI:(\S+) v\d+ START -->.*?<!-- AI:\1 v\d+ END -->", "", md, flags=re.S)
+                 .splitlines() if ln.strip()]
+        level = "FAIL" if "<!-- OMC:START -->" in md else "WARN" if extra else "PASS"
+        say(level, "~/.claude/CLAUDE.md is short (rules import, machine line, OMC note)",
+            {"FAIL": "OMC's long block is back (an OMC setup or update wrote it): re-run install.sh",
+             "WARN": "text outside the managed blocks: %r; move it into ai/agents-md/" % (extra[0][:80] if extra else ""),
+             "PASS": ""}[level])
+    st = load_json_file(os.path.join(CLAUDE_DIR, "settings.json")) or {}
+    hooks = st.get("hooks") if isinstance(st.get("hooks"), dict) else {}
+    cmds = [str(h.get("command") or "") for gs in hooks.values() for g in gs or [] if isinstance(g, dict)
+            for h in g.get("hooks") or [] if isinstance(h, dict)]
+    bare = [c for c in cmds if re.search(r"(^|/)rtk hook claude$", c.strip())]
+    if bare or any("/hooks/rtk-hook" in c for c in cmds):
+        say("FAIL" if bare else "PASS", "RTK hook skips the rewrite in auto mode (hooks/rtk-hook)",
+            "bare %r in ~/.claude/settings.json: auto mode denies its rewrites with \"no verdict\"; re-run install.sh"
+            % bare[0] if bare else "")
+    env = (st.get("autoMode") or {}).get("environment") if isinstance(st.get("autoMode"), dict) else None
+    if env is not None:
+        # A local path or a single trusted repo is about one project ("repos under an org" is global).
+        repo = [e for e in env if isinstance(e, str) and re.search(r"(~/|/Users/|/home/)\S|\brepo(sitory)?\b", e, re.I)]
+        say("WARN" if repo else "PASS", "global autoMode.environment names no single repo",
+            ("%r belongs to one repo: move it to that repo's .claude/settings.local.json (autoMode.environment) "
+             "and remove it from ~/.claude/settings.json" % repo[0][:120]) if repo else "")
 
 
 def check_omc_companion():
