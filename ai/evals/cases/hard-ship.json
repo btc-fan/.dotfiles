@@ -1,0 +1,6 @@
+{
+  "id": "hard-ship",
+  "fixture": "app",
+  "prompt": "ok this is good, wrap it up for review",
+  "expect": {"skills": ["ship"]}
+}
