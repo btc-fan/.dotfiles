@@ -238,6 +238,40 @@ def t_adopt_commits_on_branch(work):
     assert "merge the ai-adopt branch" not in res.stdout, res.stdout
 
 
+def t_adopt_branch_exists_main_clean(work):
+    """Review 2026-11-16 (D5): on main with an ai-adopt branch that already exists, ai-adopt stops BEFORE it
+    writes a file, so main stays clean."""
+    repo, env = adopt_repo(work, "branch-exists", {".ai/enabled": "no-serena\nno-graph\n"})
+    run(["git", "-C", repo, "add", "-A"], env=env)
+    run(["git", "-C", repo, "commit", "-q", "-m", "enabled"], env=env)
+    run(["git", "-C", repo, "branch", "-M", "main"])
+    run(["git", "-C", repo, "branch", "ai-adopt"])
+    head = run(["git", "-C", repo, "rev-parse", "main"]).stdout
+    res = adopt(repo, env)
+    assert res.returncode == 1 and "ai-adopt" in res.stdout and "exists" in res.stdout, res.stdout
+    assert "write " not in res.stdout, "a file was written: " + res.stdout
+    status = run(["git", "-C", repo, "status", "--porcelain", "--ignored"]).stdout
+    assert status == "", "main is not clean: " + status
+    assert run(["git", "-C", repo, "rev-parse", "main"]).stdout == head, "main moved"
+    assert run(["git", "-C", repo, "branch", "--show-current"]).stdout.strip() == "main", "the branch changed"
+
+
+def t_adopt_unborn_main(work):
+    """Review 2026-11-16 (D5): a repo with no commit yet (unborn main) gets its first commit on ai-adopt."""
+    repo = tree(work, "unborn", {"src/app.py": "x = 1\n", ".ai/enabled": "no-serena\nno-graph\n"})
+    run(["git", "init", "-q", "-b", "main", repo])
+    env = {"HOME": os.path.join(work, "home-unborn"), "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+           "AI_GITHUB_OWNERS": "someone", "AI_CONTEXT7_URL": "http://127.0.0.1:9",
+           "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t.invalid",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t.invalid"}
+    res = adopt(repo, env, "--no-measure", "--tier", "mvp")
+    assert res.returncode == 0, res.stdout
+    assert run(["git", "-C", repo, "branch", "--show-current"]).stdout.strip() == "ai-adopt", res.stdout
+    assert run(["git", "-C", repo, "log", "-1", "--format=%s"]).stdout.startswith("chore(ai)"), res.stdout
+    assert run(["git", "-C", repo, "rev-parse", "-q", "--verify", "refs/heads/main"]).returncode != 0, \
+        "main got a commit"
+
+
 def t_adopt_init(work):
     """Spec story 31: a folder without git is refused unless --init; never git init in $HOME or /."""
     folder = tree(work, "no-git", {"notes.md": "# Notes\n"})
@@ -946,7 +980,7 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
 
 TESTS_LIST = [t_verify_skills_copy, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_skills_none, t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_go_rust, t_detect_monorepo,
               t_detect_probe_drops_missing_tool, t_adopt_failing_check_turns_stop_off, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
-              t_typed_only_skill_paths,
+              t_adopt_branch_exists_main_clean, t_adopt_unborn_main, t_typed_only_skill_paths,
               t_plan_keeps_targets, t_adopt_own_done, t_adopt_long_tier, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused,
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_continuation_checks_the_fix, t_stop_chain_cap, t_stop_no_baseline_uses_head,
               t_stop_recipe_changed, t_stop_skipped_only_and_group_kill,
