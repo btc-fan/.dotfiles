@@ -4,8 +4,8 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Router cases for read, PR and other write commands
-- [ ] A PR body without herdr still gets a real main: line
-- [ ] ai-doctor checks the herdr CLI
+- [x] Router cases for read, PR and other write commands
+- [x] A PR body without herdr still gets a real main: line
+- [x] ai-doctor checks the herdr CLI

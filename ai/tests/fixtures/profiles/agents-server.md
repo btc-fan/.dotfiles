@@ -159,6 +159,7 @@ opt-in = only in projects that enabled the tool (ai-start, ai-adopt).
 | pr-rules (gate) | before gh pr create or edit | PR body (pr skill template): Summary with a Mermaid diagram, Evidence (Before and After), Merge Danger (Door: one-way or two-way; Blast Radius), Docs, Changed guards (Ledger on fix PRs), author-sessions block at the end. |
 | merge-approval (gate) | before gh pr merge, or a git push to main or master | Merge only after the owner's latest message says merge or approve (after the ship skill). No push to main or master. |
 | no-verify (gate) | git commit or push with --no-verify (or commit -n) | Never skip the git hooks: fix what the pre-commit check reports, then commit again. |
+| gh-write (gate) | gh write other than the PR commands | gh reads run freely; other gh writes ask the owner first. |
 | ledger-nudge (nudge) | before an edit in a regression-ledger area | Edit in a docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests. |
 | no-em-dash (nudge) | after a write with U+2014 | Remove the em dash (U+2014). Use '-', ':' or a new sentence. |
 | docs-lookup (nudge) | docs, SDK or library prompt | Library code: context7 query-docs with the ID from the Libraries section (resolve only if missing), then the official docs site. (cached IDs) |

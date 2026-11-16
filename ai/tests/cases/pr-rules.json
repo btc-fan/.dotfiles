@@ -2,6 +2,49 @@
  "rule": "pr-rules",
  "cases": [
   {
+   "name": "main: unknown with a session id in the payload: denied, the real line is given",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "session_id": "s-real-42", "cwd": "{{HOME}}/work/app", "tool_input": {
+    "command": "gh pr create --title x --body \"$(cat <<'EOF'\nSummary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: `make check`: 12 passed\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-16\nmain: unknown dir: ~/w # did it\n-->\nEOF\n)\""}},
+   "project": {"git": true},
+   "contains": ["a real main: line", "main: s-real-42 dir: ~/work/app"]
+  },
+  {
+   "name": "main: unknown without a session id in the payload: allowed",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "session_id": "", "tool_input": {
+    "command": "gh pr create --title x --body \"$(cat <<'EOF'\nSummary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: `make check`: 12 passed\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-16\nmain: unknown dir: ~/w # did it\n-->\nEOF\n)\""}},
+   "project": {"git": true}
+  },
+  {
+   "name": "gh pr edit gets the main: line as context",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "session_id": "s-real-42", "cwd": "{{HOME}}/work/app",
+    "tool_input": {"command": "gh pr edit 3 --title y"}},
+   "project": {"git": true},
+   "contains": "main: s-real-42 dir: ~/work/app"
+  },
+  {
+   "name": "session start gives the main: line",
+   "expect": "allow",
+   "event": "SessionStart",
+   "payload": {"session_id": "s-real-42", "cwd": "{{HOME}}/work/app", "source": "startup"},
+   "project": {"git": true},
+   "contains": "main: s-real-42 dir: ~/work/app"
+  },
+  {
+   "name": "codex: session start gives the main: line too",
+   "agent": "codex",
+   "expect": "allow",
+   "event": "SessionStart",
+   "payload": {"session_id": "c-77", "cwd": "{{HOME}}/work/app", "source": "startup"},
+   "project": {"git": true},
+   "contains": "main: c-77 dir: ~/work/app"
+  },
+  {
    "name": "body without mermaid and block",
    "expect": "deny",
    "event": "PreToolUse",

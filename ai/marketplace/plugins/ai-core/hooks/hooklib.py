@@ -1047,6 +1047,9 @@ def gate_pr(ctx, cmd, stages):
             missing.append("a ```mermaid diagram")
         if "<!-- author-sessions" not in text:
             missing.append("the <!-- author-sessions block")
+        line = session_line(ctx)
+        if line and re.search(r"(?im)^\s*main:\s*unknown\b", text):
+            missing.append("a real main: line in the author-sessions block (this session: %s)" % line)
         root = project_root(ctx.cwd)
         fields = list(PR_FIELDS)
         fix = bool(PR_FIX_TITLE.match(flag_value(args, ("--title", "-t")) or ""))
@@ -1070,6 +1073,17 @@ def gate_pr(ctx, cmd, stages):
             "or two-way and why; **Blast Radius:** what can break). Also: Docs, Changed guards, Ledger "
             "on fix PRs. Author-sessions block at the end. Pass it with --body or --body-file."
             % "; ".join(problems))
+
+
+def session_line(ctx):
+    """The author-sessions `main:` line of this session, from the hook payload; "" without a session id.
+    Without herdr the agent has no other way to learn its own session id."""
+    if ctx.session in ("", "nosession"):
+        return ""
+    home, cwd = os.path.expanduser("~"), ctx.cwd or ""
+    if home and (cwd == home or cwd.startswith(home + os.sep)):
+        cwd = "~" + cwd[len(home):]
+    return "main: %s dir: %s" % (ctx.session, cwd)
 
 
 def pr_body_text(ctx, cmd, args):
@@ -1303,6 +1317,58 @@ def probe_no_verify(stages, cmd=""):
     return any(st.exe == "git" and ("--no-verify" in st.args or any(a.startswith("-") and not a.startswith("--")
                                                                     and "n" in a for a in st.args))
                for st in stages)
+
+
+# ---------------------------------------------------------------- gh-write (owner 2026-11-16)
+# gh reads run freely. The PR commands have their own gates (pr-rules, merge-approval, ship). Every other gh
+# command can write to GitHub (or we cannot tell), so it asks the owner first.
+
+GH_READS = {"pr": {"view", "list", "diff", "checks", "status", "checkout"}, "issue": {"view", "list", "status"},
+            "repo": {"view", "list"}, "run": {"view", "list", "watch"}, "workflow": {"view", "list"},
+            "auth": {"status"}, "search": None, "status": None, "version": None, "help": None, "--version": None}
+GH_OWN_GATES = {"create", "edit", "ready", "merge"}       # gh pr <these>: the PR gates decide
+GH_WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+GH_FIELD_FLAGS = {"-f", "-F", "--field", "--raw-field", "--input"}
+
+
+def gate_gh(ctx, cmd, stages):
+    writes = [" ".join(["gh"] + st.args[:2]) for st in stages if st.exe == "gh" and gh_writes(st.args)]
+    if not writes:
+        return None
+    return ("ask", "%s writes to GitHub. gh writes other than the PR commands need the owner's OK: say what it "
+            "will do and why." % ", ".join(writes))
+
+
+def gh_writes(args):
+    if not args:
+        return False
+    group, sub = args[0], (args[1] if len(args) > 1 else "")
+    if group == "api":
+        return gh_api_writes(args[1:])
+    if group == "pr" and sub in GH_OWN_GATES:
+        return False
+    if group in GH_READS:
+        subs = GH_READS[group]
+        return subs is not None and sub not in subs
+    return True
+
+
+def gh_api_writes(args):
+    """gh api is a GET unless -X/--method says otherwise; fields (-f, -F, --input) make it a POST."""
+    method = None
+    for i, a in enumerate(args):
+        opt, eq, val = a.partition("=")
+        if opt in ("-X", "--method"):
+            method = val if eq else (args[i + 1] if i + 1 < len(args) else "")
+        elif a.startswith("-X") and len(a) > 2:
+            method = a[2:]
+    if method is not None:
+        return method.upper() in GH_WRITE_METHODS
+    return any(a.partition("=")[0] in GH_FIELD_FLAGS for a in args)
+
+
+def probe_gh(stages, cmd=""):
+    return any(st.exe == "gh" for st in stages)
 
 
 def probe_merge(stages, cmd=""):
@@ -1805,10 +1871,10 @@ def repo_cmd_rule(st, prefixes):
 
 
 GATES = {"audit-before-install": gate_audit, "secret-scan": gate_secrets, "pr-rules": gate_pr, "no-sudo": gate_sudo,
-         "no-destroy": gate_destroy, "merge-approval": gate_merge, "no-verify": gate_no_verify}
+         "no-destroy": gate_destroy, "merge-approval": gate_merge, "no-verify": gate_no_verify, "gh-write": gate_gh}
 GATE_PROBES = {"audit-before-install": probe_audit, "secret-scan": probe_secrets, "pr-rules": probe_pr,
                "no-sudo": probe_sudo, "no-destroy": probe_destroy, "merge-approval": probe_merge,
-               "no-verify": probe_no_verify}
+               "no-verify": probe_no_verify, "gh-write": probe_gh}
 
 
 # ---------------------------------------------------------------- regression ledger (docs/REGRESSIONS.md)

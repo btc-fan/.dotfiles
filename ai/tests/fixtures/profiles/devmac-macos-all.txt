@@ -1,5 +1,5 @@
   skip: opencode: not used by profile dev-mac
-AI setup (all mode) from $REPO on macos (arm64). Agents: claude,codex.
+AI setup (all mode) from $REPO on macos (arm64). Agents: claude,codex,herdr.
 Profile: dev-mac (default for macos).
 DRY RUN: commands are printed, nothing is changed.
   [dry-run] write   ~/.config/ai/profile new file
@@ -87,6 +87,8 @@ undo --only ^cmd:bin:osv-scanner$: 1 entr(y/ies) reversed
   [dry-run] env OMX_AUTO_UPDATE=0 OMX_NATIVE_AUTO_FETCH=0 omx setup
   files unchanged
   planned: omx setup done
+  herdr: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 0.9.5
+  [dry-run] download herdr-macos-aarch64 of herdr v0.9.5, check the published sha256 (no gh: unaudited binary update), install to ~/.local/bin/herdr
 
 [6/14] tools: RTK, GitHub MCP, plugin sources, Serena, graphify, context7
   rtk: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 1.2.0
@@ -250,6 +252,7 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
   [dry-run] record  rtk:codex undo: rtk init -g --codex --uninstall
   planned: RTK for Codex
   [dry-run] aiconf codex-trust-hooks ~/.codex/config.toml --auto
+  skip: herdr integrations: herdr not found
 
 [11/14] root rules (managed blocks; other blocks kept)
   [dry-run] block   ~/.claude/CLAUDE.md AI:core v1 (N bytes)
@@ -308,6 +311,9 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GIT_CONFIG_KEY_0 = "core.fsmonitor"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GIT_CONFIG_VALUE_0 = "false"
   planned: Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches, GIT_GUARD_AGENT and git fsmonitor off in shell_environment_policy.set
+  [dry-run] set     ~/.config/herdr/config.toml [update] version_check = false
+  [dry-run] set     ~/.config/herdr/config.toml [update] manifest_check = false
+  planned: herdr: version and manifest checks off (never run 'herdr update')
   [dry-run] set     ~/.config/claude-omc/config.jsonc security/disableAutoUpdate = true
   [dry-run] set     ~/.config/claude-omc/config.jsonc mcpServers/exa/enabled = false
   [dry-run] set     ~/.config/ponytail/config.json defaultMode = "full"
@@ -326,7 +332,7 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
 
 ==== summary ====
 
-done (36)
+done (37)
   - (planned) brew install curl
   - (planned) sources resolved (ai/pins.env)
   - (planned) links
@@ -361,12 +367,14 @@ done (36)
   - (planned) Claude: env switches in ~/.claude/settings.json (merge): hooks, MCP servers and -p runs see them
   - (planned) Claude permissions merged into ~/.claude/settings.json: allow lists only; no ask or deny rules (profile dev-mac)
   - (planned) Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches, GIT_GUARD_AGENT and git fsmonitor off in shell_environment_policy.set
+  - (planned) herdr: version and manifest checks off (never run 'herdr update')
   - (planned) Claude add-ons: OMC auto-update off, Ponytail defaultMode full, auto memory off
   - (planned) git hooks post-merge + post-rewrite run ai-sync after a pull
 
-skipped (2)
+skipped (3)
   - opencode: not used by profile dev-mac
   - Serena config: serena not installed
+  - herdr integrations: herdr not found
 
 warnings (1)
   - pstack: newest stable unknown (offline): kept as it is

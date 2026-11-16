@@ -79,6 +79,7 @@ def main(argv):
     check_router_smoke()
     check_installed()
     check_versions(network=not quick and "--offline" not in argv)
+    check_herdr()
     check_contracts()
     check_copies()
     check_secrets()
@@ -270,6 +271,28 @@ def check_versions(network=False):
         else:
             say("PASS", "%s %s is the %s" % (r["tool"], have,
                 "held version (ai/pins.env)" if r["state"] == "hold" else "newest stable"))
+
+
+def check_herdr():
+    """Owner 2026-11-16: the herdr CLI is on PATH, so the PR author-sessions block gets real ids. Without it the
+    router still gives the main: line from the hook payload, so a missing herdr is a WARN."""
+    path = shutil.which("herdr")
+    if not path:
+        say("WARN", "herdr CLI not on PATH (PR author-sessions herdr: lines need it)", "re-run install.sh")
+        return
+    sys.path.insert(0, os.path.join(AI_DIR, "lib"))
+    try:
+        import resolve
+        row = next((r for r in resolve.status(network=False) if r["tool"] == "herdr"), None)
+    except Exception as exc:          # a broken resolver must not stop the other checks
+        row = None
+        say("WARN", "herdr version not checked: resolver failed", str(exc))
+    have = row["installed"] if row else ""
+    if row and row["state"] == "update":
+        say("WARN", "herdr %s on PATH (%s), newest stable %s" % (have, path, row["newest"]),
+            "re-run install.sh (ai/pins.env HERDR_SOURCE)")
+    else:
+        say("PASS", "herdr %s on PATH (%s)" % (have or "?", path))
 
 
 def check_contracts():
