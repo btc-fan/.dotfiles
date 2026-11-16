@@ -10,3 +10,5 @@
 - [ ] Auto mode session: no "no verdict" denial from the RTK rewrite
 - [ ] A task notification prompt fires no L2 question (router case)
 - [ ] Install level green on all fixtures
+- [ ] A task notification never counts as an owner prompt: it does not set or clear the merge-approval OK (found 2026-11-16: the router calls remember_merge_ok before any rule check, so a notification that says "merge" could set the OK, and any notification clears it)
+- [ ] The OMC block in the global CLAUDE.md becomes the 3-line note; an OMC update that writes the long block back is reported by ai-doctor

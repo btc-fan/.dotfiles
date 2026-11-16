@@ -1,0 +1,6 @@
+{
+  "id": "winner-tdd",
+  "fixture": "app",
+  "prompt": "Write tests first for a new function sub(a, b) in app/calc.py, then implement it.",
+  "expect": {"skills": ["tdd"], "not_skills": ["oh-my-claudecode:tdd"]}
+}

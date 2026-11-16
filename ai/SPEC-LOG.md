@@ -638,3 +638,7 @@ Seen on the owner's M3 Mac (macOS 15.5), read only:
   without --init, and the graph and Serena rules switch on at the first session after code appears.
 - Validation: unit, install, behaviour (3 runs, 90% or more) and evolution tests on generated fixtures, with a
   baseline first and an independent review per phase. Mac first, 7 days of numbers, then the home server.
+- MCP deviations (Q38 to Q41): Serena alwaysLoad: true was missing in the ai-serena plugin, so Serena tools
+  started deferred and agents did not see them; restore it and check it in ai-doctor. SPEC.md still described
+  GitHub MCP and Grounded Docs as installed; update the text, not the install. Audit graphify 0.9.111. The OMC
+  LSP and ast-grep server stays a fallback behind Serena.

@@ -1,0 +1,453 @@
+#!/usr/bin/env python3
+"""ai-eval: fixture repos and the install and behaviour levels of the AI setup tests.
+
+  ai-eval fixtures DIR                  make the fixture repos in DIR
+  ai-eval install [--keep] [--out DIR]  ai-adopt twice on each fixture in a throwaway HOME. A report of the
+                                        current behaviour (the baseline): exit 0 unless the harness itself breaks.
+  ai-eval behaviour [--agent claude|codex|both] [--runs N] [--dry] [--out DIR]
+                                        one fresh headless session per case and run, on a fresh copy of the
+                                        adopted fixture; cases are ai/evals/cases/*.json. --dry only lists the runs.
+
+Fixtures: empty-git (git init only), docs-only (README.md, docs/*.md), no-git (a plain folder), app (Python package,
+pytest test, Makefile with check, .claude/skills/verify-app/SKILL.md), project-copy (a clone of $AI_EVAL_PROJECT
+without its remotes; skipped when the variable is not set).
+Case file: {"id", "fixture", "prompt", "expect": {"skills": [...], "tools": [regex, ...], "rules": [rule id, ...],
+"not_skills": [...]}}. A run is a hit when every expected item is seen and no not_skills item is seen.
+Seen: Skill tool calls, a Read or shell command on a skills/<name>/SKILL.md, tool calls ("Name {input json}"), and
+the rules and skills in fired.jsonl of the run.
+Child sessions: HC_TERMINAL_ID and HERDR_* are unset (the herdr PermissionRequest hook waits up to 30 minutes
+otherwise). AI_STATE_DIR points to a folder of the run, so the router writes fired.jsonl and misses.jsonl there,
+not into the owner's stats.
+Reports: a table on stdout and <level>.json in --out (default: a new temp folder; never inside this repo).
+"""
+import hashlib
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+
+BIN = os.path.dirname(os.path.realpath(__file__))
+AI_DIR = os.path.dirname(BIN)
+AI_HOME = os.path.dirname(AI_DIR)
+CASES = os.path.join(AI_DIR, "evals", "cases")
+ADOPT = os.path.join(BIN, "ai-adopt")
+FIXTURES = ("empty-git", "docs-only", "no-git", "app", "project-copy")
+ADOPT_TIMEOUT = 1800
+RUN_TIMEOUT = 900
+SKILL_FILE_RX = re.compile(r"([^\s\"']*)/skills/([\w.:-]+)/SKILL\.md")
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__)
+        return 0 if argv else 2
+    cmd, args = argv[0], argv[1:]
+
+    if cmd == "fixtures" and len(args) == 1:
+        for name, note in make_fixtures(args[0], os.environ.get("AI_EVAL_PROJECT")).items():
+            print("%-13s %s" % (name, note or "made"))
+        return 0
+
+    opts = parse(args)
+    if cmd == "install":
+        return install(opts)
+    if cmd == "behaviour":
+        return behaviour(opts)
+    print(__doc__)
+    return 2
+
+
+def parse(args):
+    opts = {"keep": False, "dry": False, "agent": "both", "runs": 3, "out": None}
+    args = list(args)
+    while args:
+        a = args.pop(0)
+        if a in ("--keep", "--dry"):
+            opts[a[2:]] = True
+        elif a == "--agent" and args and args[0] in ("claude", "codex", "both"):
+            opts["agent"] = args.pop(0)
+        elif a == "--runs" and args and args[0].isdigit() and int(args[0]) > 0:
+            opts["runs"] = int(args.pop(0))
+        elif a == "--out" and args:
+            opts["out"] = args.pop(0)
+        else:
+            sys.exit("ai-eval: bad argument: %s (see ai-eval --help)" % a)
+    return opts
+
+
+# ---------------------------------------------------------------- install level
+
+def install(opts):
+    out = out_dir(opts)
+    work = tempfile.mkdtemp(prefix="ai-eval-install-")
+    rows = []
+    try:
+        notes = make_fixtures(os.path.join(work, "fixtures"), os.environ.get("AI_EVAL_PROJECT"))
+        for name in FIXTURES:
+            if notes[name]:
+                rows.append({"fixture": name, "adopt_rc": None, "second_rc": None, "second_run_changed": None,
+                             "changed": [], "pass": None, "notes": notes[name]})
+                continue
+            rows.append(install_row(name, os.path.join(work, "fixtures", name), os.path.join(work, "home-" + name)))
+    finally:
+        if opts["keep"]:
+            print("kept: " + work)
+        else:
+            shutil.rmtree(work, ignore_errors=True)
+
+    print_table(["fixture", "adopt rc", "second-run diff", "pass", "notes"],
+                [[r["fixture"], r["adopt_rc"], yes_no(r["second_run_changed"]), yes_no(r["pass"]), r["notes"]]
+                 for r in rows])
+    write_report(out, "install", rows)
+    return 0
+
+
+def install_row(name, repo, home):
+    env = adopt_env(home)
+    first_rc, first_out = adopt(repo, env)
+    before = snapshot(repo)
+    second_rc, second_out = adopt(repo, env)
+    after = snapshot(repo)
+    changed = sorted(p for p in set(before) | set(after) if before.get(p) != after.get(p))
+
+    notes = [last_line(first_out)]
+    if second_rc != first_rc:
+        notes.append("second run rc %s: %s" % (second_rc, last_line(second_out)))
+    if changed:
+        notes.append("changed: " + ", ".join(changed[:3]) + (" (+%d)" % (len(changed) - 3) if len(changed) > 3 else ""))
+    return {"fixture": name, "adopt_rc": first_rc, "second_rc": second_rc, "second_run_changed": bool(changed),
+            "changed": changed, "pass": first_rc == 0 and second_rc == 0 and not changed,
+            "notes": "; ".join(n for n in notes if n), "output": first_out[-4000:], "second_output": second_out[-4000:]}
+
+
+def adopt(repo, env):
+    # --no-onboard: the onboard step is a headless claude session, and this level runs no agent.
+    return call([sys.executable, ADOPT, "--dir", repo, "--yes", "--no-onboard"], env, repo, ADOPT_TIMEOUT)
+
+
+def adopt_env(home):
+    """The owner's env without the session variables, with a throwaway HOME, config dirs and router state."""
+    os.makedirs(home, exist_ok=True)
+    env = child_env(os.path.join(home, "state"))
+    real_plugins = os.path.expanduser("~/.local/share/ai/plugins")
+    if not env.get("AI_PLUGIN_SRC") and os.path.isdir(real_plugins):
+        env["AI_PLUGIN_SRC"] = real_plugins      # skill links point to this machine's copies (read only)
+    env.update(PYTHONUNBUFFERED="1", HOME=home, XDG_CONFIG_HOME=os.path.join(home, ".config"),
+               CLAUDE_CONFIG_DIR=os.path.join(home, ".claude"), CODEX_HOME=os.path.join(home, ".codex"),
+               GIT_AUTHOR_NAME="ai-eval", GIT_AUTHOR_EMAIL="ai-eval@example.invalid",
+               GIT_COMMITTER_NAME="ai-eval", GIT_COMMITTER_EMAIL="ai-eval@example.invalid")
+    return env
+
+
+def snapshot(root):
+    """path -> content hash of every file outside .git, plus the HEAD commit."""
+    rc, head = call(["git", "-C", root, "rev-parse", "-q", "--verify", "HEAD"], None, root, 60)
+    snap = {"HEAD": head.strip() if rc == 0 else ""}
+    for dirpath, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for f in files + [d for d in dirs if os.path.islink(os.path.join(dirpath, d))]:
+            path = os.path.join(dirpath, f)
+            if os.path.islink(path):
+                snap[os.path.relpath(path, root)] = "link:" + os.readlink(path)
+            elif os.path.isfile(path):
+                with open(path, "rb") as fh:
+                    snap[os.path.relpath(path, root)] = hashlib.sha1(fh.read()).hexdigest()
+    return snap
+
+
+# ---------------------------------------------------------------- behaviour level
+
+def behaviour(opts):
+    agents = ["claude", "codex"] if opts["agent"] == "both" else [opts["agent"]]
+    cases = load_cases()
+    plan = [(agent, case, n) for agent in agents for case in cases for n in range(1, opts["runs"] + 1)]
+
+    if opts["dry"]:
+        for agent, case, n in plan:
+            print("%-6s %-20s run %d  fixture %-12s %s" % (agent, case["id"], n, case["fixture"],
+                                                          " ".join(shlex.quote(c) for c in agent_cmd(agent, case["prompt"]))))
+        print("%d runs planned, none started (--dry)" % len(plan))
+        return 0
+
+    out = out_dir(opts)
+    notes = prepare(out, sorted({c["fixture"] for c in cases}))
+    results = [run_case(out, notes, agent, case, n) for agent, case, n in plan]
+
+    summary = []
+    for agent in agents:
+        rows = []
+        for case in cases:
+            mine = [r for r in results if r["agent"] == agent and r["case"] == case["id"]]
+            hits = sum(1 for r in mine if r.get("hit"))
+            summary.append({"agent": agent, "case": case["id"], "expected": expected_text(case), "hits": hits,
+                            "runs": len(mine)})
+            rows.append([case["id"], expected_text(case), "%d/%d" % (hits, len(mine))])
+        print("\n%s" % agent)
+        print_table(["case", "expected", "hits/runs"], rows)
+    write_report(out, "behaviour", {"summary": summary, "runs": results})
+    return 0
+
+
+def load_cases():
+    cases = []
+    for name in sorted(os.listdir(CASES)):
+        if name.endswith(".json"):
+            with open(os.path.join(CASES, name), encoding="utf-8") as fh:
+                cases.append(json.load(fh))
+    return cases
+
+
+def agent_cmd(agent, prompt):
+    if agent == "claude":
+        return ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--max-turns", "4"]
+    return ["codex", "exec", "--json", prompt]
+
+
+def prepare(out, names):
+    """Make the fixtures once and adopt the ones the cases use (throwaway HOME); each run copies one."""
+    notes = make_fixtures(os.path.join(out, "fixtures"), os.environ.get("AI_EVAL_PROJECT"))
+    for name in names:
+        if not notes.get(name):
+            rc, text = adopt(os.path.join(out, "fixtures", name), adopt_env(os.path.join(out, "adopt-home")))
+            print("adopt %s: rc %s, %s" % (name, rc, last_line(text)))
+    return notes
+
+
+def run_case(out, notes, agent, case, n):
+    result = {"agent": agent, "case": case["id"], "run": n}
+    if case["fixture"] not in notes or notes[case["fixture"]]:
+        return dict(result, hit=False, note=notes.get(case["fixture"]) or "unknown fixture")
+
+    base = os.path.join(out, "runs", agent, "%s-%d" % (case["id"], n))
+    repo = os.path.join(base, "repo")
+    state = os.path.join(base, "state")
+    shutil.copytree(os.path.join(out, "fixtures", case["fixture"]), repo, symlinks=True)
+    rc, text = call(agent_cmd(agent, case["prompt"]), child_env(state), repo, RUN_TIMEOUT)
+    write(os.path.join(base, "stream.jsonl"), text)
+
+    seen = score_stream(text)
+    router = router_seen(state)
+    seen["skills"] += router["skills"]
+    seen["rules"] = router["rules"]
+    return dict(result, rc=rc, hit=hit(case["expect"], seen), seen=seen)
+
+
+def child_env(state):
+    env = {k: v for k, v in os.environ.items() if k != "HC_TERMINAL_ID" and not k.startswith("HERDR_")}
+    env["AI_STATE_DIR"] = state
+    return env
+
+
+def score_stream(text):
+    """Skills and tool calls in a Claude stream-json or Codex --json transcript (one JSON event per line)."""
+    seen = {"skills": [], "tools": []}
+    for line in text.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        for name, args in tool_calls(event):
+            seen["tools"].append("%s %s" % (name, json.dumps(args, sort_keys=True)))
+            if name == "Skill" and args.get("skill"):
+                seen["skills"].append(args["skill"])
+            if name in ("Read", "Bash"):
+                seen["skills"] += skill_files(json.dumps(args))
+    return seen
+
+
+def tool_calls(event):
+    """(name, input) of each tool call in one event: Claude tool_use blocks, Codex completed items."""
+    msg = event.get("message")
+    if event.get("type") == "assistant" and isinstance(msg, dict):
+        return [(b.get("name"), b.get("input") or {}) for b in msg.get("content") or []
+                if isinstance(b, dict) and b.get("type") == "tool_use"]
+    # shortcut: Codex item shapes (command_execution, mcp_tool_call) as documented for codex exec --json;
+    # check them against a recorded Codex transcript when the first real baseline runs.
+    item = event.get("item")
+    if event.get("type") == "item.completed" and isinstance(item, dict):
+        if item.get("type") == "command_execution":
+            return [("Bash", {"command": item.get("command") or ""})]
+        if item.get("type") == "mcp_tool_call":
+            return [("mcp__%s__%s" % (item.get("server"), item.get("tool")), item.get("arguments") or {})]
+    return []
+
+
+def skill_files(text):
+    """Skill names from SKILL.md paths; a Claude plugin cache path gives <plugin>:<skill>."""
+    names = []
+    for prefix, skill in SKILL_FILE_RX.findall(text):
+        cache = prefix.split("/plugins/cache/", 1)
+        parts = cache[1].split("/") if len(cache) == 2 else []
+        names.append("%s:%s" % (parts[1], skill) if len(parts) > 1 else skill)
+    return names
+
+
+def router_seen(state):
+    """Rules and skills the router logged in this run's state folder."""
+    seen = {"rules": [], "skills": []}
+    try:
+        with open(os.path.join(state, "fired.jsonl"), encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return seen
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if row.get("kind") == "rule" and row.get("rule") and row["rule"] not in seen["rules"]:
+            seen["rules"].append(row["rule"])
+        if row.get("kind") == "skill" and row.get("skill"):
+            seen["skills"].append(row["skill"])
+    return seen
+
+
+def hit(expect, seen):
+    return (all(s in seen["skills"] for s in expect.get("skills", []))
+            and all(any(re.search(rx, t) for t in seen["tools"]) for rx in expect.get("tools", []))
+            and all(r in seen.get("rules", []) for r in expect.get("rules", []))
+            and not any(s in seen["skills"] for s in expect.get("not_skills", [])))
+
+
+def expected_text(case):
+    exp = case["expect"]
+    parts = ["skill " + s for s in exp.get("skills", [])] + ["tool /%s/" % t for t in exp.get("tools", [])]
+    parts += ["rule " + r for r in exp.get("rules", [])] + ["not " + s for s in exp.get("not_skills", [])]
+    return ", ".join(parts)
+
+
+# ---------------------------------------------------------------- fixtures
+
+def make_fixtures(root, project=None):
+    """Make each fixture in root. Returns fixture -> None (made) or a note why it was skipped."""
+    notes = {}
+    for name in FIXTURES:
+        os.makedirs(os.path.join(root, name))
+
+    git_init(os.path.join(root, "empty-git"))
+    notes["empty-git"] = None
+
+    docs = os.path.join(root, "docs-only")
+    write(os.path.join(docs, "README.md"), "# docs-only\n\nA repo with Markdown only.\n")
+    write(os.path.join(docs, "docs", "guide.md"), "# Guide\n\nStep 1. Read the README.\n")
+    write(os.path.join(docs, "docs", "faq.md"), "# FAQ\n\nNo questions yet.\n")
+    git_commit(docs)
+    notes["docs-only"] = None
+
+    write(os.path.join(root, "no-git", "notes.txt"), "a folder without git\n")
+    notes["no-git"] = None
+
+    for rel, text in APP_FILES.items():
+        write(os.path.join(root, "app", rel), text)
+    git_commit(os.path.join(root, "app"))
+    notes["app"] = None
+
+    notes["project-copy"] = copy_project(project, os.path.join(root, "project-copy"))
+    return notes
+
+
+APP_FILES = {
+    "README.md": "# app\n\nA small calculator.\n",
+    "pyproject.toml": "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n[tool.pytest.ini_options]\ntestpaths = [\"tests\"]\n",
+    "app/__init__.py": "",
+    "app/calc.py": "def add(a, b):\n    return a + b\n",
+    "app/cli.py": "import sys\n\nfrom app.calc import add\n\n\ndef main():\n    print(add(int(sys.argv[1]), int(sys.argv[2])))\n",
+    "tests/test_calc.py": "from app.calc import add\n\n\ndef test_add():\n    assert add(2, 3) == 5\n",
+    "Makefile": "check:\n\tpython3 -m pytest -q\n",
+    ".claude/skills/verify-app/SKILL.md": "---\nname: verify-app\ndescription: Use to verify the app: run "
+                                          "python3 -m app.cli 2 3 and expect 5.\n---\n\n1. Run `python3 -m app.cli 2 3`.\n"
+                                          "2. The output must be 5.\n",
+}
+
+
+def copy_project(project, dest):
+    """A clone (committed files only) without remotes: an ai-adopt run in it can never push."""
+    if not project:
+        return "skipped: AI_EVAL_PROJECT not set"
+    os.rmdir(dest)
+    rc, text = call(["git", "clone", "-q", "--no-hardlinks", project, dest], None, None, 600)
+    if rc != 0:
+        return "skipped: git clone failed: " + last_line(text)
+    for remote in git(dest, "remote").split():
+        git(dest, "remote", "remove", remote)
+    return None
+
+
+def git_init(repo):
+    git(repo, "init", "-q")
+
+
+def git_commit(repo):
+    git_init(repo)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "init")
+
+
+def git(repo, *args):
+    cmd = ["git", "-c", "init.defaultBranch=main", "-c", "user.name=ai-eval", "-c", "user.email=ai-eval@example.invalid",
+           "-c", "commit.gpgsign=false", "-c", "core.hooksPath=" + os.devnull,
+           "-c", "core.excludesFile=" + os.devnull, "-C", repo] + list(args)    # a global ignore may hide .claude/
+    return subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, text=True).stdout
+
+
+# ---------------------------------------------------------------- helpers
+
+def out_dir(opts):
+    out = os.path.realpath(opts["out"] or tempfile.mkdtemp(prefix="ai-eval-"))
+    if out == AI_HOME or out.startswith(AI_HOME + os.sep):
+        sys.exit("ai-eval: --out must be outside the repo (%s)" % AI_HOME)
+    os.makedirs(out, exist_ok=True)
+    return out
+
+
+def call(cmd, env, cwd, timeout):
+    """(exit code, stdout + stderr). A missing command or a timeout is a result, not a crash."""
+    try:
+        res = subprocess.run(cmd, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        return "timeout", (exc.output or b"").decode("utf-8", "replace")
+    except OSError as exc:
+        return "error", str(exc)
+    return res.returncode, res.stdout.decode("utf-8", "replace")
+
+
+def write_report(out, name, data):
+    path = os.path.join(out, name + ".json")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+    print("report: " + path)
+
+
+def print_table(headers, rows):
+    rows = [["" if c is None else str(c) for c in r] for r in rows]
+    widths = [max([len(h)] + [len(r[i]) for r in rows]) for i, h in enumerate(headers)]
+    print("  ".join(h.ljust(w) for h, w in zip(headers, widths)).rstrip())
+    for r in rows:
+        print("  ".join(c.ljust(w) for c, w in zip(r, widths)).rstrip())
+
+
+def yes_no(value):
+    return "-" if value is None else ("yes" if value else "no")
+
+
+def last_line(text):
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    return lines[-1][:160] if lines else ""
+
+
+def write(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

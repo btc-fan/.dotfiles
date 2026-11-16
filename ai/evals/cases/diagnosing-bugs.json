@@ -1,0 +1,6 @@
+{
+  "id": "diagnosing-bugs",
+  "fixture": "app",
+  "prompt": "The app is slow when I run python3 -m app.cli 2 3. Find out why.",
+  "expect": {"skills": ["diagnosing-bugs"]}
+}
