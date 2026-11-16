@@ -35,6 +35,7 @@ from hooklib import (GATES, GATE_PROBES, ai_home, append_jsonl, command_text, ga
                      log_line, one_line, project_skills, project_tier, verify_skill, is_code_file,
                      origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
                      state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
+                     graph_status, git_history,
                      owner_merge_ok, merge_review_note, nav_note, upgrade_note, legacy_memory_note)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -193,9 +194,9 @@ def on_user_prompt(ctx):
     for rule in routing.get("rules", []):
         trig = rule.get("trigger", {})
         rx = trig.get("prompt")
-        if not rx:
+        if not rx and not trig.get("prompt_libs"):
             continue
-        if not search(rx, prompt):
+        if not (rx and search(rx, prompt)):
             if not trig.get("prompt_libs") or not ctx.prompt_libs(prompt):
                 continue
         if not rule_enabled(rule, ctx):
@@ -247,6 +248,8 @@ def on_pre_tool(ctx):
     if home and tool in HOME_TOOLS:
         ctx.decide("deny", "[ai router: home-folder] " + HOME_MSG % home)
         return
+    if tool == "Skill":
+        winner_gate(ctx, tin.get("skill") or tin.get("name") or "")
     for rule in ctx.routing.get("rules", []):
         trig = rule.get("trigger", {})
         if not trig.get("tool_before") or not tool_matches(trig["tool_before"], tool):
@@ -263,7 +266,12 @@ def on_pre_tool(ctx):
         text = render_action(rule, ctx)
         if text and ctx.state.allow_nudge(rule, nudge_key(rule, tool, tin, cmd)):
             ctx.fired(rule, "PreToolUse")
-            ctx.add_context("[ai router: %s] %s" % (rule["id"], text))
+            if rule["id"] == "nav-first" and graph_first(ctx):
+                # once per session (the nudge key above), so the next search passes
+                ctx.decide("deny", "[ai router: nav-first] This repo has a graph: run graphify query first. %s "
+                                   "Then search again: the next search passes." % text)
+            else:
+                ctx.add_context("[ai router: %s] %s" % (rule["id"], text))
     abs_rewrite(ctx, tool, tin, cmd)
 
 
@@ -321,6 +329,8 @@ def on_post_tool(ctx):
             append_jsonl("fired.jsonl", ctx.row(kind="skill", via="tool", skill=name))
     if is_docs_tool(tool):
         log_docs_ids(ctx, tool, tin)
+    if "serena" in tool.lower() or any(st.exe == "graphify" for st in ctx.stages):
+        mark_nav_used(ctx)
     try:
         ctx.graph_refresh = graph_refresh(ctx)
     except Exception as exc:     # never break the session
@@ -350,6 +360,8 @@ def on_prompt_expansion(ctx):
     name = ctx.payload.get("command_name") or ctx.payload.get("skill") or ""
     if name:
         append_jsonl("fired.jsonl", ctx.row(kind="skill", via="expansion", skill=name))
+        if is_orchestration(ctx, name):
+            mark_orchestration(ctx)
 
 
 def on_stop(ctx):
@@ -707,6 +719,22 @@ def _state_code_repo(ctx):
     return ctx.root is not None and ctx.state.has_code(ctx.root)
 
 
+def graph_first(ctx):
+    """The first broad search of a session is denied when the repo has code and a fresh graph (graph on), and
+    the session has not used graphify or Serena yet."""
+    root = ctx.root
+    if not root or ctx.state.load().get("nav_used") or "graph" not in enabled_tools(root):
+        return False
+    return ctx.state.has_code(root) and graph_status(root, git_history(root)) == "fresh"
+
+
+def mark_nav_used(ctx):
+    d = ctx.state.load()
+    if not d.get("nav_used"):
+        d["nav_used"] = True
+        ctx.state.dirty = True
+
+
 # routing.yaml `state:` strings -> predicates. ai-render fails on a state string not listed here.
 STATE_PREDICATES = {
     "git repo without .ai/base-version": _state_no_base,
@@ -1002,6 +1030,41 @@ def run_gate(rule, ctx, cmd):
     log_line("gates.log", "%s %s %s session=%s cmd=%s" % (
         iso_now(), decision.upper(), rule["id"], ctx.session, redact(one_line(cmd))[:200]))
     ctx.fired(rule, "PreToolUse")
+
+
+# ---------------------------------------------------------------- winner gate (routing.yaml `winners`)
+
+def winner_gate(ctx, name):
+    """Deny a Skill tool call of a skill that loses in the overlap table; the message names the winner."""
+    name = str(name).strip().lstrip("/")
+    if not name:
+        return
+    if is_orchestration(ctx, name):
+        mark_orchestration(ctx)
+        return
+    # shortcut: one orchestration call lets every later loser pass for the rest of the session (OMC keeps no
+    # cheap "flow ended" signal); upgrade when OMC state files mark the end of a flow.
+    if ctx.state.load().get("orchestration"):
+        return
+    for row in (ctx.routing.get("winners") or {}).get("table") or []:
+        if name.lower() in [str(x).lower() for x in row.get("losers") or []]:
+            ctx.decide("deny", "[ai router: winner-gate] %s: use %s, not %s (skills guide, section 5). Call the "
+                               "winner instead. Only the owner can run this one, by typing /%s."
+                       % (row["job"], row["use"], name, name))
+            ctx.fired({"id": "winner-gate"}, "PreToolUse")
+            return
+
+
+def is_orchestration(ctx, name):
+    short = str(name).strip().lstrip("/").split(":")[-1].lower()
+    return short in [str(x).lower() for x in (ctx.routing.get("winners") or {}).get("orchestration") or []]
+
+
+def mark_orchestration(ctx):
+    d = ctx.state.load()
+    if not d.get("orchestration"):
+        d["orchestration"] = True
+        ctx.state.dirty = True
 
 
 # ---------------------------------------------------------------- docs-on-dependency

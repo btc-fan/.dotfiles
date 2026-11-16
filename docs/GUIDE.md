@@ -350,6 +350,12 @@ Typed = you type `/<name>`. Auto = the model starts it when the task fits (you c
 | Store knowledge | AGENTS.md, GLOSSARY.md, docs/* | Serena memories, OMC wiki, Claude auto memory (off) |
 | Before the merge | ship (ours) | OMC verify alone |
 | Cut a version | release (ours) | OMC release |
+| Build test-first | tdd (Matt) | OMC tdd |
+| Write a PR body | pr (Matt) | OMC pr |
+
+The winner gate enforces this table: when an agent calls a losing OMC skill, the call is denied and the
+message names the winner. The exact list is in the skills guide, section 5. Your own typed /name always runs,
+and OMC orchestration (autopilot, ralph, team, ultragoal, ask, babysit, fix-ci, cancel) always runs.
 
 ---
 

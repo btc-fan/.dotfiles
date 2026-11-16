@@ -24,7 +24,7 @@ def main():
     try:
         for test in (t_hook_files, t_no_em_dash, t_render_cap, t_pr_resume, t_notify, t_agent_audit,
                      t_ai_start, t_router_speed, t_ai_sync, t_sync_hooks, t_hermes_plugin, t_playwright,
-                     t_state_mode, t_skill_scanner_reject):
+                     t_state_mode, t_skill_scanner_reject, t_winners_table):
             try:
                 test(work)
                 print("ok   " + test.__name__)
@@ -63,6 +63,29 @@ def t_hook_files(work):
     assert not any("serena-hook" in c and "activate" in c for c in owner), \
         "Claude must not run vendor serena activate (activate_project is off in single-project mode)"
     assert "Notification" not in claude, "owner 2026-11-15: no desktop notification hook (claude-notify stays, unwired)"
+    pre = [g.get("matcher", "") for g in claude["PreToolUse"]]
+    assert any("Skill" in m.split("|") for m in pre), "the winner gate needs the Skill tool in the PreToolUse matcher"
+
+
+def t_winners_table(work):
+    """The overlap table of the skills guide and routing.yaml `winners` hold the same rows and losers."""
+    import re
+    guide = open(os.path.join(AI_DIR, "skills", "skills-guide", "SKILL.md"), encoding="utf-8").read()
+    section = guide.split("## 5. Overlaps", 1)[1].split("\n## ", 1)[0]
+    in_guide = {}
+    for line in section.splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if not line.startswith("|") or len(cells) != 3 or cells[0] == "Need" or set(cells[0]) <= set("-"):
+            continue
+        in_guide[(cells[0], cells[1])] = tuple(sorted(re.findall(r"`([^`]+)`", cells[2])))
+    res = run([sys.executable, os.path.join(BIN, "ai-render"), "--profile", "server", "--out",
+               os.path.join(work, "winners")])
+    assert res.returncode == 0, "render failed: " + res.stdout
+    table = json.load(open(os.path.join(work, "winners", "routing.json")))["winners"]["table"]
+    in_data = {(r["job"], r["use"]): tuple(sorted(r["losers"])) for r in table}
+    assert in_guide, "no overlap table rows found in the skills guide"
+    diff = sorted(set(in_guide.items()) ^ set(in_data.items()))
+    assert not diff, "skills guide section 5 and routing.yaml winners differ: %s" % diff
 
 
 def t_no_em_dash(work):

@@ -10,6 +10,40 @@
    }
   },
   {
+   "name": "prompt that only says docs stays quiet",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "update the docs for the install step"}
+  },
+  {
+   "name": "prompt that only says documentation or sdk stays quiet",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "write documentation for this module and the sdk folder"}
+  },
+  {
+   "name": "before an edit of a dependency file",
+   "expect": "fire",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/package.json", "old_string": "a", "new_string": "b"}},
+   "project": {"git": true, "files": {"package.json": "{}\n"}},
+   "contains": "context7"
+  },
+  {
+   "name": "before a write of requirements-dev.txt",
+   "expect": "fire",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Write", "tool_input": {"file_path": "requirements-dev.txt", "content": "httpx\n"}},
+   "project": {"git": true, "files": {"app.py": "x = 1\n"}}
+  },
+  {
+   "name": "edit of a code file stays quiet",
+   "expect": "nofire",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/app.py", "old_string": "a", "new_string": "b"}},
+   "project": {"git": true, "files": {"app.py": "x = 1\n"}}
+  },
+  {
    "name": "rename",
    "expect": "nofire",
    "event": "UserPromptSubmit",

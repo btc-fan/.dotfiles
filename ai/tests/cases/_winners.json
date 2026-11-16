@@ -1,0 +1,61 @@
+{
+ "rule": "winner-gate",
+ "cases": [
+  {
+   "name": "loser skill is denied and the message names the winner",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:tdd"}},
+   "contains": ["use tdd", "not oh-my-claudecode:tdd", "/oh-my-claudecode:tdd"]
+  },
+  {
+   "name": "OMC plan loses to to-spec",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:plan"}},
+   "contains": "to-spec"
+  },
+  {
+   "name": "winner passes",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Skill", "tool_input": {"skill": "tdd"}}
+  },
+  {
+   "name": "orchestration skill passes",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:autopilot"}}
+  },
+  {
+   "name": "inner skill call of an orchestration flow passes",
+   "expect": "allow",
+   "steps": [
+    {"event": "PreToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:ralph"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:ralplan"}}}
+   ]
+  },
+  {
+   "name": "after a typed /autopilot the inner skill calls pass",
+   "expect": "allow",
+   "steps": [
+    {"event": "UserPromptExpansion", "payload": {"command_name": "oh-my-claudecode:autopilot"}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:execute"}}}
+   ]
+  },
+  {
+   "name": "typed /name of a loser is not gated (no Skill tool call)",
+   "expect": "allow",
+   "event": "UserPromptExpansion",
+   "payload": {"command_name": "oh-my-claudecode:tdd"}
+  },
+  {
+   "name": "subagent call is gated the same",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Skill", "agent_id": "a1", "agent_type": "executor",
+               "tool_input": {"skill": "oh-my-claudecode:research"}},
+   "contains": "research"
+  }
+ ]
+}

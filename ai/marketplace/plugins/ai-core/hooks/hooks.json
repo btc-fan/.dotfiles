@@ -51,7 +51,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|Agent|Task",
+        "matcher": "Bash|Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|Agent|Task|Skill",
         "hooks": [
           {
             "type": "command",
@@ -63,7 +63,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|Skill|mcp__.*(context7|docs).*",
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|Skill|mcp__.*(context7|docs|serena).*",
         "hooks": [
           {
             "type": "command",
