@@ -1,0 +1,6 @@
+{
+  "id": "hard-perf",
+  "fixture": "app",
+  "prompt": "we might need to investigate how the cli performs, it feels off",
+  "expect": {"skills": ["diagnosing-bugs"]}
+}

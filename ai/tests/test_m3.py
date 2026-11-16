@@ -38,7 +38,8 @@ def main():
         for test in (t_drop_claude, t_drop_keeps_shared_marketplace, t_drop_codex_and_serena, t_off_plugins,
                      t_serena_take, t_rtk_brew, t_rtk_no_brew, t_omx_node_fix, t_last30days, t_doctor,
                      t_omc_companion, t_drop_failures, t_rtk_brew_mismatch, t_codex_restore_quoted,
-                     t_yaml_top_set_block_list, t_skill_dups, t_omx_nvm_fix, t_rejected_sha_cached, t_omc_keep, t_nvm_node_path, t_skip_scan):
+                     t_yaml_top_set_block_list, t_skill_dups, t_omx_nvm_fix, t_rejected_sha_cached, t_omc_keep, t_nvm_node_path, t_skip_scan,
+                     t_serena_always_load):
             for k, v in saved.items():
                 if v is None:
                     os.environ.pop(k, None)
@@ -915,6 +916,26 @@ def t_skip_scan(work):
     assert "dir omc-plugin %s SKIPPED owner --skip-scan" % sha in read(os.path.join(home, STATE, "audit.log"))
     code, out = bash(LIBS + 'git_source_audited other https://x/o v1.0.0 %s' % ("d" * 40), env)
     assert code != 0 and "agent-audit dir" in read(log), "a tool not named is still scanned: " + out
+
+
+def t_serena_always_load(work):
+    """Ticket 10: the ai-serena plugin sets alwaysLoad: true, so Claude shows the Serena tools from the first turn
+    (no tool search). ai-doctor PASSes the plugin file of this repo and FAILs a copy without the field."""
+    env, home, bindir = env_for(work)
+    mod = load_doctor(env)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        mod.check_serena_plugin()
+    assert buf.getvalue().startswith("PASS"), buf.getvalue()
+    real = json.loads(read(os.path.join(AI_DIR, "marketplace", "plugins", "ai-serena", ".mcp.json")))
+    del real["mcpServers"]["serena"]["alwaysLoad"]
+    bad = os.path.join(work, "mcp.json")
+    write(bad, json.dumps(real))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        mod.check_serena_plugin(bad)
+    assert buf.getvalue().startswith("FAIL"), buf.getvalue()
+    assert "check_serena_plugin()" in read(os.path.join(AI_DIR, "bin", "ai-doctor"))
 
 
 if __name__ == "__main__":
