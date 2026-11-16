@@ -1689,3 +1689,18 @@ adopted repo gets `.ai/docs-allow` with the files that were already there. A res
   husky hooks), a repo with its own pre-commit hook, a web UI repo with a design system, a mobile repo with Serena
   off, a repo with three merges over time, and the bypass attempts: 10 ways to merge without your OK, 4 ways to
   skip the hooks, and a Codex merge.
+
+### 15.8 Real adoptions (2026-11-16)
+
+| Repo | Machine | How | PR | Notes |
+|---|---|---|---|---|
+| radar999 | ubuntu01 | `~/work/radar999-main`, branch `ai-setup-2026-11-16` from `origin/main` | btc-fan/radar-999#1 | `AGENTS.md` and `CLAUDE.md` stay local (the repo lists them in `.git/info/exclude`). `make check-fast` has 3 ruff findings that are already on main: fix them in their own PR, then remove `no-stop-check`. |
+| scriptube | old Mac | a separate worktree `~/openclaw/projects/scriptube-worktrees/ai-setup-2026-11-16` from `origin/master`; your open work in the main checkout is not touched | btc-fan/yt-transcripts#10 | 191 Markdown files outside `docs/` are in the baseline. `make check-fast` takes over 300 s. After the merge: run `ai-adopt` once in the main checkout (it links the new skills there), then remove the worktree with `git worktree remove`. |
+
+Adopt an existing repo yourself, the same way:
+1. `git switch -c ai-setup-<date> origin/main` (or a worktree when you have open work: `git worktree add ../x-ai-setup -b ai-setup-<date> origin/main`).
+2. `ai-adopt`. It commits on that branch and pushes it with an upstream. In a worktree it uses the main checkout's name and its `.venv`.
+3. Ask the agent to open the PR, or open it on GitHub. Merge it yourself, or say "merge".
+
+Found and fixed while doing these two: a new branch that tracks its base made `git push` fail (exit 128); a worktree
+got the worktree folder name in the Design line and the system `python3` in the Makefile.
