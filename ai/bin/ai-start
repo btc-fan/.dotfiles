@@ -208,9 +208,12 @@ def main(argv):
               % (mode, exc.cmd[3] if len(exc.cmd) > 3 else "", exc.returncode))
         return 1
     if mode == "adopt" and has_remote(root):
-        # A new branch (the owner's flow: adopt on a branch, then a PR) has no upstream yet: set it.
-        upstream = git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
-        return subprocess.call(["git", "-C", root, "push"] + ([] if upstream else ["-u", "origin", "HEAD"]))
+        # A new branch (the owner's flow: adopt on a branch, then a PR) has no upstream yet, or tracks the branch it
+        # was made from (git switch -c x origin/main): push it under its own name and set that as the upstream.
+        upstream = git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}") or ""
+        branch = git(root, "branch", "--show-current") or ""
+        own = branch and upstream.split("/", 1)[-1] == branch
+        return subprocess.call(["git", "-C", root, "push"] + ([] if own else ["-u", "origin", "HEAD"]))
     return 0
 
 

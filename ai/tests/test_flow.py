@@ -383,7 +383,10 @@ def t_adopt_new_branch_pushes_upstream(work):
     git(repo, "config", "remote.origin.pushurl", origin, env=env)
     git(repo, "push", "-q", "origin", "main", env=env)
     main_before = git(origin, "rev-parse", "main", env=env).text.strip()
-    git(repo, "switch", "-q", "-c", "ai-setup", env=env)
+    git(repo, "fetch", "-q", origin, "main:refs/remotes/origin/main", env=env)
+    # made from origin/main, so it tracks origin/main: a plain push would refuse (names differ)
+    git(repo, "switch", "-q", "-c", "ai-setup", "--track", "origin/main", env=env)
+    assert git(repo, "rev-parse", "--abbrev-ref", "@{u}", env=env).text.strip() == "origin/main"
     res = adopt(repo, env)
     assert res.returncode == 0, res.text
     heads = git(origin, "for-each-ref", "--format=%(refname)", "refs/heads", env=env).text
