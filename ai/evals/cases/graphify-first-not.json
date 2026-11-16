@@ -2,5 +2,9 @@
   "id": "graphify-first-not",
   "fixture": "app",
   "prompt": "Run make check and tell me the result.",
-  "expect": {"not_tools": ["graphify (query|affected)"]}
+  "expect": {
+    "not_tools": [
+      "graphify (query|affected)|serena__find_(symbol|referencing_symbols)"
+    ]
+  }
 }

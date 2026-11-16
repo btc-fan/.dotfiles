@@ -2,5 +2,9 @@
   "id": "graphify-first-ro",
   "fixture": "app",
   "prompt": "Unde este folosită funcția add în acest repo?",
-  "expect": {"tools": ["graphify (query|affected)"]}
+  "expect": {
+    "tools": [
+      "graphify (query|affected)|serena__find_(symbol|referencing_symbols)"
+    ]
+  }
 }
