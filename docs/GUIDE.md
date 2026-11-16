@@ -29,6 +29,7 @@ Rules for this document:
 13. [Troubleshooting](#13-troubleshooting)
 14. [What is not verified](#14-what-is-not-verified)
 15. [Ship, merge, release: the long-term flow](#15-ship-merge-release-the-long-term-flow)
+16. [Tests, scenarios and how the setup behaves (real output)](#16-tests-scenarios-and-how-the-setup-behaves-real-output)
 
 ---
 
@@ -1732,3 +1733,161 @@ survives a closed window.
 
 Found and fixed while doing these two: a new branch that tracks its base made `git push` fail (exit 128); a worktree
 got the worktree folder name in the Design line and the system `python3` in the Makefile.
+
+---
+
+## 16. Tests, scenarios and how the setup behaves (real output)
+
+Every block in 16.3 is real output of the installed router on the M3 (2026-11-16), from a throwaway repo.
+Commands to rerun all of it are in 16.1.
+
+### 16.1 Run the tests
+
+| What | Command | Time |
+|---|---|---|
+| Everything | `bash ai/tests/run.sh` (in `~/work/dotfiles-ai`) | about 10 min |
+| Router rules only | `python3 ai/tests/test_router.py` (add `-k merge` for one rule) | about 1 min |
+| Flow and scenarios only | `python3 ai/tests/test_flow.py -v` | about 1 min |
+| One machine, live | `bash check-flow.sh` (the rollout check: skills, rules, 10 gate checks through the installed router, ai-adopt plan, ai-doctor) | about 1 min |
+| One project | `ai-doctor --project .` in the repo | seconds |
+
+Result on 2026-11-16 (commit `6490b4b` and later): 11 of 11 suites green, 0 failed.
+
+### 16.2 What each suite proves
+
+| Suite | Tests | Proves |
+|---|---|---|
+| `test_router.py` | 449 cases in 34 rule files (`ai/tests/cases/*.json`) | every routing rule fires where it must and stays quiet where it must, for Claude and Codex |
+| `test_flow.py` | 17 | the ship, merge and release flow: the scenarios in 16.4 |
+| `test_tier1.py` | 39 | check targets, the Stop check, the regression ledger, the ratchet, ai-adopt on its own Done, the doctor budgets |
+| `test_resolve.py` | 38 | newest stable versions, plugin updates and rollbacks, Matt skills copies |
+| `test_setup.py` | 31 | Codex trust, permissions, env, hooks, gate skips, the managed router |
+| `test_m3.py` | 21 | owner decisions of 2026-11-14 (drops, off-by-default plugins, Serena take over, rtk) |
+| `test_knowledge.py` | 15 | the Map, the Libraries block, the .gitignore block, opt-in plugins |
+| `test_commands.py` | 14 | ai-start, ai-sync, hooks files, no em dash, router speed |
+| `test_profiles.py` | 7 | dev-mac and server render and install plans (fixtures) |
+| `test_info.py` | 6 | ai-info output |
+| `test_box.py` | 30 checks | the box MCP server (servers only) |
+
+New router rules of 2026-11-16 and their cases: merge-approval 16, no-verify 7, nav-first 7, merge-review 4,
+upgrade-review 4, legacy-memory 3.
+
+### 16.3 How it behaves: what the agent sees
+
+**Session start in an adopted repo where main moved** (the agent gets these lines before your first prompt):
+
+```text
+[ai router: merge-review] main moved since the last architecture review (some new commits after 0123abc).
+Before new work: /improve-codebase-architecture on the area that changed, then /retro on the merged work.
+Findings become tickets or a PR for the owner, not direct edits on main. Then record it: git rev-parse main >
+.ai/last-review. The owner may say skip (record it the same way). Typed-only skills (no Skill tool call): read
+the file, follow it, and tell the owner the typed form: /retro = ~/.claude/skills/retro/SKILL.md.
+
+[ai router: upgrade-review] Tools upgraded: graphify 0.9.111 -> 0.9.120. When the owner's task allows, run the
+upgrade-review skill (release notes -> what breaks, what to use -> a dotfiles PR).
+```
+
+**The first broad search of a session** (Grep, `rg`, `grep -r`, `find`; once per session):
+
+```text
+[ai router: nav-first] Code search: graphify query "<question>" --budget 1500 (where and how) or graphify
+affected "<path>::<symbol>" (impact), then Serena find_symbol / find_referencing_symbols (exact symbol, callers,
+edits) first. rg only for text (strings, config, logs).
+```
+
+**The agent runs `gh pr merge 12 --squash` without your OK:**
+
+```text
+DENY: [ai gate merge-approval] gh pr merge needs the owner's OK. Every PR goes through the owner: run the ship
+skill, then ask the owner. Merge only after the owner's latest message says merge (or approve). A push to main
+or master skips the PR: push the feature branch and open a PR instead.
+Only the owner can let it through, by saying merge (or approve) in the next message, or by merging on GitHub.
+Do not try to get around the gate.
+```
+
+**The agent runs `git push origin HEAD:main`:** the same deny, starting "git push to main/master needs the
+owner's OK".
+
+**The agent runs `git commit --no-verify -m wip`:**
+
+```text
+DENY: [ai gate no-verify] git commit --no-verify skips the pre-commit check (lint and format on staged files).
+Fix what the hook reports, git add the files, and commit again without --no-verify.
+```
+
+**You say "looks good, merge it", then the agent runs `gh pr merge 12 --squash`:** nothing is sent, the merge
+runs. Your next message without the word ("now fix the footer") clears the OK again.
+
+**You: "make the landing page layout nicer"** (ui is on in every project):
+
+```text
+[ai router L2] Before you act, answer YES or NO for each item in one short line, then use every YES tool first.
+- ui: UI work: use ui-ux-pro-max. Read design-system/<app>/MASTER.md (and the page override) first. No MASTER.md
+  yet: make 3 to 5 directions (--design-system, different styles) as prototype variants (?variant=), the owner
+  picks one, then --persist. Ask before paid image generation or any npx ...@latest.
+```
+
+**You: "add a CSV export feature for transcripts"** (in an adopted repo with the Matt skills linked): the
+feature-grill nudge names the branch, `grill-with-docs`, `to-spec` and `to-tickets` for 3+ files, then
+`/implement` per ticket, and "Feature done: the ship skill, then ask the owner to merge". In a repo without the
+skills it asks for plain grilling first.
+
+**A commit with a lint or format problem** (real, radar999, 2026-11-16):
+
+```text
+unformatted: File would be reformatted
+  --> scripts/login_capture.py:85:19
+ai-precommit: blocked the commit: ruff format (fix: ruff format <file>). Fix the files, git add them, commit again.
+```
+
+After `ruff format scripts/login_capture.py` and `git add`, the same commit went through.
+
+### 16.4 The scenario tests (`ai/tests/test_flow.py`)
+
+| Scenario | What happens | Proves |
+|---|---|---|
+| Small new Python project | `ai-adopt` | `ui` on; improve-codebase-architecture linked; `## Project rules`; the Design line; the UI rule in CODING_STANDARDS.md; `.git/hooks/pre-commit`; `ai-docs-check` in `make check`; no baseline file when nothing is stray; a rerun says "nothing to change" |
+| Existing messy repo | stray `NOTES.md`, `SUMMARY.md`, `src/app/TODO.md`; its own `## Rules` and Done; husky (`core.hooksPath`) | the 3 files go into `.ai/docs-allow` and pass; a new `PLAN.md` fails; own Rules and Done kept; no pre-commit hook over husky |
+| Repo with its own pre-commit hook | `.git/hooks/pre-commit` is the repo's | kept as it is |
+| Web UI repo with a design system | `design-system/shop/MASTER.md` exists | the Design line has no "missing" note; a UI prompt names MASTER.md |
+| Mobile repo, Serena off | `ios/`, `android/`, `no-serena` | the navigation nudge names graphify only |
+| A repo over time | 3 feature branches merged into main | the first session only sets the mark; then "main moved ... (6 new commits"; after `git rev-parse main > .ai/last-review` it is quiet |
+| Adopt on a new branch | the branch tracks `origin/main` | pushed under its own name with an upstream; main on the remote does not move |
+| Adopt in a linked worktree | open work in the main checkout | the project's name (not the worktree folder), the main checkout's `.venv`, `.venv/bin/python -m pytest` in the Makefile; the open work stays |
+| Markdown check | allowed places, ignored files, research headers | strays fail; ignored files do not count; a research note without `Date:`, `Sources:`, `Status:` is a warning only |
+| Pre-commit check | a fake ruff that fails on `bad.py` | the commit is blocked with the fix command; a stack without its tools is skipped and named, never blocked |
+| Tool versions | graphify 0.9.111 -> 0.9.120 -> 0.9.130 | the first run only records; a change goes to `upgrades.json` with the oldest `old`; the session start names it |
+
+### 16.5 The negative tests: trying to get around the rules
+
+All of these are denied (`test_flow.py`, `merge-approval.json`, `no-verify.json`):
+
+| Attempt | Result |
+|---|---|
+| `gh pr merge 7 --squash`, `gh pr merge --admin 7` | deny |
+| `gh api -X PUT repos/o/r/pulls/7/merge` | deny |
+| `git push origin HEAD:main`, `git push origin feat:refs/heads/main`, `git push -f origin main` | deny |
+| `git push --mirror origin`, `git push --all origin`, a bare `git push` while main is checked out | deny |
+| `sh -c 'gh pr merge 7'`, `bash -c 'git push origin main'`, `env FOO=1 gh pr merge 7`, `rtk gh pr merge 7` | deny |
+| You asked "it is approved?" (a question) | deny |
+| You said "do not merge yet" (a negation) | deny |
+| You said "ok, merge it", then "now add dark mode", then the agent merges PR 8 | deny (the OK does not carry over) |
+| `git commit --no-verify`, `git commit -anm x`, `git push --no-verify`, inside `bash -c` | deny |
+| Codex runs `gh pr merge 3` | deny with `"decision": "block"` |
+
+Allowed on purpose: `git push -u origin csv-export` (a feature branch), `gh pr view`, the words "gh pr merge"
+inside a commit message, `git log -n 5`.
+
+### 16.6 Live on the 3 machines (2026-11-16)
+
+| Check | M3 | Old Mac | ubuntu01 |
+|---|---|---|---|
+| Flow skills linked for Claude and Codex | PASS | PASS | PASS |
+| Rules updated (Claude and Codex files) | PASS | PASS | PASS |
+| 10 gate checks through the installed router | 10 PASS | 10 PASS | 10 PASS |
+| ai-adopt plan (13 skills, pre-commit, Markdown baseline, ui) | PASS | PASS | PASS |
+| ai-doctor | 0 FAIL | 0 FAIL | 0 FAIL |
+| Live Claude MCP calls | PASS | PASS | Claude account at its weekly limit (HTTP 429); Codex PASS |
+
+Not tested live: a real agent session told to break the rules. The auto-mode classifier refused to start it.
+The installed router, the scenario tests and the first real pre-commit block are the proof.
