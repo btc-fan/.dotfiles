@@ -80,6 +80,22 @@
     "/to-spec = {{PROJ}}/.claude/skills/to-spec/SKILL.md",
     "/to-tickets = {{PROJ}}/.claude/skills/to-tickets/SKILL.md"
    ]
+  },
+  {
+   "name": "typed-only wayfinder: read and follow",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "run wayfinder on the roadmap"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".ai/enabled": "tracker-flow\n",
+     ".claude/skills/wayfinder/SKILL.md": "---\nname: wayfinder\ndisable-model-invocation: true\n---\nbody\n"
+    }
+   },
+   "contains": "/wayfinder = {{PROJ}}/.claude/skills/wayfinder/SKILL.md"
   }
  ]
 }

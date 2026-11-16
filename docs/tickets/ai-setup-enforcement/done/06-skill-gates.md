@@ -4,9 +4,9 @@
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** done except the behaviour run (it needs real headless sessions; the owner runs ai-eval behaviour)
 
-- [ ] New rule fields require_skill and strength stop
-- [ ] Router cases for each gate, deny and pass
+- [x] New rule fields require_skill and strength stop
+- [x] Router cases for each gate, deny and pass
 - [ ] Behaviour level: each gate fires in 3 of 3 runs
-- [ ] ai-eval behaviour uses a max-turns cap high enough for the Stop gate to fire (today 4)
+- [x] ai-eval behaviour uses a max-turns cap high enough for the Stop gate to fire (was 4, now 15)

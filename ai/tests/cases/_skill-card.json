@@ -1,0 +1,84 @@
+{
+ "rule": "_skill-card",
+ "cases": [
+  {
+   "name": "startup: must-use skills with their trigger line, typed-only skills with the SKILL.md path to read",
+   "expect": "allow",
+   "event": "SessionStart",
+   "payload": {"source": "startup"},
+   "project": {"git": true, "files": {
+    ".claude/skills/to-spec/SKILL.md": "---\nname: to-spec\ndisable-model-invocation: true\n---\nbody\n",
+    ".claude/skills/handoff/SKILL.md": "---\nname: handoff\ndisable-model-invocation: true\n---\nbody\n"}},
+   "contains": ["[ai router: skill-card]", "writing-for-agents: before an edit of AGENTS.md",
+                "diagnosing-bugs: a bug, crash", "ship: the branch is done",
+                "read <dir>/<name>/SKILL.md and follow it; tell the owner the typed form /name",
+                "{{PROJ}}/.claude/skills: handoff, to-spec"],
+   "not_contains": "/wayfinder"
+  },
+  {
+   "name": "resume: the card comes back",
+   "expect": "allow",
+   "event": "SessionStart",
+   "payload": {"source": "resume"},
+   "contains": "[ai router: skill-card]"
+  },
+  {
+   "name": "clear: the card comes back",
+   "expect": "allow",
+   "event": "SessionStart",
+   "payload": {"source": "clear"},
+   "contains": "[ai router: skill-card]"
+  },
+  {
+   "name": "compact: the card comes back (Codex too)",
+   "expect": "allow",
+   "agent": "codex",
+   "event": "SessionStart",
+   "payload": {"source": "compact", "turn_id": "t1"},
+   "contains": "[ai router: skill-card]"
+  },
+  {
+   "name": "Codex: the .agents/skills copy comes first",
+   "expect": "allow",
+   "agent": "codex",
+   "event": "SessionStart",
+   "payload": {"source": "startup", "turn_id": "t1"},
+   "project": {"git": true, "files": {
+    ".claude/skills/retro/SKILL.md": "---\nname: retro\ndisable-model-invocation: true\n---\n",
+    ".agents/skills/retro/SKILL.md": "---\nname: retro\ndisable-model-invocation: true\n---\n"}},
+   "contains": "{{PROJ}}/.agents/skills: retro"
+  },
+  {
+   "name": "a Read of a SKILL.md is logged as skill use (proof for typed-only skills)",
+   "expect": "allow",
+   "event": "PostToolUse",
+   "payload": {"tool_name": "Read", "tool_input": {"file_path": "{{HOME}}/.claude/skills/to-tickets/SKILL.md"}},
+   "state_contains": {"fired.jsonl": "\"via\": \"read\", \"skill\": \"to-tickets\""}
+  },
+  {
+   "name": "Codex: cat of a SKILL.md is logged as skill use",
+   "expect": "allow",
+   "agent": "codex",
+   "event": "PostToolUse",
+   "payload": {"tool_name": "Bash", "turn_id": "t1",
+               "tool_input": {"command": "cat {{HOME}}/.agents/skills/wayfinder/SKILL.md"}},
+   "state_contains": {"fired.jsonl": "\"via\": \"read\", \"skill\": \"wayfinder\""}
+  },
+  {
+   "name": "a Read of another Markdown file is not skill use",
+   "expect": "allow",
+   "event": "PostToolUse",
+   "payload": {"tool_name": "Read", "tool_input": {"file_path": "{{PROJ}}/docs/SKILL-notes.md"}},
+   "state_not_contains": {"fired.jsonl": "\"via\": \"read\""}
+  },
+  {
+   "name": "an echo that names a SKILL.md is not skill use",
+   "expect": "allow",
+   "agent": "codex",
+   "event": "PostToolUse",
+   "payload": {"tool_name": "Bash", "turn_id": "t1",
+               "tool_input": {"command": "ls skills/retro/SKILL.md"}},
+   "state_not_contains": {"fired.jsonl": "\"via\": \"read\""}
+  }
+ ]
+}

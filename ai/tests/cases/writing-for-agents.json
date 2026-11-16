@@ -1,0 +1,115 @@
+{
+ "rule": "writing-for-agents",
+ "cases": [
+  {
+   "name": "Edit of AGENTS.md without the skill: deny",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/AGENTS.md", "old_string": "a", "new_string": "b"}},
+   "contains": ["[ai gate writing-for-agents]", "writing-for-agents"],
+   "state_contains": {"misses.jsonl": "\"rule\": \"writing-for-agents\""}
+  },
+  {
+   "name": "Write of a SKILL.md without the skill: deny",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Write", "tool_input": {"file_path": "{{PROJ}}/ai/skills/ship/SKILL.md", "content": "x"}}
+  },
+  {
+   "name": "MultiEdit of CLAUDE.local.md (relative path) without the skill: deny",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "MultiEdit", "tool_input": {"file_path": "CLAUDE.local.md", "edits": []}}
+  },
+  {
+   "name": "after a Skill call: allow",
+   "expect": "allow",
+   "steps": [
+    {"event": "PostToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "writing-for-agents"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/CLAUDE.md"}}}
+   ]
+  },
+  {
+   "name": "after a plugin-prefixed Skill call: allow",
+   "expect": "allow",
+   "steps": [
+    {"event": "PostToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "mattpocock:writing-for-agents"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/CLAUDE.md"}}}
+   ]
+  },
+  {
+   "name": "after a typed /writing-for-agents: allow",
+   "expect": "allow",
+   "steps": [
+    {"event": "UserPromptExpansion", "payload": {"command_name": "writing-for-agents"}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/AGENTS.md"}}}
+   ]
+  },
+  {
+   "name": "after a Read of its SKILL.md: allow",
+   "expect": "allow",
+   "steps": [
+    {"event": "PostToolUse", "payload": {"tool_name": "Read",
+                                         "tool_input": {"file_path": "{{HOME}}/.claude/skills/writing-for-agents/SKILL.md"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/AGENTS.md"}}}
+   ]
+  },
+  {
+   "name": "a proof from another session does not count",
+   "expect": "deny",
+   "steps": [
+    {"event": "PostToolUse", "payload": {"session_id": "other", "tool_name": "Skill",
+                                         "tool_input": {"skill": "writing-for-agents"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/AGENTS.md"}}}
+   ]
+  },
+  {
+   "name": "another skill does not count",
+   "expect": "deny",
+   "steps": [
+    {"event": "PostToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "tdd"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/AGENTS.md"}}}
+   ]
+  },
+  {
+   "name": "Edit of README.md: allow",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/README.md"}},
+   "state_not_contains": {"misses.jsonl": "writing-for-agents"}
+  },
+  {
+   "name": "Read of AGENTS.md: allow",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Read", "tool_input": {"file_path": "{{PROJ}}/AGENTS.md"}}
+  },
+  {
+   "name": "Codex apply_patch of CLAUDE.md without the skill: deny",
+   "expect": "deny",
+   "agent": "codex",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "apply_patch", "turn_id": "t1",
+               "tool_input": {"command": "*** Begin Patch\n*** Update File: docs/x.md\n@@\n-a\n+b\n*** Add File: CLAUDE.md\n+hi\n*** End Patch\n"}}
+  },
+  {
+   "name": "Codex apply_patch of code only: allow",
+   "expect": "allow",
+   "agent": "codex",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "apply_patch", "turn_id": "t1",
+               "tool_input": {"command": "*** Begin Patch\n*** Update File: src/app.py\n@@\n-a\n+b\n*** End Patch\n"}}
+  },
+  {
+   "name": "Codex: cat of its SKILL.md, then apply_patch of AGENTS.md: allow",
+   "expect": "allow",
+   "agent": "codex",
+   "steps": [
+    {"event": "PostToolUse", "payload": {"tool_name": "Bash", "turn_id": "t1",
+                                         "tool_input": {"command": "cat {{HOME}}/.agents/skills/writing-for-agents/SKILL.md"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "apply_patch", "turn_id": "t1",
+                                        "tool_input": {"command": "*** Begin Patch\n*** Update File: AGENTS.md\n@@\n-a\n+b\n*** End Patch\n"}}}
+   ]
+  }
+ ]
+}

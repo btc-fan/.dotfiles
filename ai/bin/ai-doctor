@@ -16,7 +16,8 @@ Checks: rendered routing up to date; AGENTS.md size (30 KB cap) and no em dash; 
 JSON; router smoke run; plugin installed in Claude/Codex; a usage contract (ai/rules/<tool>.md with
 the five sections and a verify command) for every MCP server of ai-core; copied rule blocks (Codex
 AGENTS.md, Hermes SOUL.md, Hermes plugin) equal the current ai/AGENTS.md (ai-sync --check); secrets.env mode 600;
-gate skips and misses of the last 7 days; setup checks (each catches a bug seen on a real server):
+gate skips and misses of the last 7 days; per-skill use and gated skill misses of the last 30 days (router logs
+only, never transcripts); setup checks (each catches a bug seen on a real server):
 Codex hook trust, Claude permissions, claude.ai connectors off on Linux, Grounded Docs service active,
 rule files per user, Hermes MCP state, OMC exa off, env switches for non-login processes, the
 secret-scan of commit messages, Claude hand-off readiness, the owner's drop and off lists (ai/pins.env: no caveman
@@ -331,12 +332,28 @@ def report_logs():
     print("\nlast 7 days: rules fired %s" % fmt(fired))
     print("last 7 days: skills used %s" % fmt(skills))
     print("last 7 days: misses %s" % fmt(misses))
-    skips = [ln for ln in read_lines(os.path.join(STATE, "gates.log")) if " SKIP " in ln]
+    report_skill_stats(time.time() - 30 * 86400)
+    skips =[ln for ln in read_lines(os.path.join(STATE, "gates.log")) if " SKIP " in ln]
     if skips:
         say("WARN", "%d gate skip(s) logged (last: %s)" % (len(skips), skips[-1][:120]))
     errors = read_lines(os.path.join(STATE, "router-errors.log"))
     if errors:
         say("WARN", "%d router error(s) logged (last: %s)" % (len(errors), errors[-1][:120]))
+
+
+def report_skill_stats(since):
+    """Per-skill use and the misses of gated skills (require_skill rules). Router logs only, never transcripts."""
+    used = {}
+    for name, n in count_jsonl(os.path.join(STATE, "fired.jsonl"), "skill", since).items():
+        short = name.split(":")[-1]         # ai-core:ship and a read of ship/SKILL.md are the same skill
+        used[short] = used.get(short, 0) + n
+    print("last 30 days: skills used %s" % fmt(used))
+    rules = (load_json_file(os.environ.get("AI_ROUTING_JSON") or os.path.join(AI_DIR, "build", "routing.json"))
+             or {}).get("rules") or []
+    gated = {r["id"]: r["require_skill"] for r in rules if r.get("require_skill")}
+    misses = count_jsonl(os.path.join(STATE, "misses.jsonl"), "rule", since)
+    print("last 30 days: gated skill misses %s" % fmt({"%s (%s)" % (rid, gated[rid]): n
+                                                      for rid, n in misses.items() if rid in gated}))
 
 
 def check_validate():

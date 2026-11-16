@@ -5,8 +5,9 @@ Run: bash ai/tests/run.sh   (or python3 ai/tests/test_router.py [-k <name part>]
 
 Each ai/tests/cases/<rule>.json holds {"rule": id, "cases": [...]}. A case:
   name     text
-  expect   fire | nofire | log | deny | ask | allow | miss | nomiss
-           (fire/nofire/log: did the rule fire in the LAST step; deny/ask/allow: the gate decision)
+  expect   fire | nofire | log | deny | ask | allow | block | miss | nomiss
+           (fire/nofire/log: did the rule fire in the LAST step; deny/ask/allow: the gate decision;
+           block: a Stop hook block in the last step)
   steps    [{event, payload, transcript_append: [json rows]}]  (or one "event" + "payload")
   agent    claude (default) | codex
   project  {git: true, git_init: true, files: {rel: text}, stage: {rel: text}, commit: "<message>",
@@ -48,7 +49,7 @@ FAKE = {
     "{{HF_TOKEN}}": "hf" + "_" + "kQ" * 17,
     "{{DBURL}}": "postgres://app:" + "Hunter2" * 2 + "@db:5432/x",
 }
-FIRE_KINDS = {"fire", "log", "deny", "ask", "miss"}
+FIRE_KINDS = {"fire", "log", "deny", "ask", "miss", "block"}
 QUIET_KINDS = {"nofire", "allow", "nomiss"}
 
 
@@ -234,7 +235,7 @@ def judge(case, rule_id, agent, out, code, state, fired_before, misses_before):
         return "expected no fire; output: %s" % short(out)
     if expect == "log" and not (new_rows and new_rows[0].get("log_only") and not mentions(out, rule_id)):
         return "expected a log-only row and no context; output: %s" % short(out)
-    if expect in ("deny", "ask", "allow"):
+    if expect in ("deny", "ask", "allow", "block"):
         want = None if expect == "allow" else expect
         if decision != want:
             return "expected %s, got %s; output: %s" % (expect, decision or "allow", short(out))
@@ -263,6 +264,8 @@ def decision_of(out, code, agent):
             data = json.loads(line)
         except ValueError:
             continue
+        if data.get("decision") == "block" and "hookSpecificOutput" not in data:
+            return "block"          # a Stop hook block (Claude and Codex)
         if agent == "codex" and data.get("decision") == "block":
             return "deny"
         d = data.get("hookSpecificOutput", {}).get("permissionDecision")

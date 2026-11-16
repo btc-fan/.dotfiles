@@ -63,7 +63,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|Skill|mcp__.*(context7|docs).*",
+        "matcher": "Bash|Read|Edit|Write|MultiEdit|NotebookEdit|Skill|mcp__.*(context7|docs).*",
         "hooks": [
           {
             "type": "command",

@@ -1,7 +1,10 @@
 # Routing table: the only source of truth for "which tool, when".
 # The router hook reads it on every prompt, before/after tool calls, and at session start.
 # Matching is deterministic (regex, globs, project state). No LLM, no network.
-# strength: nudge = inject the action as context; gate = block the step until the condition is met.
+# strength: nudge = inject the action as context; gate = block the step until the condition is met;
+# stop = a Stop hook block (once per session per rule) when the prompt matched and the skill was not used.
+# require_skill: <name> = the rule passes only with a proof in this session: a Skill call, a typed /name or a
+# read of that skill's SKILL.md (gate and stop rules; the name must be in skills.must_use).
 # scope: global = every project; opt-in = only when the project enabled the tool (ai-adopt --tools <id>).
 # The opt-in rows are also the catalog of opt-in tools that ai-adopt offers.
 version: 4
@@ -142,6 +145,31 @@ rules:
     summary: 'git commit or push with --no-verify (or commit -n)'
     trigger: {tool_before: 'Bash|shell|exec_command|local_shell', command: '\bgit\b.*(--no-verify|\s-\w*n)'}
     action: "Never skip the git hooks: fix what the pre-commit check reports, then commit again."
+    strength: gate
+
+  # ---------- skill gates (require_skill: proof = a Skill call, a typed /name or a read of its SKILL.md) ----------
+  - id: writing-for-agents
+    scope: global
+    summary: 'before an edit of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md'
+    trigger: {tool_before: 'Edit|Write|MultiEdit|apply_patch', paths: '**/AGENTS.md|**/CLAUDE.md|**/CLAUDE.local.md|**/SKILL.md'}
+    require_skill: writing-for-agents
+    action: "Agent docs: load the writing-for-agents skill first (Skill tool, or read its SKILL.md), then edit."
+    strength: gate
+
+  - id: diagnosing-bugs
+    scope: global
+    summary: 'bug or performance prompt (slow, perf, broken, debug, crash, regression; RO, RU)'
+    trigger: {prompt: '\b(slow(er|ly|ness|s|ed|ing)?|performance|perf|broken|debug(s|ged|ging)?|crash(es|ed|ing)?|regressions?)\b|\b(lent[aăe]?|performan[tț][aăe]|stricat[aăe]?|s-a stricat|nu (mai )?merge|depaneaz[aă]|crap[aă]|se blocheaz[aă]|regresie)\b|(?<!\w)(медленн|тормоз|производительн|слома|отлад|дебаг|пада|упал|краш|регресси)\w*|(?<!\w)не работает'}
+    require_skill: diagnosing-bugs
+    action: "Bug or performance work: use the diagnosing-bugs skill (Skill tool) and follow its loop before you end the turn."
+    strength: stop
+
+  - id: ship
+    scope: global
+    summary: 'before gh pr ready'
+    trigger: {tool_before: 'Bash|shell|exec_command|local_shell', command: '\bgh\s+pr\s+ready\b(?!.*--undo)'}
+    require_skill: ship
+    action: "Run the ship skill first (checks, review, Evidence), then gh pr ready."
     strength: gate
 
   - id: ledger-nudge
@@ -301,3 +329,14 @@ tiebreaks:
   - {trigger: 'new app or project (kickoff)', winner: 'grilling (grill-with-docs where the project links it; typed: /grill-me)', loser: 'OMC deep-interview (fallback)', match: '\bnew (app|project)\b|\bkick ?off\b'}
   - {trigger: 'deep interview, ambiguity score', winner: 'OMC deep-interview', loser: 'matt grilling', match: '\bdeep interview\b|\bambiguity score\b'}
   - {trigger: 'library API docs', winner: 'context7 with the Libraries ID', loser: 'web search', match: '\b(api docs|library docs|docs for)\b'}
+
+# ---------- skill card (SessionStart: startup, resume, clear, compact; under 1500 characters) ----------
+# must_use: the skills the agent must use, one trigger line each. typed_only: skills with
+# disable-model-invocation (no Skill tool call); the card gives the SKILL.md path to read and follow.
+skills:
+  must_use:
+    - {name: writing-for-agents, when: 'before an edit of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md'}
+    - {name: diagnosing-bugs, when: 'a bug, crash, slow or performance prompt, before the turn ends'}
+    - {name: ship, when: 'the branch is done, before gh pr ready'}
+  typed_only: [grill-with-docs, to-spec, to-tickets, implement, handoff, wayfinder, improve-codebase-architecture,
+               retro, create-verification-skill, maintain-verification-skill]
