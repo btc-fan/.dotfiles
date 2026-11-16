@@ -1,0 +1,133 @@
+{
+ "rule": "merge-approval",
+ "cases": [
+  {
+   "name": "gh pr merge without the owner's OK",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "gh pr merge 12 --squash --delete-branch"}},
+   "project": {"git": true},
+   "contains": "needs the owner's OK"
+  },
+  {
+   "name": "owner said merge it: allowed",
+   "expect": "allow",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "looks good, merge it"}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "gh pr merge 12 --squash"}}}
+   ],
+   "project": {"git": true}
+  },
+  {
+   "name": "owner approved in Romanian",
+   "expect": "allow",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "aprob, fa merge"}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "rtk gh pr merge 3"}}}
+   ],
+   "project": {"git": true}
+  },
+  {
+   "name": "a later prompt without the OK clears it",
+   "expect": "deny",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "merge it"}},
+    {"event": "UserPromptSubmit", "payload": {"prompt": "also fix the footer color"}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "gh pr merge 12"}}}
+   ],
+   "project": {"git": true}
+  },
+  {
+   "name": "negation: do not merge yet",
+   "expect": "deny",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "do not merge yet, wait for the review"}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "gh pr merge 12"}}}
+   ],
+   "project": {"git": true}
+  },
+  {
+   "name": "question is not an OK",
+   "expect": "deny",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "is it approved?"}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "gh pr merge 12"}}}
+   ],
+   "project": {"git": true}
+  },
+  {
+   "name": "bypass: merge through gh api",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "gh api -X PUT repos/o/r/pulls/12/merge"}},
+   "project": {"git": true}
+  },
+  {
+   "name": "bypass: push the feature to main",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "git push origin feature-x:main"}},
+   "project": {"git": true}
+  },
+  {
+   "name": "bypass: push main inside bash -c",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "bash -c 'git push origin main'"}},
+   "project": {"git": true}
+  },
+  {
+   "name": "bypass: push --all",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "git push --all origin"}},
+   "project": {"git": true}
+  },
+  {
+   "name": "bare push while main is checked out",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "git push"}},
+   "project": {"git_init": true, "files": {"a.py": "x = 1\n"}, "commit": "init"}
+  },
+  {
+   "name": "push of a feature branch is fine",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "git push -u origin csv-export"}},
+   "project": {"git": true}
+  },
+  {
+   "name": "merge word in a commit message is text",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "git commit -m 'gh pr merge later'"}},
+   "project": {"git": true}
+  },
+  {
+   "name": "gh pr view is read-only",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "gh pr view 12 --json mergeable"}},
+   "project": {"git": true}
+  },
+  {
+   "name": "codex: denied with block",
+   "agent": "codex",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "turn_id": "t1", "tool_input": {"command": "gh pr merge 5"}},
+   "project": {"git": true}
+  },
+  {
+   "name": "codex: owner OK works",
+   "agent": "codex",
+   "expect": "allow",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "approved, merge", "turn_id": "t1"}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Bash", "turn_id": "t2", "tool_input": {"command": "gh pr merge 5"}}}
+   ],
+   "project": {"git": true}
+  }
+ ]
+}

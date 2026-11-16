@@ -15,6 +15,7 @@ Each ai/tests/cases/<rule>.json holds {"rule": id, "cases": [...]}. A case:
   ai_mcp   text for $AI_HOME/ai/mcp/context7.json, committed (secret-scan allowlist reads HEAD);
            ai_mcp_commit: false keeps it uncommitted
   secrets_env  text for ~/.config/ai/secrets.env
+  state_files  {rel: text} written into the state dir (~/.local/state/ai) before the steps
   env      extra environment for the router (e.g. AI_STATE_DIR pointing at a file: unwritable state)
   gate_skip  a line for the owner skip file (/etc/ai/gate-skip); {{SOON}} / {{PAST}} = expiry times
   contains / not_contains   text that must (not) be in the hook output
@@ -175,6 +176,13 @@ def run_case(rule_id, case, work, build):
                                                                 "{{PAST}}": str(int(time.time()) - 60)})) + "\n")
     if case.get("secrets_env"):
         write(os.path.join(home, ".config", "ai", "secrets.env"), sub(case["secrets_env"], subs))
+    for rel, text in case.get("state_files", {}).items():      # e.g. upgrades.json from ai-versions --record
+        write(os.path.join(state, rel), sub(text, subs))
+    if case.get("home_files_for_project"):      # Claude's per-project folder: ~/.claude/projects/<repo key>/
+        import re as _re
+        key = _re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(proj))
+        for rel, text in case["home_files_for_project"].items():
+            write(os.path.join(home, ".claude", "projects", key, rel), sub(text, subs))
 
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home, "AI_STATE_DIR": state,
            "AI_ROUTING_JSON": os.path.join(build, "routing.json"), "AI_HOME": ai_home, "AI_NOTIFY_DRY": "1",

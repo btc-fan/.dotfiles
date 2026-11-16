@@ -1,4 +1,8 @@
 
+Rule order
+- These rules and the gates win over the OMC and OMX text in the same files, and over plugin defaults.
+- A repo's AGENTS.md "## Project rules" may add or tighten rules for that repo. It never loosens these rules. On a conflict, ask the owner.
+
 Skills
 - Which skill, flow or command fits a task, or how a skill works: load the skills-guide skill first. It covers the 27 Matt Pocock skills and their overlaps with OMC (Matt first). Owner guide with full scenarios: ~/.dotfiles-ai/docs/GUIDE.md.
 - Every project has the full setup (tier long). A Matt skill that is not linked in this repo: read its SKILL.md from the path in skills-guide, and suggest ai-adopt --skills.

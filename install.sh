@@ -384,6 +384,11 @@ do_verify() {
     for t in claude codex opencode omc serena graphify rtk herdr gh; do
         if has "$t"; then info "$t: $("$t" --version 2>/dev/null | head -n1)"; fi
     done
+    # Version changes since the last install go into ~/.local/state/ai/upgrades.json: the next session start asks
+    # for the upgrade-review skill (release notes -> what breaks, what to use -> a dotfiles PR).
+    if [ -x "$AI_HOME/ai/bin/ai-versions" ]; then
+        "$AI_HOME/ai/bin/ai-versions" --record || warn "ai-versions --record failed (no upgrade-review note)"
+    fi
     return 0
 }
 

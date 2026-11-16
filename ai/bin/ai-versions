@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+"""ai-versions: the installed versions of the AI tools, and the upgrade list for the upgrade-review skill.
+
+Usage:
+  ai-versions            print the versions (JSON)
+  ai-versions --record   compare with ~/.local/state/ai/versions.json; each changed tool goes into
+                         ~/.local/state/ai/upgrades.json "pending" (old, new, ts); then save the new versions.
+                         install.sh runs this at the end. The first run only records (no pending rows).
+
+The session start (routing rule upgrade-review) reads upgrades.json and asks for the upgrade-review skill
+while "pending" has rows. The skill clears the rows it reviewed. Python stdlib only; each probe has a timeout.
+"""
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+STATE = os.environ.get("AI_STATE_DIR") or os.path.expanduser("~/.local/state/ai")
+HOME = os.path.expanduser("~")
+
+COMMANDS = {
+    "claude-code": ["claude", "--version"],
+    "codex": ["codex", "--version"],
+    "graphify": ["graphify", "--version"],
+    "serena": ["serena", "--version"],
+    "rtk": ["rtk", "--version"],
+}
+PLUGINS = ("oh-my-claudecode", "ui-ux-pro-max", "claude-seo", "claude-blog", "ponytail")
+VERSION_RX = re.compile(r"\d+\.\d+(\.\d+)?([.-][0-9A-Za-z.]+)?")
+
+
+def main(argv):
+    found = collect()
+    if "--record" not in argv:
+        print(json.dumps(found, indent=1, sort_keys=True))
+        return 0
+    changed = record(found)
+    for row in changed:
+        print("ai-versions: %s %s -> %s (upgrade-review pending)" % (row["tool"], row["old"], row["new"]))
+    return 0
+
+
+def collect():
+    out = {}
+    for tool, cmd in COMMANDS.items():
+        v = command_version(cmd)
+        if v:
+            out[tool] = v
+    for name in PLUGINS:
+        v = plugin_version(name)
+        if v:
+            out[name] = v
+    commit = read(os.path.join(HOME, ".local/share/ai/plugins/mattpocock-skills/.commit")).strip()
+    if commit:
+        out["mattpocock-skills"] = commit[:12]
+    omx = npm_global_version("oh-my-codex")
+    if omx:
+        out["oh-my-codex"] = omx
+    return out
+
+
+def record(found):
+    vpath, upath = os.path.join(STATE, "versions.json"), os.path.join(STATE, "upgrades.json")
+    old = load(vpath)
+    changed = []
+    if old:
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        for tool, new in sorted(found.items()):
+            if old.get(tool) and old[tool] != new:
+                changed.append({"tool": tool, "old": old[tool], "new": new, "ts": now})
+    if changed:
+        ups = load(upath) or {}
+        pending = [p for p in ups.get("pending", []) if p.get("tool") not in {c["tool"] for c in changed}]
+        merged = []
+        for c in changed:      # keep the oldest "old" when a tool moved twice before the review
+            prev = next((p for p in ups.get("pending", []) if p.get("tool") == c["tool"]), None)
+            merged.append(dict(c, old=prev["old"]) if prev else c)
+        ups["pending"] = pending + merged
+        save(upath, ups)
+    save(vpath, dict(old or {}, **found))
+    return changed
+
+
+# ---------------------------------------------------------------- probes
+
+def command_version(cmd):
+    try:
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    m = VERSION_RX.search(res.stdout.decode("utf-8", "replace"))
+    return m.group(0) if m and res.returncode == 0 else ""
+
+
+def plugin_version(name):
+    """Newest version folder of a Claude plugin in the plugin cache (<marketplace>/<name>/<version>/)."""
+    dirs = [d for d in glob.glob(os.path.join(HOME, ".claude/plugins/cache/*", name, "*")) if os.path.isdir(d)]
+    if not dirs:
+        return ""
+    newest = max(dirs, key=os.path.getmtime)
+    return os.path.basename(newest)
+
+
+def npm_global_version(pkg):
+    try:
+        root = subprocess.run(["npm", "root", "-g"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                              timeout=15).stdout.decode().strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    try:
+        return str(json.loads(read(os.path.join(root, pkg, "package.json")) or "{}").get("version") or "")
+    except ValueError:
+        return ""
+
+
+# ---------------------------------------------------------------- files
+
+def read(path):
+    try:
+        with open(path) as fh:
+            return fh.read()
+    except OSError:
+        return ""
+
+
+def load(path):
+    try:
+        return json.loads(read(path) or "null")
+    except ValueError:
+        return None
+
+
+def save(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(data, fh, indent=1, sort_keys=True)
+        fh.write("\n")
+    os.replace(tmp, path)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

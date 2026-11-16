@@ -44,15 +44,18 @@ DRY RUN: commands are printed, nothing is changed.
   [dry-run] link    ~/.local/bin/agent-audit -> $REPO/ai/bin/agent-audit
   [dry-run] link    ~/.local/bin/ai-adopt -> $REPO/ai/bin/ai-adopt
   [dry-run] link    ~/.local/bin/ai-check-detect -> $REPO/ai/bin/ai-check-detect
+  [dry-run] link    ~/.local/bin/ai-docs-check -> $REPO/ai/bin/ai-docs-check
   [dry-run] link    ~/.local/bin/ai-doctor -> $REPO/ai/bin/ai-doctor
   [dry-run] link    ~/.local/bin/ai-info -> $REPO/ai/bin/ai-info
   [dry-run] link    ~/.local/bin/ai-ledger -> $REPO/ai/bin/ai-ledger
   [dry-run] link    ~/.local/bin/ai-libs -> $REPO/ai/bin/ai-libs
   [dry-run] link    ~/.local/bin/ai-playwright-mcp -> $REPO/ai/bin/ai-playwright-mcp
+  [dry-run] link    ~/.local/bin/ai-precommit -> $REPO/ai/bin/ai-precommit
   [dry-run] link    ~/.local/bin/ai-ratchet -> $REPO/ai/bin/ai-ratchet
   [dry-run] link    ~/.local/bin/ai-render -> $REPO/ai/bin/ai-render
   [dry-run] link    ~/.local/bin/ai-start -> $REPO/ai/bin/ai-start
   [dry-run] link    ~/.local/bin/ai-sync -> $REPO/ai/bin/ai-sync
+  [dry-run] link    ~/.local/bin/ai-versions -> $REPO/ai/bin/ai-versions
   [dry-run] link    ~/.local/bin/claude-notify -> $REPO/ai/bin/claude-notify
   [dry-run] link    ~/.local/bin/pr-resume -> $REPO/ai/bin/pr-resume
   no ~/.dotfiles base checkout: claude-notify link skipped (plugin hooks still work)
@@ -188,12 +191,20 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
 [8/13] skills
   [dry-run] link    ~/.claude/skills/create-verification-skill -> $REPO/ai/skills/create-verification-skill
   [dry-run] link    ~/.claude/skills/maintain-verification-skill -> $REPO/ai/skills/maintain-verification-skill
+  [dry-run] link    ~/.claude/skills/promote-skill -> $REPO/ai/skills/promote-skill
+  [dry-run] link    ~/.claude/skills/release -> $REPO/ai/skills/release
+  [dry-run] link    ~/.claude/skills/ship -> $REPO/ai/skills/ship
   [dry-run] link    ~/.claude/skills/skills-guide -> $REPO/ai/skills/skills-guide
+  [dry-run] link    ~/.claude/skills/upgrade-review -> $REPO/ai/skills/upgrade-review
   planned: Claude: shared skills and the 5 mattpocock skills linked into ~/.claude/skills
   [dry-run] link    ~/.agents/skills/create-verification-skill -> $REPO/ai/skills/create-verification-skill
   [dry-run] link    ~/.agents/skills/maintain-verification-skill -> $REPO/ai/skills/maintain-verification-skill
+  [dry-run] link    ~/.agents/skills/promote-skill -> $REPO/ai/skills/promote-skill
   [dry-run] link    ~/.agents/skills/prompting-claude-and-codex -> $REPO/ai/skills/prompting-claude-and-codex
+  [dry-run] link    ~/.agents/skills/release -> $REPO/ai/skills/release
+  [dry-run] link    ~/.agents/skills/ship -> $REPO/ai/skills/ship
   [dry-run] link    ~/.agents/skills/skills-guide -> $REPO/ai/skills/skills-guide
+  [dry-run] link    ~/.agents/skills/upgrade-review -> $REPO/ai/skills/upgrade-review
   planned: Codex/opencode: shared skills and the 5 mattpocock skills linked into ~/.agents/skills
 
 [9/13] hooks (plugin owns them; vendor hooks: RTK, herdr, graphify)
@@ -268,7 +279,8 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
   [dry-run] set     ~/.config/claude-omc/config.jsonc security/disableAutoUpdate = true
   [dry-run] set     ~/.config/claude-omc/config.jsonc mcpServers/exa/enabled = false
   [dry-run] set     ~/.config/ponytail/config.json defaultMode = "full"
-  planned: Claude add-ons: OMC auto-update off, Ponytail defaultMode full
+  [dry-run] set     ~/.claude/settings.json autoMemoryEnabled = false
+  planned: Claude add-ons: OMC auto-update off, Ponytail defaultMode full, auto memory off
 
 [12/13] git hooks: ai-sync after each pull
   [dry-run] $REPO/ai/bin/ai-sync --install-hook $REPO
@@ -316,7 +328,7 @@ done (35)
   - (planned) Claude: env switches in ~/.claude/settings.json (merge): hooks, MCP servers and -p runs see them
   - (planned) Claude permissions merged into ~/.claude/settings.json: allow read-only tools, ask graphify install/hook, deny rule/config edits and secrets.env
   - (planned) Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches, GIT_GUARD_AGENT and git fsmonitor off in shell_environment_policy.set
-  - (planned) Claude add-ons: OMC auto-update off, Ponytail defaultMode full
+  - (planned) Claude add-ons: OMC auto-update off, Ponytail defaultMode full, auto memory off
   - (planned) git hooks post-merge + post-rewrite run ai-sync after a pull
 
 skipped (1)

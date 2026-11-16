@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""ai-precommit: lint and format check on the staged files (the git pre-commit hook that ai-adopt installs).
+
+Usage: ai-precommit [--dir PATH]     exit 1 when a linter or formatter reports a staged file
+
+It checks only staged files, with the tools the repo already has (nothing is installed, no network):
+  Python        ruff check, ruff format --check   (.venv/bin/ruff, else ruff on PATH)
+  JS, TS, Vue   eslint, prettier --check          (node_modules/.bin only)
+  CSS, SCSS     prettier --check                  (node_modules/.bin only)
+  Go            gofmt -l
+  Rust          rustfmt --check
+  Swift         swiftformat --lint, swiftlint     (when installed)
+  Kotlin        ktlint                            (when installed)
+  Dart          dart format --set-exit-if-changed
+  Shell         shellcheck                        (when installed)
+A tool that is not there is skipped and named once. It never changes a file: the message says how to fix.
+Agents never skip it (git commit --no-verify is blocked for agents by the no-verify gate).
+"""
+import os
+import shutil
+import subprocess
+import sys
+
+GROUPS = [
+    # (extensions, [(label, argv builder, fix hint)])
+    ((".py", ".pyi"), "python"),
+    ((".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue", ".svelte"), "js"),
+    ((".css", ".scss"), "css"),
+    ((".go",), "go"),
+    ((".rs",), "rust"),
+    ((".swift",), "swift"),
+    ((".kt", ".kts"), "kotlin"),
+    ((".dart",), "dart"),
+    ((".sh", ".bash"), "shell"),
+]
+TIMEOUT = 180
+
+
+def main(argv):
+    root = os.path.abspath(argv[argv.index("--dir") + 1] if "--dir" in argv else repo_root())
+    files = staged(root)
+    if not files:
+        return 0
+    failed, skipped = [], []
+    for exts, kind in GROUPS:
+        group = [f for f in files if f.lower().endswith(exts)]
+        if not group:
+            continue
+        for label, argv_, hint in checks(root, kind, group):
+            if argv_ is None:
+                skipped.append(label)
+                continue
+            if not run(root, label, argv_):
+                failed.append("%s (fix: %s)" % (label, hint))
+    if skipped:
+        print("ai-precommit: not installed here, skipped: %s" % ", ".join(sorted(set(skipped))))
+    if failed:
+        print("ai-precommit: blocked the commit: %s. Fix the files, git add them, commit again." % "; ".join(failed))
+        return 1
+    return 0
+
+
+def checks(root, kind, files):
+    if kind == "python":
+        ruff = first(os.path.join(root, ".venv", "bin", "ruff"), shutil.which("ruff"))
+        return [("ruff check", ruff and [ruff, "check", "--quiet"] + files, "ruff check --fix <file>"),
+                ("ruff format", ruff and [ruff, "format", "--check", "--quiet"] + files, "ruff format <file>")]
+    bin_ = os.path.join(root, "node_modules", ".bin")
+    if kind == "js":
+        eslint, prettier = local(bin_, "eslint"), local(bin_, "prettier")
+        return [("eslint", eslint and [eslint, "--no-warn-ignored"] + files, "eslint --fix <file>"),
+                ("prettier", prettier and [prettier, "--check", "--log-level", "warn"] + files, "prettier --write <file>")]
+    if kind == "css":
+        prettier = local(bin_, "prettier")
+        return [("prettier", prettier and [prettier, "--check", "--log-level", "warn"] + files, "prettier --write <file>")]
+    if kind == "go":
+        gofmt = shutil.which("gofmt")
+        return [("gofmt", gofmt and [gofmt, "-l"] + files, "gofmt -w <file>")]
+    if kind == "rust":
+        rustfmt = shutil.which("rustfmt")
+        return [("rustfmt", rustfmt and [rustfmt, "--check", "--edition", "2021"] + files, "rustfmt <file>")]
+    if kind == "swift":
+        sf, sl = shutil.which("swiftformat"), shutil.which("swiftlint")
+        return [("swiftformat", sf and [sf, "--lint", "--quiet"] + files, "swiftformat <file>"),
+                ("swiftlint", sl and [sl, "lint", "--quiet", "--strict"] + files, "swiftlint --fix <file>")]
+    if kind == "kotlin":
+        kt = shutil.which("ktlint")
+        return [("ktlint", kt and [kt] + files, "ktlint -F <file>")]
+    if kind == "dart":
+        dart = shutil.which("dart")
+        return [("dart format", dart and [dart, "format", "--output=none", "--set-exit-if-changed"] + files,
+                 "dart format <file>")]
+    if kind == "shell":
+        sc = shutil.which("shellcheck")
+        return [("shellcheck", sc and [sc] + files, "the shellcheck message")]
+    return []
+
+
+def run(root, label, argv):
+    try:
+        res = subprocess.run(argv, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as exc:
+        print("ai-precommit: %s did not run (%s): skipped" % (label, exc))
+        return True
+    out = res.stdout.decode("utf-8", "replace").strip()
+    bad = res.returncode != 0 or (label == "gofmt" and out)
+    if bad and out:
+        print("\n".join(out.splitlines()[:40]))
+    return not bad
+
+
+def staged(root):
+    try:
+        res = subprocess.run(["git", "-C", root, "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [f for f in res.stdout.decode("utf-8", "replace").split("\0")
+            if f and os.path.isfile(os.path.join(root, f))]
+
+
+def repo_root():
+    try:
+        out = subprocess.run(["git", "rev-parse", "--show-toplevel"], stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, timeout=10).stdout.decode().strip()
+    except (OSError, subprocess.SubprocessError):
+        out = ""
+    return out or "."
+
+
+def first(*paths):
+    for p in paths:
+        if p and os.path.isfile(p) and os.access(p, os.X_OK):
+            return p
+    return None
+
+
+def local(bin_dir, name):
+    return first(os.path.join(bin_dir, name))
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

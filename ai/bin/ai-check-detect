@@ -43,6 +43,8 @@ RATCHET_LINE = ('@if command -v ai-ratchet >/dev/null 2>&1; then ai-ratchet; '
                 'else echo "ai-ratchet not on PATH: ratchet skipped"; fi')
 LEDGER_LINE = ('@if command -v ai-ledger >/dev/null 2>&1; then ai-ledger --check; '
                'else echo "ai-ledger not on PATH: ledger check skipped"; fi')
+DOCS_LINE = ('@if command -v ai-docs-check >/dev/null 2>&1; then ai-docs-check; '
+             'else echo "ai-docs-check not on PATH: Markdown placement check skipped"; fi')
 
 
 def main(argv):
@@ -294,7 +296,7 @@ def plan(root, info, tier):
     kept = [t for t in ("check-fast", "check") if t in have]
     full = list(info["full"])
     if tier == "long":
-        full += [LEDGER_LINE, RATCHET_LINE]
+        full += [LEDGER_LINE, RATCHET_LINE, DOCS_LINE]
     want = [t for t in ("check-fast", "check") if t not in have]
     text = None
     if want:

@@ -1206,6 +1206,110 @@ def probe_pr(stages, cmd=""):
     return any(st.exe == "gh" and st.args[:1] == ["pr"] and st.args[1:2] in (["create"], ["edit"]) for st in stages)
 
 
+# ---------------------------------------------------------------- merge-approval (owner 2026-11-16)
+# Every PR goes through the owner. The agent merges only after the owner's latest prompt says so ("merge",
+# "merge it", "approve", "lgtm", RO "aprob", RU "мержи"). The router stores that word per session at
+# UserPromptSubmit (merge_ok); a later prompt without it clears it. A push to main or master skips the PR, so
+# it needs the same OK. The owner merges on GitHub at any time; this gate only stops the agent.
+
+MERGE_OK_RX = re.compile(
+    r"^\W*(merge|approved?|lgtm|ship it)\W*$"
+    r"|\bmerge\s+(it|this|them|that|the\s+prs?|prs?\b|pr\s*#?\d+|#\d+|now|please|all)\b"
+    r"|\b(please|go\s+ahead\s+and|go\s+ahead,?|you\s+can|ok(ay)?,?|yes,?|now)\s+merge\b"
+    r"|\b(approved?|lgtm|ship\s+it)\b"
+    r"|\baprob\w*|\bmergeaz[aă]\b|\bf[aă] merge\b"
+    r"|(?<!\w)(смерж\w*|мерж\w*|одобр\w*|сливай)",
+    re.I)
+NO_MERGE_RX = re.compile(
+    r"\b(don'?t|do\s+not|never|not\s+yet|no|without|before|stop|wait|nu|не)\b\W+(\w+\W+){0,3}?"
+    r"(merge|approv|aprob|мерж|смерж|одобр|слив)", re.I)
+
+
+def owner_merge_ok(prompt):
+    """True when the owner's prompt gives the OK to merge. A question ("is it approved?") or a negation
+    ("don't merge yet") is not an OK."""
+    text = (prompt or "").strip()
+    if not text or NO_MERGE_RX.search(text) or not MERGE_OK_RX.search(text):
+        return False
+    if text.endswith("?") and not re.search(r"\bmerge\s+(it|this|them|now)\b", text, re.I):
+        return False
+    return True
+
+
+def merge_calls(stages, cwd):
+    """What in this command merges into, or pushes to, main/master: ["gh pr merge", ...]."""
+    out = []
+    for st in stages:
+        if st.exe == "gh" and st.args[:2] == ["pr", "merge"]:
+            out.append("gh pr merge")
+        elif st.exe == "gh" and st.args[:1] == ["api"] and any(re.search(r"/pulls/\d+/merge\b", a)
+                                                               for a in st.args):
+            out.append("gh api .../pulls/N/merge")
+        elif st.exe == "git":
+            sub, rest, d = git_sub(st, cwd)
+            if sub == "push" and push_targets_main(rest, d):
+                out.append("git push to main/master")
+    return out
+
+
+MAIN_BRANCHES = ("main", "master")
+
+
+def push_targets_main(rest, d):
+    """A git push (args after `push`) that writes main or master: a refspec naming it, --all/--mirror, or a bare
+    push while main or master is checked out."""
+    if any(a in ("--all", "--mirror") for a in rest):
+        return True
+    pos = [a for a in rest if not a.startswith("-")]
+    refspecs = pos[1:]
+    if not refspecs:
+        return current_branch(d) in MAIN_BRANCHES
+    for spec in refspecs:
+        dst = spec.lstrip("+").split(":")[-1]
+        if dst.replace("refs/heads/", "") in MAIN_BRANCHES:
+            return True
+        if dst == "HEAD" and current_branch(d) in MAIN_BRANCHES:
+            return True
+    return False
+
+
+def gate_merge(ctx, cmd, stages):
+    calls = merge_calls(stages, ctx.cwd or ".")
+    if not calls:
+        return None
+    if ctx.state.load().get("merge_ok"):
+        return None
+    return ("deny", "%s needs the owner's OK. Every PR goes through the owner: run the ship skill, then ask the "
+            "owner. Merge only after the owner's latest message says merge (or approve). A push to main or master "
+            "skips the PR: push the feature branch and open a PR instead." % ", ".join(calls))
+
+
+def gate_no_verify(ctx, cmd, stages):
+    """git commit --no-verify / -n and git push --no-verify skip the pre-commit check (lint, format) and the
+    hooks: agents never skip them."""
+    for st in stages:
+        if st.exe != "git":
+            continue
+        sub, rest, _d = git_sub(st, ctx.cwd or ".")
+        if sub not in ("commit", "push"):
+            continue
+        if "--no-verify" in rest or (sub == "commit" and "n" in short_flags(rest)):
+            return ("deny", "git %s --no-verify skips the pre-commit check (lint and format on staged files). Fix "
+                    "what the hook reports, git add the files, and commit again without --no-verify." % sub)
+    return None
+
+
+def probe_no_verify(stages, cmd=""):
+    return any(st.exe == "git" and ("--no-verify" in st.args or any(a.startswith("-") and not a.startswith("--")
+                                                                    and "n" in a for a in st.args))
+               for st in stages)
+
+
+def probe_merge(stages, cmd=""):
+    return any((st.exe == "gh" and (st.args[:2] == ["pr", "merge"] or st.args[:1] == ["api"]))
+               or (st.exe == "git" and "push" in st.args) for st in stages)
+
+
 # ---------------------------------------------------------------- no-sudo
 
 ROOT_TOOLS = {"sudo", "doas", "pkexec", "sudoedit", "su", "run0"}
@@ -1701,9 +1805,10 @@ def repo_cmd_rule(st, prefixes):
 
 
 GATES = {"audit-before-install": gate_audit, "secret-scan": gate_secrets, "pr-rules": gate_pr, "no-sudo": gate_sudo,
-         "no-destroy": gate_destroy}
+         "no-destroy": gate_destroy, "merge-approval": gate_merge, "no-verify": gate_no_verify}
 GATE_PROBES = {"audit-before-install": probe_audit, "secret-scan": probe_secrets, "pr-rules": probe_pr,
-               "no-sudo": probe_sudo, "no-destroy": probe_destroy}
+               "no-sudo": probe_sudo, "no-destroy": probe_destroy, "merge-approval": probe_merge,
+               "no-verify": probe_no_verify}
 
 
 # ---------------------------------------------------------------- regression ledger (docs/REGRESSIONS.md)
@@ -1856,6 +1961,100 @@ def typed_skills_note(root, names, agent="claude"):
         return ""
     return (" Typed-only skills (no Skill tool call): read the file, follow it, and tell the owner the typed form: "
             "%s." % "; ".join(rows))
+
+
+# After a merge to main (owner 2026-11-16): the next session runs /improve-codebase-architecture and /retro.
+# .ai/last-review (local, gitignored) holds the main commit of the last review. A missing file is set to the
+# current main without a nudge (first session after ai-adopt). Repos without .ai/ (not adopted) get nothing.
+REVIEW_REL = os.path.join(".ai", "last-review")
+
+
+def main_commit(root):
+    """(branch, sha) of the local main or master branch, or ("", "")."""
+    for b in ("main", "master"):
+        sha = (git_quick(root, ["rev-parse", "-q", "--verify", b + "^{commit}"]) or "").strip()
+        if re.fullmatch(r"[0-9a-f]{7,64}", sha):
+            return b, sha
+    return "", ""
+
+
+def merge_review_note(root, agent="claude"):
+    if not root or not os.path.isdir(os.path.join(root, ".ai")):
+        return ""
+    branch, sha = main_commit(root)
+    if not sha:
+        return ""
+    path = os.path.join(root, REVIEW_REL)
+    last = (read_text(path) or "").strip()
+    if last == sha:
+        return ""
+    count = (git_quick(root, ["rev-list", "--count", "%s..%s" % (last, sha)]) or "").strip() if last else ""
+    if not last or count == "0":
+        try:
+            with open(path, "w") as fh:
+                fh.write(sha + "\n")
+        except OSError:
+            pass
+        return ""
+    count = count if count.isdigit() else "some"
+    return ("%s moved since the last architecture review (%s new commits after %s). Before new work: "
+            "/improve-codebase-architecture on the area that changed, then /retro on the merged work. Findings "
+            "become tickets or a PR for the owner, not direct edits on %s. Then record it: git rev-parse %s > "
+            ".ai/last-review. The owner may say skip (record it the same way).%s"
+            % (branch, count, last[:7], branch, branch,
+               typed_skills_note(root, ["improve-codebase-architecture", "retro"], agent)))
+
+
+def legacy_memory_dir(root):
+    """Claude's auto memory folder for this repo (~/.claude/projects/<path with - for each non-alnum>/memory)."""
+    base = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    key = re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(root))
+    return os.path.join(base, "projects", key, "memory")
+
+
+def legacy_memory_note(root):
+    """Session start: this repo still has Claude auto memory files. Auto memory is off (owner 2026-11-16: the
+    repo is the one knowledge store), so they no longer load: move the durable facts into the repo once."""
+    if not root:
+        return ""
+    d = legacy_memory_dir(root)
+    try:
+        files = sorted(f for f in os.listdir(d) if f.endswith(".md") and f != "MEMORY.md")
+    except OSError:
+        return ""
+    if not files:
+        return ""
+    return ("This repo has %d old Claude memory file(s) in %s that no longer load (auto memory is off). Ask the "
+            "owner, then move each durable fact into the repo on a branch with a PR: commands and paths to the Map, "
+            "rules to ## Project rules, decisions to docs/adr, project facts to docs/agents/notes.md. No secrets, "
+            "no personal data. After the merge, delete that folder." % (len(files), d))
+
+
+def upgrade_note():
+    """Session start: tools changed version (ai-versions --record wrote upgrades.json "pending")."""
+    try:
+        data = json.loads(read_text(state_path("upgrades.json")) or "{}")
+    except ValueError:
+        return ""
+    rows = [p for p in (data.get("pending") or []) if isinstance(p, dict) and p.get("tool")][:8]
+    if not rows:
+        return ""
+    return ("Tools upgraded: %s. When the owner's task allows, run the upgrade-review skill (release notes -> "
+            "what breaks, what to use -> a dotfiles PR)." % ", ".join(
+                "%s %s -> %s" % (p["tool"], p.get("old", "?"), p.get("new", "?")) for p in rows))
+
+
+def nav_note(root, graph=True, serena=True):
+    """The navigation order for a code search: graphify (wide), then Serena (exact). "" when neither is on."""
+    parts = []
+    if graph and os.path.isfile(os.path.join(root, "graphify-out", "graph.json")):
+        parts.append('graphify query "<question>" --budget 1500 (where and how) or graphify affected '
+                     '"<path>::<symbol>" (impact)')
+    if serena:
+        parts.append("Serena find_symbol / find_referencing_symbols (exact symbol, callers, edits)")
+    if not parts:
+        return ""
+    return "Code search: %s first. rg only for text (strings, config, logs)." % ", then ".join(parts)
 
 
 def verify_skill(root):

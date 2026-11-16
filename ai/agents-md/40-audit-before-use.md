@@ -8,6 +8,6 @@ Audit and gates
 - Never deploy to production or touch a production host without my explicit OK for that deploy.
 - A failing test is a blocker, never "pre-existing" or "expected": no skip, no delete, no failure allowlist. Fix the code; change a test only when you are sure the test is wrong, and say why.
 - Commands run in a sandbox. A network or permission error is final too: do not try to get around it (no other path, no SSH instead of HTTPS); tell me the command and the error. <!-- profiles: server -->
-- A network or permission error is final: do not try to get around it (no other path, no SSH instead of HTTPS); tell me the command and the error. <!-- profiles: dev-mac -->
+- A network error (timeout, connection reset): retry once, or use another documented way (an official mirror, the docs site). A permission error is final: do not try to get around it (no SSH instead of HTTPS, no other account); tell me the command and the error. <!-- profiles: dev-mac -->
 - A blocked gate is final for you. Only I can let it through (sudo ai-gate-skip). Never try to get around it; tell me the command and why. <!-- profiles: server -->
-- A blocked gate is final for you: the owner runs it himself. Never try to get around it; tell me the command and why. <!-- profiles: dev-mac -->
+- A blocked gate is final for you: the owner runs it. Never try to get around it (no other command, no other tool, no inner shell); tell me the command and why. <!-- profiles: dev-mac -->

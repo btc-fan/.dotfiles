@@ -1289,13 +1289,13 @@
    "not_contains": "Destructive command blocked"
   },
   {
-   "name": "plain push to main",
+   "name": "plain push of a branch (not destructive; a push to main is the merge-approval gate's job)",
    "expect": "allow",
    "event": "PreToolUse",
    "payload": {
     "tool_name": "Bash",
     "tool_input": {
-     "command": "git push origin main"
+     "command": "git push origin feature-x"
     }
    },
    "project": {

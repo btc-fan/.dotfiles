@@ -34,7 +34,8 @@ from hooklib import (GATES, GATE_PROBES, ai_home, append_jsonl, command_text, ga
                      iso_now, knowledge_delta, knowledge_index, ledger_hits, ledger_note, libs_hits, log_error,
                      log_line, one_line, project_skills, project_tier, verify_skill, is_code_file,
                      origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
-                     state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note)
+                     state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
+                     owner_merge_ok, merge_review_note, nav_note, upgrade_note, legacy_memory_note)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
 CONTEXT_CAP = 9500          # additionalContext is cut here (hook output caps: Claude 10,000 chars, Codex ~2,500 tokens)
@@ -186,6 +187,7 @@ def on_user_prompt(ctx):
     prompt = ctx.payload.get("prompt") or ""
     if not prompt.strip():
         return
+    remember_merge_ok(ctx, prompt)
     routing = ctx.routing
     matched = []
     for rule in routing.get("rules", []):
@@ -217,6 +219,18 @@ def on_user_prompt(ctx):
     for rule, _text in actions:
         ctx.fired(rule, "UserPromptSubmit")
     ctx.add_context(render_prompt_context(routing, actions, ties))
+
+
+def remember_merge_ok(ctx, prompt):
+    """The merge-approval gate reads this: the owner's latest prompt said merge (or approve)."""
+    try:
+        ok = owner_merge_ok(prompt)
+        d = ctx.state.load()
+        if bool(d.get("merge_ok")) != ok:
+            d["merge_ok"] = ok
+            ctx.state.dirty = True
+    except Exception as exc:
+        log_error("merge_ok", exc)
 
 
 def on_pre_tool(ctx):
@@ -695,6 +709,7 @@ STATE_PREDICATES = {
     "git repo with code": _state_code_repo,
     "project without claude-seo": _state_no_seo,
     "project without claude-blog": _state_no_blog,
+    "any session": lambda ctx: True,
 }
 
 
@@ -768,7 +783,9 @@ def _ph_feature_flow(ctx):
                 "owner)." % vname) if spec == {"to-spec", "to-tickets"} else ""
         return ("Feature work: grill-with-docs first (one round of questions, then GLOSSARY.md and docs/adr "
                 "updates).%s Then build slice by slice: check-fast green, %s on the changed feature (evidence kept), "
-                "then e2e tests for the proven journey. A trivial change (typo, rename, one-line fix): none needed.%s"
+                "then e2e tests for the proven journey. Feature done: the ship skill (checks, review, security, "
+                "Evidence, gh pr ready), then ask the owner to merge. A trivial change (typo, rename, one-line fix): "
+                "none needed.%s"
                 % (plan, vname, typed_skills_note(ctx.root, ["grill-with-docs"] + sorted(spec), ctx.agent)))
     return ("Feature work: before any code, run the grilling skill (one round of questions first), unless the "
             "change is trivial (typo, rename, one-line fix, a config value).")
@@ -792,7 +809,24 @@ def _ph_verify_hint(ctx):
         return ""
     return ("Before done: check-fast green, then %s on the changed feature (launch, doctor, drive every entry point "
             "its feature file lists, keep the evidence), then add or extend e2e tests for the proven journey. The PR "
-            "Verify field names the evidence path and the test." % info["name"])
+            "Evidence section names the evidence path and the test." % info["name"])
+
+
+def _ph_merge_review(ctx):
+    """Session start: main moved since the last architecture review and retro (.ai/last-review)."""
+    if ctx.event != "SessionStart" or not ctx.root:
+        return ""
+    return merge_review_note(ctx.root, ctx.agent)
+
+
+def _ph_nav_hint(ctx):
+    """Before the first broad code search of a session: graphify and Serena first."""
+    if ctx.event != "PreToolUse" or not ctx.root:
+        return ""
+    names = enabled_tools(ctx.root)
+    serena = "serena" in names and (ctx.agent != "claude" or project_plugin_enabled(ctx.root, "ai-serena@ai")
+                                    or os.path.isfile(os.path.join(ctx.root, ".serena", "project.yml")))
+    return nav_note(ctx.root, graph="graph" in names, serena=serena)
 
 
 def _ph_origin_slug(ctx):
@@ -814,6 +848,10 @@ PLACEHOLDERS = {
     "domain_docs": _ph_domain_docs,
     "origin_slug": _ph_origin_slug,
     "claude_handoff": _ph_claude_handoff,
+    "merge_review": _ph_merge_review,
+    "nav_hint": _ph_nav_hint,
+    "upgrade_pending": lambda ctx: upgrade_note() if ctx.event == "SessionStart" else "",
+    "legacy_memory": lambda ctx: legacy_memory_note(ctx.root) if ctx.event == "SessionStart" else "",
 }
 PLACEHOLDER_RX = re.compile(r"\{([a-z_]+)\}")
 
@@ -951,7 +989,9 @@ def run_gate(rule, ctx, cmd):
     decision, msg = verdict
     # Decide first: logging below never raises, and a failure there must not lose the decision.
     how = ("by running sudo ai-gate-skip %s <minutes, max 60> <why>. It is logged" % rule["id"]
-           if os.path.exists("/usr/local/sbin/ai-gate-skip") else "by running the command himself")
+           if os.path.exists("/usr/local/sbin/ai-gate-skip") else "by running the command")
+    if rule["id"] == "merge-approval":
+        how = "by saying merge (or approve) in the next message, or by merging on GitHub"
     ctx.decide(decision, "[ai gate %s] %s\nOnly the owner can let it through, %s. Do not try to get around "
                "the gate." % (rule["id"], msg, how))
     log_line("gates.log", "%s %s %s session=%s cmd=%s" % (

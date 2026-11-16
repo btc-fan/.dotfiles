@@ -17,9 +17,10 @@ Before you say what a skill does, read its own SKILL.md. The summaries here are 
 
 | Scope | Skills | How to change |
 |---|---|---|
-| Global, every repo, Claude and Codex | grilling, grill-me, wait-what, writing-for-agents, retro, ask-matt (Matt); skills-guide, prompting-claude-and-codex, create-verification-skill, maintain-verification-skill (ours) | install.sh |
-| Per project, default in every project | grill-with-docs, domain-modeling, to-spec, to-tickets, tdd, pr, diagnosing-bugs, implement, research, handoff, wayfinder, prototype (+ callees codebase-design, code-review) | `skills:` line in `.ai/enabled` |
-| Per project, opt-in | implement-spec, improve-codebase-architecture, triage, wizard, to-questionnaire, teach, setup-matt-pocock-skills | `ai-adopt --skills <list>` |
+| Global, every repo, Claude and Codex | grilling, grill-me, wait-what, writing-for-agents, retro, ask-matt (Matt); skills-guide, ship, release, promote-skill, upgrade-review, prompting-claude-and-codex, create-verification-skill, maintain-verification-skill (ours) | install.sh |
+| Per project, default in every project | grill-with-docs, domain-modeling, to-spec, to-tickets, tdd, pr, diagnosing-bugs, improve-codebase-architecture, implement, research, handoff, wayfinder, prototype (+ callees codebase-design, code-review) | `skills:` line in `.ai/enabled` |
+| Per project, opt-in | implement-spec, triage, wizard, to-questionnaire, teach, setup-matt-pocock-skills | `ai-adopt --skills <list>` |
+| Per project, default tool | ui-ux-pro-max (every project has a UI; `no-ui` in `.ai/enabled` turns it off) | `ai-adopt` |
 
 - No tiers: every project gets the full setup (`tier: long`: Done block, docs/REGRESSIONS.md, ratchet).
 - A rerun of `ai-adopt` adds new defaults and keeps extra opt-ins already on the `skills:` line.
@@ -39,15 +40,22 @@ idea -> /grill-with-docs -> needs a runnable answer? -> prototype (throwaway, br
           +-- several sessions  -> /to-spec -> /to-tickets -> /implement <ticket> (/clear between tickets)
                                                          \-> or /implement-spec (parallel subagents, one integration branch)
    /implement = tdd red-green slices + code-review (Standards + Spec) + commit
-   -> pr (PR body) -> /retro (fix the environment, not the code)
+   -> ship (checks, verify, review, security, UI checklist, Evidence, gh pr ready) -> the owner says merge
+   -> after the merge: /improve-codebase-architecture + /retro (the session start asks; findings = a PR)
+   -> several features merged, the owner says release -> release (full audit, fix PRs, tag)
 On-ramps: a hard bug -> diagnosing-bugs     raw incoming issues -> /triage
           a huge, unclear effort -> /wayfinder -> /to-spec
-Upkeep:   /improve-codebase-architecture every few days -> pick one -> /grill-with-docs
+UI:       kickoff -> ui-ux-pro-max --design-system, 3 to 5 variants (prototype ?variant=), the owner picks, --persist
+          (design-system/<app>/MASTER.md); every UI change reads it; code-review checks it (CODING_STANDARDS.md)
+Setup:    a good approach in one repo -> promote-skill (dotfiles PR); tools upgraded -> upgrade-review
 ```
 
 Git (global rule "Git workflow"): a branch named after the feature slug before the first edit; /implement commits
-each ticket there; push and a draft PR after the first ticket; gh pr ready when all tickets pass make check; the
-owner merges. prototype/ and research/ branches are never merged.
+each ticket there; push and a draft PR after the first ticket; the ship skill, then gh pr ready; every PR goes
+through the owner: merge only after the owner says merge (the merge-approval gate), never push to main.
+prototype/ and research/ branches are never merged. Agents never skip git hooks (the no-verify gate).
+
+Navigation: wide question -> graphify query / graphify affected; exact symbol -> Serena; text -> rg.
 
 Context hygiene: keep grill-with-docs, to-spec and to-tickets in one unbroken session (no /compact before
 to-tickets). Each /implement starts fresh from its ticket.
@@ -130,9 +138,20 @@ Decide only at a boundary. Mid-phase: continue, or split the rest into subagents
 - **triage** (typed, opt-in). Moves raw incoming issues (bug reports, requests you did not write) through
   triage states and writes agent-ready briefs. Not for tickets that to-tickets made. Our tracker is local:
   no GitHub issues or labels without the owner.
-- **improve-codebase-architecture** (typed, opt-in). A survey: finds "deepening" chances (shallow modules,
-  bad seams), shows an HTML report, then grills through the one the owner picks. Run it every few days on a
-  growing repo.
+- **improve-codebase-architecture** (typed, project default). A survey: finds "deepening" chances (shallow
+  modules, bad seams), shows an HTML report, then grills through the one the owner picks. Runs after each merge
+  to main (the merge-review rule at session start), focused on the area that changed. Record it with
+  `git rev-parse main > .ai/last-review`.
+
+### Our own flow skills
+- **ship** (auto, global). The pre-merge pipeline on a feature branch: make check, verify-<app>, Matt
+  code-review, /security-review, the UI checklist, PR Evidence, gh pr ready, then ask the owner.
+- **release** (auto, global). The owner says release: a full audit (security, architecture, web performance,
+  SEO, blog, UI and accessibility, mobile, API, migrations), fix PRs, `docs/releases/<version>.md`, then the tag.
+- **promote-skill** (auto, global). Turns a good approach from one repo into a shared skill in the dotfiles,
+  through a PR for the owner.
+- **upgrade-review** (auto, global). After a tool upgrade (session start says so): release notes, what breaks,
+  what to use, a dotfiles PR.
 - **retro** (typed, global). After a session (best: one that went wrong). Suggests changes to the environment,
   most severe first: Map pointers, automated checks, coding standards, AGENTS.md rules, tooling. Mechanical
   mistakes become checks; judgement calls become standards.
@@ -159,7 +178,9 @@ Decide only at a boundary. Mid-phase: continue, or split the rest into subagents
 | Research a library or API | research (context7 first) | OMC research, web search |
 | Review a diff | Matt code-review | built-in /code-review, OMC review |
 | Prove a feature works | verify-<app> (create-verification-skill) | "tests pass" alone |
-| Knowledge | AGENTS.md Map, GLOSSARY.md, docs/adr, docs/specs, docs/tickets | Serena memories, OMC wiki |
+| Knowledge | AGENTS.md Map, GLOSSARY.md, docs/adr, docs/specs, docs/tickets, docs/research | Serena memories, OMC wiki, Claude auto memory (off) |
+| Pre-merge checks | ship (ours) | OMC verify alone |
+| Cut a version | release (ours) | OMC release |
 
 ## 6. Answering "which skill?"
 1. Name the situation in one line.

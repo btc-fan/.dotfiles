@@ -95,6 +95,7 @@ def main(argv):
     check_serena_config()
     check_no_duplicate_layers()
     check_skill_dups()
+    check_rules_2026_11_16(live=not quick)
     check_uv_links()
     check_codex_policy()
     check_hermes()
@@ -531,7 +532,7 @@ def check_claude_permissions():
         ("missing: " + ", ".join(miss_a)) if miss_a else "")
     if PROFILE_KEYS.get("PROFILE_GUARDS", "1") == "0":
         # Full agent autonomy (owner 2026-11-15, dev-mac): no ask/deny rules on purpose.
-        say("PASS", "Claude permissions.deny: off on this profile (full autonomy; gates: secret-scan, pr-rules)")
+        say("PASS", "Claude permissions.deny: off on this profile (full autonomy; gates: secret-scan, pr-rules, merge-approval, no-verify)")
         miss_d = None
     if miss_d is not None:
         say("PASS" if not miss_d else "FAIL", "Claude permissions.deny protects rule and config files",
@@ -1200,6 +1201,42 @@ def hooklib_module():
     return hooklib
 
 
+def check_rules_2026_11_16(live=False):
+    """Audit fixes (owner 2026-11-16): one rules chain for Codex, one knowledge store, the new skills, Serena live."""
+    print("\nrules, knowledge, skills (2026-11-16):")
+    codex = os.path.expanduser("~/.codex")
+    if os.path.isdir(codex):
+        over = os.path.join(codex, "AGENTS.override.md")
+        say("PASS" if not os.path.exists(over) else "FAIL", "no ~/.codex/AGENTS.override.md (it replaces our rules)",
+            "" if not os.path.exists(over) else "move its text into ai/agents-md/, then delete it")
+        rules = read_text_file(os.path.join(codex, "rules", "default.rules")) or ""
+        allows = [ln for ln in rules.splitlines() if "prefix_rule(" in ln and "allow" in ln]
+        say("PASS" if len(allows) <= 20 else "WARN", "Codex approved-command rules: %d allow lines" % len(allows),
+            "" if len(allows) <= 20 else "old one-off approvals in ~/.codex/rules/default.rules: review and prune")
+        omx_review = os.path.isdir(os.path.join(codex, "skills", "code-review"))
+        say("PASS" if not omx_review else "WARN", "one code-review skill for Codex",
+            "" if not omx_review else "OMX ships ~/.codex/skills/code-review next to Matt's: ask for \"Matt code-review\"")
+    st = load_json_file(os.path.join(os.path.expanduser("~/.claude"), "settings.json")) or {}
+    if st:
+        say("PASS" if st.get("autoMemoryEnabled") is False else "WARN", "Claude auto memory off (the repo is the one "
+            "knowledge store)", "" if st.get("autoMemoryEnabled") is False else "install.sh sets autoMemoryEnabled false")
+    for name in ("ship", "release", "promote-skill", "upgrade-review", "skills-guide"):
+        here = [d for d in ("~/.claude/skills", "~/.agents/skills")
+                if os.path.isfile(os.path.join(os.path.expanduser(d), name, "SKILL.md"))]
+        say("PASS" if len(here) == 2 else "WARN", "skill %s for Claude and Codex" % name,
+            "" if len(here) == 2 else "install.sh links ai/skills/%s" % name)
+    state = os.environ.get("AI_STATE_DIR") or os.path.expanduser("~/.local/state/ai")
+    say("PASS" if os.path.isfile(os.path.join(state, "versions.json")) else "WARN", "tool versions recorded "
+        "(ai-versions, for upgrade-review)", "" if os.path.isfile(os.path.join(state, "versions.json"))
+        else "install.sh runs ai-versions --record")
+    if live and shutil.which("claude"):
+        code, out = run(["claude", "mcp", "list"], timeout=120)
+        line = next((ln for ln in out.splitlines() if "serena" in ln.lower()), "")
+        say("PASS" if "Connected" in line or "✔" in line else "WARN", "Serena MCP connects for Claude",
+            "" if "Connected" in line else (line.strip()[:200] or "no serena server listed") +
+            ": ask the agent to fix it, or add no-serena to .ai/enabled")
+
+
 def check_project(path, explicit=False):
     """Project knowledge in the repo AGENTS.md (Map and Libraries blocks) and the opt-in tools it enabled."""
     hl = hooklib_module()
@@ -1287,10 +1324,13 @@ def check_tier1(root, hl, text):
     size = len(text.encode("utf-8"))
     say("PASS" if size <= REPO_AGENTS_SOFT else "WARN", "repo AGENTS.md size %d bytes (budget %d)"
         % (size, REPO_AGENTS_SOFT), "" if size <= REPO_AGENTS_SOFT else "move detail to docs/, keep pointers")
-    rules_path = os.path.join(AI_DIR, "AGENTS.md")
+    # Codex joins ~/.codex/AGENTS.md (our block plus OMX text) and the repo files, up to project_doc_max_bytes.
+    codex_rules = os.path.join(os.path.expanduser("~/.codex"), "AGENTS.md")
+    rules_path = codex_rules if os.path.isfile(codex_rules) else os.path.join(AI_DIR, "AGENTS.md")
+    cap = codex_doc_cap()
     total = size + (os.path.getsize(rules_path) if os.path.isfile(rules_path) else 0)
-    say("PASS" if total <= CODEX_CAP else "FAIL", "root rules + repo AGENTS.md %d bytes (Codex reads %d)"
-        % (total, CODEX_CAP), "" if total <= CODEX_CAP else "Codex silently drops the rest: trim the repo AGENTS.md")
+    say("PASS" if total <= cap else "FAIL", "Codex global rules + repo AGENTS.md %d bytes (Codex reads %d)"
+        % (total, cap), "" if total <= cap else "Codex silently drops the rest: trim the repo AGENTS.md")
     done = section_lines(text, "Done")
     if done is None:
         say("WARN", "AGENTS.md Done section", "owner step: ai-adopt (adds the 6-line Done block)")
@@ -1321,6 +1361,43 @@ def check_tier1(root, hl, text):
     base = os.path.isfile(os.path.join(root, ".ai", "ratchet.json"))
     say("PASS" if base else "WARN", "ratchet baseline .ai/ratchet.json",
         "" if base else "ai-ratchet --init, then commit .ai/ratchet.json")
+    check_flow_2026_11_16(root, hl)
+
+
+def codex_doc_cap():
+    """project_doc_max_bytes from ~/.codex/config.toml (Codex default 32 KiB)."""
+    text = read_text_file(os.path.join(os.path.expanduser("~/.codex"), "config.toml")) or ""
+    m = re.search(r"^\s*project_doc_max_bytes\s*=\s*(\d+)", text, re.M)
+    return int(m.group(1)) if m else CODEX_CAP
+
+
+def check_flow_2026_11_16(root, hl):
+    """Ship, merge and release flow (owner 2026-11-16): Markdown placement, pre-commit hook, design system,
+    the architecture review mark, the default review skill."""
+    docs = os.path.join(BIN, "ai-docs-check")
+    if os.path.isfile(docs):
+        code, out = run(["python3", docs, "--dir", root], timeout=60)
+        say("PASS" if code == 0 else "WARN", "Markdown files only in their places (ai-docs-check)",
+            out.strip().splitlines()[-1][:300] if code and out.strip() else "")
+    hook = run(["git", "-C", root, "rev-parse", "--git-path", "hooks/pre-commit"])[1].strip()
+    hook = hook if os.path.isabs(hook) else os.path.join(root, hook)
+    own = run(["git", "-C", root, "config", "--get", "core.hooksPath"])[1].strip()
+    text = read_text_file(hook) or ""
+    say("PASS" if "ai-precommit" in text or own or text else "WARN",
+        "pre-commit hook (lint and format on staged files)",
+        "" if "ai-precommit" in text else ("the repo's own hooks: %s" % (own or "pre-commit")) if (own or text)
+        else "ai-adopt installs it (.git/hooks/pre-commit)")
+    ids = hl.enabled_ids(root)
+    if "ui" in ids:
+        found = [d for d in (os.listdir(os.path.join(root, "design-system"))
+                             if os.path.isdir(os.path.join(root, "design-system")) else [])
+                 if os.path.isfile(os.path.join(root, "design-system", d, "MASTER.md"))]
+        say("PASS" if found else "WARN", "design system (design-system/<app>/MASTER.md)",
+            "" if found else "kickoff step: ui-ux-pro-max --design-system, 3 to 5 variants, the owner picks, --persist")
+    skills = hl.project_skills(root)
+    say("PASS" if "improve-codebase-architecture" in skills else "WARN",
+        "improve-codebase-architecture linked (after-merge review)", "" if "improve-codebase-architecture" in skills
+        else "ai-adopt (a rerun adds the new default)")
 
 
 def check_verify_skill(root, hl, tier):

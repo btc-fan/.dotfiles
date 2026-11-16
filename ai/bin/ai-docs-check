@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""ai-docs-check: Markdown files only in their places (owner 2026-11-16: "no MD files everywhere").
+
+Usage:
+  ai-docs-check [--dir PATH]          exit 1 when a Markdown file sits outside the allowed places
+  ai-docs-check [--dir PATH] --init   write .ai/docs-allow with the files that are outside today (the baseline of an
+                                      adopted repo: they pass, a new one fails). ai-adopt runs this once.
+
+Allowed places:
+  root            README.md AGENTS.md CLAUDE.md GLOSSARY.md CODING_STANDARDS.md CHANGELOG.md CONTRIBUTING.md
+                  SECURITY.md LICENSE.md CODE_OF_CONDUCT.md
+  any folder      README.md, AGENTS.md, CLAUDE.md (per-folder rules), CHANGELOG.md
+  docs/           everything (adr, specs, tickets, research, maps, agents, releases, security, REGRESSIONS.md)
+  design-system/  ui-ux-pro-max MASTER.md and page overrides
+  tool folders    .claude/ .agents/ .codex/ .github/ .omc/skills/ (skills, commands, templates)
+  extra           one glob per line in .ai/docs-allow (committed; add a line only with the owner's OK)
+Only files git sees are checked (tracked, or new and not ignored).
+
+Also (a warning, never a failure): a docs/research/*.md file without the lines Date:, Sources: and Status: in
+its first 20 lines. Status is current, superseded (by what) or decided (ADR NNNN).
+"""
+import fnmatch
+import os
+import subprocess
+import sys
+
+ROOT_OK = {"README.md", "AGENTS.md", "CLAUDE.md", "GLOSSARY.md", "CODING_STANDARDS.md", "CHANGELOG.md",
+           "CONTRIBUTING.md", "SECURITY.md", "LICENSE.md", "CODE_OF_CONDUCT.md"}
+ANY_DIR_OK = {"README.md", "AGENTS.md", "CLAUDE.md", "CHANGELOG.md"}
+TREES_OK = ("docs/", "design-system/", ".claude/", ".agents/", ".codex/", ".github/", ".omc/skills/")
+SKIP_TREES = ("node_modules/", "vendor/", ".venv/", "venv/", "dist/", "build/", "graphify-out/", ".serena/")
+ALLOW_REL = os.path.join(".ai", "docs-allow")
+RESEARCH_KEYS = ("date:", "sources:", "status:")
+MD_EXT = (".md", ".mdx", ".markdown")
+
+
+def main(argv):
+    root = os.path.abspath(argv[argv.index("--dir") + 1] if "--dir" in argv else ".")
+    files = git_files(root)
+    if files is None:
+        print("ai-docs-check: %s is not a git repo" % root, file=sys.stderr)
+        return 2
+    allow = read_allow(root)
+    stray = [f for f in files if is_md(f) and not allowed(f, allow)]
+    if "--init" in argv:
+        return write_baseline(root, stray)
+    for f in research_without_header(root, files):
+        print("ai-docs-check: WARN %s: add Date:, Sources: and Status: lines at the top" % f)
+    if not stray:
+        print("ai-docs-check: Markdown placement ok (%d files)" % sum(1 for f in files if is_md(f)))
+        return 0
+    for f in stray:
+        print("ai-docs-check: stray Markdown %s" % f)
+    print("ai-docs-check: %d file(s) outside the allowed places. Move each under docs/<kind>/ (adr, specs, tickets, "
+          "research, maps, releases, security), merge it into an existing doc, or delete it. Only with the owner's "
+          "OK: add its path to .ai/docs-allow." % len(stray))
+    return 1
+
+
+def git_files(root):
+    try:
+        res = subprocess.run(["git", "-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if res.returncode != 0:
+        return None
+    out = []
+    for f in res.stdout.decode("utf-8", "replace").split("\0"):
+        if f and not f.startswith(SKIP_TREES) and os.path.exists(os.path.join(root, f)):
+            out.append(f)
+    return sorted(set(out))
+
+
+def is_md(path):
+    return path.lower().endswith(MD_EXT)
+
+
+def allowed(path, allow):
+    base = os.path.basename(path)
+    if "/" not in path and base in ROOT_OK:
+        return True
+    if base in ANY_DIR_OK:
+        return True
+    if path.startswith(TREES_OK):
+        return True
+    return any(fnmatch.fnmatch(path, g) or path == g for g in allow)
+
+
+def read_allow(root):
+    try:
+        with open(os.path.join(root, ALLOW_REL)) as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return []
+    return [ln.split("#", 1)[0].strip() for ln in lines if ln.split("#", 1)[0].strip()]
+
+
+def write_baseline(root, stray):
+    path = os.path.join(root, ALLOW_REL)
+    old = read_allow(root)
+    new = [f for f in stray if f not in old]
+    if not new and os.path.exists(path):
+        print("ai-docs-check: baseline unchanged (%d entries)" % len(old))
+        return 0
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    header = ("# Markdown files allowed outside docs/ (ai-docs-check). The adopt baseline lists the files that were\n"
+              "# already there; a new entry needs the owner's OK. Move a file under docs/ and delete its line here.\n")
+    body = "\n".join(old + new)
+    with open(path, "w") as fh:
+        fh.write(header + body + ("\n" if body else ""))
+    print("ai-docs-check: baseline %s: %d file(s)" % (ALLOW_REL, len(old) + len(new)))
+    return 0
+
+
+def research_without_header(root, files):
+    out = []
+    for f in files:
+        if not (f.startswith("docs/research/") and is_md(f)):
+            continue
+        try:
+            with open(os.path.join(root, f), encoding="utf-8", errors="replace") as fh:
+                head = [next(fh, "") for _ in range(20)]
+        except OSError:
+            continue
+        text = "".join(head).lower()
+        if not all(k in text for k in RESEARCH_KEYS):
+            out.append(f)
+    return out
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

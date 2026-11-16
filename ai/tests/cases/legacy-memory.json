@@ -1,0 +1,32 @@
+{
+ "rule": "legacy-memory",
+ "cases": [
+  {
+   "name": "old memory files for this repo",
+   "expect": "fire",
+   "event": "SessionStart",
+   "payload": {"source": "startup"},
+   "project": {"git": true, "files": {"app.py": "x = 1\n"}},
+   "env": {"CLAUDE_CONFIG_DIR": "{{HOME}}/.claude"},
+   "home_files_for_project": {"memory/notes.md": "x\n", "memory/MEMORY.md": "- x\n"},
+   "contains": ["1 old Claude memory file(s)", "docs/agents/notes.md"]
+  },
+  {
+   "name": "no memory folder: quiet",
+   "expect": "nofire",
+   "event": "SessionStart",
+   "payload": {"source": "startup"},
+   "project": {"git": true, "files": {"app.py": "x = 1\n"}},
+   "env": {"CLAUDE_CONFIG_DIR": "{{HOME}}/.claude"}
+  },
+  {
+   "name": "only the index file: quiet",
+   "expect": "nofire",
+   "event": "SessionStart",
+   "payload": {"source": "startup"},
+   "project": {"git": true, "files": {"app.py": "x = 1\n"}},
+   "env": {"CLAUDE_CONFIG_DIR": "{{HOME}}/.claude"},
+   "home_files_for_project": {"memory/MEMORY.md": "- x\n"}
+  }
+ ]
+}

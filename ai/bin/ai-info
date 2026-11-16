@@ -202,7 +202,8 @@ def render_full(f):
         out.append("  %-13s %-22s %s" % (short, state, scope))
     out += ["", "Skills (%d): %s" % (len(f["skills"]), ", ".join(f["skills"]) or "none"),
             "  mattpocock global: " + ", ".join("%s%s" % (s, "" if s in f["skills"] else " (missing)") for s in MATT_SKILLS),
-            "  mattpocock per project: 12 default of 21 (ai-adopt --skills). Which skill for what: the skills-guide skill."]
+            "  mattpocock per project: 13 default of 21 (ai-adopt --skills). Which skill for what: the skills-guide skill.",
+            "  flow (ours, global): ship (before the owner merges), release (full audit, tag), promote-skill, upgrade-review."]
     out += ["", "MCP servers: context7 (global, library docs; IDs in the Libraries section of a repo AGENTS.md),"]
     if f["box"]:
         out += ["  box (global, server boxes: list, new, exec, logs, status, restart, ports, url, snapshot, doctor, help)."]
@@ -212,7 +213,7 @@ def render_full(f):
     out += ["", "Gates: " + (", ".join(f["gates"]) or "none"), "  " + f["gate_hint"],
             "  Full autonomy on this profile: only these gates block; a blocked gate is final for agents."
             if f["gate_hint"] == GATE_HINT_DEVMAC else "  Agents never use sudo; a blocked gate or a sandbox error is final for them."]
-    out += ["", "On by default in every project: serena, graph (a project turns one off: no-serena / no-graph in .ai/enabled).",
+    out += ["", "On by default in every project: serena, graph, ui (a project turns one off: no-serena / no-graph / no-ui in .ai/enabled).",
             "Opt-in tools (run in the repo):"]
     for rid, tool in f["optin"]:
         if rid not in ("serena", "graph", "tracker-flow", "domain-docs"):   # those two: nudges of default skills

@@ -255,7 +255,8 @@ OPTIN = ("grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd", "
          "wayfinder", "prototype", "triage", "wizard", "to-questionnaire", "teach", "setup-matt-pocock-skills")
 # The defaults (owner 2026-11-15) plus callees, without "pr" (the fake source below skips it).
 DEFAULT_LINKS = ["grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd", "codebase-design", "code-review",
-                 "diagnosing-bugs", "implement", "research", "handoff", "wayfinder", "prototype"]
+                 "diagnosing-bugs", "improve-codebase-architecture", "implement", "research", "handoff", "wayfinder",
+                 "prototype"]
 
 
 def fake_plugin_src(work, name, skip=()):
@@ -277,7 +278,7 @@ def t_adopt_project_skills(work):
     res = adopt(repo, env)
     assert res.returncode == 0, res.stdout
     enabled = read(os.path.join(repo, ".ai", "enabled")).splitlines()
-    assert "skills: grill-with-docs, domain-modeling, to-spec, to-tickets, tdd, pr, diagnosing-bugs, implement, research, handoff, wayfinder, prototype" in enabled, enabled
+    assert "skills: grill-with-docs, domain-modeling, to-spec, to-tickets, tdd, pr, diagnosing-bugs, improve-codebase-architecture, implement, research, handoff, wayfinder, prototype" in enabled, enabled
     assert "## Wayfinding operations" in read(os.path.join(repo, "docs", "agents", "issue-tracker.md"))
     for sub in (".claude/skills", ".agents/skills"):
         assert links(repo, sub) == sorted(DEFAULT_LINKS), (sub, links(repo, sub))
@@ -395,13 +396,15 @@ def t_doctor_budget(work):
     repo = tree(work, "doc-budget", {".ai/enabled": "tier: long\n", "Makefile": "check-fast:\n\ttrue\ncheck:\n\ttrue\n",
                                      "AGENTS.md": "# x\n\n## Done\n" + "".join("%d. item\n" % i for i in range(1, 9))
                                      + "\n## Lessons\n" + "".join("- lesson %d\n" % i for i in range(16))})
+    old_home = os.environ.get("HOME")
+    os.environ["HOME"] = work          # no ~/.codex here: the Codex cap is its default (32 KiB), the rules ours
     out = io.StringIO()
     with redirect_stdout(out):
         doctor.check_tier1(repo, hooklib, read(os.path.join(repo, "AGENTS.md")))
     text = out.getvalue()
     for want in ("WARN AGENTS.md Done section (8 of 6 lines)", "WARN AGENTS.md Lessons section (16 of 15 lines)",
                  "PASS project tier long; check-fast and check targets", "WARN ratchet baseline .ai/ratchet.json",
-                 "PASS root rules + repo AGENTS.md"):
+                 "PASS Codex global rules + repo AGENTS.md"):
         assert want in text, "%r not in:\n%s" % (want, text)
     out = io.StringIO()
     with redirect_stdout(out):
@@ -412,7 +415,8 @@ def t_doctor_budget(work):
     out = io.StringIO()
     with redirect_stdout(out):
         doctor.check_tier1(big, hooklib, read(os.path.join(big, "AGENTS.md")))
-    assert "FAIL root rules + repo AGENTS.md" in out.getvalue() and "WARN repo AGENTS.md size" in out.getvalue(), \
+    os.environ["HOME"] = old_home or ""
+    assert "FAIL Codex global rules + repo AGENTS.md" in out.getvalue() and "WARN repo AGENTS.md size" in out.getvalue(), \
         out.getvalue()
 
 

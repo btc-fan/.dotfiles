@@ -419,12 +419,12 @@ def t_adopt_optin_serena_graph(work, server):
     assert ".mcp.json" not in files, "project .mcp.json is blocked by managed settings: Serena must use the plugin"
     assert not any(f.startswith(("graphify-out/", ".serena/cache")) for f in files), files
     plugins = json.load(open(os.path.join(repo, ".claude", "settings.json")))["enabledPlugins"]
-    assert plugins == {"ai-serena@ai": True}, plugins
+    assert plugins == {"ai-serena@ai": True, "ui-ux-pro-max@ui-ux-pro-max-skill": True}, plugins
     gi = open(os.path.join(repo, ".gitignore")).read().splitlines()
     for line in (".serena/*", "!.serena/project.yml", "graphify-out/"):
         assert line in gi, "gitignore misses " + line
     assert os.path.isfile(os.path.join(repo, "graphify-out", "graph.json")), "graph not built"
-    assert enabled_ids(repo) == ["graph", "serena"], enabled_ids(repo)
+    assert enabled_ids(repo) == ["graph", "serena", "ui"], enabled_ids(repo)
     agents = open(os.path.join(repo, "AGENTS.md")).read()
     assert "<!-- AI:serena v" in agents and "Details: ~/.config/ai/rules/serena.md" in agents, agents
     assert len(agents) < 4000, "opt-in blocks must stay short: %d bytes" % len(agents)
@@ -432,9 +432,9 @@ def t_adopt_optin_serena_graph(work, server):
 
 GI_BLOCK = [".omc/*", "!.omc/skills/", ".omx/", ".codex/", ".claude/*", "!.claude/settings.json", "!.claude/skills/",
             ".claude/skills/*", "!.claude/skills/verify-*", ".serena/*", "!.serena/project.yml", "graphify-out/",
-            ".ai/*", "!.ai/enabled", "!.ai/ratchet.json", "!.ai/destructive.txt"]
+            ".ai/*", "!.ai/enabled", "!.ai/ratchet.json", "!.ai/destructive.txt", "!.ai/docs-allow"]
 GI_SKILL_LINKS = ["grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd", "codebase-design", "code-review", "pr",
-                 "diagnosing-bugs", "implement", "research", "handoff", "wayfinder", "prototype"]
+                 "diagnosing-bugs", "improve-codebase-architecture", "implement", "research", "handoff", "wayfinder", "prototype"]
 
 
 def t_adopt_gitignore_block(work, server):
@@ -529,14 +529,16 @@ def t_optin_claude_plugins(work, server):
                "--yes"], env=env, cwd=repo)
     assert res.returncode == 0, res.stdout
     data = json.load(open(settings))
-    assert data["enabledPlugins"] == {"claude-seo@agricidaniel-claude-seo": True}, data
+    assert data["enabledPlugins"] == {"claude-seo@agricidaniel-claude-seo": True,
+                                      "ui-ux-pro-max@ui-ux-pro-max-skill": True}, data
     assert data["permissions"] == {"allow": ["Bash(ls:*)"]}, "other settings lost"
-    assert enabled_ids(repo) == ["seo"], enabled_ids(repo)
+    assert enabled_ids(repo) == ["seo", "ui"], enabled_ids(repo)
     res = run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--tools", "blog", "--no-knowledge",
                "--yes"], env=env, cwd=repo)
     data = json.load(open(settings))
     assert data["enabledPlugins"] == {"claude-seo@agricidaniel-claude-seo": True,
-                                      "claude-blog@agricidaniel-blog": True}, data
+                                      "claude-blog@agricidaniel-blog": True,
+                                      "ui-ux-pro-max@ui-ux-pro-max-skill": True}, data
     files = run(["git", "-C", repo, "show", "--name-only", "--format=", "HEAD"]).stdout.split()
     assert ".claude/settings.json" in files, files
 

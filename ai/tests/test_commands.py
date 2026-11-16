@@ -290,7 +290,7 @@ def t_ai_start(work):
     assert "chore(ai): start project AI setup v" in log, log
     agents = open(os.path.join(proj, "AGENTS.md")).read()
     enabled = [ln for ln in open(os.path.join(proj, ".ai", "enabled")).read().splitlines() if not ln.startswith("#")]
-    assert "<!-- AI:ui v" in agents and enabled == ["tier: long", "skills: grill-with-docs, domain-modeling, to-spec, to-tickets, tdd, pr, diagnosing-bugs, implement, research, handoff, wayfinder, prototype",
+    assert "<!-- AI:ui v" in agents and enabled == ["tier: long", "skills: grill-with-docs, domain-modeling, to-spec, to-tickets, tdd, pr, diagnosing-bugs, improve-codebase-architecture, implement, research, handoff, wayfinder, prototype",
                                                     "ui"], enabled
     assert "## Done" in agents and "## Lessons" in agents, "Done and Lessons sections missing"
     assert open(os.path.join(proj, "CLAUDE.md")).read() == "@AGENTS.md\n"
@@ -448,7 +448,7 @@ def t_playwright(work):
     assert res.returncode == 0, res.stdout
     assert not os.path.exists(os.path.join(proj, ".mcp.json")), "project .mcp.json is blocked: use ai-playwright@ai"
     plugins = json.load(open(os.path.join(proj, ".claude", "settings.json")))["enabledPlugins"]
-    assert plugins == {"ai-playwright@ai": True}, plugins
+    assert plugins == {"ai-playwright@ai": True, "ui-ux-pro-max@ui-ux-pro-max-skill": True}, plugins
     toml = open(os.path.join(proj, ".codex", "config.toml")).read()
     assert 'command = "ai-playwright-mcp"' in toml and "npx" not in toml
     proj2 = os.path.join(work, "pw-proj2")

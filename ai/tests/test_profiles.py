@@ -198,7 +198,7 @@ def t_render_profiles(work):
                  "- last30days (Claude, on everywhere)",
                  "audit-before-install"):
         assert gone in srv and gone not in dev, gone
-    assert "A blocked gate is final for you: the owner runs it himself." in dev, dev
+    assert "A blocked gate is final for you: the owner runs it." in dev, dev
     ids = lambda r: [x["id"] for x in r["rules"]]
     assert "audit-before-install" in ids(out["server"][1]) and "audit-before-install" not in ids(out["dev-mac"][1])
     assert all("profiles" not in x for x in out["server"][1]["rules"]), "the profiles key is not rendered"

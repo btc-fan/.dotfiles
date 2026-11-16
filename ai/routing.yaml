@@ -46,6 +46,42 @@ rules:
     proof: 'ai-adopt'
     strength: nudge
 
+  - id: merge-review
+    scope: global
+    trigger: {state: 'git repo with code'}
+    when: session_start
+    summary: 'session start: main moved since the last architecture review'
+    action: "{merge_review}"   # .ai/last-review holds main at the last review; empty when unchanged or not adopted
+    proof: 'improve-codebase-architecture|retro|last-review'
+    strength: nudge
+
+  - id: legacy-memory
+    scope: global
+    trigger: {state: 'git repo with code'}
+    when: session_start
+    summary: 'session start: old Claude memory files for this repo'
+    action: "{legacy_memory}"   # ~/.claude/projects/<repo key>/memory; auto memory is off since 2026-11-16
+    proof: 'docs/agents/notes.md|Project rules'
+    strength: nudge
+
+  - id: upgrade-review
+    scope: global
+    trigger: {state: 'any session'}
+    when: session_start
+    summary: 'session start: AI tools changed version since the last review'
+    action: "{upgrade_pending}"   # from ~/.local/state/ai/upgrades.json (ai-versions --record in install.sh)
+    proof: 'upgrade-review'
+    strength: nudge
+
+  - id: nav-first
+    scope: global
+    summary: 'first broad code search (Grep, rg, grep -r, find)'
+    trigger: {tool_before: 'Grep|Bash|shell|exec_command|local_shell', command: '(^|[;&|(]\s*)(rg|ag|ack|git grep|grep\s+(-\w*[rR]\w*|--recursive)|find\s+\S+\s+(-i?name|-path|-type))\b'}
+    action: "{nav_hint}"   # empty when the repo has no graph and Serena is off
+    once_per: 'session'
+    proof: 'graphify|serena|find_symbol|find_referencing_symbols'
+    strength: nudge
+
   - id: knowledge-check
     scope: global
     trigger: {tool_after: 'Bash', command: '\bgit commit\b'}
@@ -93,6 +129,20 @@ rules:
     trigger: {tool_before: 'Bash', command: '\bgh pr (create|edit)\b'}
     action: "PR body (pr skill template): Summary with a Mermaid diagram, Evidence (Before and After), Merge Danger (Door: one-way or two-way; Blast Radius), Docs, Changed guards (Ledger on fix PRs), author-sessions block at the end."
     strength: gate    # blocks without ```mermaid, <!-- author-sessions, the fields Evidence, Door (one-way or two-way), Blast Radius (placeholders refused), a test file in a fix: PR; --fill/--web refused
+
+  - id: merge-approval
+    scope: global
+    summary: 'before gh pr merge, or a git push to main or master'
+    trigger: {tool_before: 'Bash|shell|exec_command|local_shell', command: '\bgh\b.*\b(merge|api)\b|\bgit\b.*\bpush\b'}
+    action: "Merge only after the owner's latest message says merge or approve (after the ship skill). No push to main or master."
+    strength: gate    # the router stores the owner's OK per session (UserPromptSubmit); a later prompt without it clears it
+
+  - id: no-verify
+    scope: global
+    summary: 'git commit or push with --no-verify (or commit -n)'
+    trigger: {tool_before: 'Bash|shell|exec_command|local_shell', command: '\bgit\b.*(--no-verify|\s-\w*n)'}
+    action: "Never skip the git hooks: fix what the pre-commit check reports, then commit again."
+    strength: gate
 
   - id: ledger-nudge
     scope: global
@@ -221,7 +271,7 @@ rules:
     summary: 'UI prompt or UI file'
     tool: ui-ux-pro-max
     trigger: {prompt: '\b(ui|ux|design|landing page|component|layout|color palette|typography|dark mode)\b', paths: '**/*.{tsx,jsx,vue,svelte,css,scss}'}
-    action: "UI work: use ui-ux-pro-max. Ask before paid image generation or any npx ...@latest."
+    action: "UI work: use ui-ux-pro-max. Read design-system/<app>/MASTER.md (and the page override) first. No MASTER.md yet: make 3 to 5 directions (--design-system, different styles) as prototype variants (?variant=), the owner picks one, then --persist. Ask before paid image generation or any npx ...@latest."
     proof: 'skill:\S*ui-ux-pro-max'
     strength: nudge
 

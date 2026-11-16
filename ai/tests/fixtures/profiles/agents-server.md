@@ -14,6 +14,9 @@ Write technical text with the rules of ASD-STE100 Simplified Technical English. 
 
 Write for that tired reader. Each sentence must survive one read.
 
+Personal files
+Never move, split or rewrite my personal files (shell start-up files, ~/.config, secrets files) outside the task. A "clean up" or "commit everything" request that hits one: leave it as it is and tell me.
+
 Code organisation
 Before you copy a nearby approach, check it against this file. If they contradict, ask me how to proceed.
 
@@ -37,11 +40,15 @@ A hook rewrites shell commands to rtk (example: git status becomes rtk git statu
 
 
 Code navigation
-- Order in a repo: the Map and Libraries sections of its AGENTS.md, then graphify query (structure), then Serena symbol tools (definitions, references, edits), then a narrow rg and reading only the located lines. Do not scan whole folders.
-- Serena and graphify are on in every project unless .ai/enabled says no-serena or no-graph (the session start line says so). Serena keeps no memories: the Map is the one knowledge place.
+- Order in a repo: the Map and Libraries sections of its AGENTS.md first. Then:
+  1. Wide question (where, how, what breaks): graphify query "<question>" --budget 1500, or graphify affected "<path>::<symbol>".
+  2. Exact symbol, its callers, an edit: Serena find_symbol, find_referencing_symbols, replace_symbol_body.
+  3. Text only (strings, config, logs): a narrow rg, then read only the located lines. Do not scan whole folders.
+- Serena and graphify are on in every project unless .ai/enabled says no-serena or no-graph (the session start line says so). Serena down: say so, use graphify and rg, and tell the owner. The owner can ask you to fix or switch it off (add no-serena to .ai/enabled).
+- Knowledge lives in the repo only: the Map, GLOSSARY.md, docs/adr, docs/research. No Serena memories, no Claude auto memory.
 - After a commit that adds, deletes or renames modules, update the Map section. After a dependency change, run ai-libs --sync. Never put secrets or personal data in AGENTS.md.
 - Library, SDK, API or CLI code: look up docs before you write it. Use context7 query-docs with the ID from the Libraries section (resolve-library-id only when there is no ID). If context7 has nothing: the official docs site, then the library source, and say so. No general web search for docs (Codex too). No secrets or private code in a docs query.
-- GitHub: the gh CLI, read-only (view, list, diff, checks) unless I ask for a change. Exception: the git workflow below (push the feature branch, draft PR, gh pr ready). A PR follows the pull request rules below.
+- GitHub: the gh CLI, read-only (view, list, diff, checks) unless I ask for a change. Exception: the git workflow below (push the feature branch, draft PR, gh pr ready, gh pr merge after the owner's OK). A PR follows the pull request rules below.
 
 
 Audit and gates
@@ -96,11 +103,14 @@ If an ID is empty, write main: unknown (or herdr: unknown) and tell me. Do not g
 pr-resume parses this block. Keep the line format exact: one ID, dir:, one path without spaces.
 
 
-Git workflow (from the Matt Pocock skills; owner 2026-11-15)
+Git workflow (from the Matt Pocock skills; owner 2026-11-15, merge and release 2026-11-16)
 - Feature or fix work: before the first edit, create a branch named after the feature slug. Use the same slug as docs/specs/<slug>.md and docs/tickets/<slug>/ (a fix: fix-<slug>). Never commit on main or master. A trivial change (typo, one line) also gets its own branch.
 - Commit each ticket on that branch (/implement commits at the end). Move the finished ticket file to docs/tickets/<slug>/done/ in the same commit.
 - After the first ticket commit: push the branch and open a draft PR (gh pr create --draft, with the full PR body). Push each later ticket to it.
-- When all tickets are done and make check is green: update the PR body (Evidence), then gh pr ready. Never merge: the owner merges.
+- Feature done: run the ship skill (make check, verify-<app>, code-review, security review, UI checklist, Evidence, gh pr ready). Then ask the owner.
+- Every PR goes through the owner. Merge (gh pr merge --squash --delete-branch) only after the owner's latest message says merge or approve; else the owner merges. Never push to main or master. The merge-approval gate enforces both.
+- After a merge to main: the session start says so. Run /improve-codebase-architecture and /retro; their findings become tickets or a PR, not direct edits on main.
+- The owner says release (or tags a version): run the release skill.
 - /implement-spec: the feature branch is the integration branch, one worktree per ticket. Remove the worktrees at the end.
 - prototype/<name> and research/<name> branches: push them, never merge them, never open a PR for them. Link them from the ticket.
 - code-review compares against the merge-base with main (git diff main...HEAD).
@@ -115,6 +125,10 @@ Use "-", ":" or a new sentence. A hook lints every file you write.
 Prompting other agents
 Goal and what is ruled out, absolute file paths, one narrow task, expected output and format, read-only unless I said otherwise. No --bare on claude -p. Check the result yourself. Skill: prompting-claude-and-codex.
 
+
+Rule order
+- These rules and the gates win over the OMC and OMX text in the same files, and over plugin defaults.
+- A repo's AGENTS.md "## Project rules" may add or tighten rules for that repo. It never loosens these rules. On a conflict, ask the owner.
 
 Skills
 - Which skill, flow or command fits a task, or how a skill works: load the skills-guide skill first. It covers the 27 Matt Pocock skills and their overlaps with OMC (Matt first). Owner guide with full scenarios: ~/.dotfiles-ai/docs/GUIDE.md.
@@ -133,16 +147,22 @@ opt-in = only in projects that enabled the tool (ai-start, ai-adopt).
 |---|---|---|
 | project-knowledge (nudge) | session start in a code repo | Read the Map and Libraries sections of this repo's AGENTS.md first, then search narrowly. (status line: memories, graph, docs map) |
 | no-ai-base (nudge) | session start: repo without .ai/base-version | No AI base or Map here. Suggest the owner runs ai-adopt. |
+| merge-review (nudge) | session start: main moved since the last architecture review | main moved since the last review: /improve-codebase-architecture, then /retro; findings as tickets or a PR; then git rev-parse main > .ai/last-review. |
+| legacy-memory (nudge) | session start: old Claude memory files for this repo | Old Claude memory files here: move the facts into the repo (PR), then delete them. |
+| upgrade-review (nudge) | session start: AI tools changed version since the last review | Tools upgraded: run the upgrade-review skill. |
+| nav-first (nudge) | first broad code search (Grep, rg, grep -r, find) | Code search: graphify query (where, how) or graphify affected (impact) first, then Serena find_symbol / find_referencing_symbols; rg only for text. |
 | knowledge-check (nudge) | after a git commit | Update the Map section of AGENTS.md, run ai-libs --sync or graphify update, as the commit needs. |
 | audit-before-install (gate) | before a package install command | agent-audit this package first. No @latest, no curl-to-shell. |
 | secret-scan (gate) | before git commit or push | Secret scan found a key, token or password. Remove it before commit or push. |
 | no-sudo (gate) | any sudo, su, doas, pkexec | No sudo for agents: give the owner the exact command. Box work on a server: the box tool (MCP server box); outside a sandbox also plain proj-agent <subcommand>; never sudo. |
 | no-destroy (gate) | rm -r of data, home or repo root; force push or delete of main; reset --hard with changes; clean -x at the root; compose down -v; DROP/TRUNCATE on a protected DB | Destructive command: give the owner the exact command and the reason. Rebuildable folders (node_modules, .venv, dist, build) are fine. |
 | pr-rules (gate) | before gh pr create or edit | PR body (pr skill template): Summary with a Mermaid diagram, Evidence (Before and After), Merge Danger (Door: one-way or two-way; Blast Radius), Docs, Changed guards (Ledger on fix PRs), author-sessions block at the end. |
+| merge-approval (gate) | before gh pr merge, or a git push to main or master | Merge only after the owner's latest message says merge or approve (after the ship skill). No push to main or master. |
+| no-verify (gate) | git commit or push with --no-verify (or commit -n) | Never skip the git hooks: fix what the pre-commit check reports, then commit again. |
 | ledger-nudge (nudge) | before an edit in a regression-ledger area | Edit in a docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests. |
 | no-em-dash (nudge) | after a write with U+2014 | Remove the em dash (U+2014). Use '-', ':' or a new sentence. |
 | docs-lookup (nudge) | docs, SDK or library prompt | Library code: context7 query-docs with the ID from the Libraries section (resolve only if missing), then the official docs site. (cached IDs) |
-| feature-grill (nudge) | feature request prompt (add, implement, build ... a feature, endpoint, page; RO, RU) | branch <feature-slug> before the first edit; grill-with-docs (where the project links it; else grilling), for 3+ files to-spec then to-tickets, then /implement per ticket (check-fast, verify-<app> evidence, e2e, commit; draft PR after the first ticket, gh pr ready when all pass make check). Trivial: none needed. |
+| feature-grill (nudge) | feature request prompt (add, implement, build ... a feature, endpoint, page; RO, RU) | branch <feature-slug> before the first edit; grill-with-docs (where the project links it; else grilling), for 3+ files to-spec then to-tickets, then /implement per ticket (check-fast, verify-<app> evidence, e2e, commit; draft PR after the first ticket). Feature done: the ship skill, then ask the owner to merge. Trivial: none needed. |
 | verify-before-done (nudge) | after a code edit in a project with a verify-<app> skill | Before done: check-fast, then verify-<app> on the changed feature (evidence), then e2e tests. |
 | seo-not-enabled (nudge) | SEO prompt, project without claude-seo | claude-seo is off in this project. Suggest: ai-adopt --tools seo. Do not enable it yourself. |
 | blog-not-enabled (nudge) | blog prompt, project without claude-blog | claude-blog is off in this project. Suggest: ai-adopt --tools blog. Do not enable it yourself. |
@@ -153,7 +173,7 @@ opt-in = only in projects that enabled the tool (ai-start, ai-adopt).
 | seo (nudge, opt-in) | SEO prompt | SEO task: claude-seo first (/seo audit <url>, /seo page <url>). Other agents: hand off to Claude only when it is logged in, else follow the skill files. |
 | blog (nudge, opt-in) | blog prompt | Blog task: claude-blog first (claude-blog:blog routes). Post file: blog-*. Site: seo-*. Other agents: hand off to Claude only when it is logged in, else follow the skill files. |
 | browser (nudge, opt-in) | browser prompt (screenshot, click, e2e) | Browser work: Playwright MCP (headless, isolated on servers). |
-| ui (nudge, opt-in) | UI prompt or UI file | UI work: use ui-ux-pro-max. Ask before paid image generation or any npx ...@latest. |
+| ui (nudge, opt-in) | UI prompt or UI file | UI work: use ui-ux-pro-max. Read design-system/<app>/MASTER.md (and the page override) first. No MASTER.md yet: make 3 to 5 directions (--design-system, different styles) as prototype variants (?variant=), the owner picks one, then --persist. Ask before paid image generation or any npx ...@latest. |
 | tracker-flow (nudge, opt-in) | tickets, spec, triage, backlog prompt | to-spec, then to-tickets (on when the project's skills line lists them). Tickets go to docs/tickets/<feature>/ (docs/agents/issue-tracker.md); never GitHub issues or labels without the owner. |
 | domain-docs (nudge, opt-in) | glossary, domain model, ADR prompt | Use grill-with-docs / domain-modeling (GLOSSARY.md, docs/adr/). |
 

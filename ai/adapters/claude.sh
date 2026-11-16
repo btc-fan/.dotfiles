@@ -1086,5 +1086,7 @@ claude_env() {
     fi
     # Ponytail mode (A.3); never PONYTAIL_DEFAULT_MODE (it overrides the file).
     aiconf json-set "$HOME/.config/ponytail/config.json" defaultMode '"full"'
-    ok "Claude add-ons: OMC auto-update off, Ponytail defaultMode full"
+    # One knowledge store (owner 2026-11-16): the repo (Map, GLOSSARY.md, docs/). Claude auto memory is off.
+    aiconf json-set "$CLAUDE_DIR/settings.json" autoMemoryEnabled false
+    ok "Claude add-ons: OMC auto-update off, Ponytail defaultMode full, auto memory off"
 }

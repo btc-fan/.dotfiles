@@ -1,6 +1,6 @@
 # The AI setup: owner guide
 
-Status: 2026-11-15. Branch `ai`. Profile `dev-mac` on all 3 machines (M3, old Intel Mac, ubuntu01).
+Status: 2026-11-16. Branch `ai`. Profile `dev-mac` on all 3 machines (M3, old Intel Mac, ubuntu01).
 
 Read this guide from the top once. After that, use the table of contents and the cheat sheet (section 12).
 
@@ -28,6 +28,7 @@ Rules for this document:
 12. [Cheat sheet](#12-cheat-sheet)
 13. [Troubleshooting](#13-troubleshooting)
 14. [What is not verified](#14-what-is-not-verified)
+15. [Ship, merge, release: the long-term flow](#15-ship-merge-release-the-long-term-flow)
 
 ---
 
@@ -47,20 +48,31 @@ Five ideas carry the whole design:
 3. **A deterministic router, not an LLM, decides when to remind the agent.** One Python script (`router.py`)
    runs on every hook event. It uses regex and project state. It is fast (50 ms measured) and it cannot
    hallucinate.
-4. **Two gates only.** On `dev-mac` the agent is fully autonomous except for two hard stops: `secret-scan`
-   (no key, token or password in a commit or push) and `pr-rules` (a PR body must have the agreed parts).
+4. **Four gates only.** On `dev-mac` the agent is fully autonomous except for four hard stops: `secret-scan`
+   (no key, token or password in a commit or push), `pr-rules` (a PR body must have the agreed parts),
+   `merge-approval` (no merge and no push to main without your OK) and `no-verify` (no skipped git hooks).
 5. **Skills do the method.** Matt Pocock's skills give the engineering flow (grill, spec, tickets, tdd,
    review, PR, retro). Our own skills add verification (`verify-<app>`), prompting other agents and the
    `skills-guide`.
 
-What changed recently (owner decisions, 2026-11-15):
+What changed recently (owner decisions, 2026-11-16, details in section 15):
+- Every PR goes through you. The agent merges only after you say "merge" (or "approve"). The `merge-approval`
+  gate blocks `gh pr merge` and a push to main or master without that.
+- Feature done: the `ship` skill. After a merge: `/improve-codebase-architecture` and `/retro`. You say release:
+  the `release` skill. A good approach in one repo: `promote-skill`. Tools upgraded: `upgrade-review`.
+- ui-ux-pro-max is on in every project; kickoff makes 3 to 5 design variants and you pick one.
+- Markdown only in its places (`ai-docs-check` in `make check`); a pre-commit hook checks staged files.
+- One knowledge store: the repo. Claude auto memory is off; old memory moves into the repo once per project.
+- Navigation: graphify for wide questions, Serena for exact symbols, rg only for text.
+
+Owner decisions, 2026-11-15:
 - `skill-scanner` is off on every machine. Installs are not blocked by scanner rejects.
 - Every tool installs at its newest stable release.
 - Full autonomy on `dev-mac`: `no-sudo`, `no-destroy`, the Stop check and the Claude ask/deny permission rules
-  are off. Only `secret-scan` and `pr-rules` gate.
+  are off. Only `secret-scan` and `pr-rules` gate (2026-11-16: plus `merge-approval` and `no-verify`).
 - Project tiers are removed. Every project gets the full set: Done list, regression ledger
   (`docs/REGRESSIONS.md`), ratchet (`.ai/ratchet.json`), PR extras (Docs, Changed guards, Ledger on fix PRs).
-- All 27 skills of Matt Pocock's official plugin are available. 6 are global. 12 are linked in every project by
+- All 27 skills of Matt Pocock's official plugin are available. 6 are global. 13 (since 2026-11-16) are linked in every project by
   default. 7 are opt-in per project. Details in section 4.
 - The PR body follows Matt's `pr` template, plus a required Mermaid diagram.
 
@@ -125,8 +137,16 @@ flowchart TD
 | Project rules | `<repo>/AGENTS.md` | `ai-adopt` (managed blocks), agents and you (everything else) | Claude (through `<repo>/CLAUDE.md` = `@AGENTS.md`), Codex (reads `AGENTS.md` natively) | Every session in that repo |
 | Project switches | `<repo>/.ai/enabled` | `ai-adopt` | Router, ai-adopt | Every hook event in that repo |
 
-Why Claude needs `CLAUDE.md` and Codex does not: Claude Code reads `CLAUDE.md` files, not `AGENTS.md`. The one
-line `@AGENTS.md` makes Claude import the same file Codex reads. One file, two agents.
+Why a project still has `CLAUDE.md` with `@AGENTS.md`: Claude Code 2.1.277 and later reads `AGENTS.md` by itself,
+but only when the repo has no `CLAUDE.md`. Our `CLAUDE.md` holds one line, `@AGENTS.md`, so Claude always gets the
+same file Codex reads, also in sessions that cannot read `AGENTS.md` directly. The Claude docs say this import never
+loads the file twice. One file, two agents.
+
+Codex reads `~/.codex/AGENTS.override.md` (else `~/.codex/AGENTS.md`), then one file per folder from the repo
+root down (`AGENTS.override.md`, else `AGENTS.md`), up to `project_doc_max_bytes` (we set 65536; the default is
+32 KiB). A file closer to your folder comes later and wins. `ai-doctor` fails when `~/.codex/AGENTS.override.md`
+exists, because it would replace our rules. `~/.codex/rules/*.rules` are command permissions (allow, prompt,
+forbidden), not instructions.
 
 Why the global rules are a link for Claude but a copy for Codex: Claude can import a file (`@path`). Codex
 cannot. So `ai-sync` copies the text into the `AI:core` block of `~/.codex/AGENTS.md`. Run `ai-sync` after a
@@ -268,9 +288,11 @@ Where Codex looks: `~/.agents/skills/` (global) and `<repo>/.agents/skills/` (pr
 |---|---|---|
 | Global, every repo | Matt: grilling, grill-me, wait-what, writing-for-agents, retro, ask-matt. Ours: skills-guide, prompting-claude-and-codex, create-verification-skill, maintain-verification-skill | install.sh |
 | Plugins, global | ai-core (router, context7 MCP, prompting-claude-and-codex), ai-serena (Serena MCP), ponytail (6 skills), i-have-adhd, oh-my-claudecode (35 skills, 19 agents) | install.sh |
-| Project default (every project) | grill-with-docs, domain-modeling, to-spec, to-tickets, tdd, pr, diagnosing-bugs, implement, research, handoff, wayfinder, prototype. Callees linked with them: codebase-design, code-review | `skills:` line in `.ai/enabled` |
-| Project opt-in | implement-spec, improve-codebase-architecture, triage, wizard, to-questionnaire, teach, setup-matt-pocock-skills | `ai-adopt --skills <full list>` |
-| Plugins, opt-in per project | claude-seo, claude-blog, ui-ux-pro-max, ai-playwright | `ai-adopt --tools <id>` (seo, blog, ui, browser) |
+| Global flow skills (ours) | ship, release, promote-skill, upgrade-review (section 15) | install.sh |
+| Project default (every project) | grill-with-docs, domain-modeling, to-spec, to-tickets, tdd, pr, diagnosing-bugs, improve-codebase-architecture, implement, research, handoff, wayfinder, prototype. Callees linked with them: codebase-design, code-review | `skills:` line in `.ai/enabled` |
+| Project opt-in | implement-spec, triage, wizard, to-questionnaire, teach, setup-matt-pocock-skills | `ai-adopt --skills <full list>` |
+| Plugin, on in every project | ui-ux-pro-max (`no-ui` in `.ai/enabled` turns it off) | `ai-adopt` |
+| Plugins, opt-in per project | claude-seo, claude-blog, ai-playwright | `ai-adopt --tools <id>` (seo, blog, browser) |
 | Not installed | Matt's in-progress (chief-of-staff, claude-handoff, loop-me, software-factory, writing-*) and misc (git-guardrails, shoehorn, scaffold-exercises, setup-pre-commit, setup-ts-deep-modules) | Matt's own plugin leaves them out too |
 
 A rerun of `ai-adopt` adds new defaults and keeps the extra opt-ins already on the `skills:` line.
@@ -302,7 +324,7 @@ Typed = you type `/<name>`. Auto = the model starts it when the task fits (you c
 | pr | auto | The PR body template | the PR body |
 | diagnosing-bugs | auto | Fast red command first, then shrink, rank guesses, probe, regression test, fix, clean up | a test, a fix |
 | triage | typed | Moves raw incoming issues through triage states, writes agent-ready briefs | tracker files |
-| improve-codebase-architecture | typed | Survey for "deepening" chances, HTML report, then grill one | a report |
+| improve-codebase-architecture | typed | Survey for "deepening" chances, HTML report, then grill one. Runs after each merge to main (project default). | a report in `$TMPDIR` |
 | wizard | auto | A bash script that walks a human through manual steps (keys, dashboards) | a script you run |
 | handoff | typed | Session summary for another agent, machine or person | a file in `$TMPDIR` |
 | retro | typed | After a session: fixes for the environment, not the code | suggestions |
@@ -324,7 +346,9 @@ Typed = you type `/<name>`. Auto = the model starts it when the task fits (you c
 | Research a library | research (context7 first) | OMC research, web search |
 | Review a diff | Matt code-review (say "Matt code-review skill") | built-in `/code-review`, OMC review |
 | Prove a feature works | verify-<app> | "tests pass" alone |
-| Store knowledge | AGENTS.md, GLOSSARY.md, docs/* | Serena memories, OMC wiki, llm-wiki-compiler |
+| Store knowledge | AGENTS.md, GLOSSARY.md, docs/* | Serena memories, OMC wiki, Claude auto memory (off) |
+| Before the merge | ship (ours) | OMC verify alone |
+| Cut a version | release (ours) | OMC release |
 
 ---
 
@@ -344,11 +368,19 @@ Typed = you type `/<name>`. Auto = the model starts it when the task fits (you c
 | Facts from outside | `docs/research/<topic>.md` | research | grill-with-docs |
 | Bugs that came back | `docs/REGRESSIONS.md` (R-NNN rows) | you, agents (`ai-ledger`) | Before an edit in that area (ledger-nudge) |
 | Test, skip, lint counts | `.ai/ratchet.json` | `ai-ratchet` | `make check` |
-| Code structure | graphify graph (`graphify-out/`, gitignored) | rebuilds after commit, checkout, merge | `graphify query` before `rg` |
-| Symbols | Serena (live, from the code) | nobody (always current) | find_symbol, find_referencing_symbols |
+| Code structure | graphify graph (`graphify-out/`, gitignored) | rebuilds after commit, checkout, merge | Wide questions: `graphify query "<question>" --budget 1500`, impact: `graphify affected "<path>::<symbol>"` |
+| Symbols | Serena (live, from the code) | nobody (always current) | Exact symbol, callers, edits: find_symbol, find_referencing_symbols, replace_symbol_body |
+| Visual direction | `design-system/<app>/MASTER.md` + `pages/<page>.md` | ui-ux-pro-max at kickoff (`--persist`) | Before UI work; code-review checks it |
+| Project-only rules | `AGENTS.md` `## Project rules` | you, agents | Every session (add or tighten, never loosen the global rules) |
+| Release reports | `docs/releases/<version>.md` | release skill | Next release |
 
 What is **not** knowledge storage:
-- Serena memories: off on purpose. The Map is the one place.
+- Serena memories: off on purpose. The Map is the one place. Serena is for its code tools (exact symbols, callers,
+  safe edits), not for notes.
+- Claude auto memory: off since 2026-11-16 (`autoMemoryEnabled: false`). A repo that still has old memory files
+  gets one session-start note (rule `legacy-memory`): move the durable facts into the repo through a PR.
+- Navigation order in a big repo: the Map, then graphify (where, how, impact), then Serena (exact), then a narrow
+  `rg` for text only. A once-per-session reminder (rule `nav-first`) fires on the first broad search.
 - `/handoff` files: they go to `$TMPDIR`. They carry work to another place. They are not kept.
 - OMC `.omc/` state: local, gitignored, except `.omc/skills/`.
 
@@ -793,7 +825,11 @@ flowchart TD
     IMT --> D
     IMS --> D
     D --> PR["pr: Summary + Mermaid, Evidence, Merge Danger"]
-    PR --> R["/retro: fix the environment"]
+    PR --> SH["ship: checks, verify, review, security, UI, gh pr ready"]
+    SH --> OK{"You: merge?"}
+    OK -->|"merge"| M["agent merges (gate checks your word)"]
+    M --> AR["next session: /improve-codebase-architecture + /retro"]
+    AR --> REL["you say release: release skill, full audit, tag"]
     W["Huge unclear effort"] --> WF["/wayfinder<br/>docs/maps/effort"] --> SP
     B["Hard bug"] --> DB["diagnosing-bugs"] --> D
 ```
@@ -979,7 +1015,7 @@ git init
 ai-start
 ```
 
-Every project gets the full set: Done list, ledger, ratchet, 12 default skills (wayfinder and prototype
+Every project gets the full set: Done list, ledger, ratchet, 13 default skills (wayfinder and prototype
 included). There is no tier question.
 
 On the M3: `git add -f AGENTS.md CLAUDE.md .claude/settings.json` if the global ignore hides them (section 8.3).
@@ -1434,11 +1470,14 @@ merge-base. Our tracker is local, and work closes through PRs.
 | After each ticket | Commits on that branch; moves the ticket file to `done/` in the same commit | `/implement` ends with `git commit` |
 | After the first ticket | Pushes and opens a draft PR with the full body | `git push -u origin csv-export`, `gh pr create --draft --body-file ...` |
 | After later tickets | Pushes to the same PR | `git push` |
-| All tickets done, `make check` green | Updates Evidence, marks the PR ready | `gh pr edit --body-file ...`, `gh pr ready` |
-| Merge | Never. You merge. | (you) |
+| All tickets done | Runs the ship skill: `make check`, verify, code-review, security review, UI checklist, Evidence, ready | `gh pr edit --body-file ...`, `gh pr ready` |
+| You say "merge" (or "approve") | Merges, deletes the branch, pulls main | `gh pr merge <n> --squash --delete-branch` |
+| You did not say it | Nothing. The `merge-approval` gate blocks the merge and any push to main | (you merge on GitHub, or say merge) |
+| After the merge | Next session start: `/improve-codebase-architecture`, `/retro`; findings as a PR | `git rev-parse main > .ai/last-review` |
 | A prototype or research branch | Pushes it, never merges it, no PR, links it from the ticket | `prototype/<name>`, `research/<name>` |
 
-Never: a commit on `main` or `master`, `git add -A` without `git status` first, a merge by the agent.
+Never: a commit on `main` or `master`, `git add -A` without `git status` first, a merge without your OK,
+`--no-verify` (the `no-verify` gate).
 
 ---
 
@@ -1475,6 +1514,12 @@ Never: a commit on `main` or `master`, `git add -A` without `git status` first, 
 | Answer is in someone's head | `/to-questionnaire` (opt-in) | a questionnaire |
 | Learn a topic | `/teach` (opt-in) | learning record |
 | Human-only steps | wizard (opt-in) | a script you run |
+| Feature ready | "ship it" (ship skill) | PR ready, a 3-line summary for you |
+| Let the agent merge | "merge" (or "approve") | `gh pr merge` passes the gate |
+| Cut a version | "release v1.2" (release skill) | `docs/releases/1.2.md`, fix PRs, then the tag |
+| Make an approach shared | "promote this skill" | a dotfiles PR |
+| Stray Markdown | `ai-docs-check` | file list; move them under `docs/` |
+| Turn Serena off here | "disable Serena here" | `no-serena` in `.ai/enabled` |
 
 ---
 
@@ -1487,6 +1532,15 @@ Never: a commit on `main` or `master`, `git add -A` without `git status` first, 
    in a test fixture), run the commit yourself in your terminal. The agent must not try to get around the gate
    (no other command, no other agent).
 3. pr-rules: fill the missing parts of the body (section 11) and pass it with `--body-file`.
+4. merge-approval: say "merge" (or "approve") in your next message, or merge on GitHub yourself. A question
+   ("is it approved?") and a "don't merge yet" do not count. Your next message without the word clears it.
+5. no-verify: the agent fixes what the pre-commit hook reports and commits again.
+
+### make check fails on stray Markdown
+
+`ai-docs-check` lists the files. Move each under `docs/<kind>/`, merge it into a doc, or delete it. A file that
+must stay where it is: add its path to `.ai/docs-allow` (your OK). An adopted repo got a baseline of the files that
+were there at adopt time.
 
 ### An MCP server is not connected
 
@@ -1540,5 +1594,98 @@ At the time of writing (2026-11-15):
 - Which `code-review` runs when Claude Code's built-in `/code-review` and Matt's skill have the same name.
 - A live Ubuntu MCP proof: ubuntu01 has no Claude or Codex login yet (run `claude` then `/login`, and
   `codex login --device-auth`).
+- The ship, merge and release flow (2026-11-16) in a real feature session: the gates and nudges are tested
+  (router cases and `ai/tests/test_flow.py` scenarios); the first real feature will show how well agents follow
+  the skills.
+- Serena on Swift and Kotlin code: test it on the first mobile repo; `no-serena` is the fallback.
 
 Next step for each item: run it once in a real project and update this guide.
+
+---
+
+## 15. Ship, merge, release: the long-term flow
+
+Owner decisions of 2026-11-16. The aim: a project that grows for years stays clean. Every check runs on an
+event (a commit, a ready PR, a merge, a release, a tool upgrade). There is no scheduler.
+
+### 15.1 The flow
+
+```mermaid
+flowchart TD
+    K["Kickoff: /grill-with-docs + ui-ux-pro-max 3 to 5 design variants"] --> PICK["You pick one: design-system/app/MASTER.md"]
+    PICK --> F["Feature branch: tickets, /implement, commits"]
+    F -->|"every commit"| PC["pre-commit hook: lint + format on staged files"]
+    F --> SHIP["ship skill: make check, verify-app, Matt code-review, /security-review, UI checklist, Evidence, gh pr ready"]
+    SHIP --> ASK["Agent asks you"]
+    ASK -->|"you say merge"| MERGE["agent: gh pr merge --squash"]
+    ASK -->|"you merge on GitHub"| MERGE
+    MERGE --> NEXT["next session start: /improve-codebase-architecture + /retro, findings as a PR"]
+    NEXT --> F
+    MERGE -->|"several features later, you say release"| REL["release skill: full audit, fix PRs, docs/releases/v.md, tag"]
+```
+
+### 15.2 What runs when
+
+| Event | What runs | How it starts |
+|---|---|---|
+| `git commit` | lint and format check on the staged files (`ai-precommit`) | `.git/hooks/pre-commit` (ai-adopt; a repo with its own hooks keeps them) |
+| Feature done | `ship` skill | you say "ship it", or the feature flow nudge |
+| Before a merge | your word: "merge" or "approve" | `merge-approval` gate |
+| main moved | `/improve-codebase-architecture` and `/retro` on the changed area | `merge-review` rule at session start (`.ai/last-review` holds main at the last review) |
+| You say release | `release` skill: security, architecture, web performance, SEO, blog, UI and accessibility, mobile, API, migrations, tests | you |
+| A tool changed version | `upgrade-review` skill: release notes, what breaks, what to use, a dotfiles PR | `upgrade-review` rule at session start (install.sh runs `ai-versions --record`) |
+| First broad code search in a session | the navigation order | `nav-first` rule (once per session) |
+| A repo with old Claude memory | move the facts into the repo, through a PR | `legacy-memory` rule at session start |
+| A good approach in one repo | `promote-skill`: generalize it, dotfiles PR | you |
+
+### 15.3 The gates on dev-mac
+
+| Gate | Blocks | Lets it through |
+|---|---|---|
+| secret-scan | a commit or push with a key, token or password | removing the secret |
+| pr-rules | a PR body without the template parts | a complete body |
+| merge-approval | `gh pr merge`, `gh api .../pulls/N/merge`, a push to main or master (also `--all`, `--mirror`, `HEAD:main`, inside `bash -c`) | your latest message says merge or approve; a question or "don't merge yet" does not count; your next message without the word clears it |
+| no-verify | `git commit --no-verify`, `git commit -n`, `git push --no-verify` | a commit that passes the hook |
+
+### 15.4 UI from day one
+
+Every project has a UI (web, web view or mobile), so `ui` is on by default (`no-ui` turns it off).
+1. Kickoff: the agent runs `ui-ux-pro-max --design-system` with 3 to 5 different styles and shows them as
+   prototype variants on one route (`?variant=`).
+2. You pick one. `--persist` writes `design-system/<app>/MASTER.md` (a page override: `pages/<page>.md`).
+3. The Map has a `- Design:` line that points to it. CODING_STANDARDS.md has the rule "UI follows MASTER.md",
+   so Matt's code-review checks every UI change against it.
+4. `ship` runs the ui-ux-pro-max pre-delivery checklist on changed screens. `release` audits all screens
+   (accessibility, contrast 4.5:1, touch targets 44 px, usability).
+5. claude-seo and claude-blog stay opt-in (`ai-adopt --tools seo,blog`): use them for public web pages and posts.
+
+### 15.5 Markdown only in its places
+
+`make check` runs `ai-docs-check`. Allowed: the root files (README, AGENTS, CLAUDE, GLOSSARY, CODING_STANDARDS,
+CHANGELOG, CONTRIBUTING, SECURITY, LICENSE), README/AGENTS/CLAUDE in any folder, everything under `docs/` and
+`design-system/`, and the tool folders (`.claude/`, `.agents/`, `.codex/`, `.github/`, `.omc/skills/`). An
+adopted repo gets `.ai/docs-allow` with the files that were already there. A research note
+(`docs/research/*.md`) needs `Date:`, `Sources:` and `Status:` lines at the top (a warning only).
+
+### 15.6 Scenario: a feature on scriptube, from prompt to release (example)
+
+1. You: "add CSV export of transcripts". The feature flow nudge fires. The agent runs `git switch -c csv-export`,
+   then `/grill-with-docs`, `/to-spec`, `/to-tickets`.
+2. Ticket 01: `/implement`. On `git commit` the pre-commit hook runs ruff on the staged files. Draft PR.
+3. Ticket 02 and 03 the same. The agent says "ship it" to itself: `make check` (tests, ratchet, ledger,
+   `ai-docs-check`), verify-scriptube, Matt code-review, `/security-review`. Evidence goes into the PR.
+4. The agent: "PR #41 ready: CSV export, evidence artifacts/csv-export/, two-way door. Say merge and I merge it."
+5. You: "merge". The gate sees your word. `gh pr merge 41 --squash --delete-branch`.
+6. Next session: "main moved since the last architecture review (4 new commits)". The agent runs
+   `/improve-codebase-architecture` on the export module and `/retro`. One finding: two exporters duplicate the
+   row format. It becomes ticket `docs/tickets/export-format/01-one-row-writer.md` and a small PR.
+7. Three features later, you: "release v1.4". The release skill audits, opens two fix PRs, writes
+   `docs/releases/1.4.md`. After your OK it tags `v1.4`.
+
+### 15.7 What the tests prove (2026-11-16)
+
+- Router cases (`ai/tests/cases/*.json`): every new rule fires and stays quiet where it must, for Claude and Codex.
+- `ai/tests/test_flow.py`: a small new project, an existing messy repo (stray Markdown, its own rules and Done,
+  husky hooks), a repo with its own pre-commit hook, a web UI repo with a design system, a mobile repo with Serena
+  off, a repo with three merges over time, and the bypass attempts: 10 ways to merge without your OK, 4 ways to
+  skip the hooks, and a Codex merge.

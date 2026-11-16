@@ -14,6 +14,9 @@ Write technical text with the rules of ASD-STE100 Simplified Technical English. 
 
 Write for that tired reader. Each sentence must survive one read.
 
+Personal files
+Never move, split or rewrite my personal files (shell start-up files, ~/.config, secrets files) outside the task. A "clean up" or "commit everything" request that hits one: leave it as it is and tell me.
+
 Code organisation
 Before you copy a nearby approach, check it against this file. If they contradict, ask me how to proceed.
 

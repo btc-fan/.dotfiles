@@ -101,6 +101,9 @@ def main(argv):
     tier = TIER
     skills = choose_skills(current_all, opts)
     chosen = choose(optin, current, opts)
+    # Every project has a UI (web, web view or mobile; owner 2026-11-16): ui-ux-pro-max is on unless no-ui.
+    if "no-ui" not in current and "ui" not in current and "ui" not in chosen and any(r["id"] == "ui" for r in optin):
+        chosen.append("ui")
 
     plan = []
     plan.append(write_plan(os.path.join(root, ".ai", "base-version"), version + "\n"))
@@ -122,6 +125,9 @@ def main(argv):
     if checks:
         agents = upsert_check_line(agents, checks)
     agents = upsert_done(agents, tier, checks, root)
+    agents = upsert_project_rules(agents)
+    if "ui" in enabled:
+        agents = upsert_design_line(agents, root)
     plan.append(write_plan(agents_path, agents))
     plan.append(write_plan(os.path.join(root, "docs", "REGRESSIONS.md"),
                            read(os.path.join(root, "docs", "REGRESSIONS.md")) or LEDGER_TEMPLATE))
@@ -132,11 +138,15 @@ def main(argv):
                                                                             with_defaults(enabled), root,
                                                                             skill_closure(skills))))
     plan.extend(tracker_docs_plan(root, skill_closure(skills)))
-    if "code-review" in skill_closure(skills) and not os.path.exists(os.path.join(root, "CODING_STANDARDS.md")):
-        plan.append((os.path.join(root, "CODING_STANDARDS.md"), CODING_STANDARDS_DOC))
+    if "code-review" in skill_closure(skills):
+        standards = read(os.path.join(root, "CODING_STANDARDS.md"))
+        new_standards = coding_standards_text(standards, "ui" in enabled)
+        if new_standards != standards:
+            plan.append((os.path.join(root, "CODING_STANDARDS.md"), new_standards))
     plan = [p for p in plan if p]
     steps = knowledge_steps(root, opts, with_defaults(enabled)) + check_steps(root, opts, tier, checks, plan) \
-        + ratchet_steps(root) + skill_link_steps(root, skill_closure(skills)) + verify_link_steps(root)
+        + ratchet_steps(root) + docs_baseline_steps(root) + skill_link_steps(root, skill_closure(skills)) \
+        + verify_link_steps(root) + precommit_steps(root, checks)
 
     if not plan and not steps:
         print("ai-%s: nothing to change (base v%s)" % (mode, version))
@@ -434,11 +444,11 @@ GI_END = "# <<< AI tools <<<"
 GI_RX = re.compile(r"^%s\n.*?^%s\n?" % (re.escape(GI_START), re.escape(GI_END)), re.M | re.S)
 GI_LINES = [".omc/*", "!.omc/skills/", ".omx/", ".codex/", ".claude/*", "!.claude/settings.json", ".serena/*",
             "!.serena/project.yml", "graphify-out/", ".ai/*", "!.ai/enabled", "!.ai/ratchet.json",
-            "!.ai/destructive.txt"]
+            "!.ai/destructive.txt", "!.ai/docs-allow"]
 GI_OLD_HEAD = "# AI tools (ai-adopt): caches and generated graph"     # unmarked block of older ai-adopt runs
 GI_OLD_LINES = {".serena/cache/", ".serena/project.local.yml", ".serena/logs/", "graphify-out/"}
 ENABLED_HEAD = ("# ai-adopt: the project tier (always long), the mattpocock skills linked here (skills: a, b | "
-                "none), then opt-in tool ids, one per line; no-serena / no-graph / no-stop-check switch a default off")
+                "none), then opt-in tool ids, one per line; no-serena / no-graph / no-ui / no-stop-check switch a default off")
 
 
 def gitignore_text(text, enabled=None, root=None, skill_links=()):
@@ -790,7 +800,7 @@ def load_json(path):
 # drops the old line of an earlier run; the router reads `tier: long`.
 TIER = "long"
 TIER_RX = re.compile(r"^tier\s*:\s*(\S+)$", re.I)
-CHECK_PATHS = [".ai/ratchet.json"]
+CHECK_PATHS = [".ai/ratchet.json", ".ai/docs-allow"]
 CHECK_LINE_RX = re.compile(r"^- Check: .*$", re.M)
 DONE_RX = re.compile(r"^<!-- AI:done START[^>]*-->\n.*?^<!-- AI:done END -->\n?", re.M | re.S)
 OWN_DONE_RX = re.compile(r"^##\s+(Done|Definition of done)\b", re.M | re.I)
@@ -824,7 +834,7 @@ OPTIN_SKILLS = ("grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "
                 "handoff", "wayfinder", "prototype", "triage", "wizard", "to-questionnaire", "teach",
                 "setup-matt-pocock-skills")
 DEFAULT_SKILLS = ("grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd", "pr", "diagnosing-bugs",
-                  "implement", "research", "handoff", "wayfinder", "prototype")
+                  "improve-codebase-architecture", "implement", "research", "handoff", "wayfinder", "prototype")
 # Skills a pick calls with the Skill tool (read from the upstream SKILL.md files); grilling is global.
 SKILL_CALLEES = {"grill-with-docs": ("domain-modeling",), "to-spec": ("domain-modeling",),
                  "to-tickets": ("domain-modeling",), "tdd": ("codebase-design", "code-review"),
@@ -844,8 +854,11 @@ Local, in this repo. No GitHub issues, labels or remote calls without the owner'
   the proven journey.
 - Close a ticket by moving its file to `docs/tickets/<feature-slug>/done/` in the PR that finishes it.
 - Work closes through PRs: one branch per feature (named after the slug), a draft PR after the first ticket,
-  `gh pr ready` when all tickets pass `make check`. The owner merges.
-- Research notes (research): `docs/research/<topic>.md`, each claim with its source.
+  the ship skill, then `gh pr ready`. Every PR goes through the owner: the agent merges only after the
+  owner says merge.
+- Research notes (research): `docs/research/<topic>.md`, each claim with its source. The first lines say
+  `Date:`, `Sources:` and `Status:` (current, superseded by <file>, or decided in ADR NNNN).
+- Release reports (release skill): `docs/releases/<version>.md`.
 
 ## Wayfinding operations
 
@@ -1114,6 +1127,110 @@ def check_steps(root, opts, tier, checks, plan):
         return []
     return [("time %s once (writes the seconds into the Map)" % checks["fast_cmd"],
              lambda: measure_check(root, checks))]
+
+
+PROJECT_RULES_RX = re.compile(r"^##\s+(Project\s+)?Rules\b", re.M | re.I)
+PROJECT_RULES = ("## Project rules\n<!-- Rules for this repo only, one line each. They may add or tighten the global "
+                 "rules, never loosen them; on a conflict the agent asks the owner. -->\n")
+
+
+def upsert_project_rules(agents):
+    """An empty "## Project rules" section once. A repo with its own "## Rules" section keeps it (same job)."""
+    if PROJECT_RULES_RX.search(agents):
+        return agents
+    return agents.rstrip("\n") + "\n\n" + PROJECT_RULES
+
+
+DESIGN_LINE_RX = re.compile(r"^- Design: .*$", re.M)
+
+
+def upsert_design_line(agents, root):
+    """One "- Design:" line in the Map: where the visual direction lives (ui-ux-pro-max MASTER.md)."""
+    m = MAP_RX.search(agents)
+    if not m or DESIGN_LINE_RX.search(m.group(0)):
+        return agents
+    slug = re.sub(r"[^a-z0-9]+", "-", os.path.basename(root).lower()).strip("-") or "app"
+    master = os.path.join("design-system", slug, "MASTER.md")
+    state = "" if os.path.isfile(os.path.join(root, master)) else (
+        " (missing: at kickoff, ui-ux-pro-max --design-system makes 3 to 5 directions as prototype variants, the owner "
+        "picks one, then --persist writes it)")
+    line = "- Design: `%s` and `design-system/%s/pages/<page>.md` overrides; read them before UI work%s." % (
+        master, slug, state)
+    block = m.group(0)
+    new = block.replace("\n" + MAP_END, "\n" + line + "\n" + MAP_END, 1)
+    return agents[:m.start()] + new + agents[m.end():]
+
+
+UI_STANDARD = ("- UI follows `design-system/<app>/MASTER.md` and its page overrides (ui-ux-pro-max). Why: one visual "
+               "language across screens; the reviewer checks new UI against it.")
+
+
+def coding_standards_text(text, ui):
+    """CODING_STANDARDS.md: the template when missing; the UI rule appended once when UI is on."""
+    out = text if text is not None else CODING_STANDARDS_DOC
+    if ui and "design-system/" not in out:
+        out = out.rstrip("\n") + "\n" + UI_STANDARD + "\n"
+    return out
+
+
+def docs_baseline_steps(root):
+    """The Markdown placement baseline (.ai/docs-allow, committed) once: files outside docs/ today pass."""
+    if os.path.isfile(os.path.join(root, ".ai", "docs-allow")) or not docs_strays(root):
+        return []
+    return [("ai-docs-check --init (Markdown files outside docs/ today pass; a new one fails make check)",
+             lambda: run_step([sys.executable, os.path.join(BIN, "ai-docs-check"), "--init", "--dir", root], root, 120))]
+
+
+def docs_strays(root):
+    """Markdown files outside the allowed places today (ai-docs-check rules), [] when none or on error."""
+    import importlib.machinery
+    import importlib.util
+    try:
+        loader = importlib.machinery.SourceFileLoader("ai_docs_check", os.path.join(BIN, "ai-docs-check"))
+        spec = importlib.util.spec_from_loader("ai_docs_check", loader)
+        mod = importlib.util.module_from_spec(spec)
+        sys.dont_write_bytecode = True
+        loader.exec_module(mod)
+        files = mod.git_files(root) or []
+        allow = mod.read_allow(root)
+        return [f for f in files if mod.is_md(f) and not mod.allowed(f, allow)]
+    except (OSError, ImportError, AttributeError):
+        return []
+
+
+PRECOMMIT_MARK ="# ai-adopt pre-commit (ai-precommit)"
+PRECOMMIT_HOOK = """#!/bin/sh
+%s: lint and format check on the staged files. Local, not committed.
+command -v ai-precommit >/dev/null 2>&1 || { echo "ai-precommit not on PATH: pre-commit check skipped"; exit 0; }
+exec ai-precommit
+""" % PRECOMMIT_MARK
+
+
+def precommit_steps(root, checks):
+    """.git/hooks/pre-commit runs ai-precommit, when the repo has no hook of its own and no core.hooksPath
+    (husky, lefthook, pre-commit keep theirs: printed)."""
+    hooks_path = (git(root, "config", "--get", "core.hooksPath") or "").strip()
+    if hooks_path:
+        print("keep: core.hooksPath is %s (the repo's own hooks); no ai pre-commit hook" % hooks_path)
+        return []
+    git_dir = (git(root, "rev-parse", "--git-path", "hooks") or "").strip()
+    if not git_dir:
+        return []
+    hook = os.path.join(root, git_dir) if not os.path.isabs(git_dir) else git_dir
+    path = os.path.join(hook, "pre-commit")
+    cur = read(path)
+    if cur is not None and PRECOMMIT_MARK not in cur:
+        print("keep: .git/hooks/pre-commit is the repo's own; no ai pre-commit hook")
+        return []
+    if cur == PRECOMMIT_HOOK:
+        return []
+
+    def apply():
+        os.makedirs(hook, exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(PRECOMMIT_HOOK)
+        os.chmod(path, 0o755)
+    return [("install .git/hooks/pre-commit (ai-precommit: lint and format check on staged files, local)", apply)]
 
 
 def ratchet_steps(root):

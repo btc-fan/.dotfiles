@@ -1,0 +1,54 @@
+{
+ "rule": "no-verify",
+ "cases": [
+  {
+   "name": "commit --no-verify",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "git commit --no-verify -m 'wip'"}},
+   "project": {"git": true}
+  },
+  {
+   "name": "commit -n (short form)",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "git commit -nm 'wip'"}},
+   "project": {"git": true}
+  },
+  {
+   "name": "push --no-verify",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "git push --no-verify origin feature-x"}},
+   "project": {"git": true}
+  },
+  {
+   "name": "inside bash -c",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "bash -c \"git commit --no-verify -m x\""}},
+   "project": {"git": true}
+  },
+  {
+   "name": "plain commit",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "git commit -m 'feat: add export'"}},
+   "project": {"git": true}
+  },
+  {
+   "name": "the words in a message are text",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "git commit -m 'docs: never use --no-verify'"}},
+   "project": {"git": true}
+  },
+  {
+   "name": "git log -n 5 is not a commit",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "git log -n 5"}},
+   "project": {"git": true}
+  }
+ ]
+}
