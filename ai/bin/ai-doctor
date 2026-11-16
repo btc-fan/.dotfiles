@@ -93,6 +93,7 @@ def main(argv):
     check_hooks_absolute()
     check_hook_paths()
     check_serena_config()
+    check_serena_plugin()
     check_no_duplicate_layers()
     check_skill_dups()
     check_rules_2026_11_16(live=not quick)
@@ -849,6 +850,15 @@ def check_serena_config():
     say("PASS" if not miss else "FAIL", "Serena config: tools interface, no shell tool, no dashboard, answers cut at 40k, "
         "no memories (no overlap with built-ins and the AGENTS.md Map)",
         ("not set: %s (re-run install.sh)" % ", ".join(miss)) if miss else "")
+
+
+def check_serena_plugin(path=os.path.join(AI_DIR, "marketplace", "plugins", "ai-serena", ".mcp.json")):
+    """Without alwaysLoad: true Claude defers the Serena tools behind tool search and agents do not see them
+    (owner decision 2026-11-16, ticket 10)."""
+    server = ((load_json_file(path) or {}).get("mcpServers") or {}).get("serena") or {}
+    ok = server.get("alwaysLoad") is True
+    say("PASS" if ok else "FAIL", "ai-serena plugin: alwaysLoad true (Serena tools visible from the first turn)",
+        "" if ok else "set \"alwaysLoad\": true for serena in %s" % path)
 
 
 def check_no_duplicate_layers():

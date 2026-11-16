@@ -42,10 +42,12 @@ Worked example: `README.md`, section 3, example D.
 
 | Server | Scope | Contract |
 |---|---|---|
-| Serena 2.1.0 | global (Claude plugin ai-serena on at user scope, Codex, Hermes); `no-serena` opts a project out; mode no-memories | `serena.md` |
+| Serena 2.1.0 | global (Claude plugin ai-serena on at user scope with `alwaysLoad: true`, Codex, Hermes); `no-serena` opts a project out; mode no-memories | `serena.md` |
 | context7 4.6.0 | global | `context7.md` |
 | box (ours, ai-core) | global; does something only on a server with `proj-agent` | `box.md` |
 | Playwright MCP | per project only | `playwright.md` |
+
+The OMC LSP and ast-grep tools (`lsp_*`, `ast_grep_*`) come with OMC and are only a fallback behind Serena; this setup installs nothing for them.
 
 ## Plugins and skills
 
