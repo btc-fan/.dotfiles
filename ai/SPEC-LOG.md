@@ -607,3 +607,34 @@ Seen on the owner's M3 Mac (macOS 15.5), read only:
   skip them, so the first broad search of a session gets one reminder.
 - Adopting from a worktree needs the main checkout's name and venv (found on scriptube); a branch made from its
   base tracks the base, so the push needs -u origin HEAD (found on radar999 and scriptube).
+
+
+## 2026-11-16: enforcement over text (owner, grilling Q1 to Q37)
+- Finding: the install was complete (ai-doctor 0 fail), but agents skipped most rules and skills (3 skill uses in 7
+  days). Text in CLAUDE.md and AGENTS.md is advisory; only hooks and gates were followed. Spec:
+  `docs/specs/ai-setup-enforcement.md`.
+- MCP: context7 and Serena (MCP) and graphify (CLI) on by default; Playwright and box opt-in; dropped tools stay
+  dropped; organization connectors and anthropic-skills are out of scope. Every MCP, gate and skill decision ships
+  for Claude Code and Codex together.
+- Mandatory means used: in a code repo with a graph, the first broad search of a session is denied once with
+  "run graphify query first". docs-lookup fires only for a library from the Libraries block or a dependency-file
+  edit (it was missed 72 of 88 times: a noisy rule teaches agents to ignore all rules).
+- OMC and OMX stay on everywhere (the owner uses them all the time). Owner rules win by mechanism, not by text: a
+  winner gate on the Skill tool enforces the overlap table of the skills guide; OMC and OMX win orchestration
+  (autopilot, ralph, team, ultragoal, ask, babysit, fix-ci, cancel). A typed /name of the owner always runs.
+  Reason: skillOverrides cannot hide plugin skills (Claude Code docs), so the duplicates stay visible.
+- ~/.claude/CLAUDE.md: only the root rules import, the machine line and a 3-line OMC note. Global and project
+  rules are mandatory for every agent and every OMC or OMX flow; nothing skips, overrides or removes them.
+- Typed-only skills (10): the router gives the SKILL.md path to read and follow; upstream files stay unchanged.
+- Gated skills: writing-for-agents (agent-doc edits), diagnosing-bugs (Stop block on a bug or performance
+  prompt), ship (before gh pr ready). A skill card (under 1.5k characters) is injected at session start.
+  ai-doctor shows per-skill use and gated misses.
+- Git: the 4 gates and the workflow stay. herdr CLI on PATH; the router fills main: from the hook payload.
+  gh writes other than the PR commands ask the owner. One workflow for every repo; ai-adopt makes a make check
+  in every repo. A repo without a remote: ai-adopt warns, ship stops. ai-adopt commits on a branch, not on main.
+- Other: RTK does not rewrite in auto mode (permission_mode in the hook input); the auto mode environment of one
+  repo lives in that repo; the router L2 question fires only on owner prompts.
+- Empty projects: ai-adopt sets up an empty git repo and a docs-only repo fully, refuses a non-git folder
+  without --init, and the graph and Serena rules switch on at the first session after code appears.
+- Validation: unit, install, behaviour (3 runs, 90% or more) and evolution tests on generated fixtures, with a
+  baseline first and an independent review per phase. Mac first, 7 days of numbers, then the home server.
