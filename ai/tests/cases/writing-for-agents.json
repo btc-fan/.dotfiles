@@ -110,6 +110,139 @@
     {"event": "PreToolUse", "payload": {"tool_name": "apply_patch", "turn_id": "t1",
                                         "tool_input": {"command": "*** Begin Patch\n*** Update File: AGENTS.md\n@@\n-a\n+b\n*** End Patch\n"}}}
    ]
+  },
+  {
+   "name": "owner skip (sudo ai-gate-skip writing-for-agents): allow, logged",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/AGENTS.md"}},
+   "gate_skip": "writing-for-agents {{SOON}} owner edits by hand",
+   "contains": "skipped by the owner",
+   "state_contains": {"gates.log": "SKIP writing-for-agents"}
+  },
+  {
+   "name": "an expired owner skip does not count",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/AGENTS.md"}},
+   "gate_skip": "writing-for-agents {{PAST}} old skip"
+  },
+  {
+   "name": "shell redirect into AGENTS.md without the skill: deny",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "echo '- new rule' >> AGENTS.md"}},
+   "contains": "[ai gate writing-for-agents]"
+  },
+  {
+   "name": "heredoc into CLAUDE.md: deny",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "cat > docs/CLAUDE.md <<'EOF'\n# x\nEOF"}}
+  },
+  {
+   "name": "tee onto a SKILL.md: deny",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "printf 'x' | tee -a ai/skills/ship/SKILL.md"}}
+  },
+  {
+   "name": "sed -i on AGENTS.md: deny",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "sed -i '' 's/a/b/' AGENTS.md"}}
+  },
+  {
+   "name": "cp onto CLAUDE.local.md: deny",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "cp /tmp/notes.md CLAUDE.local.md"}}
+  },
+  {
+   "name": "mv of a SKILL.md into a folder: deny",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "mv draft/SKILL.md skills/new/"}}
+  },
+  {
+   "name": "bash -c with a redirect into AGENTS.md: deny",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "bash -c \"echo x > AGENTS.md\""}}
+  },
+  {
+   "name": "Codex shell write to AGENTS.md: deny (block)",
+   "expect": "deny",
+   "agent": "codex",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "turn_id": "t1", "tool_input": {"command": "echo x >> AGENTS.md"}}
+  },
+  {
+   "name": "shell read of AGENTS.md, a write of another file, and the name in quoted text: allow",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "cat AGENTS.md > /tmp/copy.txt && echo 'edit AGENTS.md' && sed -n 1,5p CLAUDE.md && cp AGENTS.md /tmp/x.md 2>&1"}},
+   "state_not_contains": {"misses.jsonl": "writing-for-agents"}
+  },
+  {
+   "name": "shell write after the skill: allow",
+   "expect": "allow",
+   "steps": [
+    {"event": "PostToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "writing-for-agents"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "echo x >> AGENTS.md"}}}
+   ]
+  },
+  {
+   "name": "a skill row of this session in the shared log is not a proof (the session state holds it)",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"session_id": "s-fixed", "tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/AGENTS.md"}},
+   "state_files": {"fired.jsonl": "{\"ts\": \"{{NOW}}\", \"session\": \"s-fixed\", \"kind\": \"skill\", \"via\": \"tool\", \"skill\": \"writing-for-agents\"}\n"}
+  },
+  {
+   "name": "a proof survives the rotation of the shared log",
+   "expect": "allow",
+   "steps": [
+    {"event": "PostToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "writing-for-agents"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/AGENTS.md"}},
+     "state_files": {"fired.jsonl": ""}}
+   ]
+  },
+  {
+   "name": "a read of a SKILL.md outside the skill install folders is not a proof",
+   "expect": "deny",
+   "steps": [
+    {"event": "PostToolUse", "payload": {"tool_name": "Read",
+                                         "tool_input": {"file_path": "{{PROJ}}/ai/skills/writing-for-agents/SKILL.md"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/AGENTS.md"}}}
+   ]
+  },
+  {
+   "name": "a read of the project link .claude/skills/<name>/SKILL.md (relative) is a proof",
+   "expect": "allow",
+   "steps": [
+    {"event": "PostToolUse", "payload": {"tool_name": "Read",
+                                         "tool_input": {"file_path": ".claude/skills/writing-for-agents/SKILL.md"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/AGENTS.md"}}}
+   ]
+  },
+  {
+   "name": "a read from a plugin cache is a proof",
+   "expect": "allow",
+   "steps": [
+    {"event": "PostToolUse", "payload": {"tool_name": "Read",
+                                         "tool_input": {"file_path": "{{HOME}}/.claude/plugins/cache/ai/ai-core/1.0.0/skills/writing-for-agents/SKILL.md"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/AGENTS.md"}}}
+   ]
+  },
+  {
+   "name": "a read of the machine copy under ~/.local/share/ai/plugins is a proof",
+   "expect": "allow",
+   "steps": [
+    {"event": "PostToolUse", "payload": {"tool_name": "Bash",
+                                         "tool_input": {"command": "cat {{HOME}}/.local/share/ai/plugins/ai-core/skills/writing-for-agents/SKILL.md"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/AGENTS.md"}}}
+   ]
   }
  ]
 }

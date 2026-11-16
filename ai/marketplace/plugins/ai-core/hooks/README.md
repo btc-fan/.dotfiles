@@ -21,14 +21,19 @@ Skill card: at every SessionStart (startup, resume, clear, compact) the router s
 `routing.yaml`: the must-use skills with one trigger line each, and the folder of each installed typed-only skill
 (read `<dir>/<name>/SKILL.md` and follow it). ai-render fails when the worst case passes 1500 characters. Skill
 use is logged to `fired.jsonl` (kind `skill`) for a Skill call, a typed `/name` and a read of a SKILL.md (Claude
-Read, or cat, head, sed and the like in a shell command); `ai-doctor` counts it over 30 days.
+Read, or cat, head, sed and the like in a shell command); `ai-doctor` counts it over 30 days (`fired.jsonl` and
+the rotated `fired.jsonl.1`). The gates read the proof from the session state, not from the shared log. A read
+counts only from a skill install folder: `.claude/skills`, `.agents/skills` (project or home), a plugin cache
+(`~/.claude/plugins`, `~/.codex/plugins`) or the machine copy (`~/.local/share/ai/plugins`, `/opt/agent-plugins`).
+A repo's own `ai/skills/<name>/SKILL.md` is not a proof.
 
 Skill gates (`require_skill: <name>` in `routing.yaml`): the rule passes only when that skill has a proof in this
 session (a Skill call, a typed `/name`, or a read of its SKILL.md). With `strength: gate` a PreToolUse deny
-(writing-for-agents before Edit, Write, MultiEdit or Codex `apply_patch` of AGENTS.md, CLAUDE.md, CLAUDE.local.md or
-a SKILL.md; ship before `gh pr ready`). With `strength: stop` the prompt arms the rule and the next Stop gets
+(writing-for-agents before Edit, Write, MultiEdit, Codex `apply_patch` or a shell write (`>`, `>>`, `tee`, `sed -i`,
+`cp`, `mv`) of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md; ship before `gh pr ready`). With `strength: stop` the prompt arms the rule and the next Stop gets
 `{"decision": "block"}` when the skill was not used (diagnosing-bugs), once per session per rule. Each block is a
-row in `misses.jsonl`; `ai-doctor` shows these misses over 30 days.
+row in `misses.jsonl`; `ai-doctor` shows these misses over 30 days. The owner skip below works for these rules
+too (gate name = rule id), and for `winner-gate` and `nav-first`.
 
 ## Gates
 
@@ -68,13 +73,17 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   root, `compose down -v`, `docker volume rm|prune`; per repo `.ai/destructive.txt` (`db:` protected databases
   for SQL DROP/TRUNCATE/DELETE without WHERE and `dropdb`; `cmd:` extra prefixes). Attack table:
   `ai/tests/cases/no-destroy.json`.
-- winner-gate (Claude only): a Skill tool call of a loser in `winners` of `ai/routing.yaml` (the overlap table
-  of the skills guide, section 5) is denied with the winner's name, also in a subagent. A typed /name never
-  reaches the Skill tool. Orchestration skills pass, and after one of them the skills it calls pass for the
-  rest of the session. Codex has no Skill tool event, so there the table is advice only.
-- graph-first (the nav-first rule): in a repo with code and a fresh `graphify-out/graph.json` (graph not off by
-  `no-graph`), the first broad search of a session (Grep, or the nav-first command regex) is denied once with
-  "run graphify query first"; the next search passes. A session that already ran graphify or a Serena tool
+- winner-gate: a Skill tool call of a loser in `winners` of `ai/routing.yaml` (the overlap table of the skills
+  guide, section 5) is denied with the winner's name, also in a subagent; a typed-only winner gets "read <its
+  SKILL.md> and follow it". A typed /name never reaches the Skill tool. Codex has no Skill tool: there a shell
+  read of a losing skill file (`~/.codex/skills/<name>/SKILL.md` = `oh-my-codex:<name>`, a SKILL.md in an
+  `oh-my-claudecode` folder) is denied the same way. `winners.orchestration` (autopilot, ralph, team, ultragoal)
+  pass, and after one of them the losers pass for the rest of the session. ask, babysit, fix-ci and cancel are
+  no losers: they pass but unlock nothing.
+- graph-first (the nav-first rule, `deny_once_when: graph`): in a repo with code and a `graphify-out/graph.json`
+  (graph not off by `no-graph`), the first broad search of a session (Grep, or the nav-first command regex) is
+  denied once with "run graphify query first" (a stale graph: "run graphify update, then graphify query"); the
+  next search passes. A session that already ran graphify or a Serena tool
   passes (PostToolUse marks it).
 
 A gate decision is sent even when the state dir cannot be written; an internal error before a decision
@@ -108,7 +117,7 @@ key, token, secret or password.
   not applied); `--body-file -` (stdin) can only be checked when the heredoc is in the command.
 - Codex: file edits by `apply_patch` are not checked by no-em-dash or graph-update (Bash and Claude
   Edit/Write only); re-inject after compaction uses SessionStart source `compact`.
-- The writing-for-agents gate sees file tools only: a shell write (`sed -i`, `echo >>`) to AGENTS.md is not gated.
+- The writing-for-agents gate does not see a write by a script or an interpreter (`python -c`, `perl -i`, `dd`).
 - Builtin secret patterns are a fixed list; new token formats need a new pattern or gitleaks.
 - no-destroy cannot see through a script file, `find -delete` or `xargs rm`; the sandbox, branch protection
   and a database role without DROP/TRUNCATE are the real boundary.

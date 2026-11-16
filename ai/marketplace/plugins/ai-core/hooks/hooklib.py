@@ -37,9 +37,10 @@ RTK_WRAPPERS = {"rtk"}
 # ---------------------------------------------------------------- shell parsing
 
 class Stage(object):
-    def __init__(self, words, op):
+    def __init__(self, words, op, redirs=()):
         self.words = words            # [(text, quoted)]
         self.op = op                  # operator after this stage, or ""
+        self.redirs = list(redirs)    # [(operator, target)], e.g. (">>", "AGENTS.md")
         self.nxt = None
         self.env = {}
         self.wrappers = []
@@ -204,21 +205,22 @@ def tokenize(s):
 
 
 def split_stages(toks):
-    stages, words, skip_next = [], [], False
+    stages, words, redirs, redir_op = [], [], [], None
     for text, kind in toks:
-        if skip_next and kind is not None and kind != "redir" and text not in OPS:
-            skip_next = False
+        if redir_op is not None and kind is not None and kind != "redir" and text not in OPS:
+            redirs.append((redir_op, text))      # the redirection target is not a command word
+            redir_op = None
             continue
-        skip_next = False
+        redir_op = None
         if kind == "redir":
-            skip_next = True
+            redir_op = text
             continue
         if kind is None and text in OPS:
-            stages.append(Stage(words, text))
-            words = []
+            stages.append(Stage(words, text, redirs))
+            words, redirs = [], []
             continue
         words.append((text, bool(kind)))
-    stages.append(Stage(words, ""))
+    stages.append(Stage(words, "", redirs))
     stages = [s for s in stages if s.exe or s.op in ("(",)]
     for a, b in zip(stages, stages[1:]):
         a.nxt = b
@@ -270,6 +272,54 @@ def shell_inner_text(st):
             if re.match(r"^-[a-zA-Z]*c[a-zA-Z]*$", a) and i + 1 < len(st.args):
                 return st.args[i + 1]
     return None
+
+
+def write_targets(stages, cwd):
+    """Files a shell command writes: redirections (> >> &>), tee, sed -i, and the destination of cp and mv.
+    shortcut: perl -i, dd of=, a script or an interpreter (python -c) are not seen; add them when one shows up."""
+    out = []
+    for st in stages:
+        out += [t for op, t in st.redirs if op.lstrip("&") in (">", ">>")]
+        if st.exe == "tee":
+            out += [a for a in st.args if a and not a.startswith("-")]
+        elif st.exe == "sed" and any(a.startswith("--in-place") or re.match(r"^-[a-zA-Z]*i", a) for a in st.args):
+            out += sed_files(st.args)
+        elif st.exe in ("cp", "mv"):
+            out += copy_targets(st.args, cwd)
+    return out
+
+
+def sed_files(args):
+    """The file arguments of sed: the first free word is the script unless -e or -f gave it."""
+    files, script_given, it = [], False, iter(args)
+    for a in it:
+        if a in ("-e", "-f", "--expression", "--file"):
+            script_given = True
+            next(it, None)
+        elif a.startswith(("--expression=", "--file=")):
+            script_given = True
+        elif a and not a.startswith("-"):
+            files.append(a)
+    return files if script_given else files[1:]
+
+
+def copy_targets(args, cwd):
+    """cp and mv: the destination, or each source name inside the destination folder (-t DIR, a folder)."""
+    folder, paths, it = None, [], iter(args)
+    for a in it:
+        if a in ("-t", "--target-directory"):
+            folder = next(it, None)
+        elif a.startswith("--target-directory="):
+            folder = a.split("=", 1)[1]
+        elif a and not a.startswith("-"):
+            paths.append(a)
+    if folder is None:
+        if len(paths) < 2:
+            return []
+        folder = paths.pop()
+        if not (folder.endswith("/") or os.path.isdir(os.path.join(cwd, os.path.expanduser(folder)))):
+            return [folder]
+    return [os.path.join(folder, os.path.basename(p.rstrip("/"))) for p in paths]
 
 
 # ---------------------------------------------------------------- escape hatch (owner only)
@@ -1995,6 +2045,11 @@ def project_skills(root):
                                     for d in (os.path.join(".claude", "skills"), os.path.join(".agents", "skills")))]
 
 
+def short_skill(name):
+    """The bare skill name: "/ai-core:Ship" and "ship" are the same skill."""
+    return str(name).strip().lstrip("/").split(":")[-1].lower()
+
+
 def skill_md(root, name, agent="claude"):
     """The SKILL.md of skill `name` that exists for this agent: the project link first (.claude/skills for
     Claude, .agents/skills for Codex), then this machine's copy. None when it is not installed."""
@@ -2584,58 +2639,19 @@ def origin_slug(root):
     return "Repo: %s/%s (origin remote)." % (m.group(1), m.group(2)) if m else ""
 
 
-def project_libs(root):
-    """Library names this project uses: Libraries rows of AGENTS.md plus direct deps of the root manifests."""
-    names = set()
-    doc = libs_doc(root)
-    if doc:
-        names.update(doc["rows"])
-    if not root:
-        return names
-    pkg = read_text(os.path.join(root, "package.json"))
-    if pkg:
-        try:
-            data = json.loads(pkg)
-            for key in ("dependencies", "devDependencies", "peerDependencies"):
-                names.update(k.lower() for k in (data.get(key) or {}))
-        except ValueError:
-            pass
-    for rel, rx in (("pyproject.toml", r"^\s*[\"']([A-Za-z0-9][A-Za-z0-9._-]*)"),
-                    ("requirements.txt", r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)"),
-                    ("go.mod", r"^\s*(?:require\s+)?[\w.-]+\.[a-z]+/(?:[\w.-]+/)*([\w.-]+)\s+v\d")):
-        text = read_text(os.path.join(root, rel)) or ""
-        names.update(norm_pypi(x) for x in re.findall(rx, text, re.M))
-    cargo = read_text(os.path.join(root, "Cargo.toml")) or ""
-    m = re.search(r"^\[dependencies\]\s*$(.*?)(?=^\[|\Z)", cargo, re.M | re.S)
-    if m:
-        names.update(x.lower() for x in re.findall(r"^\s*([A-Za-z0-9_-]+)\s*=", m.group(1), re.M))
-    return {n for n in names if len(n) >= 3}
-
-
-# Popular libraries that are not plain English words (a prompt naming one is a docs question).
-KNOWN_LIBS = {
-    "react", "nextjs", "next.js", "vue", "nuxt", "svelte", "sveltekit", "angular", "solidjs", "astro", "remix",
-    "tailwind", "tailwindcss", "shadcn", "vite", "webpack", "esbuild", "typescript", "nodejs", "deno", "bun",
-    "fastapi", "django", "flask", "starlette", "pydantic", "sqlalchemy", "alembic", "celery", "pytest", "numpy",
-    "pandas", "polars", "scipy", "matplotlib", "plotly", "streamlit", "langchain", "llamaindex", "openai",
-    "anthropic", "transformers", "pytorch", "tensorflow", "keras", "scikit-learn", "sklearn", "httpx", "aiohttp",
-    "prisma", "drizzle", "sequelize", "typeorm", "mongoose", "postgres", "postgresql", "psycopg", "asyncpg",
-    "redis", "kafka", "graphql", "apollo", "trpc", "zod", "axios", "jest", "vitest", "playwright", "puppeteer",
-    "cypress", "electron", "tauri", "expo", "react-native", "flutter", "supabase", "firebase", "stripe",
-    "tokio", "axum", "actix", "serde", "diesel", "gin", "fiber", "echo", "gorm", "spring", "hibernate", "rails",
-    "laravel", "symfony", "kubernetes", "terraform", "docker", "ansible", "htmx", "alpinejs", "echarts",
-    "chart.js", "d3", "three.js", "meilisearch", "elasticsearch", "opensearch", "dbos", "temporal", "typer",
-    "click", "rich", "textual", "uvicorn", "gunicorn", "nginx", "caddy",
-}
+# Library names that are also plain English words: a prompt with one is not a docs question.
 COMMON_WORDS = {"click", "rich", "echo", "fiber", "spring", "temporal", "express", "next", "gin"}
 
 
 def prompt_libs(prompt, root):
-    """Library names the prompt mentions (word-bounded, case-insensitive)."""
+    """Libraries of the repo's Libraries block (AGENTS.md) that the prompt names (word-bounded, any case).
+    Only that block (owner 2026-11-16): a global list of known libraries fired on prompts that were not
+    docs questions."""
     text = (prompt or "").lower()
     if not text.strip():
         return set()
-    names = (project_libs(root) | (KNOWN_LIBS - COMMON_WORDS)) - own_names(root)
+    doc = libs_doc(root) if root else None
+    names = set(doc["rows"] if doc else ()) - own_names(root)
     hits = set()
     for n in names:
         if len(n) < 3 or n in COMMON_WORDS:

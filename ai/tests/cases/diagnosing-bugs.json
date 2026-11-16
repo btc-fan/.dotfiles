@@ -99,6 +99,17 @@
                                          "tool_input": {"command": "sed -n 1,80p {{HOME}}/.agents/skills/diagnosing-bugs/SKILL.md"}}},
     {"event": "Stop", "payload": {"turn_id": "t1"}}
    ]
+  },
+  {
+   "name": "owner skip (sudo ai-gate-skip diagnosing-bugs): Stop passes, logged",
+   "expect": "allow",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "the export crashed again, please debug it"}},
+    {"event": "Stop", "payload": {}}
+   ],
+   "gate_skip": "diagnosing-bugs {{SOON}} known flaky export",
+   "state_contains": {"gates.log": "SKIP diagnosing-bugs"},
+   "state_not_contains": {"misses.jsonl": "diagnosing-bugs"}
   }
  ]
 }

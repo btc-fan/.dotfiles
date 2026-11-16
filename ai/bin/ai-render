@@ -188,6 +188,8 @@ def validate(data):
                     errors.append("%s: bad %s regex: %s" % (rid, key, exc))
         if r.get("once_per") not in (None, "session"):
             errors.append("%s: once_per must be session (or absent)" % rid)
+        if r.get("deny_once_when") not in (None, "graph"):
+            errors.append("%s: deny_once_when must be graph (or absent)" % rid)
         if trig.get("paths") == "code" or r.get("log_only") or r.get("reset_on"):
             errors.append("%s: paths: code, log_only and reset_on were removed from the router" % rid)
         if states is not None and trig.get("state") and trig["state"] not in states:
