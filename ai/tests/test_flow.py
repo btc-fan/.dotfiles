@@ -373,5 +373,24 @@ def t_negative_codex_merge(work):
     assert '"decision": "block"' in out, out
 
 
+def t_adopt_new_branch_pushes_upstream(work):
+    """ai-adopt on a new branch (adopt, then a PR) pushes it with an upstream; main is not touched."""
+    origin = os.path.join(work, "origin.git")
+    run(["git", "init", "-q", "--bare", "-b", "main", origin], env=env_for(work))
+    repo, env = new_repo(work, "branchy", dict(PY_APP))
+    # the owner check reads the fetch URL (an owner repo); pushes go to the local bare repo (no network)
+    git(repo, "remote", "add", "origin", "https://github.com/someone/branchy.git", env=env)
+    git(repo, "config", "remote.origin.pushurl", origin, env=env)
+    git(repo, "push", "-q", "origin", "main", env=env)
+    main_before = git(origin, "rev-parse", "main", env=env).text.strip()
+    git(repo, "switch", "-q", "-c", "ai-setup", env=env)
+    res = adopt(repo, env)
+    assert res.returncode == 0, res.text
+    heads = git(origin, "for-each-ref", "--format=%(refname)", "refs/heads", env=env).text
+    assert "refs/heads/ai-setup" in heads, heads
+    assert git(origin, "rev-parse", "main", env=env).text.strip() == main_before, "main moved"
+    assert git(repo, "rev-parse", "--abbrev-ref", "@{u}", env=env).text.strip() == "origin/ai-setup"
+
+
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
