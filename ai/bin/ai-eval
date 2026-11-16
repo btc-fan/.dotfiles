@@ -26,6 +26,7 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -225,7 +226,7 @@ def run_case(out, notes, agent, case, n):
     base = os.path.join(out, "runs", agent, "%s-%d" % (case["id"], n))
     repo = os.path.join(base, "repo")
     state = os.path.join(base, "state")
-    shutil.copytree(os.path.join(out, "fixtures", case["fixture"]), repo, symlinks=True)
+    copy_fixture(os.path.join(out, "fixtures", case["fixture"]), repo)
     rc, text = call(agent_cmd(agent, case["prompt"]), child_env(state), repo, RUN_TIMEOUT)
     write(os.path.join(base, "stream.jsonl"), text)
 
@@ -398,6 +399,13 @@ def git(repo, *args):
 
 
 # ---------------------------------------------------------------- helpers
+
+def copy_fixture(src, dst):
+    """Copy a fixture repo; skip sockets (git fsmonitor leaves .git/fsmonitor--daemon.ipc, which cannot be copied)."""
+    def sockets(folder, names):
+        return [n for n in names if stat.S_ISSOCK(os.lstat(os.path.join(folder, n)).st_mode)]
+    shutil.copytree(src, dst, symlinks=True, ignore=sockets)
+
 
 def out_dir(opts):
     out = os.path.realpath(opts["out"] or tempfile.mkdtemp(prefix="ai-eval-"))

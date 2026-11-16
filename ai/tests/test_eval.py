@@ -237,8 +237,32 @@ def read(path):
         return fh.read()
 
 
-TESTS_LIST = [t_fixtures, t_fixture_project_copy, t_score_stream, t_router_seen, t_child_env, t_cases_valid,
-              t_behaviour_dry, t_install_fake_bins]
+def t_copy_fixture_skips_socket(work):
+    """Regression (first real baseline, 2026-11-16): git fsmonitor leaves a socket in .git and copytree crashed."""
+    import socket
+    ev = load()
+    src = os.path.join(work, "sock-src")
+    os.makedirs(os.path.join(src, ".git"))
+    with open(os.path.join(src, "a.txt"), "w") as fh:
+        fh.write("a\n")
+    sock = socket.socket(socket.AF_UNIX)
+    cwd = os.getcwd()
+    os.chdir(os.path.join(src, ".git"))     # relative bind: a temp path can pass the 104-byte socket path limit
+    try:
+        sock.bind("fsmonitor--daemon.ipc")
+    finally:
+        os.chdir(cwd)
+    try:
+        dst = os.path.join(work, "sock-dst")
+        ev.copy_fixture(src, dst)
+    finally:
+        sock.close()
+    assert os.path.isfile(os.path.join(dst, "a.txt")), "the files are copied"
+    assert not os.path.exists(os.path.join(dst, ".git", "fsmonitor--daemon.ipc")), "the socket is skipped"
+
+
+TESTS_LIST = [t_fixtures, t_fixture_project_copy, t_copy_fixture_skips_socket, t_score_stream, t_router_seen,
+              t_child_env, t_cases_valid, t_behaviour_dry, t_install_fake_bins]
 
 if __name__ == "__main__":
     sys.exit(main())
