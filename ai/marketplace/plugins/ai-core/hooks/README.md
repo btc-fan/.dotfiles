@@ -17,6 +17,19 @@ new trust. A change to `router.py`, `hooklib.py`, `stop-check.py`, `claude-notif
 
 Tests: `bash ai/tests/run.sh` (should-fire and should-not-fire stdin samples for every rule).
 
+Skill card: at every SessionStart (startup, resume, clear, compact) the router sends the `skills` block of
+`routing.yaml`: the must-use skills with one trigger line each, and the folder of each installed typed-only skill
+(read `<dir>/<name>/SKILL.md` and follow it). ai-render fails when the worst case passes 1500 characters. Skill
+use is logged to `fired.jsonl` (kind `skill`) for a Skill call, a typed `/name` and a read of a SKILL.md (Claude
+Read, or cat, head, sed and the like in a shell command); `ai-doctor` counts it over 30 days.
+
+Skill gates (`require_skill: <name>` in `routing.yaml`): the rule passes only when that skill has a proof in this
+session (a Skill call, a typed `/name`, or a read of its SKILL.md). With `strength: gate` a PreToolUse deny
+(writing-for-agents before Edit, Write, MultiEdit or Codex `apply_patch` of AGENTS.md, CLAUDE.md, CLAUDE.local.md or
+a SKILL.md; ship before `gh pr ready`). With `strength: stop` the prompt arms the rule and the next Stop gets
+`{"decision": "block"}` when the skill was not used (diagnosing-bugs), once per session per rule. Each block is a
+row in `misses.jsonl`; `ai-doctor` shows these misses over 30 days.
+
 ## Gates
 
 Gates catch honest mistakes. They are not a sandbox against an adversary: an agent that wants to bypass a
@@ -89,6 +102,7 @@ key, token, secret or password.
   not applied); `--body-file -` (stdin) can only be checked when the heredoc is in the command.
 - Codex: file edits by `apply_patch` are not checked by no-em-dash or graph-update (Bash and Claude
   Edit/Write only); re-inject after compaction uses SessionStart source `compact`.
+- The writing-for-agents gate sees file tools only: a shell write (`sed -i`, `echo >>`) to AGENTS.md is not gated.
 - Builtin secret patterns are a fixed list; new token formats need a new pattern or gitleaks.
 - no-destroy cannot see through a script file, `find -delete` or `xargs rm`; the sandbox, branch protection
   and a database role without DROP/TRUNCATE are the real boundary.

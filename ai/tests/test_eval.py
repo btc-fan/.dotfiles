@@ -182,7 +182,7 @@ def t_behaviour_dry(work):
         for agent in ("claude", "codex"):
             assert sum(1 for ln in lines if ln.split()[:2] == [agent, case["id"]]) == 2, (agent, case["id"])
     claude = [ln for ln in lines if ln.startswith("claude ")]
-    assert all("--output-format stream-json --verbose --max-turns 4" in ln and "--bare" not in ln for ln in claude)
+    assert all("--output-format stream-json --verbose --max-turns 15" in ln and "--bare" not in ln for ln in claude)
     assert all("codex exec --json" in ln for ln in lines if ln.startswith("codex "))
     assert "runs planned, none started (--dry)" in res.stdout and not os.path.exists(mark), "no agent may start"
     res = run([sys.executable, EVAL, "behaviour", "--dry", "--agent", "codex", "--runs", "1"], env)

@@ -23,5 +23,6 @@ if [ $# -eq 0 ] || [ "$1" = "-v" ]; then
     python3 "$here/test_flow.py" || rc=1
     python3 "$here/test_profiles.py" || rc=1
     python3 "$here/test_eval.py" || rc=1
+    python3 "$here/test_skills.py" || rc=1
 fi
 exit "$rc"

@@ -445,7 +445,8 @@
      ".claude/skills/to-spec/SKILL.md": "---\nname: to-spec\ndisable-model-invocation: true\n---\nbody\n",
      ".agents/skills/to-spec/SKILL.md": "---\nname: to-spec\ndisable-model-invocation: true\n---\nbody\n",
      ".claude/skills/to-tickets/SKILL.md": "---\nname: to-tickets\ndisable-model-invocation: true\n---\nbody\n",
-     ".agents/skills/to-tickets/SKILL.md": "---\nname: to-tickets\ndisable-model-invocation: true\n---\nbody\n"
+     ".agents/skills/to-tickets/SKILL.md": "---\nname: to-tickets\ndisable-model-invocation: true\n---\nbody\n",
+     ".claude/skills/implement/SKILL.md": "---\nname: implement\ndisable-model-invocation: true\n---\nbody\n"
     }
    },
    "contains": [
@@ -453,7 +454,8 @@
     "Typed-only skills (no Skill tool call): read the file, follow it, and tell the owner the typed form",
     "/grill-with-docs = {{PROJ}}/.claude/skills/grill-with-docs/SKILL.md",
     "/to-spec = {{PROJ}}/.claude/skills/to-spec/SKILL.md",
-    "/to-tickets = {{PROJ}}/.claude/skills/to-tickets/SKILL.md"
+    "/to-tickets = {{PROJ}}/.claude/skills/to-tickets/SKILL.md",
+    "/implement = {{PROJ}}/.claude/skills/implement/SKILL.md"
    ]
   },
   {

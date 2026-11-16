@@ -4,8 +4,8 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Card is rendered from the routing data, not written by hand
-- [ ] All 10 typed-only skills have a hint and a proof by SKILL.md read
-- [ ] ai-doctor stats come from the router logs (no transcript read)
+- [x] Card is rendered from the routing data, not written by hand
+- [x] All 10 typed-only skills have a hint and a proof by SKILL.md read
+- [x] ai-doctor stats come from the router logs (no transcript read)

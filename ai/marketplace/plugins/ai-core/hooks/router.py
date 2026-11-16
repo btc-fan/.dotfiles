@@ -8,10 +8,10 @@ Matching is deterministic: regex, globs and project state. No LLM, no network.
 Python stdlib only, so the hook starts fast.
 
 What each event does:
-  SessionStart         L1: inject the L0 table + session_start rules whose state matches.
+  SessionStart         L1: inject the L0 table + session_start rules whose state matches + the skill card.
   UserPromptSubmit     L3 regex on the prompt; if a rule or a tie-break matched, L2 forced-eval text.
   PreToolUse           L4 gates (deny or ask) and context nudges (quiet windows, log-only rules).
-  PostToolUse          nudges after edits/commands, docs lookups, Skill proof.
+  PostToolUse          nudges after edits/commands, docs lookups, Skill proof (Skill call or a read SKILL.md).
   UserPromptExpansion  Skill proof for a typed /skill.
   Stop                 miss log (rule fired, no matching tool or skill call), then claude-notify.
   SessionEnd           drop the session state file.
@@ -32,7 +32,7 @@ sys.dont_write_bytecode = True      # no __pycache__ inside the (possibly read-o
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from hooklib import (GATES, GATE_PROBES, ai_home, append_jsonl, command_text, gate_skips,  # noqa: E402
                      iso_now, knowledge_delta, knowledge_index, ledger_hits, ledger_note, libs_hits, log_error,
-                     log_line, one_line, project_skills, project_tier, verify_skill, is_code_file,
+                     log_line, one_line, project_skills, project_tier, verify_skill, is_code_file, skill_md,
                      origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
                      state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
                      graph_status, git_history,
@@ -176,7 +176,10 @@ def on_session_start(ctx):
             continue
         parts.append("[ai router: %s] %s" % (rule["id"], text))
         ctx.fired(rule, "SessionStart")
-    resend = str(ctx.payload.get("source") or "") in L0_RESEND_SOURCES
+    card = skill_card(routing.get("skills") or {}, ctx)
+    if card:
+        parts.append(card)
+    resend =str(ctx.payload.get("source") or "") in L0_RESEND_SOURCES
     if resend and (routing.get("layers", {}).get("L1_session_start") is not None or routing.get("rules")):
         l0 = read_text(first_existing(l0_candidates()))
         if l0:
@@ -223,6 +226,8 @@ def on_user_prompt(ctx):
         return
     for rule, _text in actions:
         ctx.fired(rule, "UserPromptSubmit")
+        if rule.get("strength") == "stop":
+            arm_stop_rule(ctx, rule)
     ctx.add_context(render_prompt_context(routing, actions, ties))
 
 
@@ -246,7 +251,7 @@ def remember_merge_ok(ctx, prompt):
 def on_pre_tool(ctx):
     tool = ctx.payload.get("tool_name") or ""
     tin = tool_input(ctx.payload)
-    cmd = command_of(tin)
+    cmd = "" if tool == "apply_patch" else command_of(tin)     # a Codex patch is not a shell command
     ctx.set_command(cmd)
     home = session_in_home(ctx)
     if home and tool in HOME_TOOLS:
@@ -259,6 +264,12 @@ def on_pre_tool(ctx):
         if not trig.get("tool_before") or not tool_matches(trig["tool_before"], tool):
             continue
         if not rule_enabled(rule, ctx):
+            continue
+        if rule.get("require_skill"):
+            if skill_rule_hit(rule, tool, tin, cmd, ctx) and not skill_used(ctx, rule["require_skill"]):
+                ctx.decide("deny", "[ai gate %s] %s\nProof in this session: a Skill call, a typed /%s or a read of "
+                           "its SKILL.md. Then retry." % (rule["id"], render_action(rule, ctx), rule["require_skill"]))
+                skill_missed(rule, ctx, "PreToolUse")
             continue
         if rule.get("strength") == "gate":
             probe = GATE_PROBES.get(rule["id"])
@@ -331,6 +342,8 @@ def on_post_tool(ctx):
         name = tin.get("skill") or tin.get("name") or tin.get("command") or ""
         if name:
             append_jsonl("fired.jsonl", ctx.row(kind="skill", via="tool", skill=name))
+    for name in skill_reads(tool, tin, ctx.stages):
+        append_jsonl("fired.jsonl", ctx.row(kind="skill", via="read", skill=name))
     if is_docs_tool(tool):
         log_docs_ids(ctx, tool, tin)
     if "serena" in tool.lower() or any(st.exe == "graphify" for st in ctx.stages):
@@ -369,9 +382,11 @@ def on_prompt_expansion(ctx):
 
 
 def on_stop(ctx):
+    check_stop_rules(ctx)
     if not ctx.payload.get("stop_hook_active"):
         check_misses(ctx)
-    run_notify(ctx)
+    if not ctx.stop_block:          # the turn goes on: the owner is not told it finished
+        run_notify(ctx)
 
 
 def on_session_end(ctx):
@@ -412,6 +427,7 @@ class Ctx(object):
         self.updated_input = None  # PreToolUse rewrite to an absolute program path (abs_rewrite)
         self.updated_decision = ("allow", "")
         self._prompt_libs = None
+        self.stop_block = []      # Stop: reasons of the stop rules that block the end of the turn
 
     def prompt_libs(self, prompt):
         if self._prompt_libs is None:
@@ -473,6 +489,10 @@ class Ctx(object):
                 self._state.save()
             except Exception as exc:
                 log_error("state save", exc)
+        if self.stop_block:
+            # Stop output has no hookSpecificOutput (Claude and Codex): top-level decision and reason only.
+            sys.stdout.write(json.dumps({"decision": "block", "reason": "\n".join(self.stop_block)}) + "\n")
+            return 0
         if self.decision == "ask" and self.agent == "codex":
             # Codex has no ask prompt (an "ask" output fails and the tool runs): deny with a clear message.
             self.decision = "deny"
@@ -536,6 +556,95 @@ def match_tiebreaks(tiebreaks, prompt):
             continue
         hits.append(tb)
     return hits
+
+
+# ---------------------------------------------------------------- skill card and skill proof
+
+CARD_CAP = 1500     # the skill card stays under this (spec: under 1.5k characters); ai-render checks the worst case
+SKILL_MD_RX = re.compile(r"(?:^|/)([\w.:-]+)/SKILL\.md$")
+FILE_READERS = {"cat", "head", "tail", "sed", "less", "more", "bat", "nl", "awk"}
+
+
+def skill_card(skills, ctx):
+    """The must-use skills, and where this agent reads each typed-only skill that is installed."""
+    dirs = {}
+    for name in skills.get("typed_only") or []:
+        path = skill_md(ctx.root, name, ctx.agent)
+        if path:
+            dirs.setdefault(os.path.dirname(os.path.dirname(path)), []).append(name)
+    return render_card(skills, dirs)
+
+
+def render_card(skills, dirs):
+    """dirs: skills folder -> typed-only skill names in it. "" when there is nothing to say."""
+    must = skills.get("must_use") or []
+    if not must and not dirs:
+        return ""
+    lines = ["[ai router: skill-card] Must-use skills (the router checks them):"]
+    lines += ["- %s: %s" % (s["name"], s["when"]) for s in must]
+    if dirs:
+        lines.append("Typed-only skills (no Skill tool call): read <dir>/<name>/SKILL.md and follow it; tell the "
+                     "owner the typed form /name.")
+        lines += ["- %s: %s" % (d, ", ".join(sorted(names))) for d, names in sorted(dirs.items())]
+    return "\n".join(lines)
+
+
+def skill_reads(tool, tin, stages):
+    """Skill names whose SKILL.md this tool call read (a Read, or cat and the like in a shell command)."""
+    if tool == "Read":
+        paths = [file_of(tin)]
+    else:
+        paths = [a for st in stages
+                 if st.exe in FILE_READERS or (st.exe == "rtk" and st.args[:1] == ["read"]) for a in st.args]
+    return [m.group(1) for m in map(SKILL_MD_RX.search, paths) if m]
+
+
+# ---------------------------------------------------------------- skill gates (require_skill, strength stop)
+
+PATCH_FILE_RX = re.compile(r"(?m)^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+?)\s*$")
+
+
+def skill_used(ctx, name):
+    """A proof in this session: a Skill call (plugin prefix allowed), a typed /name or a read of its SKILL.md."""
+    return any(s.split(":")[-1] == name for s in recent_skills(ctx.session))
+
+
+def skill_rule_hit(rule, tool, tin, cmd, ctx):
+    """A paths rule matches the edited files (Codex apply_patch: every file in the patch); else the command."""
+    paths = rule.get("trigger", {}).get("paths")
+    if not paths:
+        return conditions_match(rule, tool, tin, cmd, ctx)
+    files = PATCH_FILE_RX.findall(command_of(tin)) if tool == "apply_patch" else [file_of(tin)]
+    return any(f and glob_match(paths, f, ctx.cwd) for f in files)
+
+
+def skill_missed(rule, ctx, event):
+    """The rule log and the miss log (ai-doctor counts the misses of gated skills)."""
+    ctx.fired(rule, event)
+    append_jsonl("misses.jsonl", ctx.row(rule=rule["id"], require_skill=rule["require_skill"], event=event))
+
+
+def arm_stop_rule(ctx, rule):
+    """The prompt matched a stop rule: the next Stop checks it, once per session."""
+    rules = ctx.state.load().setdefault("stop_rules", {})
+    if rule["id"] not in rules:
+        rules[rule["id"]] = "armed"
+        ctx.state.dirty = True
+
+
+def check_stop_rules(ctx):
+    rules = ctx.state.load().get("stop_rules") or {}
+    by_id = {r["id"]: r for r in ctx.routing.get("rules", []) if r.get("strength") == "stop"}
+    for rid in sorted(rules):
+        rule = by_id.get(rid)
+        if rules[rid] != "armed" or not rule:
+            continue
+        rules[rid] = "done"
+        ctx.state.dirty = True
+        if skill_used(ctx, rule["require_skill"]):
+            continue
+        ctx.stop_block.append("[ai router: %s] %s Then finish the turn." % (rid, render_action(rule, ctx)))
+        skill_missed(rule, ctx, "Stop")
 
 
 # ---------------------------------------------------------------- conditions
@@ -839,13 +948,14 @@ def _ph_feature_flow(ctx):
                 "then e2e tests for the proven journey. Feature done: the ship skill (checks, review, security, "
                 "Evidence, gh pr ready), then ask the owner to merge. A trivial change (typo, rename, one-line fix): "
                 "none needed.%s"
-                % (plan, vname, typed_skills_note(ctx.root, ["grill-with-docs"] + sorted(spec), ctx.agent)))
+                % (plan, vname, typed_skills_note(ctx.root, ["grill-with-docs"] + sorted(spec) + ["implement"],
+                                                  ctx.agent)))
     return ("Feature work: before any code, run the grilling skill (one round of questions first), unless the "
             "change is trivial (typo, rename, one-line fix, a config value).")
 
 
 def _ph_tracker_flow(ctx):
-    return typed_skills_note(ctx.root, ["to-spec", "to-tickets"], ctx.agent)
+    return typed_skills_note(ctx.root, ["to-spec", "to-tickets", "wayfinder"], ctx.agent)
 
 
 def _ph_domain_docs(ctx):

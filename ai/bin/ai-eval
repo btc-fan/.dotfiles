@@ -233,7 +233,8 @@ def load_cases():
 
 def agent_cmd(agent, prompt):
     if agent == "claude":
-        return ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--max-turns", "4"]
+        # 15 turns: a Stop gate (diagnosing-bugs) blocks the first stop, and the agent needs turns after it.
+        return ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--max-turns", "15"]
     return ["codex", "exec", "--json", prompt]
 
 
