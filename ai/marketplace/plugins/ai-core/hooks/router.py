@@ -36,7 +36,8 @@ from hooklib import (GATES, GATE_PROBES, ai_home, append_jsonl, command_text, ga
                      origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
                      state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
                      graph_status, git_history,
-                     owner_merge_ok, merge_review_note, nav_note, upgrade_note, legacy_memory_note)
+                     owner_merge_ok, merge_review_note, nav_note, upgrade_note, legacy_memory_note, probe_pr,
+                     session_line)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
 CONTEXT_CAP = 9500          # additionalContext is cut here (hook output caps: Claude 10,000 chars, Codex ~2,500 tokens)
@@ -134,6 +135,9 @@ def parse_args(argv):
 HOME_MSG = ("This Claude session started in the home folder (%s). Start Claude inside a project folder "
             "instead: cd <project folder>; claude. Do not run commands or edit files here; tell the user this.")
 HOME_TOOLS = {"Bash", "Edit", "Write", "MultiEdit", "NotebookEdit"}
+# The PR author-sessions block needs this session's id. herdr gives it only inside a herdr pane, so the router
+# gives it from the hook payload (no command rewrite: that would break the auto mode review).
+SESSION_MSG = "[ai router: sessions] Your line for a PR author-sessions block: %s"
 
 
 def session_in_home(ctx):
@@ -179,7 +183,10 @@ def on_session_start(ctx):
     card = skill_card(routing.get("skills") or {}, ctx)
     if card:
         parts.append(card)
-    resend =str(ctx.payload.get("source") or "") in L0_RESEND_SOURCES
+    line = session_line(ctx)
+    if line:
+        parts.append(SESSION_MSG % line)
+    resend = str(ctx.payload.get("source") or "") in L0_RESEND_SOURCES
     if resend and (routing.get("layers", {}).get("L1_session_start") is not None or routing.get("rules")):
         l0 = read_text(first_existing(l0_candidates()))
         if l0:
@@ -259,6 +266,9 @@ def on_pre_tool(ctx):
         return
     if tool == "Skill":
         winner_gate(ctx, tin.get("skill") or tin.get("name") or "")
+    line = session_line(ctx)
+    if line and probe_pr(ctx.stages):
+        ctx.add_context(SESSION_MSG % line)
     for rule in ctx.routing.get("rules", []):
         trig = rule.get("trigger", {})
         if not trig.get("tool_before") or not tool_matches(trig["tool_before"], tool):

@@ -172,6 +172,13 @@ rules:
     action: "Run the ship skill first (checks, review, Evidence), then gh pr ready."
     strength: gate
 
+  - id: gh-write
+    scope: global
+    summary: 'gh write other than the PR commands'
+    trigger: {tool_before: 'Bash|shell|exec_command|local_shell', command: '\bgh\b'}
+    action: "gh reads run freely; other gh writes ask the owner first."
+    strength: gate    # ask (Codex: deny); the PR commands keep their own gates (pr-rules, merge-approval, ship)
+
   - id: ledger-nudge
     scope: global
     summary: 'before an edit in a regression-ledger area'

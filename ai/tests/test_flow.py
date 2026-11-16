@@ -454,5 +454,58 @@ def t_adopt_in_linked_worktree(work):
     assert git(repo, "status", "--porcelain", env=env).text.strip() == "M src/app/core.py", "main checkout changed"
 
 
+def t_herdr_picked_on_mac(work):
+    """Ticket 08: herdr is picked on a Mac also when it is not installed yet, so tools_herdr puts it on PATH."""
+    pick = ('eval "$(sed -n \'/^pick_agents()/,/^}/p; /^profile_agents()/,/^}/p\' %s)"; skip() { :; }; '
+            'has() { case "$1" in claude|codex) return 0;; esac; return 1; }; hermes_exists() { return 1; }; '
+            'AI_MODE=all; AGENTS=; AI_OS=macos; PROFILE_OPENCODE=0; pick_agents; echo $AGENTS'
+            % os.path.join(os.path.dirname(AI_DIR), "install.sh"))
+    res = run(["bash", "-c", pick])
+    assert res.text.strip() == "claude,codex,herdr", res.text
+
+
+def t_doctor_herdr(work):
+    """Ticket 08: ai-doctor checks the herdr CLI: missing -> WARN; older than the newest stable in resolved.json
+    -> WARN; current -> PASS."""
+    state = os.path.join(work, "state")
+    write(os.path.join(state, "resolved.json"),
+          json.dumps({"tools": {"herdr": {"newest": {"version": "0.9.6"}, "source": "github herdrdev/herdr"}}}))
+    bindir = os.path.join(work, "bin")
+    env = {"AI_STATE_DIR": state, "AI_SYSTEM_STATE_DIR": os.path.join(work, "none"), "HOME": work,
+           "PATH": "/usr/bin:/bin"}
+    out = doctor_check(env, "check_herdr")
+    assert "WARN" in out and "herdr CLI not on PATH" in out, out
+    write(os.path.join(bindir, "herdr"), "#!/bin/sh\necho herdr 0.9.5\n")
+    os.chmod(os.path.join(bindir, "herdr"), 0o755)
+    env["PATH"] = bindir + ":/usr/bin:/bin"
+    out = doctor_check(env, "check_herdr")
+    assert "WARN" in out and "0.9.5" in out and "0.9.6" in out, out
+    write(os.path.join(bindir, "herdr"), "#!/bin/sh\necho herdr 0.9.6\n")
+    out = doctor_check(env, "check_herdr")
+    assert "PASS" in out and "WARN" not in out and "herdr 0.9.6" in out, out
+
+
+def doctor_check(env, name):
+    """One ai-doctor check run in this process with env; returns what it printed."""
+    import contextlib
+    import importlib.machinery
+    import importlib.util
+    import io
+    old = dict(os.environ)
+    os.environ.update(env)
+    try:
+        loader = importlib.machinery.SourceFileLoader("ai_doctor_flow", os.path.join(BIN, "ai-doctor"))
+        spec = importlib.util.spec_from_loader("ai_doctor_flow", loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            getattr(mod, name)()
+        return buf.getvalue()
+    finally:
+        os.environ.clear()
+        os.environ.update(old)
+
+
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

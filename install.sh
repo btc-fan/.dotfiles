@@ -290,16 +290,15 @@ pick_agents() {
     has claude && list="$list,claude"
     has codex && list="$list,codex"
     [ "$AI_MODE" != user ] && hermes_exists && list="$list,hermes"
-    # macOS: opencode always (SPEC 3), herdr where it exists. Linux servers (owner decisions 2026-11-12): Claude,
-    # Codex, Hermes and herdr ("should be installed, leave it alone"); opencode only with
-    # AI_EXTRA_AGENTS=opencode (its code stays; without the flag an earlier install is undone: agents_drop_*).
+    # macOS: opencode always (SPEC 3). Linux servers (owner decisions 2026-11-12): Claude, Codex, Hermes; opencode
+    # only with AI_EXTRA_AGENTS=opencode (its code stays; without the flag an earlier install is undone:
+    # agents_drop_*). herdr everywhere (owner 2026-11-16): its CLI gives the PR author-sessions block real ids.
     if [ "$AI_OS" = linux ]; then
         case ",${AI_EXTRA_AGENTS:-}," in *,opencode,*) list="$list,opencode" ;; esac
-        list="$list,herdr"
     else
         list="$list,opencode"
-        has herdr && list="$list,herdr"
     fi
+    list="$list,herdr"
     AGENTS=${list#,}
     profile_agents
 }

@@ -56,7 +56,13 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
 - pr-rules: `gh pr create` and `gh pr edit` with a body need a mermaid block and the author-sessions block,
   plus the fields of the project tier (mvp: `Verify:`, `Risk:`; long: also `Docs:`, `Changed guards:`, `Ledger:`
   on fix PRs; placeholders count as missing). A fix PR needs a test file in its diff; over 400 lines warns.
-  `--fill` and `--web` are refused.
+  `--fill` and `--web` are refused. A `main: unknown` line is refused when the hook payload has a session id:
+  the router gives the real line (`main: <session id> dir: <cwd with ~>`) at session start and as context on
+  `gh pr create|edit`, so the block gets a real id also without herdr. The command is never rewritten.
+- gh-write: gh reads pass (`pr view|list|diff|checks|status|checkout`, `issue view|list|status`, `repo view|list`,
+  `run view|list|watch`, `workflow view|list`, `auth status`, `search`, `status`, `gh api` as a GET).
+  `gh pr create|edit|ready|merge` go to their own gates. Every other gh command asks the owner (Codex: deny with
+  the message), also `gh api` with `-X POST|PUT|PATCH|DELETE` or with fields (`-f`, `-F`, `--input`).
 - no-destroy: `rm -r` by target (home, `/`, repo root, `.git`, data folders, outside the repo; rebuildable
   folders pass), force push or delete of main/master, `reset --hard` on main with changes, `clean -x` at the
   root, `compose down -v`, `docker volume rm|prune`; per repo `.ai/destructive.txt` (`db:` protected databases

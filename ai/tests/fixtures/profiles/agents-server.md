@@ -163,6 +163,7 @@ opt-in = only in projects that enabled the tool (ai-start, ai-adopt).
 | writing-for-agents (gate) | before an edit of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md | Agent docs: load the writing-for-agents skill first (Skill tool, or read its SKILL.md), then edit. |
 | diagnosing-bugs (stop) | bug or performance prompt (slow, perf, broken, debug, crash, regression; RO, RU) | Bug or performance work: use the diagnosing-bugs skill (Skill tool) and follow its loop before you end the turn. |
 | ship (gate) | before gh pr ready | Run the ship skill first (checks, review, Evidence), then gh pr ready. |
+| gh-write (gate) | gh write other than the PR commands | gh reads run freely; other gh writes ask the owner first. |
 | ledger-nudge (nudge) | before an edit in a regression-ledger area | Edit in a docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests. |
 | no-em-dash (nudge) | after a write with U+2014 | Remove the em dash (U+2014). Use '-', ':' or a new sentence. |
 | docs-lookup (nudge) | prompt names a library (Libraries section, deps, known libs), or before a dependency-file edit | Library code: context7 query-docs with the ID from the Libraries section (resolve only if missing), then the official docs site. (cached IDs) |
