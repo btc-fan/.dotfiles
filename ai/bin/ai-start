@@ -95,6 +95,7 @@ def main(argv):
         return 1
     routing = load_routing()
     version = str(routing.get("version") or 1)
+    link_worktree_venv(root, opts["dry_run"])
     optin = [r for r in routing.get("rules", []) if r.get("scope") == "opt-in"]
     current_all = read_lines(os.path.join(root, ".ai", "enabled"))
     current = [i for i in current_all if not TIER_RX.match(i) and not SKILLS_RX.match(i)]
@@ -110,7 +111,7 @@ def main(argv):
     enabled = sorted(set(current) | set(chosen))
     plan.append(write_plan(os.path.join(root, ".ai", "enabled"), enabled_text(enabled, tier, skills)))
     agents_path = os.path.join(root, "AGENTS.md")
-    agents = read(agents_path) or "# %s\n" % os.path.basename(root)
+    agents = read(agents_path) or "# %s\n" % project_name(root)
     for rule in optin:
         if rule["id"] in chosen or rule["id"] in current:
             agents, note = upsert_block(agents, rule, version)
@@ -553,7 +554,7 @@ def build_map(root):
         if seen > 20000:
             break
     langs = ", ".join(l for l, _n in sorted(counts.items(), key=lambda kv: -kv[1])[:3]) or "no code yet"
-    lines = ["- What: %s (%s)." % (os.path.basename(root), langs)]
+    lines = ["- What: %s (%s)." % (project_name(root), langs)]
     entries = entry_points(root)
     if entries:
         lines.append("- Entry points: " + "; ".join(entries[:6]) + ".")
@@ -1154,7 +1155,7 @@ def upsert_design_line(agents, root):
     m = MAP_RX.search(agents)
     if not m or DESIGN_LINE_RX.search(m.group(0)):
         return agents
-    slug = re.sub(r"[^a-z0-9]+", "-", os.path.basename(root).lower()).strip("-") or "app"
+    slug = re.sub(r"[^a-z0-9]+", "-", project_name(root).lower()).strip("-") or "app"
     master = os.path.join("design-system", slug, "MASTER.md")
     state = "" if os.path.isfile(os.path.join(root, master)) else (
         " (missing: at kickoff, ui-ux-pro-max --design-system makes 3 to 5 directions as prototype variants, the owner "
@@ -1433,6 +1434,34 @@ def allowed_owners():
 def repo_owner(url):
     m = re.search(r"[:/]([^/:]+)/[^/]+?(?:\.git)?/?$", url.strip())
     return m.group(1) if m else None
+
+
+def worktree_main(root):
+    """The main checkout of a linked git worktree, or None (root is the main checkout)."""
+    common = git(root, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if not common:
+        return None
+    main = os.path.dirname(os.path.normpath(common))
+    return None if os.path.realpath(main) == os.path.realpath(root) else main
+
+
+def project_name(root):
+    """The project's folder name; for a linked worktree, the main checkout's (not the worktree folder's)."""
+    return os.path.basename(worktree_main(root) or root)
+
+
+def link_worktree_venv(root, dry_run=False):
+    """A linked worktree has no .venv (gitignored): link the main checkout's, so the check targets are detected and
+    probed with the project's own Python, as in the main checkout."""
+    main = worktree_main(root)
+    if not main:
+        return
+    src, dst = os.path.join(main, ".venv"), os.path.join(root, ".venv")
+    if not os.path.isdir(src) or os.path.lexists(dst):
+        return
+    print("%s .venv -> %s (a linked worktree uses the main checkout's venv)" % ("would link" if dry_run else "link", src))
+    if not dry_run:
+        os.symlink(src, dst)
 
 
 def git_root(d):

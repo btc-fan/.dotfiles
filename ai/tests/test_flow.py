@@ -395,5 +395,27 @@ def t_adopt_new_branch_pushes_upstream(work):
     assert git(repo, "rev-parse", "--abbrev-ref", "@{u}", env=env).text.strip() == "origin/ai-setup"
 
 
+def t_adopt_in_linked_worktree(work):
+    """ai-adopt in a linked worktree (owner's open work stays in the main checkout): the Design line names the
+    project, not the worktree folder; the main checkout's .venv is linked, so the check targets use it."""
+    files = dict(PY_APP)
+    files[".gitignore"] = ".venv/\n"
+    repo, env = new_repo(work, "scriptube", files)
+    venv_py = os.path.join(repo, ".venv", "bin", "python")
+    write(venv_py, "#!/bin/sh\nexit 0\n")
+    os.chmod(venv_py, 0o755)
+    write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return a - b  # open work\n")
+    wt = os.path.join(work, "wt", "ai-setup-x")
+    git(repo, "worktree", "add", "-q", "-b", "ai-setup-x", wt, env=env)
+    res = adopt(wt, env)
+    assert res.returncode == 0, res.text
+    agents = read(os.path.join(wt, "AGENTS.md"))
+    assert "design-system/scriptube/MASTER.md" in agents and "ai-setup-x" not in agents, agents
+    assert os.path.islink(os.path.join(wt, ".venv")), "main checkout's venv not linked"
+    assert ".venv/bin/python -m pytest" in read(os.path.join(wt, "Makefile")), read(os.path.join(wt, "Makefile"))
+    assert "a - b  # open work" in read(os.path.join(repo, "src", "app", "core.py")), "open work in main touched"
+    assert git(repo, "status", "--porcelain", env=env).text.strip() == "M src/app/core.py", "main checkout changed"
+
+
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
