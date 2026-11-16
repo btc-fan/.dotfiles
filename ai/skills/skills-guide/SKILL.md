@@ -172,15 +172,22 @@ Decide only at a boundary. Mid-phase: continue, or split the rest into subagents
 | Need | Use | Not |
 |---|---|---|
 | New feature or kickoff interview | grill-with-docs | OMC deep-interview (only for "ambiguity score") |
-| Plan a well-scoped feature | to-spec, to-tickets | OMC plan, ralplan |
-| Plan a huge unclear effort | wayfinder | OMC ultragoal |
-| Build tickets | implement / implement-spec | OMC execute, team (ad-hoc work) |
-| Research a library or API | research (context7 first) | OMC research, web search |
-| Review a diff | Matt code-review | built-in /code-review, OMC review |
+| Plan a well-scoped feature | to-spec, to-tickets | `oh-my-claudecode:plan`, `oh-my-claudecode:omc-plan`, `oh-my-claudecode:ralplan` |
+| Plan a huge unclear effort | wayfinder | OMC ultragoal (orchestration: it still runs) |
+| Build tickets | implement / implement-spec | `oh-my-claudecode:execute`, OMC team for ad-hoc work |
+| Build test-first | tdd | `oh-my-claudecode:tdd` |
+| Research a library or API | research (context7 first) | `oh-my-claudecode:research`, web search |
+| Review a diff | Matt code-review | built-in /code-review, `oh-my-claudecode:review`, `oh-my-claudecode:omc-review` |
+| Write a PR body | pr | `oh-my-claudecode:pr` |
 | Prove a feature works | verify-<app> (create-verification-skill) | "tests pass" alone |
-| Knowledge | AGENTS.md Map, GLOSSARY.md, docs/adr, docs/specs, docs/tickets, docs/research | Serena memories, OMC wiki, Claude auto memory (off) |
+| Knowledge | AGENTS.md Map, GLOSSARY.md, docs/adr, docs/specs, docs/tickets, docs/research | Serena memories, `oh-my-claudecode:wiki`, Claude auto memory (off) |
 | Pre-merge checks | ship (ours) | OMC verify alone |
-| Cut a version | release (ours) | OMC release |
+| Cut a version | release (ours) | `oh-my-claudecode:release` |
+
+The winner gate enforces this table (`winners` in `ai/routing.yaml`; a test keeps both the same). An agent's
+Skill tool call of a name in backticks is denied, and the message names the skill to use. A typed /name of the
+owner always runs. OMC and OMX orchestration (autopilot, ralph, team, ultragoal, ask, babysit, fix-ci, cancel)
+always runs, and so do the skills it calls. Codex has no Skill tool event: there the table is advice only.
 
 ## 6. Answering "which skill?"
 1. Name the situation in one line.

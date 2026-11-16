@@ -301,3 +301,24 @@ tiebreaks:
   - {trigger: 'new app or project (kickoff)', winner: 'grilling (grill-with-docs where the project links it; typed: /grill-me)', loser: 'OMC deep-interview (fallback)', match: '\bnew (app|project)\b|\bkick ?off\b'}
   - {trigger: 'deep interview, ambiguity score', winner: 'OMC deep-interview', loser: 'matt grilling', match: '\bdeep interview\b|\bambiguity score\b'}
   - {trigger: 'library API docs', winner: 'context7 with the Libraries ID', loser: 'web search', match: '\b(api docs|library docs|docs for)\b'}
+
+# ---------- winner gate (the overlap table of ai/skills/skills-guide/SKILL.md section 5, as data) ----------
+# PreToolUse on the Skill tool: a call of a name in `losers` is denied and the message names `use`. A typed
+# /name of the owner never reaches the Skill tool, so it always runs. OMC and OMX win orchestration: these
+# skills always pass, and after one of them ran in the session, the skills it calls pass too.
+# test_commands.py checks that this table and the skills guide table hold the same rows and losers.
+winners:
+  orchestration: [autopilot, ralph, team, ultragoal, ask, babysit, fix-ci, cancel]
+  table:
+    - {job: 'New feature or kickoff interview', use: 'grill-with-docs', losers: []}
+    - {job: 'Plan a well-scoped feature', use: 'to-spec, to-tickets', losers: ['oh-my-claudecode:plan', 'oh-my-claudecode:omc-plan', 'oh-my-claudecode:ralplan']}
+    - {job: 'Plan a huge unclear effort', use: 'wayfinder', losers: []}
+    - {job: 'Build tickets', use: 'implement / implement-spec', losers: ['oh-my-claudecode:execute']}
+    - {job: 'Build test-first', use: 'tdd', losers: ['oh-my-claudecode:tdd']}
+    - {job: 'Research a library or API', use: 'research (context7 first)', losers: ['oh-my-claudecode:research']}
+    - {job: 'Review a diff', use: 'Matt code-review', losers: ['oh-my-claudecode:review', 'oh-my-claudecode:omc-review']}
+    - {job: 'Write a PR body', use: 'pr', losers: ['oh-my-claudecode:pr']}
+    - {job: 'Prove a feature works', use: 'verify-<app> (create-verification-skill)', losers: []}
+    - {job: 'Knowledge', use: 'AGENTS.md Map, GLOSSARY.md, docs/adr, docs/specs, docs/tickets, docs/research', losers: ['oh-my-claudecode:wiki']}
+    - {job: 'Pre-merge checks', use: 'ship (ours)', losers: []}
+    - {job: 'Cut a version', use: 'release (ours)', losers: ['oh-my-claudecode:release']}

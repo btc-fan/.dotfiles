@@ -242,6 +242,8 @@ def on_pre_tool(ctx):
     if home and tool in HOME_TOOLS:
         ctx.decide("deny", "[ai router: home-folder] " + HOME_MSG % home)
         return
+    if tool == "Skill":
+        winner_gate(ctx, tin.get("skill") or tin.get("name") or "")
     for rule in ctx.routing.get("rules", []):
         trig = rule.get("trigger", {})
         if not trig.get("tool_before") or not tool_matches(trig["tool_before"], tool):
@@ -345,6 +347,8 @@ def on_prompt_expansion(ctx):
     name = ctx.payload.get("command_name") or ctx.payload.get("skill") or ""
     if name:
         append_jsonl("fired.jsonl", ctx.row(kind="skill", via="expansion", skill=name))
+        if is_orchestration(ctx, name):
+            mark_orchestration(ctx)
 
 
 def on_stop(ctx):
@@ -997,6 +1001,41 @@ def run_gate(rule, ctx, cmd):
     log_line("gates.log", "%s %s %s session=%s cmd=%s" % (
         iso_now(), decision.upper(), rule["id"], ctx.session, redact(one_line(cmd))[:200]))
     ctx.fired(rule, "PreToolUse")
+
+
+# ---------------------------------------------------------------- winner gate (routing.yaml `winners`)
+
+def winner_gate(ctx, name):
+    """Deny a Skill tool call of a skill that loses in the overlap table; the message names the winner."""
+    name = str(name).strip().lstrip("/")
+    if not name:
+        return
+    if is_orchestration(ctx, name):
+        mark_orchestration(ctx)
+        return
+    # shortcut: one orchestration call lets every later loser pass for the rest of the session (OMC keeps no
+    # cheap "flow ended" signal); upgrade when OMC state files mark the end of a flow.
+    if ctx.state.load().get("orchestration"):
+        return
+    for row in (ctx.routing.get("winners") or {}).get("table") or []:
+        if name.lower() in [str(x).lower() for x in row.get("losers") or []]:
+            ctx.decide("deny", "[ai router: winner-gate] %s: use %s, not %s (skills guide, section 5). Call the "
+                               "winner instead. Only the owner can run this one, by typing /%s."
+                       % (row["job"], row["use"], name, name))
+            ctx.fired({"id": "winner-gate"}, "PreToolUse")
+            return
+
+
+def is_orchestration(ctx, name):
+    short = str(name).strip().lstrip("/").split(":")[-1].lower()
+    return short in [str(x).lower() for x in (ctx.routing.get("winners") or {}).get("orchestration") or []]
+
+
+def mark_orchestration(ctx):
+    d = ctx.state.load()
+    if not d.get("orchestration"):
+        d["orchestration"] = True
+        ctx.state.dirty = True
 
 
 # ---------------------------------------------------------------- docs-on-dependency

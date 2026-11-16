@@ -207,6 +207,10 @@ def validate(data):
             re.compile(rx)
         except re.error as exc:
             errors.append("tie-break %r: bad regex: %s" % (tb.get("trigger"), exc))
+    winners = data.get("winners") or {}
+    for row in winners.get("table") or []:
+        if not row.get("job") or not row.get("use") or not isinstance(row.get("losers"), list):
+            errors.append("winners row %r needs job, use and a losers list" % row.get("job"))
     return errors
 
 
@@ -221,7 +225,7 @@ def build_routing(data, sha, profile):
     for tb in data.get("tiebreaks", []):
         ties.append(dict(tb))
     return {"version": data.get("version"), "source_sha256": sha, "layers": data.get("layers", {}),
-            "rules": rules, "tiebreaks": ties}
+            "rules": rules, "tiebreaks": ties, "winners": data.get("winners") or {}}
 
 
 # ---------------------------------------------------------------- session start budget
