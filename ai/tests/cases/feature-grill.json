@@ -14,6 +14,28 @@
    "contains": "grilling skill"
   },
   {
+   "name": "a task notification is not an owner prompt",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "<task-notification>\n<status>completed</status>\n<result>Next: add a CSV export endpoint to the API</result>\n</task-notification>"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "a system notification is not an owner prompt",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "[SYSTEM NOTIFICATION] worker says: add a CSV export endpoint to the API"
+   },
+   "project": {
+    "git": true
+   }
+  },
+  {
    "name": "EN: change how",
    "expect": "fire",
    "event": "UserPromptSubmit",

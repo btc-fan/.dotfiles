@@ -92,6 +92,8 @@ def main():
 
     s = sub.add_parser("block-remove", help="remove our managed block (recorded; undo puts it back)")
     s.add_argument("file"); s.add_argument("name")
+    s.add_argument("--markers", nargs=2, metavar=("START", "END"),
+                   help="a vendor block between these marker lines instead of AI:<name> (NAME is only a label)")
 
     s = sub.add_parser("file-put", help="make a file hold exactly this content (backup kept)")
     s.add_argument("file"); s.add_argument("content_file"); s.add_argument("--mode", default="")
@@ -402,7 +404,8 @@ def cmd_block_upsert(a):
 
 def cmd_block_remove(a):
     text = read_text(a.file)
-    m = block_regex(a.name).search(text)
+    markers = list(a.markers) if a.markers else None
+    m = block_regex(a.name, markers).search(text)
     if not m:
         return say("same", a.file, "no block AI:%s" % a.name)
     s_, t = m.start(), m.end()
@@ -410,8 +413,8 @@ def cmd_block_remove(a):
         t += 1
     removed = text[m.start():m.end()]
     write_text(a.file, text[:s_] + text[t:])
-    record({"kind": "block-removed", "file": a.file, "name": a.name, "block": removed, "index": s_},
-           key="block-removed:%s:%s" % (a.file, a.name))
+    record({"kind": "block-removed", "file": a.file, "name": a.name, "block": removed, "index": s_,
+            "markers": markers}, key="block-removed:%s:%s" % (a.file, a.name))
     say("remove", a.file, "block AI:%s" % a.name)
 
 
@@ -1493,7 +1496,7 @@ def undo_entry(e):
         return say("undo", f, "line restored") or True
     if k == "block-removed":
         text = read_text(f)
-        if not block_regex(e["name"]).search(text):
+        if not block_regex(e["name"], e.get("markers")).search(text):
             i = min(e.get("index", len(text)), len(text))
             write_text(f, text[:i] + e["block"] + "\n" + text[i:])
         return say("undo", f, "block AI:%s restored" % e["name"]) or True
@@ -1741,7 +1744,9 @@ def signature(cmd):
     return " ".join(cmd.split())
 
 
-def block_regex(name):
+def block_regex(name, markers=None):
+    if markers:         # a vendor block (block-remove --markers)
+        return re.compile(re.escape(markers[0]) + ".*?" + re.escape(markers[1]), re.S)
     # "# " before the markers: the same block in a shell file (block-upsert --comment).
     return re.compile(r"(?:# )?<!-- AI:%s v\d+ START -->.*?<!-- AI:%s v\d+ END -->" % (re.escape(name), re.escape(name)),
                       re.S)

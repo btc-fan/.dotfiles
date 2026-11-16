@@ -925,7 +925,9 @@ def t_managed_router(work):
     root = "/usr/local/lib/ai/repo/ai/marketplace/plugins/ai-core/hooks/router.py"
     assert all(c.startswith('/usr/bin/python3 "%s" --agent claude ' % root) and c.endswith(" --managed")
                for c in cmds if "router.py" in c), cmds
-    assert "/usr/local/bin/rtk hook claude" in cmds and not any("${" in c for c in cmds), cmds
+    # RTK runs through the wrapper that skips auto mode (ticket 03), with the absolute rtk.
+    assert '/usr/bin/python3 "%s/rtk-hook" "/usr/local/bin/rtk"' % os.path.dirname(root) in cmds \
+        and not any("${" in c for c in cmds), cmds
     assert set(hooks) >= {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"}
     assert not any("serena-hook" in c or "claude-notify" in c or "caffeinate" in c for c in cmds), "router only"
     # The plugin copy (CLAUDE_PLUGIN_ROOT set) steps aside when managed settings run the router.
