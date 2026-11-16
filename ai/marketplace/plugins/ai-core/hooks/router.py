@@ -153,6 +153,10 @@ def session_in_home(ctx):
 def on_session_start(ctx):
     rotate_logs()
     prune_sessions()
+    try:
+        graph_build(ctx)
+    except Exception as exc:     # never break the session
+        log_error("graph_build", exc)
     routing = ctx.routing
     parts = []
     home = session_in_home(ctx)
@@ -776,6 +780,22 @@ def graph_refresh(ctx):
         if root and "graph" in enabled_tools(root) and start_graph_refresh(root):
             started = True
     return started
+
+
+def graph_build(ctx):
+    """Session start in an adopted repo with code, graph on and no graph yet (the first code file came after
+    ai-adopt): build it in the background, once per session. Not adopted: no graphify-out/ in a stranger's repo."""
+    root = ctx.root
+    if ctx.agent not in ("claude", "codex") or not root or "graph" not in enabled_tools(root) \
+            or not os.path.isfile(os.path.join(root, ".ai", "enabled")) \
+            or os.path.isfile(os.path.join(root, "graphify-out", "graph.json")) or not ctx.state.has_code(root):
+        return False
+    st = ctx.state.load()
+    if st.get("graph_build"):
+        return False
+    st["graph_build"] = True
+    ctx.state.dirty = True
+    return start_graph_refresh(root, build=True)
 
 
 def _ph_libs_hits(ctx):

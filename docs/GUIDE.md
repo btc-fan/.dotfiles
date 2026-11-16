@@ -1719,7 +1719,7 @@ adopted repo gets `.ai/docs-allow` with the files that were already there. A res
 
 Adopt an existing repo yourself, the same way:
 1. `git switch -c ai-setup-<date> origin/main` (or a worktree when you have open work: `git worktree add ../x-ai-setup -b ai-setup-<date> origin/main`).
-2. `ai-adopt`. It commits on that branch and pushes it with an upstream. In a worktree it uses the main checkout's name and its `.venv`.
+2. `ai-adopt`. It commits on that branch and pushes it with an upstream. In a worktree it uses the main checkout's name and its `.venv`. On main or master it never commits there: it makes the branch `ai-adopt` and tells you to merge it. Without a remote it does not push and says "no remote". A folder without git: `ai-adopt --init` runs `git init` first (never in your home folder or in `/`). A docs-only or empty repo gets a `make check` with the Markdown checks (placement, no em dash, relative links).
 3. Ask the agent to open the PR, or open it on GitHub. Merge it yourself, or say "merge".
 
 ### 15.9 Where to run a session

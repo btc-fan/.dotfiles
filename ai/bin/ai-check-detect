@@ -19,12 +19,13 @@ Detection (stack from lockfiles and manifests, the nixpacks ladder; the test and
           typecheck (or type-check), test (the npm placeholder test script does not count).
   Go      go.mod: go vet + go test -short (check: go test, golangci-lint when configured).
   Rust    Cargo.toml: cargo clippy -D warnings + cargo test.
+  None    (docs-only or empty repo) ai-docs-check --md: Markdown placement, no em dash, relative links resolve.
 Probe: each lint, type and test tool must really run here (`uv run ruff --version`, `.venv/bin/python -m pytest
 --version`, `golangci-lint --version`, `cargo clippy --version`). A tool that fails its probe is left out of the
 commands and printed as a suggestion (install it, then run ai-adopt again). Node scripts are not probed.
 Refused (exit 2, nothing written): monorepos (pnpm/npm/yarn workspaces, lerna, nx, turbo, rush, go.work, or
 two or more package manifests below the root): write one target per package by hand.
-Exit 1 when no stack is found.
+Exit 1 when a stack has no test or lint command.
 """
 import json
 import os
@@ -45,6 +46,8 @@ LEDGER_LINE = ('@if command -v ai-ledger >/dev/null 2>&1; then ai-ledger --check
                'else echo "ai-ledger not on PATH: ledger check skipped"; fi')
 DOCS_LINE = ('@if command -v ai-docs-check >/dev/null 2>&1; then ai-docs-check; '
              'else echo "ai-docs-check not on PATH: Markdown placement check skipped"; fi')
+MD_LINE = ('@if command -v ai-docs-check >/dev/null 2>&1; then ai-docs-check --md; '
+           'else echo "ai-docs-check not on PATH: Markdown checks skipped"; fi')
 
 
 def main(argv):
@@ -102,7 +105,9 @@ def detect(root, probe=False):
     if nested:
         notes.append("%s below the root is not covered: add its checks by hand" % ", ".join(nested))
     if not stacks:
-        return {"ok": False, "refuse": "no stack found (no pyproject.toml, package.json, go.mod or Cargo.toml)"}
+        # Docs-only or empty repo (spec story 25): make check still exists, so ship works everywhere.
+        return {"ok": True, "stacks": ["markdown"], "fast": [MD_LINE], "full": [MD_LINE], "runner": "make",
+                "notes": ["no code stack (no pyproject.toml, package.json, go.mod or Cargo.toml): Markdown checks only"]}
     if not fast:
         return {"ok": False, "notes": notes,
                 "refuse": "%s found, but no test or lint command could be told from the files" % ", ".join(stacks)}
@@ -296,7 +301,7 @@ def plan(root, info, tier):
     kept = [t for t in ("check-fast", "check") if t in have]
     full = list(info["full"])
     if tier == "long":
-        full += [LEDGER_LINE, RATCHET_LINE, DOCS_LINE]
+        full += [LEDGER_LINE, RATCHET_LINE] + ([] if MD_LINE in full else [DOCS_LINE])
     want = [t for t in ("check-fast", "check") if t not in have]
     text = None
     if want:

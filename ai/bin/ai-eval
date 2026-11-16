@@ -2,8 +2,11 @@
 """ai-eval: fixture repos and the install and behaviour levels of the AI setup tests.
 
   ai-eval fixtures DIR                  make the fixture repos in DIR
-  ai-eval install [--keep] [--out DIR]  ai-adopt twice on each fixture in a throwaway HOME. A report of the
-                                        current behaviour (the baseline): exit 0 unless the harness itself breaks.
+  ai-eval install [--keep] [--out DIR]  ai-adopt twice on each fixture in a throwaway HOME (no-git: refused, then
+                                        --init), then ai-doctor --project-only and uninstall.sh --user (it has
+                                        nothing recorded there: install.sh never runs at this level). A pass:
+                                        both runs rc 0, the second changes no file git sees, doctor and
+                                        uninstall rc 0. Exit 0 unless the harness itself breaks.
   ai-eval behaviour [--agent claude|codex|both] [--runs N] [--dry] [--out DIR]
                                         one fresh headless session per case and run, on a fresh copy of the
                                         adopted fixture; cases are ai/evals/cases/*.json. --dry only lists the runs.
@@ -36,6 +39,8 @@ AI_DIR = os.path.dirname(BIN)
 AI_HOME = os.path.dirname(AI_DIR)
 CASES = os.path.join(AI_DIR, "evals", "cases")
 ADOPT = os.path.join(BIN, "ai-adopt")
+DOCTOR = os.path.join(BIN, "ai-doctor")
+UNINSTALL = os.path.join(AI_HOME, "uninstall.sh")
 FIXTURES = ("empty-git", "docs-only", "no-git", "app", "project-copy")
 ADOPT_TIMEOUT = 1800
 RUN_TIMEOUT = 900
@@ -109,25 +114,43 @@ def install(opts):
 
 def install_row(name, repo, home):
     env = adopt_env(home)
-    first_rc, first_out = adopt(repo, env)
+    refused_rc = None
+    extra = []
+    if name == "no-git":
+        # A folder without git is refused (spec story 31); with --init it is set up like the others.
+        refused_rc, _out = adopt(repo, env)
+        extra = ["--init"]
+    first_rc, first_out = adopt(repo, env, extra)
     before = snapshot(repo)
     second_rc, second_out = adopt(repo, env)
     after = snapshot(repo)
     changed = sorted(p for p in set(before) | set(after) if before.get(p) != after.get(p))
+    doctor_rc, doctor_out = call([sys.executable, DOCTOR, "--project-only", repo], env, repo, 300)
+    uninstall_rc, uninstall_out = call(["bash", UNINSTALL, "--user", "--yes"], env, home, 300)
 
     notes = [last_line(first_out)]
+    if refused_rc is not None and refused_rc != 1:
+        notes.append("without --init: rc %s, not refused" % refused_rc)
     if second_rc != first_rc:
         notes.append("second run rc %s: %s" % (second_rc, last_line(second_out)))
     if changed:
         notes.append("changed: " + ", ".join(changed[:3]) + (" (+%d)" % (len(changed) - 3) if len(changed) > 3 else ""))
-    return {"fixture": name, "adopt_rc": first_rc, "second_rc": second_rc, "second_run_changed": bool(changed),
-            "changed": changed, "pass": first_rc == 0 and second_rc == 0 and not changed,
-            "notes": "; ".join(n for n in notes if n), "output": first_out[-4000:], "second_output": second_out[-4000:]}
+    if doctor_rc != 0:
+        notes.append("ai-doctor rc %s: %s" % (doctor_rc, last_line(doctor_out)))
+    if uninstall_rc != 0:
+        notes.append("uninstall rc %s: %s" % (uninstall_rc, last_line(uninstall_out)))
+    ok = first_rc == 0 and second_rc == 0 and not changed and doctor_rc == 0 and uninstall_rc == 0 \
+        and refused_rc in (None, 1)
+    return {"fixture": name, "refused_rc": refused_rc, "adopt_rc": first_rc, "second_rc": second_rc,
+            "second_run_changed": bool(changed), "changed": changed, "doctor_rc": doctor_rc,
+            "uninstall_rc": uninstall_rc, "pass": ok, "notes": "; ".join(n for n in notes if n),
+            "output": first_out[-4000:], "second_output": second_out[-4000:], "doctor_output": doctor_out[-4000:]}
 
 
-def adopt(repo, env):
+def adopt(repo, env, extra=()):
     # --no-onboard: the onboard step is a headless claude session, and this level runs no agent.
-    return call([sys.executable, ADOPT, "--dir", repo, "--yes", "--no-onboard"], env, repo, ADOPT_TIMEOUT)
+    return call([sys.executable, ADOPT, "--dir", repo, "--yes", "--no-onboard"] + list(extra), env, repo,
+                ADOPT_TIMEOUT)
 
 
 def adopt_env(home):
@@ -145,18 +168,24 @@ def adopt_env(home):
 
 
 def snapshot(root):
-    """path -> content hash of every file outside .git, plus the HEAD commit."""
+    """path -> content hash of every file outside .git that git does not ignore, plus the HEAD commit.
+    Ignored files (graphify-out caches, .serena caches) are local state: a change there is not a second-run diff."""
     rc, head = call(["git", "-C", root, "rev-parse", "-q", "--verify", "HEAD"], None, root, 60)
     snap = {"HEAD": head.strip() if rc == 0 else ""}
+    rc, out = call(["git", "-C", root, "ls-files", "-z", "--others", "--ignored", "--exclude-standard"], None, root, 60)
+    ignored = set(out.split("\0")) if rc == 0 else set()
     for dirpath, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d != ".git"]
         for f in files + [d for d in dirs if os.path.islink(os.path.join(dirpath, d))]:
             path = os.path.join(dirpath, f)
+            rel = os.path.relpath(path, root)
+            if rel in ignored:
+                continue
             if os.path.islink(path):
-                snap[os.path.relpath(path, root)] = "link:" + os.readlink(path)
+                snap[rel] = "link:" + os.readlink(path)
             elif os.path.isfile(path):
                 with open(path, "rb") as fh:
-                    snap[os.path.relpath(path, root)] = hashlib.sha1(fh.read()).hexdigest()
+                    snap[rel] = hashlib.sha1(fh.read()).hexdigest()
     return snap
 
 
