@@ -170,6 +170,41 @@ def t_docs_check_research_header(work):
     assert "WARN docs/research/expo-push.md" in res.text and "ok.md" not in res.text, res.text
 
 
+def t_docs_check_md(work):
+    """--md (the check of a docs-only repo): placement, no em dash, relative links resolve."""
+    repo, env = new_repo(work, "md", {
+        "README.md": "# r\n\n[guide](docs/guide.md#step-1) [web](https://example.invalid/x) [top](#r)\n"
+                     "[mail](mailto:a@example.invalid) ![img](docs/pic.png)\n\n```\n[not a link](nowhere.md)\n```\n",
+        "docs/guide.md": "# Guide\n\n[back](../README.md) [missing](./gone.md)\n",
+        "docs/pic.png": "png"})
+    dc = [sys.executable, os.path.join(BIN, "ai-docs-check"), "--dir", repo]
+    assert run(dc, env=env).returncode == 0, "without --md: placement only"
+    res = run(dc + ["--md"], env=env)
+    assert res.returncode == 1 and "docs/guide.md:3: broken link ./gone.md" in res.text, res.text
+    assert "nowhere.md" not in res.text and "example.invalid" not in res.text, res.text
+    write(os.path.join(repo, "docs", "guide.md"), "# Guide\n\nStep 1 \u2014 read.\n\n[back](../README.md)\n")
+    res = run(dc + ["--md"], env=env)
+    assert res.returncode == 1 and "docs/guide.md:3: em dash (U+2014)" in res.text, res.text
+    write(os.path.join(repo, "docs", "guide.md"), "# Guide\n\nStep 1: read.\n\n[back](../README.md)\n")
+    res = run(dc + ["--md"], env=env)
+    assert res.returncode == 0, res.text
+
+
+def t_scenario_docs_only_and_empty(work):
+    """Spec story 25 and 30: a docs-only and an empty repo get a make check (the Markdown checks) that passes."""
+    for name, files in (("docs-only", {"README.md": "# d\n\nSee [the guide](docs/guide.md).\n",
+                                       "docs/guide.md": "# Guide\n"}), ("empty", {})):
+        repo, env = new_repo(work, name, files)
+        res = adopt(repo, env)
+        assert res.returncode == 0, res.text
+        mk = read(os.path.join(repo, "Makefile")) or ""
+        assert "check:" in mk and "check-fast:" in mk and "ai-docs-check --md" in mk, (name, mk)
+        assert "Makefile" in git(repo, "show", "--name-only", "--format=", "HEAD", env=env).text.split(), name
+        res = run(["make", "-C", repo, "check"], env=dict(env, PATH=BIN + os.pathsep + env["PATH"]))
+        assert res.returncode == 0 and "Markdown" in res.text, (name, res.text)
+        assert "nothing to change" in adopt(repo, env).text, name
+
+
 # ---------------------------------------------------------------- ai-precommit
 
 def fake_tool(home, name, body):
@@ -315,6 +350,8 @@ def t_scenario_long_evolution(work):
     """Many merges over time: each move of main asks for the review once; recording it quiets it."""
     repo, env = new_repo(work, "evolve", dict(PY_APP))
     assert adopt(repo, env).returncode == 0
+    git(repo, "switch", "-q", "main", env=env)      # the owner merges the ai-adopt branch (owner 2026-11-16)
+    git(repo, "merge", "-q", "ai-adopt", env=env)
     start = {"session_id": "e0", "cwd": repo, "source": "startup"}
     out = hook("SessionStart", start, env)
     assert "moved since the last architecture review" not in out, "first session only sets the mark"

@@ -2454,12 +2454,13 @@ with open(log, "a") as out:
 """
 
 
-def start_graph_refresh(root):
-    """Start the detached refresh for one repo. True when started (or handed to a running one)."""
+def start_graph_refresh(root, build=False):
+    """Start the detached refresh for one repo. True when started (or handed to a running one).
+    build: also when there is no graph yet (`graphify update` makes the first one)."""
     import hashlib
     import subprocess
     gfy = graphify_bin()
-    if not gfy or not os.path.isfile(os.path.join(root, "graphify-out", "graph.json")):
+    if not gfy or not (build or os.path.isfile(os.path.join(root, "graphify-out", "graph.json"))):
         return False
     key = hashlib.sha1(os.path.realpath(root).encode("utf-8")).hexdigest()[:12]
     lock, pending = state_path("graph-%s.lock" % key), state_path("graph-%s.pending" % key)

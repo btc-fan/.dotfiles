@@ -7,7 +7,9 @@
   Extra flags: --no-knowledge (skip Map and Libraries), --refresh-map (write the Map section again),
                --no-onboard (no headless claude pass for the Map conventions),
                --no-measure (do not run check-fast once to time it),
-               --skills a,b|none (mattpocock skills linked into this project; replaces the default list).
+               --skills a,b|none (mattpocock skills linked into this project; replaces the default list),
+               --init (a folder without git: git init first; never in $HOME or /).
+  On main or master the commit goes on a new branch ai-adopt for the owner to merge. No remote: a warning, no push.
   No tiers (owner 2026-11-15): every project gets the full setup (`tier: long`). An old --tier flag is ignored.
 ai-adopt is a link to this file; the mode comes from the command name. Rerun = upgrade (blocks are
 replaced by marker, project text outside the blocks is never touched).
@@ -87,8 +89,16 @@ def main(argv):
     opts = parse(argv)
     ignore_global_excludes()
     root = git_root(opts["dir"])
+    if root is None and opts["init"]:
+        folder = os.path.realpath(opts["dir"])
+        if folder in (os.path.realpath(os.path.expanduser("~")), os.path.realpath(os.sep)):
+            print("ai-%s: refused: --init never runs git init in $HOME or /" % mode, file=sys.stderr)
+            return 1
+        if subprocess.call(["git", "init", "-q", folder]) == 0:
+            root = git_root(folder)
     if root is None:
-        print("ai-%s: %s is not a git repo (git init first)" % (mode, opts["dir"]), file=sys.stderr)
+        print("ai-%s: %s is not a git repo (git init first, or run again with --init)" % (mode, opts["dir"]),
+              file=sys.stderr)
         return 1
     if not owner_repo(root):
         print("ai-%s: refused, the origin remote is not one of the owner's repos" % mode, file=sys.stderr)
@@ -109,7 +119,10 @@ def main(argv):
     plan = []
     plan.append(write_plan(os.path.join(root, ".ai", "base-version"), version + "\n"))
     enabled = sorted(set(current) | set(chosen))
-    plan.append(write_plan(os.path.join(root, ".ai", "enabled"), enabled_text(enabled, tier, skills)))
+    new_enabled = enabled_text(enabled, tier, skills)
+    # Same entries: keep the file. A rerun must not drop a comment (no-stop-check has one) or reorder the lines.
+    if sorted(current_all) != sorted(entries(new_enabled)):
+        plan.append(write_plan(os.path.join(root, ".ai", "enabled"), new_enabled))
     agents_path = os.path.join(root, "AGENTS.md")
     agents = read(agents_path) or "# %s\n" % project_name(root)
     for rule in optin:
@@ -201,14 +214,29 @@ def main(argv):
         print("ai-%s: files written, not committed" % mode)
         return 0
     msg = ("chore(ai): adopt base AI setup v%s" if mode == "adopt" else "chore(ai): start project AI setup v%s") % version
+    # Never on main or master (owner 2026-11-16): the commit goes on a branch ai-adopt, the owner merges it.
+    on_main = (git(root, "branch", "--show-current") or "") in ("main", "master")
+    if on_main and git(root, "rev-parse", "-q", "--verify", "refs/heads/" + ADOPT_BRANCH):
+        undo_intent_to_add(root, new_files)
+        print("ai-%s: files written, not committed: the branch %s exists. Merge or delete it, then run again."
+              % (mode, ADOPT_BRANCH))
+        return 1
     try:
+        if on_main:
+            subprocess.check_call(["git", "-C", root, "switch", "-q", "-c", ADOPT_BRANCH])
         subprocess.check_call(["git", "-C", root, "add", "-A", "--"] + paths)
         subprocess.check_call(["git", "-C", root, "commit", "-m", msg, "--"] + paths)
     except subprocess.CalledProcessError as exc:
         print("ai-%s: files written, git %s failed (exit %d): see the git message above"
               % (mode, exc.cmd[3] if len(exc.cmd) > 3 else "", exc.returncode))
         return 1
-    if mode == "adopt" and has_remote(root):
+    if on_main:
+        print("ai-%s: committed on the branch %s, not on main: merge the %s branch (owner)"
+              % (mode, ADOPT_BRANCH, ADOPT_BRANCH))
+    if not has_remote(root):
+        print("ai-%s: no remote: push and PR are not possible yet" % mode)
+        return 0
+    if mode == "adopt":
         # A new branch (the owner's flow: adopt on a branch, then a PR) has no upstream yet, or tracks the branch it
         # was made from (git switch -c x origin/main): push it under its own name and set that as the upstream.
         upstream = git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}") or ""
@@ -216,6 +244,9 @@ def main(argv):
         own = branch and upstream.split("/", 1)[-1] == branch
         return subprocess.call(["git", "-C", root, "push"] + ([] if own else ["-u", "origin", "HEAD"]))
     return 0
+
+
+ADOPT_BRANCH = "ai-adopt"
 
 
 def undo_intent_to_add(root, files):
@@ -227,7 +258,7 @@ def undo_intent_to_add(root, files):
 
 def parse(argv):
     opts = {"dir": ".", "tools": None, "yes": False, "dry_run": False, "knowledge": True, "onboard": True,
-            "refresh_map": False, "measure": True, "skills": None}
+            "refresh_map": False, "measure": True, "skills": None, "init": False}
     args = list(argv)
     while args:
         a = args.pop(0)
@@ -250,6 +281,8 @@ def parse(argv):
             print("note: --tier is ignored: there are no tiers, every project gets the full setup (tier: long)")
         elif a == "--no-measure":
             opts["measure"] = False
+        elif a == "--init":
+            opts["init"] = True
         elif a == "--skills" and args:
             opts["skills"] = [t.strip() for t in args.pop(0).split(",") if t.strip()]
         elif a in ("-h", "--help"):
@@ -1497,7 +1530,11 @@ def read(path):
 
 
 def read_lines(path):
-    return [ln.split("#", 1)[0].strip() for ln in (read(path) or "").splitlines() if ln.split("#", 1)[0].strip()]
+    return entries(read(path) or "")
+
+
+def entries(text):
+    return [ln.split("#", 1)[0].strip() for ln in text.splitlines() if ln.split("#", 1)[0].strip()]
 
 
 if __name__ == "__main__":

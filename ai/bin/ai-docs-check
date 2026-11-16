@@ -3,6 +3,8 @@
 
 Usage:
   ai-docs-check [--dir PATH]          exit 1 when a Markdown file sits outside the allowed places
+  ai-docs-check [--dir PATH] --md     also fail on an em dash (U+2014) or a relative link to a missing file in a
+                                      Markdown file (make check of a docs-only or empty repo)
   ai-docs-check [--dir PATH] --init   write .ai/docs-allow with the files that are outside today (the baseline of an
                                       adopted repo: they pass, a new one fails). ai-adopt runs this once.
 
@@ -21,6 +23,7 @@ its first 20 lines. Status is current, superseded (by what) or decided (ADR NNNN
 """
 import fnmatch
 import os
+import re
 import subprocess
 import sys
 
@@ -46,9 +49,12 @@ def main(argv):
         return write_baseline(root, stray)
     for f in research_without_header(root, files):
         print("ai-docs-check: WARN %s: add Date:, Sources: and Status: lines at the top" % f)
+    problems = md_problems(root, [f for f in files if is_md(f)]) if "--md" in argv else []
+    for p in problems:
+        print("ai-docs-check: " + p)
     if not stray:
         print("ai-docs-check: Markdown placement ok (%d files)" % sum(1 for f in files if is_md(f)))
-        return 0
+        return 1 if problems else 0
     for f in stray:
         print("ai-docs-check: stray Markdown %s" % f)
     print("ai-docs-check: %d file(s) outside the allowed places. Move each under docs/<kind>/ (adr, specs, tickets, "
@@ -111,6 +117,46 @@ def write_baseline(root, stray):
         fh.write(header + body + ("\n" if body else ""))
     print("ai-docs-check: baseline %s: %d file(s)" % (ALLOW_REL, len(old) + len(new)))
     return 0
+
+
+EM_DASH = chr(0x2014)
+LINK_RX = re.compile(r"!?\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
+CODE_SPAN_RX = re.compile(r"`[^`]*`")
+
+
+def md_problems(root, files):
+    """file:line findings: an em dash, or a relative link whose file does not exist. Code is skipped."""
+    out = []
+    for f in files:
+        try:
+            with open(os.path.join(root, f), encoding="utf-8", errors="replace") as fh:
+                lines = fh.read().splitlines()
+        except OSError:
+            continue
+        fenced = False
+        for n, line in enumerate(lines, 1):
+            if line.lstrip().startswith(("```", "~~~")):
+                fenced = not fenced
+                continue
+            if fenced:
+                continue
+            if EM_DASH in line:
+                out.append("%s:%d: em dash (U+2014): use '-', ':' or a new sentence" % (f, n))
+            for target in LINK_RX.findall(CODE_SPAN_RX.sub("", line)):
+                if not link_ok(root, f, target):
+                    out.append("%s:%d: broken link %s" % (f, n, target))
+    return out
+
+
+def link_ok(root, md_file, target):
+    """External links, mail and in-page anchors are not checked; a relative path must exist."""
+    if re.match(r"^[a-zA-Z][\w+.-]*:", target) or target.startswith(("#", "//")):
+        return True
+    path = target.split("#", 1)[0].split("?", 1)[0]
+    if not path:
+        return True
+    base = root if path.startswith("/") else os.path.join(root, os.path.dirname(md_file))
+    return os.path.exists(os.path.normpath(os.path.join(base, path.lstrip("/"))))
 
 
 def research_without_header(root, files):

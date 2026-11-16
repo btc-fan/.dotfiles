@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-- [ ] Install level green on the empty, docs-only and no-git fixtures
-- [ ] Second run changes nothing
-- [ ] First code file in an empty fixture: graph exists after the next session start
-- [ ] Install level of ai-eval also runs ai-doctor (project checks) and an uninstall, moved here from ticket 01
+- [x] Install level green on the empty, docs-only and no-git fixtures
+- [x] Second run changes nothing
+- [x] First code file in an empty fixture: graph exists after the next session start
+- [x] Install level of ai-eval also runs ai-doctor (project checks) and an uninstall, moved here from ticket 01

@@ -95,17 +95,32 @@ def t_install_fake_bins(work):
 
     rows = {r["fixture"]: r for r in json.loads(read(os.path.join(out, "install.json")))}
     assert sorted(rows) == sorted(load().FIXTURES), rows
-    assert rows["no-git"]["adopt_rc"] == 1 and rows["no-git"]["pass"] is False, rows["no-git"]
-    assert "not a git repo" in rows["no-git"]["notes"], rows["no-git"]
+    assert rows["no-git"]["refused_rc"] == 1, "without --init a folder without git is refused: %s" % rows["no-git"]
     assert rows["project-copy"]["adopt_rc"] is None and "skipped" in rows["project-copy"]["notes"]
     assert rows["app"]["adopt_rc"] == 0, rows["app"]["output"]
-    for name in ("empty-git", "docs-only", "app"):
-        assert isinstance(rows[name]["second_run_changed"], bool), rows[name]
+    for name in ("empty-git", "docs-only", "no-git", "app"):
+        row = rows[name]
+        assert row["second_run_changed"] is False, "%s: second run changed %s" % (name, row["changed"])
+        assert row["doctor_rc"] == 0 and row["uninstall_rc"] == 0, "%s: %s" % (name, row["notes"])
+        assert row["pass"] is True, "%s: %s\n%s" % (name, row["notes"], row["output"])
     assert not os.path.exists(home), "ai-adopt ran with the harness HOME, not a throwaway one"
 
     inside = run([sys.executable, EVAL, "install", "--out", os.path.join(AI_DIR, "eval-out")], env)
     assert inside.returncode != 0 and "outside the repo" in inside.stdout, inside.stdout
     assert not os.path.exists(os.path.join(AI_DIR, "eval-out"))
+
+
+def t_snapshot_skips_ignored(work):
+    """Baseline 2026-11-16: the second run on app changed only gitignored graphify-out cache files (noise)."""
+    ev = load()
+    repo = os.path.join(work, "snap")
+    write(os.path.join(repo, ".gitignore"), "graphify-out/\n")
+    write(os.path.join(repo, "graphify-out", "cache", "a.json"), "{}")
+    write(os.path.join(repo, "app.py"), "x = 1\n")
+    git(repo, "init", "-q")
+    snap = ev.snapshot(repo)
+    assert "app.py" in snap and ".gitignore" in snap, snap
+    assert not any(p.startswith("graphify-out") for p in snap), snap
 
 
 def t_score_stream(work):
@@ -261,7 +276,7 @@ def t_copy_fixture_skips_socket(work):
     assert not os.path.exists(os.path.join(dst, ".git", "fsmonitor--daemon.ipc")), "the socket is skipped"
 
 
-TESTS_LIST = [t_fixtures, t_fixture_project_copy, t_copy_fixture_skips_socket, t_score_stream, t_router_seen,
+TESTS_LIST = [t_fixtures, t_fixture_project_copy, t_copy_fixture_skips_socket, t_snapshot_skips_ignored, t_score_stream, t_router_seen,
               t_child_env, t_cases_valid, t_behaviour_dry, t_install_fake_bins]
 
 if __name__ == "__main__":

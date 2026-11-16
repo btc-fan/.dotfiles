@@ -10,7 +10,8 @@ Do not merge. The owner merges, or tells you "merge" (the merge-approval gate ch
 
 ## Steps
 
-1. **Branch.** `git status` is clean, the branch is not main or master, and it is pushed.
+1. **Branch.** `git status` is clean, the branch is not main or master, and it is pushed. When `git remote` prints
+   nothing, stop here and tell the owner "no remote": a push and a PR are not possible yet.
 2. **Checks.** `make check` (the full suite, the ratchet, the Markdown placement check). Keep the command and the
    tail of its output for Evidence.
 3. **Proof in the real app.** If the repo has a `verify-<app>` skill: run it on each changed feature, keep the
