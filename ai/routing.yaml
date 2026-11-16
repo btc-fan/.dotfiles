@@ -75,7 +75,7 @@ rules:
 
   - id: nav-first
     scope: global
-    summary: 'first broad code search (Grep, rg, grep -r, find)'
+    summary: 'first broad code search (Grep, rg, grep -r, find); denied once in a code repo with a fresh graph'
     trigger: {tool_before: 'Grep|Bash|shell|exec_command|local_shell', command: '(^|[;&|(]\s*)(rg|ag|ack|git grep|grep\s+(-\w*[rR]\w*|--recursive)|find\s+\S+\s+(-i?name|-path|-type))\b'}
     action: "{nav_hint}"   # empty when the repo has no graph and Serena is off
     once_per: 'session'
@@ -161,8 +161,10 @@ rules:
 
   - id: docs-lookup
     scope: global
-    summary: 'docs, SDK or library prompt'
-    trigger: {prompt: '\b(docs|documentation|api reference|sdk|library|framework|how (do|to) (i )?use|migrat(e|ion) to|upgrade to)\b', prompt_libs: true}
+    summary: 'prompt names a library (Libraries section, deps, known libs), or before a dependency-file edit'
+    # Only a named library or a dependency change: the old "docs|sdk|library" words fired on every docs task
+    # and were ignored 72 of 88 times (owner 2026-11-16).
+    trigger: {prompt_libs: true, tool_before: 'Edit|Write|MultiEdit', paths: 'package.json|pyproject.toml|requirements*.txt|go.mod|Cargo.toml|Gemfile|composer.json'}
     action: "Library code: context7 query-docs with the ID from the Libraries section (resolve only if missing), then the official docs site. {libs_hits}"
     proof: 'tool:mcp__\S*context7'
     strength: nudge

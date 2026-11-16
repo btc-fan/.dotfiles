@@ -196,8 +196,8 @@ def validate(data):
         bad = [p for p in (r.get("profiles") or []) if p not in ai_profile.names()]
         if "profiles" in r and (not isinstance(r["profiles"], list) or not r["profiles"] or bad):
             errors.append("%s: profiles must be a non-empty list of known profiles (%s)" % (rid, ", ".join(ai_profile.names())))
-        if "prompt_libs" in trig and (not isinstance(trig["prompt_libs"], bool) or not trig.get("prompt")):
-            errors.append("%s: prompt_libs must be true/false next to a prompt regex" % rid)
+        if "prompt_libs" in trig and not isinstance(trig["prompt_libs"], bool):
+            errors.append("%s: prompt_libs must be true/false" % rid)
     for tb in data.get("tiebreaks", []):
         rx = tb.get("match")
         if not rx:

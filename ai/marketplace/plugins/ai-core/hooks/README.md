@@ -52,6 +52,10 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   of the skills guide, section 5) is denied with the winner's name, also in a subagent. A typed /name never
   reaches the Skill tool. Orchestration skills pass, and after one of them the skills it calls pass for the
   rest of the session. Codex has no Skill tool event, so there the table is advice only.
+- graph-first (the nav-first rule): in a repo with code and a fresh `graphify-out/graph.json` (graph not off by
+  `no-graph`), the first broad search of a session (Grep, or the nav-first command regex) is denied once with
+  "run graphify query first"; the next search passes. A session that already ran graphify or a Serena tool
+  passes (PostToolUse marks it).
 
 A gate decision is sent even when the state dir cannot be written; an internal error before a decision
 fails open and is logged to `~/.local/state/ai/router-errors.log` (ai-doctor shows it).

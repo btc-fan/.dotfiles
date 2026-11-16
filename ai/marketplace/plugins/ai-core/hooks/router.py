@@ -35,6 +35,7 @@ from hooklib import (GATES, GATE_PROBES, ai_home, append_jsonl, command_text, ga
                      log_line, one_line, project_skills, project_tier, verify_skill, is_code_file,
                      origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
                      state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
+                     graph_status, git_history,
                      owner_merge_ok, merge_review_note, nav_note, upgrade_note, legacy_memory_note)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -193,9 +194,9 @@ def on_user_prompt(ctx):
     for rule in routing.get("rules", []):
         trig = rule.get("trigger", {})
         rx = trig.get("prompt")
-        if not rx:
+        if not rx and not trig.get("prompt_libs"):
             continue
-        if not search(rx, prompt):
+        if not (rx and search(rx, prompt)):
             if not trig.get("prompt_libs") or not ctx.prompt_libs(prompt):
                 continue
         if not rule_enabled(rule, ctx):
@@ -260,7 +261,12 @@ def on_pre_tool(ctx):
         text = render_action(rule, ctx)
         if text and ctx.state.allow_nudge(rule, nudge_key(rule, tool, tin, cmd)):
             ctx.fired(rule, "PreToolUse")
-            ctx.add_context("[ai router: %s] %s" % (rule["id"], text))
+            if rule["id"] == "nav-first" and graph_first(ctx):
+                # once per session (the nudge key above), so the next search passes
+                ctx.decide("deny", "[ai router: nav-first] This repo has a graph: run graphify query first. %s "
+                                   "Then search again: the next search passes." % text)
+            else:
+                ctx.add_context("[ai router: %s] %s" % (rule["id"], text))
     abs_rewrite(ctx, tool, tin, cmd)
 
 
@@ -318,6 +324,8 @@ def on_post_tool(ctx):
             append_jsonl("fired.jsonl", ctx.row(kind="skill", via="tool", skill=name))
     if is_docs_tool(tool):
         log_docs_ids(ctx, tool, tin)
+    if "serena" in tool.lower() or any(st.exe == "graphify" for st in ctx.stages):
+        mark_nav_used(ctx)
     try:
         ctx.graph_refresh = graph_refresh(ctx)
     except Exception as exc:     # never break the session
@@ -704,6 +712,22 @@ def _state_no_blog(ctx):
 
 def _state_code_repo(ctx):
     return ctx.root is not None and ctx.state.has_code(ctx.root)
+
+
+def graph_first(ctx):
+    """The first broad search of a session is denied when the repo has code and a fresh graph (graph on), and
+    the session has not used graphify or Serena yet."""
+    root = ctx.root
+    if not root or ctx.state.load().get("nav_used") or "graph" not in enabled_tools(root):
+        return False
+    return ctx.state.has_code(root) and graph_status(root, git_history(root)) == "fresh"
+
+
+def mark_nav_used(ctx):
+    d = ctx.state.load()
+    if not d.get("nav_used"):
+        d["nav_used"] = True
+        ctx.state.dirty = True
 
 
 # routing.yaml `state:` strings -> predicates. ai-render fails on a state string not listed here.
