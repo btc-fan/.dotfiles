@@ -40,11 +40,11 @@ Each step prints `[n/N] what`. A step that is already done is skipped. Run it tw
 2. Sources (profile dev-mac: see Profiles below for what is not audited there): reads `ai/pins.env` (where each tool comes from) and prints the newest stable release of every tool (`ai/lib/resolve.py`: npm, PyPI, GitHub releases, git tags; no pre-release, draft or yanked version; no cooldown). A `<TOOL>_HOLD=<version>` line wins for that tool. Offline: each tool keeps what is installed, and the run says so. The install steps below install exactly the resolved versions, each after `agent-audit`; a version with findings is not installed (the old one stays, a warning says so). Exceptions, not audited: the herdr and osv-scanner release binaries (sha256 from their project; `WARN unaudited binary update` on every change unless `slsa-verifier` or a logged-in `gh` verifies them) and the very first guarddog (bootstrap). The full list is in `ai/SPEC.md`, section 23. What was installed goes to `~/.local/state/ai/resolved.json` and `audit.log`. Owner decision 2026-11-14, every OS.
 3. Worktree links: `~/.dotfiles/bin/claude-notify` and every `ai/bin/*` command linked into `~/.local/bin/`. The link names go into `~/.dotfiles/.git/info/exclude`.
 4. `ai-render`: turns `ai/routing.yaml` into `ai/build/routing.json` and the L0 table. It joins `ai/agents-md/*.md` and the L0 table into the root file. It fails above 30 KB.
-5. Agents: only those found or asked for with `--agents`. Registers the marketplace `ai` and the plugin `ai-core` with Claude and Codex. Hermes, opencode and herdr get their own registrations.
-6. MCP servers: Serena (plugin ai-serena) and context7 (plugin ai-core `.mcp.json`). GitHub MCP and Grounded Docs are not installed (`ai/SPEC.md` section 16). Codex: `codex mcp add`. Playwright is not installed here: it is per project. Dropped servers (`AI_DROP_MCP` in `ai/pins.env`: `caveman-shrink`, `byterover-mcp`) are removed from Claude user scope and from Codex; each entry is saved in `~/.local/state/ai/undo/` and uninstall puts it back.
+5. Agents: only those found or asked for with `--agents`. Registers the marketplace `ai` and the plugin `ai-core` with Claude and Codex. Hermes, opencode and herdr get their own registrations. herdr is installed on every machine (a release binary, checked against the sha256 its project publishes), because its CLI gives the PR author-sessions block a real session id. `ai-doctor` checks the CLI.
+6. MCP servers: Serena (plugin ai-serena; its `.mcp.json` has `alwaysLoad: true`, so the Serena tools are visible from the first turn and are not deferred behind tool search; `ai-doctor` fails without it) and context7 (plugin ai-core `.mcp.json`). GitHub MCP and Grounded Docs are not installed (`ai/SPEC.md` section 16). Codex: `codex mcp add`. Playwright is not installed here: it is per project. Dropped servers (`AI_DROP_MCP` in `ai/pins.env`: `caveman-shrink`, `byterover-mcp`) are removed from Claude user scope and from Codex; each entry is saved in `~/.local/state/ai/undo/` and uninstall puts it back.
 7. Plugins: ai-core, Ponytail, i-have-adhd, claude-seo and claude-blog (off at user scope), OMC, ai-serena (a user-scope `serena` in `~/.claude.json` is then moved out), last30days (on). Plugins on `AI_OFF_CLAUDE_PLUGINS` are set off at user scope where installed (claude-seo, claude-blog, ui-ux-pro-max, typesafe). Plugins on `AI_DROP_CLAUDE_PLUGINS` (caveman) are uninstalled (data kept; their marketplace too when no other plugin uses it); uninstall restores them. Owner decisions 2026-11-14.
    Skills: our own skill, the five mattpocock skills (at the newest stable tag of mattpocock/skills).
-8. Hooks: inside the plugin. Hook entries on `AI_DROP_CLAUDE_HOOKS` (the two caveman hooks) are removed from `~/.claude/settings.json` (saved, restored by uninstall; the script files stay and are reported). oh-my-codex hooks in `~/.codex/hooks.json` that start node from a versioned Homebrew Cellar folder are pointed to `<brew prefix>/opt/node/bin/node`. Our own merge code only writes managed blocks (`~/.claude/CLAUDE.md`, and `~/.claude/CLAUDE-omc.md` when it exists because `omc launch` reads only that file; `~/.codex/AGENTS.md`, Hermes `SOUL.md`) and single keys for telemetry and update switches. Everything it adds is recorded in `~/.local/state/ai/managed-keys.json`.
+8. Hooks: inside the plugin. The step `claude_rtk` writes our wrapper `ai-core/hooks/rtk-hook` as the Claude PreToolUse Bash hook in `~/.claude/settings.json` (managed settings on a server). It runs `rtk hook claude`, except in auto mode, where it does nothing. Install does not run `rtk init -g` for Claude: that command writes the bare `rtk hook claude` hook, and a rewrite after the auto-mode review gives "no verdict" denials. Codex keeps `rtk hook codex`. The global `~/.claude/CLAUDE.md` is short: the root-rules import, the machine line and a 3-line OMC note. Hook entries on `AI_DROP_CLAUDE_HOOKS` (the two caveman hooks) are removed from `~/.claude/settings.json` (saved, restored by uninstall; the script files stay and are reported). oh-my-codex hooks in `~/.codex/hooks.json` that start node from a versioned Homebrew Cellar folder are pointed to `<brew prefix>/opt/node/bin/node`. Our own merge code only writes managed blocks (`~/.claude/CLAUDE.md`, and `~/.claude/CLAUDE-omc.md` when it exists because `omc launch` reads only that file; `~/.codex/AGENTS.md`, Hermes `SOUL.md`) and single keys for telemetry and update switches. Everything it adds is recorded in `~/.local/state/ai/managed-keys.json`.
 9. Env: telemetry off and auto-update off for every tool.
 10. Verify: `ai-doctor --quick`.
 It ends with a summary: done, skipped, manual steps left.
@@ -90,7 +90,6 @@ Switch a Mac to the server behaviour: `~/.dotfiles-ai/install.sh --profile serve
 - RTK is built from source (about 8 minutes). See `ai/rules/rtk.md`.
 - Hermes parts run as user `hermes` (`sudo -u hermes -H`), only if that user exists.
 - Linux keeps the SessionStart caffeinate entry. `/usr/local/bin/caffeinate` is a systemd-inhibit wrapper. The installer adds it if missing.
-- Grounded Docs runs as a server role: the firewall allows port 6280 from the LAN and tailscale0 only.
 - The server also imports `~/.dotfiles/docs/AGENTS-hosting.md` (from the `ubuntu-server` branch) into the root rules when that file exists.
 - Install OMX not before 2026-11-17. The installer holds it until then.
 
@@ -98,7 +97,7 @@ Switch a Mac to the server behaviour: `~/.dotfiles-ai/install.sh --profile serve
 
 - brew only for missing CLIs. Never `brew upgrade`, with one exception: when the Homebrew formula `rtk` is installed, install.sh runs `HOMEBREW_NO_AUTO_UPDATE=1 brew upgrade rtk` instead of a source build (no Rust needed), but only when the homebrew/core formula's stable version is exactly the resolved version (newest stable or `RTK_HOLD`), after the audit of that release tag. Otherwise it warns and keeps the installed rtk (`RTK_BREW_MISMATCH=build` in `ai/pins.env`: source build instead). An older copy this setup built in `~/.local/bin/rtk` is moved to the backup folder so one rtk stays on PATH (owner decision 2026-11-14).
 - Never writes macOS managed settings (an employer may manage them). Environment keys go into `~/.claude/settings.json` `env`.
-- RTK hook: on by default everywhere is the goal (see `install.sh --help` for the current switch). Install only changes agent configuration, never projects, databases or services.
+- RTK hook: Claude gets the wrapper `rtk-hook` (no rewrite in auto mode); Codex gets `rtk hook codex`. See `ai/rules/rtk.md`. Install only changes agent configuration, never projects, databases or services.
 - Dropped plugins on `AI_DROP_CLAUDE_PLUGINS` in `ai/pins.env` (caveman, owner decision 2026-11-14) are removed and recorded; a later drop is one word there. The context7 plugin is only reported: the installer prints the remove command.
 
 ## Manual steps per machine
@@ -115,7 +114,7 @@ Switch a Mac to the server behaviour: `~/.dotfiles-ai/install.sh --profile serve
 - claude-seo and claude-blog are installed but off (about 12k tokens per session each). Turn one on for one project: `ai-adopt --tools seo` (or `blog`), or put `"enabledPlugins": {"claude-seo@agricidaniel-claude-seo": true}` in that project's `.claude/settings.json`.
 - Claude: `/seo setup` then `/seo doctor`, once, in a project with claude-seo on.
 - `~/.config/ai/secrets.env`: GitHub token, provider keys, `DISCORD_ALLOWED_USERS` for Hermes, webhook copy for notifications.
-- Serena and graphify are installed but off; turn them on per project: `ai-adopt --tools serena,graph`. Then `serena download-ls-dependencies <language>` once.
+- Serena and graphify are on in every adopted project (opt out with `no-serena` or `no-graph` in `.ai/enabled`). Run `serena download-ls-dependencies <language>` once per language.
 - Notifications on Linux: webhook file readable by the user. How the user reads it (a user copy or a root helper) is documented in `ai/bin/claude-notify`. Without the webhook it does nothing.
 - Per project: `ai-adopt` for an existing repo, `ai-start` for a new one.
 - Claude Bash sandbox (Linux): commands run in bubblewrap with no access to `~/.ssh`, `~/.config/gh`, the Claude/Codex logins and `secrets.env`; git over SSH does not work inside it (use HTTPS remotes). If Claude refuses to start with a sandbox error, run `sudo ai-doctor --for-user <user>`: it checks bubblewrap and the AppArmor profile.
@@ -132,10 +131,12 @@ ai-doctor
 ai-sync --check
 ```
 `ai-sync --check` fails when a copied rule block (Codex, Hermes) differs from the source. Fix it with `ai-sync`. After each `git pull`, `ai-sync` should run (install the git hook once with `ai-sync --install-hook`).
-Then spot-check three things:
+Then spot-check these:
 - New Claude session starts with "ADHD MODE ACTIVE (always-on)".
-- `claude mcp list` shows context7 (plus serena or playwright only in a project that turned them on).
-- `rtk gain --history` grows after you run `git status` in a session.
+- `claude mcp list` shows context7 and serena (playwright only in a project that turned it on).
+- `rtk gain --history` grows after you run `git status` in a session that is not in auto mode.
+- `cat ~/.claude/CLAUDE.md` is the short form; `grep -o rtk-hook ~/.claude/settings.json` finds the wrapper.
+- `ai-doctor --quick | tail -1` ends with 0 fail. The owner checklist with more steps is in `README.md`, section 6.
 
 ## Remove or revert
 
