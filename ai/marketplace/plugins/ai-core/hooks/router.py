@@ -203,6 +203,9 @@ def on_user_prompt(ctx):
     if not prompt.strip() or is_notification(prompt):
         return
     remember_merge_ok(ctx, prompt)
+    prompt = owner_text(prompt)
+    if not prompt.strip():
+        return
     routing = ctx.routing
     matched = []
     for rule in routing.get("rules", []):
@@ -210,7 +213,8 @@ def on_user_prompt(ctx):
         rx = trig.get("prompt")
         if not rx and not trig.get("prompt_libs"):
             continue
-        if not (rx and search(rx, prompt)):
+        hit = search_owner_words(rx, prompt) if rule["id"] in NAME_SENSITIVE else rx and search(rx, prompt)
+        if not hit:
             if not trig.get("prompt_libs") or not ctx.prompt_libs(prompt):
                 continue
         if not rule_enabled(rule, ctx):
@@ -236,6 +240,37 @@ def on_user_prompt(ctx):
         if rule.get("strength") == "stop":
             arm_stop_rule(ctx, rule)
     ctx.add_context(render_prompt_context(routing, actions, ties))
+
+
+PASTED_FENCE = re.compile(r"^[ \t]*```.*?(^[ \t]*```[^\n]*$|\Z)", re.M | re.S)
+PASTED_LINE = re.compile(r"^[ \t]*[\u23fa\u276f>\u2502].*$", re.M)
+NAME_SENSITIVE = ("ui", "diagnosing-bugs")
+
+
+def owner_text(prompt):
+    """The prompt without pasted output: code fences and lines that start with a session marker (\u23fa \u276f > \u2502)."""
+    return PASTED_LINE.sub("", PASTED_FENCE.sub("", prompt))
+
+
+def search_owner_words(rx, text):
+    """A match that is not part of a product name: no hyphen joins it to a word ("ui-ux-pro-max"), and a capitalised
+    match has no capitalised neighbour word ("Acme Performance Suite")."""
+    if not rx:
+        return False
+    try:
+        matches = list(re.finditer(rx, text, re.IGNORECASE))
+    except re.error as exc:
+        log_error("regex " + rx[:60], exc)
+        return False
+    for m in matches:
+        before, after = text[:m.start()], text[m.end():]
+        if re.search(r"\w-$", before) or re.match(r"-\w", after):
+            continue
+        near = [w.group(1) for w in (re.search(r"(\w{2,})[ \t]+$", before), re.match(r"[ \t]+(\w{2,})", after)) if w]
+        if m.group(0)[:1].isupper() and any(w[:1].isupper() for w in near):
+            continue
+        return True
+    return False
 
 
 def is_notification(prompt):

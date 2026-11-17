@@ -96,6 +96,13 @@
     }
    },
    "contains": "/wayfinder = {{PROJ}}/.claude/skills/wayfinder/SKILL.md"
+  },
+  {
+   "name": "pasted code fence does not count",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "```\nsee the spec and the backlog tickets\n```\nlooks good"},
+   "project": {"git": true, "files": {".ai/enabled": "tracker-flow\n"}}
   }
  ]
 }

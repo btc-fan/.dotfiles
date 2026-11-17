@@ -70,6 +70,12 @@
    "expect": "nofire",
    "event": "UserPromptSubmit",
    "payload": {"prompt": "fix the typo in README"}
+  },
+  {
+   "name": "pasted session lines do not count",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "⏺ I will write tests first, red-green.\n❯ tdd please\nthanks, push it"}
   }
  ]
 }
