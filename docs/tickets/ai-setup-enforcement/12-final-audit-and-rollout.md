@@ -18,3 +18,4 @@
 - [ ] Public repo: docs/GUIDE.md names a host and private repos; rtk.md line 18 contradicts the installer; done/01 and done/02 have no ticked boxes
 - [ ] docs-lookup eval case: the app fixture has no Libraries block, so the prompt nudge cannot fire there
 - [x] ai-adopt writes the check-fast seconds and the ai-libs rows into AGENTS.md after its commit (found 2026-11-17)
+- [x] An ai-adopt rerun replaced the managed Makefile block and dropped an owner flag on a command line (found 2026-11-17)

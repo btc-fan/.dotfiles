@@ -305,7 +305,7 @@ def plan(root, info, tier):
     want = [t for t in ("check-fast", "check") if t not in have]
     text = None
     if want:
-        block = render_block(runner, want, info["fast"], full)
+        block = keep_owner_flags(render_block(runner, want, info["fast"], full), old or "")
         new = rest.rstrip("\n")
         new = (new + "\n\n" if new else "") + block
         text = None if new == old else new
@@ -331,6 +331,18 @@ def render_block(runner, want, fast, full):
         lines += [tab + recipe(c, runner) for c in full]
     lines.append(BLOCK_END)
     return "\n".join(lines) + "\n"
+
+
+def keep_owner_flags(block, old):
+    """A command line the owner extended inside our old block (`uv run pytest -q --durations=50`) stays as the owner
+    wrote it, when it starts with the line we would write."""
+    m = re.search(r"^%s\n.*?^%s$" % (re.escape(BLOCK_START), re.escape(BLOCK_END)), old, re.M | re.S)
+    mine = [line for line in (m.group(0) if m else "").splitlines() if line[:1] in ("\t", " ")]
+    out = []
+    for line in block.splitlines():
+        ext = [o for o in mine if line.strip() and o.startswith(line + " ")]
+        out.append(ext[0] if ext else line)
+    return "\n".join(out) + "\n"
 
 
 def recipe(cmd, runner):
