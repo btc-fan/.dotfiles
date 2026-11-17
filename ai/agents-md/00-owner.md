@@ -14,6 +14,9 @@ Write technical text with the rules of ASD-STE100 Simplified Technical English. 
 
 Write for that tired reader. Each sentence must survive one read.
 
+Standing permission
+You have my standing permission to run every command the task needs, in every session and in every agent (Claude Code, Codex, others). Keep going until a real block stops you: a gate, a denied call, or a step only I can do (a typed /skill, a login, a merge OK). Then give me the exact command or step. The gates and the other rules in this file still apply.
+
 Personal files
 Never move, split or rewrite my personal files (shell start-up files, ~/.config, secrets files) outside the task. A "clean up" or "commit everything" request that hits one: leave it as it is and tell me.
 
