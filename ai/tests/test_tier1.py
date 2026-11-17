@@ -9,6 +9,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,8 @@ AI_DIR = os.path.dirname(TESTS)
 BIN = os.path.join(AI_DIR, "bin")
 HOOKS = os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks")
 FAILS = []
+sys.path.insert(0, os.path.join(AI_DIR, "lib"))
+import ownertext  # noqa: E402
 FAKE_UV = "#!/bin/sh\necho \"3 passed in 0.02s\"\n"
 
 
@@ -943,6 +946,112 @@ def t_stop_ratchet_long_tier(work):
         "lowering the baseline file in the same session must not pass: %s" % out
 
 
+# ---------------------------------------------------------------- add-only updates (owner 2026-11-17)
+
+OWNER_RULES = "## Rules (mandatory for this repo)\n- Never touch the billing tables by hand.\n\nDone means: the owner saw it.\n"
+
+
+def adopt_full(repo, env, *extra):
+    """ai-adopt with the knowledge layer on (Map), no onboarding pass (no claude)."""
+    enabled = os.path.join(repo, ".ai", "enabled")
+    if not os.path.exists(enabled):
+        write(enabled, "no-serena\nno-graph\n")
+    return run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--yes", "--no-onboard"] + list(extra),
+               env=env, cwd=repo)
+
+
+def add_inside(text, block, line):
+    """The owner adds `line` as the last line inside the AI block `block`."""
+    end = re.search(r"^<!-- AI:%s\b[^>]*END[^>]*-->" % block, text, re.M)
+    assert end, (block, text)
+    return text[:end.start()] + line + "\n" + text[end.start():]
+
+
+def t_adopt_owner_text_survives_rerun(work):
+    """R-006: an owner line inside a managed block (Map, Done, a tool block) and an owner section outside them
+    survive a rerun, also with --refresh-map."""
+    repo, env = adopt_repo(work, "owner-text", {"AGENTS.md": "# demo\n\n" + OWNER_RULES})
+    res = adopt_full(repo, env)
+    assert res.returncode == 0, res.stdout
+    path = os.path.join(repo, "AGENTS.md")
+    text = read(path)
+    for block, line in (("map", "- Deploy: only from the release branch."), ("done", "7. The owner saw it on staging."),
+                        ("ui", "UI owner note: dark mode first.")):
+        text = add_inside(text, block, line)
+    write(path, text)
+    run(["git", "-C", repo, "commit", "-qam", "owner lines"], env=env)
+    before = ownertext.outside(text)
+    for extra in ((), ("--refresh-map",)):
+        res = adopt_full(repo, env, *extra)
+        assert res.returncode == 0, res.stdout
+        after = read(path)
+        for line in ("- Deploy: only from the release branch.", "7. The owner saw it on staging.",
+                     "UI owner note: dark mode first."):
+            assert line in after, (extra, line, after)
+        assert ownertext.outside(after) == before, (extra, after)
+        assert OWNER_RULES in after, after
+
+
+def t_adopt_gitignore_makefile_owner_lines(work):
+    """Owner lines inside the .gitignore and Makefile blocks survive a rerun."""
+    repo, env = adopt_repo(work, "owner-lines", {})
+    assert adopt(repo, env).returncode == 0
+    gi, mk = os.path.join(repo, ".gitignore"), os.path.join(repo, "Makefile")
+    write(gi, read(gi).replace("graphify-out/\n", "graphify-out/\n/secrets-local/\n"))
+    write(mk, read(mk).replace("check-fast:\n", "check-fast:\n\t@echo owner step\n"))
+    run(["git", "-C", repo, "commit", "-qam", "owner lines"], env=env)
+    res = adopt(repo, env)
+    assert res.returncode == 0, res.stdout
+    assert "/secrets-local/" in read(gi), read(gi)
+    assert "\t@echo owner step\n" in read(mk), read(mk)
+
+
+def t_doctor_owner_text(work):
+    """ai-doctor: WARN for a custom line inside an AI block (with file and line); FAIL when the ai-adopt commit at HEAD
+    lost owner text compared with its parent; PASS for a clean adopt commit."""
+    doctor = load(os.path.join(BIN, "ai-doctor"), "aidoc3")
+    repo, env = adopt_repo(work, "doc-owner", {"AGENTS.md": "# demo\n\n" + OWNER_RULES})
+    assert adopt(repo, env).returncode == 0
+
+    def doctor_says(text):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            doctor.check_owner_text(repo, text)
+        return out.getvalue()
+    path = os.path.join(repo, "AGENTS.md")
+    said = doctor_says(read(path))
+    assert "PASS ai-adopt commit kept the owner text" in said and "WARN" not in said, said
+    text = add_inside(read(path), "done", "- Ask Ana before a deploy.")
+    n = text.splitlines().index("- Ask Ana before a deploy.") + 1
+    said = doctor_says(text)
+    assert "WARN AGENTS.md:%d custom line inside an AI block: move it under ## Project rules" % n in said, said
+    write(path, read(path).replace("- Never touch the billing tables by hand.\n", ""))
+    run(["git", "-C", repo, "commit", "-qam", "chore(ai): adopt base AI setup v4"], env=env)
+    said = doctor_says(read(path))
+    assert "FAIL ai-adopt commit lost owner text: AGENTS.md" in said, said
+
+
+FORCE = ("import importlib.machinery, sys\n"
+         "m = importlib.machinery.SourceFileLoader('ai_start', sys.argv[1]).load_module()\n"
+         "m.upsert_project_rules = lambda a: a.replace('by hand', 'by script')\n"
+         "sys.exit(m.main(sys.argv[2:]))\n")
+
+
+def t_adopt_conflict_writes_nothing(work):
+    """Fail closed: an update that would change owner text writes nothing, prints the diff and exits non-zero."""
+    repo, env = adopt_repo(work, "owner-conflict", {"AGENTS.md": "# demo\n\n" + OWNER_RULES})
+    write(os.path.join(repo, ".ai", "enabled"), "no-serena\nno-graph\n")
+    before = {rel: read(os.path.join(repo, rel)) for rel in ("AGENTS.md", ".gitignore", "Makefile", ".ai/enabled")}
+    res = run([sys.executable, "-c", FORCE, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--yes", "--no-onboard",
+               "--no-knowledge"], env=env, cwd=repo)
+    assert res.returncode != 0, res.stdout
+    assert "owner text would change: nothing written" in res.stdout, res.stdout
+    assert "-- Never touch the billing tables by hand." in res.stdout, res.stdout
+    assert "+- Never touch the billing tables by script." in res.stdout, res.stdout
+    for rel, text in before.items():
+        assert read(os.path.join(repo, rel)) == text, rel
+
+
 # ---------------------------------------------------------------- helpers
 
 def detect(repo):
@@ -1024,7 +1133,8 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
 TESTS_LIST = [t_verify_skills_copy, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_skills_none, t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_go_rust, t_detect_monorepo,
               t_detect_probe_drops_missing_tool, t_adopt_failing_check_turns_stop_off, t_adopt_leaves_tree_clean, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
               t_adopt_branch_exists_main_clean, t_adopt_unborn_main, t_typed_only_skill_paths,
-              t_plan_keeps_targets, t_plan_keeps_owner_flags, t_adopt_own_done, t_adopt_long_tier, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused,
+              t_plan_keeps_targets, t_plan_keeps_owner_flags, t_adopt_owner_text_survives_rerun, t_adopt_gitignore_makefile_owner_lines,
+              t_adopt_conflict_writes_nothing, t_doctor_owner_text, t_adopt_own_done, t_adopt_long_tier, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused,
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_continuation_checks_the_fix, t_stop_chain_cap, t_stop_no_baseline_uses_head,
               t_stop_recipe_changed, t_stop_skipped_only_and_group_kill,
               t_stop_success_silent_both_agents, t_stop_codex_block_and_timeout, t_stop_floor_zero_tests,

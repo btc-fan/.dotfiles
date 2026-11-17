@@ -42,7 +42,7 @@ CASES = os.path.join(AI_DIR, "evals", "cases")
 ADOPT = os.path.join(BIN, "ai-adopt")
 DOCTOR = os.path.join(BIN, "ai-doctor")
 UNINSTALL = os.path.join(AI_HOME, "uninstall.sh")
-FIXTURES = ("empty-git", "docs-only", "no-git", "app", "project-copy")
+FIXTURES = ("empty-git", "docs-only", "no-git", "app", "owner-rules", "project-copy")
 ADOPT_TIMEOUT = 1800
 RUN_TIMEOUT = 900
 SKILL_FILE_RX = re.compile(r"([^\s\"']*)/skills/([\w.:-]+)/SKILL\.md")
@@ -122,8 +122,10 @@ def install_row(name, repo, home):
         refused_rc, _out = adopt(repo, env)
         extra = ["--init"]
     first_rc, first_out = adopt(repo, env, extra)
+    kept = owner_text_kept(repo)
     before = snapshot(repo)
     second_rc, second_out = adopt(repo, env)
+    kept = kept and owner_text_kept(repo) if name == "owner-rules" else None
     after = snapshot(repo)
     changed = sorted(p for p in set(before) | set(after) if before.get(p) != after.get(p))
     doctor_rc, doctor_out = call([sys.executable, DOCTOR, "--project-only", repo], env, repo, 300)
@@ -140,10 +142,12 @@ def install_row(name, repo, home):
         notes.append("ai-doctor rc %s: %s" % (doctor_rc, last_line(doctor_out)))
     if uninstall_rc != 0:
         notes.append("uninstall rc %s: %s" % (uninstall_rc, last_line(uninstall_out)))
-    ok = first_rc == 0 and second_rc == 0 and not changed and doctor_rc == 0 and uninstall_rc == 0 \
+    if kept is False:
+        notes.append("owner text changed in AGENTS.md")
+    ok = kept is not False and first_rc == 0 and second_rc == 0 and not changed and doctor_rc == 0 and uninstall_rc == 0 \
         and refused_rc in (None, 1)
     return {"fixture": name, "refused_rc": refused_rc, "adopt_rc": first_rc, "second_rc": second_rc,
-            "second_run_changed": bool(changed), "changed": changed, "doctor_rc": doctor_rc,
+            "second_run_changed": bool(changed), "changed": changed, "owner_text_kept": kept, "doctor_rc": doctor_rc,
             "uninstall_rc": uninstall_rc, "pass": ok, "notes": "; ".join(n for n in notes if n),
             "output": first_out[-4000:], "second_output": second_out[-4000:], "doctor_output": doctor_out[-4000:]}
 
@@ -402,6 +406,11 @@ def make_fixtures(root, project=None):
     git_commit(os.path.join(root, "app"))
     notes["app"] = None
 
+    for rel, text in dict(APP_FILES, **{"AGENTS.md": OWNER_AGENTS}).items():
+        write(os.path.join(root, "owner-rules", rel), text)
+    git_commit(os.path.join(root, "owner-rules"))
+    notes["owner-rules"] = None
+
     notes["project-copy"] = copy_project(project, os.path.join(root, "project-copy"))
     return notes
 
@@ -418,6 +427,24 @@ APP_FILES = {
                                           "python3 -m app.cli 2 3 and expect 5.\n---\n\n1. Run `python3 -m app.cli 2 3`.\n"
                                           "2. The output must be 5.\n",
 }
+
+
+# owner-rules (owner 2026-11-17): project rules outside the AI blocks and an owner line inside one. Two ai-adopt
+# runs must keep both byte for byte.
+OWNER_SECTION = ("## Rules (mandatory for this repo)\n- Never edit the migrations folder by hand.\n\n"
+                 "Done means: the owner saw it on staging.\n")
+OWNER_INSIDE = "- Ask the owner before a schema change.\n"
+OWNER_AGENTS = ("# owner-rules\n\n" + OWNER_SECTION + "\n<!-- AI:done START (ai-adopt; 6 lines, a rerun replaces it) -->\n"
+                "## Done\n" + OWNER_INSIDE + "<!-- AI:done END -->\n")
+
+
+def owner_text_kept(repo):
+    try:
+        with open(os.path.join(repo, "AGENTS.md"), encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return False
+    return OWNER_SECTION in text and OWNER_INSIDE in text
 
 
 def copy_project(project, dest):

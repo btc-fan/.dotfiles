@@ -101,7 +101,9 @@ def t_install_fake_bins(work):
     assert rows["no-git"]["refused_rc"] == 1, "without --init a folder without git is refused: %s" % rows["no-git"]
     assert rows["project-copy"]["adopt_rc"] is None and "skipped" in rows["project-copy"]["notes"]
     assert rows["app"]["adopt_rc"] == 0, rows["app"]["output"]
-    for name in ("empty-git", "docs-only", "no-git", "app"):
+    # owner 2026-11-17: owner rules outside and an owner line inside an AI block stay byte for byte over two runs
+    assert rows["owner-rules"]["owner_text_kept"] is True, rows["owner-rules"]["notes"]
+    for name in ("empty-git", "docs-only", "no-git", "app", "owner-rules"):
         row = rows[name]
         assert row["second_run_changed"] is False, "%s: second run changed %s" % (name, row["changed"])
         assert row["doctor_rc"] == 0 and row["uninstall_rc"] == 0, "%s: %s" % (name, row["notes"])
