@@ -40,6 +40,7 @@ Done when: you can say "fresh" or "update", and the target is a machine or a fol
    `~/.dotfiles-ai/ai/bin/ai-sync` yourself (a checkout runs no post-merge hook).
 2. `ai-sync` (the hook runs it after a pull) renders the rules and routing and refreshes the Codex block.
    It takes about 10 s. Claude reads the plugin from the folder: router changes are live at the next session start.
+   It also links a new skill from `ai/skills` into `~/.claude/skills` and `~/.agents/skills`.
 3. Run `install.sh` again only when the change touched the installer (new hooks, binaries, switches, tool
    versions) or `ai-doctor` says so. First `~/.dotfiles-ai/install.sh --dry-run --yes`. Show the plan to the owner.
    Then `~/.dotfiles-ai/install.sh --yes`. Check line 2 of the output: `Agents:` must list claude and codex.

@@ -15,6 +15,7 @@
 #           ~hermes/.hermes/plugins/ai-core (hermes_hooks: routing.json, router code). Needs sudo -n.
 #   Linux   /etc/claude-code/CLAUDE.md (+ /etc/opencode) admin layer: base_admin_layer after sudo_ready
 #           (repo gate: clean tree, HEAD == origin/ai, or AI_ALLOW_DIRTY=1; passwordless sudo).
+# Skills  ~/.claude/skills and ~/.agents/skills: a link for each new ai/skills/<name> (sync_skill_links).
 # Claude and opencode read ~/.config/ai/AGENTS.md (a link), so ai-render alone updates them. One Claude case:
 #   macOS   ~/.claude/CLAUDE-omc.md (omc launch reads only that file): the AI:core import block is added
 #           when OMC created the file after install (claude_omc_companion_block, base.sh).
@@ -40,6 +41,7 @@ main() {
     [ -f "$AI_HOME/ai/AGENTS.md" ] || die "ai/AGENTS.md missing after ai-render"
 
     claude_omc_companion_block
+    sync_skill_links
     if [ -d "$CODEX_DIR" ]; then
         local tmp; tmp=$(rules_text_file)
         aiconf block-upsert "$CODEX_DIR/AGENTS.md" core 1 "$tmp"
@@ -71,6 +73,13 @@ main() {
             warn "admin layer not refreshed (repo not exactly origin/ai, or no passwordless sudo)."
         fi
     fi
+    return 0
+}
+
+# A skill added to ai/skills after install gets its links here (R-007), in the folders install made.
+sync_skill_links() {
+    [ -d "$CLAUDE_DIR/skills" ] && link_skills "$CLAUDE_DIR/skills" "$(PLUGIN_DIR)/skills"
+    [ -d "$HOME/.agents/skills" ] && link_skills "$HOME/.agents/skills"
     return 0
 }
 
