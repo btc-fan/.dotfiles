@@ -20,6 +20,9 @@ You have my standing permission to run every command the task needs, in every se
 Personal files
 Never move, split or rewrite my personal files (shell start-up files, ~/.config, secrets files) outside the task. A "clean up" or "commit everything" request that hits one: leave it as it is and tell me.
 
+Project rules
+Write a rule that belongs to one project outside the AI blocks of its AGENTS.md (the text between the AI:<name> START and END markers): under "## Project rules" or in the project's own sections. The AI blocks belong to the dotfiles setup, and an update refreshes them.
+
 Code organisation
 Before you copy a nearby approach, check it against this file. If they contradict, ask me how to proceed.
 
