@@ -74,6 +74,7 @@ What changed before (owner decisions, 2026-11-16, details in section 15):
   gate blocks `gh pr merge` and a push to main or master without that.
 - Feature done: the `ship` skill. After a merge: `/improve-codebase-architecture` and `/retro`. You say release:
   the `release` skill. A good approach in one repo: `promote-skill`. Tools upgraded: `upgrade-review`.
+  Install, update or adopt on a machine or in a folder: `setup-rollout` (setup source: branch `ai`).
 - ui-ux-pro-max is on in every project; kickoff makes 3 to 5 design variants and you pick one.
 - Markdown only in its places (`ai-docs-check` in `make check`); a pre-commit hook checks staged files.
 - One knowledge store: the repo. Claude auto memory is off; old memory moves into the repo once per project.
@@ -417,7 +418,7 @@ Where Codex looks: `~/.agents/skills/` (global) and `<repo>/.agents/skills/` (pr
 |---|---|---|
 | Global, every repo | Matt: grilling, grill-me, wait-what, writing-for-agents, retro, ask-matt. Ours: skills-guide, prompting-claude-and-codex, create-verification-skill, maintain-verification-skill | install.sh |
 | Plugins, global | ai-core (router, context7 MCP, prompting-claude-and-codex), ai-serena (Serena MCP), ponytail (6 skills), i-have-adhd, oh-my-claudecode (35 skills, 19 agents) | install.sh |
-| Global flow skills (ours) | ship, release, promote-skill, upgrade-review (section 15) | install.sh |
+| Global flow skills (ours) | ship, release, promote-skill, upgrade-review, setup-rollout (section 15) | install.sh |
 | Project default (every project) | grill-with-docs, domain-modeling, to-spec, to-tickets, tdd, pr, diagnosing-bugs, improve-codebase-architecture, implement, research, handoff, wayfinder, prototype. Callees linked with them: codebase-design, code-review | `skills:` line in `.ai/enabled` |
 | Project opt-in | implement-spec, triage, wizard, to-questionnaire, teach, setup-matt-pocock-skills | `ai-adopt --skills <full list>` |
 | Plugin, on in every project | ui-ux-pro-max (`no-ui` in `.ai/enabled` turns it off) | `ai-adopt` |

@@ -17,7 +17,7 @@ Before you say what a skill does, read its own SKILL.md. The summaries here are 
 
 | Scope | Skills | How to change |
 |---|---|---|
-| Global, every repo, Claude and Codex | grilling, grill-me, wait-what, writing-for-agents, retro, ask-matt (Matt); skills-guide, ship, release, promote-skill, upgrade-review, prompting-claude-and-codex, create-verification-skill, maintain-verification-skill (ours) | install.sh |
+| Global, every repo, Claude and Codex | grilling, grill-me, wait-what, writing-for-agents, retro, ask-matt (Matt); skills-guide, ship, release, promote-skill, upgrade-review, setup-rollout, prompting-claude-and-codex, create-verification-skill, maintain-verification-skill (ours) | install.sh |
 | Per project, default in every project | grill-with-docs, domain-modeling, to-spec, to-tickets, tdd, pr, diagnosing-bugs, improve-codebase-architecture, implement, research, handoff, wayfinder, prototype (+ callees codebase-design, code-review) | `skills:` line in `.ai/enabled` |
 | Per project, opt-in | implement-spec, triage, wizard, to-questionnaire, teach, setup-matt-pocock-skills | `ai-adopt --skills <list>` |
 | Per project, default tool | ui-ux-pro-max (every project has a UI; `no-ui` in `.ai/enabled` turns it off) | `ai-adopt` |
@@ -152,6 +152,9 @@ Decide only at a boundary. Mid-phase: continue, or split the rest into subagents
   through a PR for the owner.
 - **upgrade-review** (auto, global). After a tool upgrade (session start says so): release notes, what breaks,
   what to use, a dotfiles PR.
+- **setup-rollout** (auto, global). Install or update the AI setup on a machine, adopt or re-adopt a project
+  folder, roll a merged change to every machine. The setup source is branch `ai`. Steps with checks, pitfalls,
+  real examples.
 - **retro** (typed, global). After a session (best: one that went wrong). Suggests changes to the environment,
   most severe first: Map pointers, automated checks, coding standards, AGENTS.md rules, tooling. Mechanical
   mistakes become checks; judgement calls become standards.

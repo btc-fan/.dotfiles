@@ -6,7 +6,7 @@ Our own skills live here. The installer copies them to `~/.agents/skills/` (shar
 |---|---|
 | create-verification-skill, maintain-verification-skill | pstack (MIT, Lauren Tan), adapted by `ai/lib/pstack_adapt.py` from `ai/rules/vendor/pstack-verification/` (never edit by hand: change the script or the vendor copy). Contract: `ai/rules/verification-skill.md`. |
 | skills-guide | `ai/skills/skills-guide/SKILL.md`: how each of the 27 Matt Pocock skills works, when to use it, flows, phase boundaries, overlaps with OMC. Owner guide: `docs/GUIDE.md`. |
-| ship, release, promote-skill, upgrade-review | Our flow skills (owner 2026-11-16): `ship` before the owner merges, `release` for a full audit and the tag, `promote-skill` to make a repo approach shared, `upgrade-review` after a tool upgrade. `docs/GUIDE.md` section 15. |
+| ship, release, promote-skill, upgrade-review, setup-rollout | Our flow skills (owner 2026-11-16): `ship` before the owner merges, `release` for a full audit and the tag, `promote-skill` to make a repo approach shared, `upgrade-review` after a tool upgrade, `setup-rollout` to install, update or adopt on a machine or project. `docs/GUIDE.md` section 15. |
 | prompting-claude-and-codex | `ai/skills/prompting-claude-and-codex/SKILL.md`. A copy sits in `ai/marketplace/plugins/ai-core/skills/`. Keep both equal: edit here, then `cp -R`. ai-doctor should diff them. |
 
 ## Pinned copies fetched by the installer (not stored in this repo)

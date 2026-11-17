@@ -194,6 +194,7 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
   [dry-run] link    ~/.claude/skills/maintain-verification-skill -> $REPO/ai/skills/maintain-verification-skill
   [dry-run] link    ~/.claude/skills/promote-skill -> $REPO/ai/skills/promote-skill
   [dry-run] link    ~/.claude/skills/release -> $REPO/ai/skills/release
+  [dry-run] link    ~/.claude/skills/setup-rollout -> $REPO/ai/skills/setup-rollout
   [dry-run] link    ~/.claude/skills/ship -> $REPO/ai/skills/ship
   [dry-run] link    ~/.claude/skills/skills-guide -> $REPO/ai/skills/skills-guide
   [dry-run] link    ~/.claude/skills/upgrade-review -> $REPO/ai/skills/upgrade-review
@@ -203,6 +204,7 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
   [dry-run] link    ~/.agents/skills/promote-skill -> $REPO/ai/skills/promote-skill
   [dry-run] link    ~/.agents/skills/prompting-claude-and-codex -> $REPO/ai/skills/prompting-claude-and-codex
   [dry-run] link    ~/.agents/skills/release -> $REPO/ai/skills/release
+  [dry-run] link    ~/.agents/skills/setup-rollout -> $REPO/ai/skills/setup-rollout
   [dry-run] link    ~/.agents/skills/ship -> $REPO/ai/skills/ship
   [dry-run] link    ~/.agents/skills/skills-guide -> $REPO/ai/skills/skills-guide
   [dry-run] link    ~/.agents/skills/upgrade-review -> $REPO/ai/skills/upgrade-review

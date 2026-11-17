@@ -138,6 +138,8 @@ Then spot-check these:
 - `cat ~/.claude/CLAUDE.md` is the short form; `grep -o rtk-hook ~/.claude/settings.json` finds the wrapper.
 - `ai-doctor --quick | tail -1` ends with 0 fail. The owner checklist with more steps is in `README.md`, section 6.
 
+Runbook for an agent (machine update, project adopt, checks): the `setup-rollout` skill, `ai/skills/setup-rollout/SKILL.md`.
+
 ## Remove or revert
 
 Three levels. The full text is in `README.md`, section 8.

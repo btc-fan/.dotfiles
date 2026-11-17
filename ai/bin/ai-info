@@ -203,7 +203,7 @@ def render_full(f):
     out += ["", "Skills (%d): %s" % (len(f["skills"]), ", ".join(f["skills"]) or "none"),
             "  mattpocock global: " + ", ".join("%s%s" % (s, "" if s in f["skills"] else " (missing)") for s in MATT_SKILLS),
             "  mattpocock per project: 13 default of 21 (ai-adopt --skills). Which skill for what: the skills-guide skill.",
-            "  flow (ours, global): ship (before the owner merges), release (full audit, tag), promote-skill, upgrade-review."]
+            "  flow (ours, global): ship (before the owner merges), release (full audit, tag), promote-skill, upgrade-review, setup-rollout."]
     out += ["", "MCP servers: context7 (global, library docs; IDs in the Libraries section of a repo AGENTS.md),"]
     if f["box"]:
         out += ["  box (global, server boxes: list, new, exec, logs, status, restart, ports, url, snapshot, doctor, help)."]
