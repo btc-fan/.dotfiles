@@ -77,10 +77,13 @@ main() {
 }
 
 # A skill added to ai/skills after install gets its links here (R-007), in the folders install made.
+# Only changes are printed: a pull shows no line for a link that is already current.
 sync_skill_links() {
-    [ -d "$CLAUDE_DIR/skills" ] && link_skills "$CLAUDE_DIR/skills" "$(PLUGIN_DIR)/skills"
-    [ -d "$HOME/.agents/skills" ] && link_skills "$HOME/.agents/skills"
-    return 0
+    {
+        [ -d "$CLAUDE_DIR/skills" ] && link_skills "$CLAUDE_DIR/skills" "$(PLUGIN_DIR)/skills"
+        [ -d "$HOME/.agents/skills" ] && link_skills "$HOME/.agents/skills"
+        true
+    } 2>&1 | { grep -v '^ *same ' || true; }
 }
 
 tree_owner() { stat -c %U "$AI_HOME" 2>/dev/null || stat -f %Su "$AI_HOME" 2>/dev/null || echo unknown; }

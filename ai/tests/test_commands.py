@@ -398,6 +398,8 @@ def t_ai_sync_links_skills(work):
     assert not os.path.islink(os.path.join(agents, "ship")), "real folder must stay"
     served = os.path.join(claude, "prompting-claude-and-codex")
     assert not os.path.lexists(served), "the ai-core plugin serves this skill in Claude"
+    res = run(["bash", sync], env={"HOME": home})
+    assert res.returncode == 0 and "same " not in res.stdout, "second pull must print no unchanged link: " + res.stdout
     bare = os.path.join(work, "sync-skills-bare")
     os.makedirs(bare)
     res = run(["bash", sync], env={"HOME": bare})
