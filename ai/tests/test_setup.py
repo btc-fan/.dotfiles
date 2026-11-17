@@ -35,7 +35,8 @@ def main():
                      t_user_hook_match, t_verify_source, t_audited_plugin_trust, t_connectors_keep, t_sudo_gate, t_gate_skip_owner_only,
                      t_root_guard, t_update_clone, t_ai_sync_untrusted, t_plugin_files_tracked,
                      t_hooks_absolute, t_uv_copy, t_box_registration, t_readiness, t_managed_router,
-                     t_owner_2026_11_12, t_graph_refresh, t_graph_build_at_session_start, t_env_key_outside_trust_block):
+                     t_owner_2026_11_12, t_graph_refresh, t_graph_build_at_session_start, t_env_key_outside_trust_block,
+                     t_block_upsert_owner_text):
             try:
                 test(os.path.join(work, test.__name__))
                 print("ok   " + test.__name__)
@@ -109,6 +110,27 @@ def fake_codex_home(work):
 
 
 # ---------------------------------------------------------------- tests
+
+def t_block_upsert_owner_text(work):
+    """Global rule files (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md): block-upsert never changes owner text outside
+    our blocks. A START marker without its END (an owner edit) made the block swallow the owner's rules."""
+    os.makedirs(work, exist_ok=True)
+    state, body = os.path.join(work, "state"), os.path.join(work, "body.md")
+    write(body, "@~/.config/ai/AGENTS.md\n")
+    f = os.path.join(work, "CLAUDE.md")
+    write(f, "# My rules\n- Reply in Romanian.\n")
+    for _ in range(2):
+        code, out = aiconf(state, "block-upsert", f, "core", "1", body)
+        assert code == 0, out
+    text = open(f).read()
+    assert text.startswith("# My rules\n- Reply in Romanian.\n"), text
+    broken = ("<!-- AI:core v1 START -->\n- Owner rule after a lost END marker.\n\n" + text)
+    write(f, broken)
+    code, out = aiconf(state, "block-upsert", f, "core", "1", body)
+    assert code != 0, out
+    assert "owner text would change: nothing written" in out and "-- Owner rule after a lost END marker." in out, out
+    assert open(f).read() == broken
+
 
 def t_env_key_outside_trust_block(work):
     """A key added to the table right above our trust block lands before the block, so a trust refresh keeps it."""

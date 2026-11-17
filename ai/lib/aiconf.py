@@ -396,6 +396,12 @@ def cmd_block_upsert(a):
     else:
         sep = "" if (not text or text.endswith("\n\n")) else ("\n" if text.endswith("\n") else "\n\n")
         new = text + sep + block + "\n"
+    import ownertext     # add-only (owner 2026-11-17): owner text outside our blocks never changes
+    diff = ownertext.lost(text, new, name=a.file, inside=False)
+    if diff:
+        print(diff.rstrip("\n"))
+        say("refuse", a.file, "owner text would change: nothing written")
+        return 4
     write_text(a.file, new)
     record({"kind": "block", "file": a.file, "name": a.name, "existed": existed, "sep": sep},
            key="block:%s:%s" % (a.file, a.name), keep_first=("existed", "sep"))

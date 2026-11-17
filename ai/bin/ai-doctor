@@ -1413,6 +1413,31 @@ def section_lines(text, title):
     return [ln for ln in body.splitlines() if ln.strip()]
 
 
+def check_owner_text(root, text):
+    """Add-only updates (owner 2026-11-17): WARN for a custom line inside an AI block of AGENTS.md; FAIL when the
+    ai-adopt commit at HEAD lost owner text compared with its parent (ownertext.lost, the guard ai-adopt runs)."""
+    sys.path.insert(0, os.path.join(AI_DIR, "lib"))
+    import ownertext
+    for n, line in ownertext.custom_lines(text):
+        say("WARN", "AGENTS.md:%d %s" % (n, ownertext.CUSTOM_HINT), line.strip()[:100])
+
+    def git_out(*args):
+        res = subprocess.run(["git", "-C", root] + list(args), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        return res.stdout.decode("utf-8", "replace") if res.returncode == 0 else None
+    if not (git_out("log", "-1", "--format=%s") or "").startswith("chore(ai): "):
+        return
+    lost = []
+    for rel in (git_out("diff", "--name-only", "HEAD~1", "HEAD") or "").split():
+        old, new = git_out("show", "HEAD~1:" + rel), git_out("show", "HEAD:" + rel)
+        if old is None or new is None or rel.endswith(".json") or rel == ".ai/base-version":
+            continue
+        if ownertext.lost(old, new, ownertext.GENERATED.get(rel, ()), rel):
+            lost.append(rel)
+    say("FAIL" if lost else "PASS", "ai-adopt commit %s" % ("lost owner text: " + ", ".join(lost) if lost else
+                                                          "kept the owner text"),
+        "git show HEAD shows it; restore the owner lines, then run ai-adopt again" if lost else "")
+
+
 def check_tier1(root, hl, text):
     """Size budget of the repo AGENTS.md, the Done / Lessons caps, and (adopted repos) tier, check targets,
     ledger and ratchet."""
@@ -1438,6 +1463,7 @@ def check_tier1(root, hl, text):
         say("PASS" if len(lessons) <= LESSONS_MAX else "WARN", "AGENTS.md Lessons section (%d of %d lines)"
             % (len(lessons), LESSONS_MAX), "" if len(lessons) <= LESSONS_MAX else
             "turn a lesson into a check (test, lint, gate), then delete its line")
+    check_owner_text(root, text)
     if not os.path.isfile(os.path.join(root, ".ai", "enabled")):
         return
     tier = hl.project_tier(root)

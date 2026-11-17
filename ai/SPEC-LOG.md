@@ -642,3 +642,24 @@ Seen on the owner's M3 Mac (macOS 15.5), read only:
   started deferred and agents did not see them; restore it and check it in ai-doctor. SPEC.md still described
   GitHub MCP and Grounded Docs as installed; update the text, not the install. Audit graphify 0.9.111. The OMC
   LSP and ast-grep server stays a fallback behind Serena.
+
+
+## 2026-11-17: add-only updates (owner)
+- Projects have rules that belong only to them. A setup update (an ai-adopt rerun, and the global rule files
+  ~/.claude/CLAUDE.md and ~/.codex/AGENTS.md that install.sh and ai-sync write) only adds what is missing. It never
+  rewrites or removes the owner's text.
+- Owner text: every line outside the managed AI blocks (for example "## Rules (mandatory ...)", "Done means",
+  "## Project rules", "## Lessons"), and every line inside a block that the generator did not write.
+- Inside a block, a rerun refreshes the generator's lines and keeps the owner's added or extended lines: the Map,
+  Done, Libraries and opt-in tool blocks of AGENTS.md, the Makefile ai checks block and the .gitignore block
+  (`ai/lib/ownertext.py`, the general form of the R-002 fix). Map conventions that exist are kept; the claude pass
+  only adds them. .ai/enabled keeps the owner's lines and comments.
+- Fail closed: before it writes, ai-adopt compares the owner text of every file it would change. When the owner
+  text would change, it writes nothing, prints a unified diff and exits 1 with "owner text would change: nothing
+  written". aiconf block-upsert (the global rule files) does the same for the text outside our blocks (exit 4).
+- The AI blocks belong to the dotfiles setup. A project rule goes outside them, under "## Project rules" or in the
+  project's own sections (root rule in `ai/agents-md/00-owner.md`). A line the owner added inside a block still
+  survives an update, and ai-doctor WARNs "custom line inside an AI block: move it under ## Project rules" with
+  the line number. ai-doctor FAILs when the ai-adopt commit at HEAD lost owner text compared with its parent.
+- Checks: ai/tests/test_tier1.py (rerun, --refresh-map, forced conflict, doctor), test_setup.py (block-upsert),
+  the ai-eval install fixture owner-rules (two runs, owner text byte for byte).

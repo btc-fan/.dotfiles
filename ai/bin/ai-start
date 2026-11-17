@@ -73,6 +73,9 @@ import sys
 BIN = os.path.dirname(os.path.realpath(__file__))
 AI_DIR = os.path.dirname(BIN)
 AI_HOME = os.path.dirname(AI_DIR)
+sys.path.insert(0, os.path.join(AI_DIR, "lib"))
+sys.dont_write_bytecode = True
+import ownertext  # noqa: E402
 
 
 def ignore_global_excludes():
@@ -130,7 +133,8 @@ def main(argv):
     new_enabled = enabled_text(enabled, tier, skills)
     # Same entries: keep the file. A rerun must not drop a comment (no-stop-check has one) or reorder the lines.
     if sorted(current_all) != sorted(entries(new_enabled)):
-        plan.append(write_plan(os.path.join(root, ".ai", "enabled"), new_enabled))
+        plan.append(write_plan(os.path.join(root, ".ai", "enabled"),
+                               enabled_update(read(os.path.join(root, ".ai", "enabled")), enabled, tier, skills)))
     agents_path = os.path.join(root, "AGENTS.md")
     agents = read(agents_path) or "# %s\n" % project_name(root)
     for rule in optin:
@@ -166,6 +170,12 @@ def main(argv):
         if new_standards != standards:
             plan.append((os.path.join(root, "CODING_STANDARDS.md"), new_standards))
     plan = [p for p in plan if p]
+    # Add-only (owner 2026-11-17): an update that would change the owner's text writes nothing at all.
+    refused = owner_text_refusals(root, plan)
+    if refused:
+        print("".join(refused).rstrip("\n"))
+        print("ai-%s: owner text would change: nothing written" % mode)
+        return 1
     # The docs baseline before the timing run: stray Markdown it accepts must not fail the first check-fast.
     steps = knowledge_steps(root, opts, with_defaults(enabled)) + docs_baseline_steps(root) \
         + check_steps(root, opts, tier, checks, plan) + ratchet_steps(root) \
@@ -250,6 +260,28 @@ def main(argv):
 
 
 ADOPT_BRANCH = "ai-adopt"
+ENABLED_GENERATED = ownertext.GENERATED[".ai/enabled"]
+
+
+def owner_text_refusals(root, plan):
+    """A unified diff per planned file whose owner text would change. The base version stamp is all ours; JSON
+    files are merged key by key (no key is removed)."""
+    out = []
+    for path, text in plan:
+        old = read(path)
+        rel = os.path.relpath(path, root)
+        if old is None or rel.endswith(".json") or rel == os.path.join(".ai", "base-version"):
+            continue
+        if rel == ".gitignore":
+            old = drop_old_block(old)      # the unmarked block of an older ai-adopt run is ours, not the owner's
+        out.append(ownertext.lost(old, text, ENABLED_GENERATED if rel == os.path.join(".ai", "enabled") else (), rel))
+    return [d for d in out if d]
+
+
+def merged(old_block, new_block):
+    """new_block (marker lines first and last) with the owner's lines inside old_block kept (ownertext.merge)."""
+    old, new = old_block.rstrip("\n").split("\n"), new_block.rstrip("\n").split("\n")
+    return "\n".join([new[0]] + ownertext.merge(old[1:-1], new[1:-1]) + [new[-1]]) + "\n"
 
 
 def undo_intent_to_add(root, files):
@@ -332,7 +364,7 @@ def upsert_block(agents, rule, version):
         return agents, "skip %s: AGENTS.md already has its own text for %s" % (rid, tool)
     block = "<!-- AI:%s v%s START -->\n%s\n<!-- AI:%s v%s END -->\n" % (rid, version, vendor_text(rule), rid, version)
     if rx.search(agents):
-        return rx.sub(lambda _m: block, agents, count=1), None
+        return rx.sub(lambda m: merged(m.group(0), block), agents, count=1), None
     return agents.rstrip("\n") + "\n\n" + block, None
 
 
@@ -513,7 +545,7 @@ def gitignore_text(text, enabled=None, root=None, skill_links=()):
     block = "\n".join([GI_START] + lines + [GI_END]) + "\n"
     text = text or ""
     if GI_RX.search(text):
-        new = GI_RX.sub(lambda _m: block, text, count=1)
+        new = GI_RX.sub(lambda m: merged(m.group(0), block), text, count=1)
     else:
         new = drop_old_block(text).rstrip("\n")
         new = (new + "\n\n" if new else "") + block
@@ -538,6 +570,15 @@ def enabled_text(ids, tier="long", skills=()):
             + "".join(i + "\n" for i in ids))
 
 
+def enabled_update(old, ids, tier, skills):
+    """Add-only: the owner's lines and comments stay in their order; the generator lines are set again on top and
+    missing ids are added at the end."""
+    keep = [ln for ln in (old or "").splitlines() if not any(re.match(g, ln) for g in ENABLED_GENERATED)]
+    have = set(entries("\n".join(keep)))
+    return enabled_text([], tier, skills) + "".join(ln + "\n" for ln in keep) \
+        + "".join(i + "\n" for i in ids if i not in have)
+
+
 def committable(root, paths):
     """Paths git will take: tracked ones, and untracked ones the .gitignore does not ignore."""
     out = []
@@ -553,7 +594,7 @@ def committable(root, paths):
 def upsert_map(agents, body):
     block = "%s\n## Map\n%s\n%s\n" % (MAP_START, body.rstrip("\n"), MAP_END)
     if MAP_RX.search(agents):
-        return MAP_RX.sub(lambda _m: block, agents, count=1)
+        return MAP_RX.sub(lambda m: merged(m.group(0), block), agents, count=1)
     lines = agents.rstrip("\n").split("\n")
     # right after the title line, so the map is the first thing an agent reads
     if lines and lines[0].startswith("# "):
@@ -667,7 +708,9 @@ def knowledge_steps(root, opts, enabled):
     """Steps that change nothing when their result is already there. Each is (label, callable)."""
     steps = []
     code = repo_has_code(root)
-    map_new = opts["refresh_map"] or not MAP_RX.search(read(os.path.join(root, "AGENTS.md")) or "")
+    m = MAP_RX.search(read(os.path.join(root, "AGENTS.md")) or "")
+    # Add-only: conventions that are there (the owner may have edited them) are kept; the pass only adds them.
+    map_new = (opts["refresh_map"] or not m) and not (m and "\n- Conventions:" in m.group(0))
     if opts["knowledge"] and opts["onboard"] and code and map_new:
         if not which("claude"):
             print("skip Map conventions: claude is not on PATH (add them by hand inside the Map markers)")
@@ -1151,7 +1194,7 @@ def upsert_done(agents, tier, checks, root=None):
     vs = verify_links(root) if root else []
     block = render_done(tier, checks, os.path.basename(vs[0]) if vs else "verify-<app>")
     if DONE_RX.search(agents):
-        agents = DONE_RX.sub(lambda _m: block, agents, count=1)
+        agents = DONE_RX.sub(lambda m: merged(m.group(0), block), agents, count=1)
     else:
         agents = agents.rstrip("\n") + "\n\n" + block
     if not re.search(r"^##\s+Lessons\b", agents, re.M):

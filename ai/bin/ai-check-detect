@@ -335,14 +335,14 @@ def render_block(runner, want, fast, full):
 
 def keep_owner_flags(block, old):
     """A command line the owner extended inside our old block (`uv run pytest -q --durations=50`) stays as the owner
-    wrote it, when it starts with the line we would write."""
+    wrote it, when it starts with the line we would write; a line the owner added stays too (add-only, 2026-11-17)."""
     m = re.search(r"^%s\n.*?^%s$" % (re.escape(BLOCK_START), re.escape(BLOCK_END)), old, re.M | re.S)
-    mine = [line for line in (m.group(0) if m else "").splitlines() if line[:1] in ("\t", " ")]
-    out = []
-    for line in block.splitlines():
-        ext = [o for o in mine if line.strip() and o.startswith(line + " ")]
-        out.append(ext[0] if ext else line)
-    return "\n".join(out) + "\n"
+    if not m:
+        return block
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
+    import ownertext
+    mine, new = m.group(0).splitlines(), block.splitlines()
+    return "\n".join([new[0]] + ownertext.merge(mine[1:-1], new[1:-1]) + [new[-1]]) + "\n"
 
 
 def recipe(cmd, runner):
