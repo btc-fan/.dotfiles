@@ -25,6 +25,27 @@
    "project": {
     "git": true
    }
+  },
+  {
+   "name": "hyphenated product name does not count",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "the ui-ux-pro-max plugin is on, what next?"},
+   "project": {"git": true, "files": {".ai/enabled": "ui\n"}}
+  },
+  {
+   "name": "pasted code fence does not count",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "```\n⏺ Updated the layout component and the dark mode\n```\nok, commit it"},
+   "project": {"git": true, "files": {".ai/enabled": "ui\n"}}
+  },
+  {
+   "name": "UI as a word still fires",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "the UI looks off on mobile"},
+   "project": {"git": true, "files": {".ai/enabled": "ui\n"}}
   }
  ]
 }

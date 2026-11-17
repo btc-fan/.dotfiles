@@ -110,6 +110,20 @@ def t_plan_keeps_targets(work):
     assert p["file"] == "justfile" and "\n    go vet ./...\n" in p["text"] and p["fast_cmd"] == "just check-fast", p
 
 
+def t_plan_keeps_owner_flags(work):
+    """QA 2026-11-17: a rerun replaced the managed block and dropped the owner's --durations=50 on the pytest line."""
+    mod = load(os.path.join(BIN, "ai-check-detect"), "acd_flags")
+    repo = tree(work, "plan-flags", {"pyproject.toml": "[project]\nname='x'\n[tool.ruff]\n", "uv.lock": "",
+                                     "tests/test_a.py": "def test_a(): pass\n"})
+    write(os.path.join(repo, "Makefile"), mod.plan(repo, mod.detect(repo), "mvp")["text"])
+    edited = read(os.path.join(repo, "Makefile")).replace("\tuv run pytest -q\n", "\tuv run pytest -q --durations=50\n")
+    assert "--durations=50" in edited, edited
+    write(os.path.join(repo, "Makefile"), edited)
+    assert mod.plan(repo, mod.detect(repo), "mvp")["text"] is None, "a rerun must keep the owner's flag"
+    p = mod.plan(repo, mod.detect(repo), "long")
+    assert "ai-ratchet" in p["text"] and "\tuv run pytest -q --durations=50\n" in p["text"], p["text"]
+
+
 # ---------------------------------------------------------------- T1 + T5: ai-adopt
 
 def t_adopt_own_done(work):
@@ -215,6 +229,35 @@ def t_adopt_failing_check_turns_stop_off(work):
     hook(repo, env, "SessionStart", session="s2")
     write(os.path.join(repo, "src", "new2.py"), "y = 3\n")
     assert hook(repo, env, "Stop", session="s2"), "control: without the line the red check-fast blocks"
+
+
+def t_adopt_leaves_tree_clean(work):
+    """QA 2026-11-17: the check-fast timing, no-stop-check and the docs baseline were written after the commit."""
+    # A docs-only repo (check-fast runs ai-docs-check --md) with stray Markdown under an untracked folder.
+    repo, env = adopt_repo(work, "clean-docs", {})
+    run(["git", "-C", repo, "rm", "-rq", "src", "tests", "uv.lock", "pyproject.toml"], env=env)
+    run(["git", "-C", repo, "commit", "-qm", "docs only"], env=env)
+    env["PATH"] = env["PATH"] + os.pathsep + BIN
+    write(os.path.join(repo, "research_notes", "a.md"), "owner notes\n")
+    res = adopt(repo, env)
+    assert res.returncode == 0 and "check-fast passed" in res.stdout, res.stdout
+    assert "no-stop-check  #" not in read(os.path.join(repo, ".ai", "enabled")), "baseline first: " + res.stdout
+    status = run(["git", "-C", repo, "status", "--porcelain"]).stdout
+    assert status == "?? research_notes/\n", "first run left changes: %r" % status
+    # A rerun that rewrites the Makefile measures a red check-fast: the new seconds and no-stop-check are committed.
+    repo, env = adopt_repo(work, "clean-rerun", {"AGENTS.md": "# x\n<!-- AI:map START -->\n## Map\n<!-- AI:map END -->\n"})
+    adopt(repo, env)
+    run(["git", "-C", repo, "rm", "-q", "Makefile"], env=env)
+    run(["git", "-C", repo, "commit", "-qm", "no Makefile"], env=env)
+    write(os.path.join(env["PATH"].split(os.pathsep)[0], "uv"), FAIL_UV.replace("echo", "sleep 1; echo"))
+    res = adopt(repo, env)
+    assert "FAILS today" in res.stdout, res.stdout
+    status = run(["git", "-C", repo, "status", "--porcelain"]).stdout
+    assert status == "", "rerun left changes: %r" % status
+    shown = run(["git", "-C", repo, "show", "HEAD:.ai/enabled"]).stdout
+    assert "no-stop-check  #" in shown, shown
+    shown = run(["git", "-C", repo, "show", "HEAD:AGENTS.md"]).stdout
+    assert "measured 1 s" in shown, shown
 
 
 def t_adopt_commits_on_branch(work):
@@ -979,9 +1022,9 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
 
 
 TESTS_LIST = [t_verify_skills_copy, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_skills_none, t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_go_rust, t_detect_monorepo,
-              t_detect_probe_drops_missing_tool, t_adopt_failing_check_turns_stop_off, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
+              t_detect_probe_drops_missing_tool, t_adopt_failing_check_turns_stop_off, t_adopt_leaves_tree_clean, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
               t_adopt_branch_exists_main_clean, t_adopt_unborn_main, t_typed_only_skill_paths,
-              t_plan_keeps_targets, t_adopt_own_done, t_adopt_long_tier, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused,
+              t_plan_keeps_targets, t_plan_keeps_owner_flags, t_adopt_own_done, t_adopt_long_tier, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused,
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_continuation_checks_the_fix, t_stop_chain_cap, t_stop_no_baseline_uses_head,
               t_stop_recipe_changed, t_stop_skipped_only_and_group_kill,
               t_stop_success_silent_both_agents, t_stop_codex_block_and_timeout, t_stop_floor_zero_tests,

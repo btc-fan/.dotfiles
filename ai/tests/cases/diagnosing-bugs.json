@@ -110,6 +110,42 @@
    "gate_skip": "diagnosing-bugs {{SOON}} known flaky export",
    "state_contains": {"gates.log": "SKIP diagnosing-bugs"},
    "state_not_contains": {"misses.jsonl": "diagnosing-bugs"}
+  },
+  {
+   "name": "pasted session lines (⏺ ❯ > │) do not count",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "⏺ The export crashed, I will debug it.\n❯ fix the crash\n> the app is slow\n│ build broken │\nok, commit the README change"}
+  },
+  {
+   "name": "pasted code fence does not count",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "here is the log:\n```\nERROR crash in worker\nperformance degraded\n```\nsummarise it for the changelog"}
+  },
+  {
+   "name": "capitalised product name does not count",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "Connect the Acme Performance Marketing server again"}
+  },
+  {
+   "name": "hyphenated name does not count",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "install the perf-tools-lite package"}
+  },
+  {
+   "name": "real prompt after a pasted block still fires",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "⏺ Done.\nthe app is slow on the export page, find out why"}
+  },
+  {
+   "name": "capitalised first word still fires",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "Performance is bad on the export page"}
   }
  ]
 }

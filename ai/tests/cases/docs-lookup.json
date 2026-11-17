@@ -210,6 +210,13 @@
      "src/itsdangerous/encoding.py": "def want_bytes(s):\n    return s\n"
     }
    }
+  },
+  {
+   "name": "quoted line does not count",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "> how do I use the stripe sdk for refunds\nthat was the old question, ignore it"},
+   "project": {"git": true, "files": {"AGENTS.md": "<!-- AI:libraries START lock: none -->\n## Libraries\n| lib | version | context7 | note |\n|---|---|---|---|\n| stripe | 9.0.0 | /stripe/stripe-python | |\n<!-- AI:libraries END -->\n"}}
   }
  ]
 }

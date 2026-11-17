@@ -17,6 +17,8 @@ new trust. A change to `router.py`, `hooklib.py`, `stop-check.py`, `claude-notif
 
 Tests: `bash ai/tests/run.sh` (should-fire and should-not-fire stdin samples for every rule).
 
+Pasted text: before the prompt rules match, the router removes code fences and lines that start with `⏺`, `❯`, `>` or `│` (output pasted from another session). For the ui and diagnosing-bugs rules a match does not count when a hyphen joins it to a word (`ui-ux-pro-max`) or when it is capitalised next to another capitalised word (a product name such as `Acme Performance Suite`).
+
 Skill card: at every SessionStart (startup, resume, clear, compact) the router sends the `skills` block of
 `routing.yaml`: the must-use skills with one trigger line each, and the folder of each installed typed-only skill
 (read `<dir>/<name>/SKILL.md` and follow it). ai-render fails when the worst case passes 1500 characters. Skill

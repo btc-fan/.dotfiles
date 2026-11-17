@@ -166,8 +166,10 @@ def main(argv):
         if new_standards != standards:
             plan.append((os.path.join(root, "CODING_STANDARDS.md"), new_standards))
     plan = [p for p in plan if p]
-    steps = knowledge_steps(root, opts, with_defaults(enabled)) + check_steps(root, opts, tier, checks, plan) \
-        + ratchet_steps(root) + docs_baseline_steps(root) + skill_link_steps(root, skill_closure(skills)) \
+    # The docs baseline before the timing run: stray Markdown it accepts must not fail the first check-fast.
+    steps = knowledge_steps(root, opts, with_defaults(enabled)) + docs_baseline_steps(root) \
+        + check_steps(root, opts, tier, checks, plan) + ratchet_steps(root) \
+        + skill_link_steps(root, skill_closure(skills)) \
         + verify_link_steps(root) + precommit_steps(root, checks)
 
     if not plan and not steps:
@@ -840,7 +842,9 @@ def load_json(path):
 # drops the old line of an earlier run; the router reads `tier: long`.
 TIER = "long"
 TIER_RX = re.compile(r"^tier\s*:\s*(\S+)$", re.I)
-CHECK_PATHS = [".ai/ratchet.json", ".ai/docs-allow"]
+# Files the steps write (ratchet, docs baseline; ai-libs and the timing edit AGENTS.md; no-stop-check edits
+# .ai/enabled): always in the commit, also when the plan did not touch them.
+CHECK_PATHS = [".ai/ratchet.json", ".ai/docs-allow", "AGENTS.md", ".ai/enabled"]
 CHECK_LINE_RX = re.compile(r"^- Check: .*$", re.M)
 DONE_RX = re.compile(r"^<!-- AI:done START[^>]*-->\n.*?^<!-- AI:done END -->\n?", re.M | re.S)
 OWN_DONE_RX = re.compile(r"^##\s+(Done|Definition of done)\b", re.M | re.I)
