@@ -35,6 +35,7 @@ def main():
     saved = {k: os.environ.get(k) for k in m3.ENV_KEYS}
     try:
         for test in (t_rtk_wrapper, t_rtk_install, t_rtk_managed, t_claude_md_short, t_claude_md_owner_text,
+                     t_rtk_off_install, t_rtk_off_doctor,
                      t_doctor_checks, t_doctor_owner_text):
             for k, v in saved.items():
                 if v is None:
@@ -149,6 +150,32 @@ def t_claude_md_owner_text(work):
     text = m3.read(md)
     assert code == 0 and "OMC:" not in text and "old vendor text" not in text, (out, text)
     assert [ln for ln in text.splitlines() if ln in mine] == mine and NOTE[0] in text, text
+
+
+def t_rtk_off_install(work):
+    """AI_RTK_HOOK=off (or "off" in ~/.config/ai/rtk-hook): claude_rtk writes no hook and removes nothing."""
+    env, home, bindir = m3.claude_env(work)
+    m3.stub(os.path.join(bindir, "rtk"), FAKE_RTK)
+    settings = os.path.join(home, ".claude", "settings.json")
+    other = {"matcher": "Edit", "hooks": [{"type": "command", "command": "/bin/echo other"}]}
+    m3.write(settings, json.dumps({"hooks": {"PreToolUse": [other]}}))
+    before = m3.read(settings)
+    env["AI_RTK_HOOK"] = "off"
+    code, out = m3.bash(m3.LIBS + "claude_rtk", env)
+    assert code == 0 and m3.read(settings) == before and "off by owner choice" in out, out
+    del env["AI_RTK_HOOK"]
+    m3.write(os.path.join(home, ".config", "ai", "rtk-hook"), "off\n")
+    code, out = m3.bash(m3.LIBS + "claude_rtk", env)
+    assert code == 0 and m3.read(settings) == before, out
+
+
+def t_rtk_off_doctor(work):
+    """With the switch off and no RTK hook, ai-doctor says PASS; without the switch it still FAILs for a bare hook."""
+    env, home, bindir = m3.claude_env(work)
+    m3.write(os.path.join(home, ".claude", "settings.json"), json.dumps({"hooks": {}}))
+    m3.write(os.path.join(home, ".config", "ai", "rtk-hook"), "off\n")
+    assert line_of(doctor_out(env), "RTK hook").startswith("PASS"), doctor_out(env)
+    assert "manual rtk" in line_of(doctor_out(env), "RTK hook")
 
 
 def t_doctor_checks(work):
