@@ -124,7 +124,8 @@ Use a fresh Claude session in an adopted repo, then the same prompts in Codex. A
 | G8 | Codex: `cat` of a losing OMX skill file | Denied the same way (Codex has no Skill tool) |
 | G9 | First `rg -r foo .` in an adopted repo with a graph | Denied once with "run graphify query first". The next search passes. A session that already used a Serena tool or graphify gets no deny |
 | G10 | A prompt that only says "docs" | `docs-lookup` stays quiet. A prompt that names a library from the Libraries block, or an edit of `pyproject.toml`, fires it |
-| G11 | A harness notification as a prompt (a task result with the word "merge") | No rule fires. The merge-approval OK is not set and not cleared |
+| G11 | A harness notification as a prompt (a task result with the word "merge") | No rule fires. The merge-approval OK is not set and not cleared. Same for an `<agent-message>` hand-back |
+| G11b | Paste a session output (code fence, or lines that start with `⏺`, `❯`, `>`, `│`) that holds "merge" and "slow", then try `gh pr merge` and end the turn | The merge is denied. The `diagnosing-bugs` and `tdd` stop rules do not fire. A product name such as `Acme Performance Suite` does not fire them either |
 | G12 | Owner escape hatch: `sudo ai-gate-skip writing-for-agents 5 test`, then the G2 edit | The edit passes. `gates.log` has a `SKIP` line with the reason. The agent cannot run the command (no sudo). Repeat for `winner-gate` and `nav-first` |
 | G13 | Claude in auto mode: `git status` | No "no verdict" denial. `rtk gain --history` does not list it (the wrapper does nothing in auto mode). Outside auto mode it lists it |
 | E1 | `ai-eval behaviour --dry` | Lists 21 runs per agent and run, starts none. Exit 0 |

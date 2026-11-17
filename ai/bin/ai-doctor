@@ -1315,7 +1315,7 @@ def check_rules_2026_11_16(live=False):
     if st:
         say("PASS" if st.get("autoMemoryEnabled") is False else "WARN", "Claude auto memory off (the repo is the one "
             "knowledge store)", "" if st.get("autoMemoryEnabled") is False else "install.sh sets autoMemoryEnabled false")
-    for name in ("ship", "release", "promote-skill", "upgrade-review", "skills-guide"):
+    for name in ("ship", "release", "promote-skill", "upgrade-review", "setup-rollout", "skills-guide"):
         here = [d for d in ("~/.claude/skills", "~/.agents/skills")
                 if os.path.isfile(os.path.join(os.path.expanduser(d), name, "SKILL.md"))]
         say("PASS" if len(here) == 2 else "WARN", "skill %s for Claude and Codex" % name,

@@ -26,6 +26,15 @@ Status (2026-11-17): one profile, `dev-mac`, on all 3 machines (an Apple silicon
   at the moment of the action: gates (PreToolUse deny), stop rules (Stop hook block, once per session), a short
   skill card at session start, and a winner table for skills that overlap. `ai-eval` measures it. Section 3 of
   `docs/GUIDE.md` has the detail ("Enforcement: gates, stop rules, skill card, winner table").
+- **Fix round (PR #2 to #4, `ai` at ddabcc1, 2026-11-17):** owner rule "Standing permission" (every agent runs every
+  command the task needs until a gate, a denied call or an owner-only step; proof: `grep -c "^Standing permission"
+  ~/.config/ai/AGENTS.md` prints 1). `ai-adopt` commits every file it writes (clean tree after one run) and keeps
+  owner flags in the managed Makefile block. `ai-doctor` honours `~/.config/ai/rtk-hook` = `off`. Prompt rules
+  ignore pasted output (code fences, lines that start with `⏺ ❯ > │`) and product names. The merge OK comes only
+  from the owner's own typed lines. An `<agent-message>` hand-back counts as a notification. `tdd` is a stop rule:
+  the skill card lists 4 must-use skills (writing-for-agents, diagnosing-bugs, ship, tdd). The five bugs are
+  R-001 to R-005 in `docs/REGRESSIONS.md`. All three machines run ddabcc1, `ai-doctor` 0 fail. Rollout runbook:
+  the `setup-rollout` skill.
 - **Numbers:** router cases 449 before, 600 after; 14 test suites, 0 failed. Claude behaviour, hits in 3 runs,
   before to after: vague performance prompt 0/3 to 3/3, vague ship prompt 0/3 to 3/3, `ship` 1/3 to 3/3;
   4 should-not-fire cases 3/3 (no false fire); 20 of 21 cases at 3/3. The `tdd` case was 0/3: the `tdd` stop rule
@@ -428,6 +437,8 @@ The installer cannot do these. It prints them at the end.
 ### What is available here: `ai-info`
 
 Run `ai-info` on any machine with this setup (every user, Hermes too) to see what it offers: installed agents and versions, Claude plugins on or off (for you and in the current folder), skills, MCP servers, the gates and how the owner opens one (`sudo ai-gate-skip`), the opt-in tools with the exact `ai-adopt --tools <id>` command, and, inside a repo, its state (Map, Libraries, enabled tools). It is local and fast: no network, no secrets, names and versions only. `ai-info --short` prints about 8 lines; on a server, `server-info` (ubuntu-server branch) shows them at login. Agents are told to run it when unsure which tools exist.
+
+Install, update or adopt as an agent: the `setup-rollout` skill (`ai/skills/setup-rollout/SKILL.md`). The setup source is branch `ai`.
 
 ### Checks
 

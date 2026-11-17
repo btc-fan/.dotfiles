@@ -67,7 +67,8 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   `env`, `nice`, `timeout`). Profile `server` only (`dev-mac` does not render this row, nor audit-before-install and
   no-destroy).
 - merge-approval: `gh pr merge` and a `git push` to main or master are denied until the owner's latest message says
-  merge or approve. A harness notification (task-notification, "[SYSTEM NOTIFICATION") never sets or clears that OK.
+  merge or approve. A harness notification (task-notification, "[SYSTEM NOTIFICATION") never sets or clears that OK. An `<agent-message>` hand-back counts as a notification too. The OK comes only from the
+  owner's own typed lines: pasted output (code fences, lines that start with `⏺`, `❯`, `>` or `│`) never sets it.
 - no-verify: `git commit` or `git push` with `--no-verify` (or `commit -n`) is denied.
 - writing-for-agents (gate, `require_skill`): Edit, Write, MultiEdit, `apply_patch` or a shell write of AGENTS.md,
   CLAUDE.md, CLAUDE.local.md or a SKILL.md, until the skill has a proof in the session.
