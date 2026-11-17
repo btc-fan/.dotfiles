@@ -202,8 +202,8 @@ def on_user_prompt(ctx):
     prompt = ctx.payload.get("prompt") or ""
     if not prompt.strip() or is_notification(prompt):
         return
-    remember_merge_ok(ctx, prompt)
     prompt = owner_text(prompt)
+    remember_merge_ok(ctx, prompt)      # only the owner's typed lines can say merge, never pasted ones
     if not prompt.strip():
         return
     routing = ctx.routing
@@ -274,8 +274,10 @@ def search_owner_words(rx, text):
 
 
 def is_notification(prompt):
-    """A harness notification (a subagent or task finished) comes in as a prompt, but the owner did not write it."""
-    return "<task-notification>" in prompt or prompt.lstrip().startswith("[SYSTEM NOTIFICATION")
+    """A harness notification (a subagent or task finished, an agent hand-back) comes in as a prompt, but the owner
+    did not write it."""
+    return ("<task-notification>" in prompt or "<agent-message" in prompt
+            or prompt.lstrip().startswith("[SYSTEM NOTIFICATION"))
 
 
 def remember_merge_ok(ctx, prompt):
