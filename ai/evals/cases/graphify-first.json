@@ -1,0 +1,10 @@
+{
+  "id": "graphify-first",
+  "fixture": "app",
+  "prompt": "Where is the function add used in this repo?",
+  "expect": {
+    "tools": [
+      "graphify (query|affected)|serena__find_(symbol|referencing_symbols)"
+    ]
+  }
+}

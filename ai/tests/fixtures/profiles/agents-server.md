@@ -141,6 +141,7 @@ claude -p "<task>" --output-format stream-json --verbose (no --bare); codex exec
 ## Routing table (L0)
 Generated from ai/routing.yaml v4 by ai-render. Do not edit here.
 nudge = do it unless it clearly does not apply. gate = the step is blocked until the condition is met.
+stop = the turn cannot end until the named skill was used (once per session).
 opt-in = only in projects that enabled the tool (ai-start, ai-adopt).
 
 | Rule | When | Do |
@@ -150,7 +151,7 @@ opt-in = only in projects that enabled the tool (ai-start, ai-adopt).
 | merge-review (nudge) | session start: main moved since the last architecture review | main moved since the last review: /improve-codebase-architecture, then /retro; findings as tickets or a PR; then git rev-parse main > .ai/last-review. |
 | legacy-memory (nudge) | session start: old Claude memory files for this repo | Old Claude memory files here: move the facts into the repo (PR), then delete them. |
 | upgrade-review (nudge) | session start: AI tools changed version since the last review | Tools upgraded: run the upgrade-review skill. |
-| nav-first (nudge) | first broad code search (Grep, rg, grep -r, find) | Code search: graphify query (where, how) or graphify affected (impact) first, then Serena find_symbol / find_referencing_symbols; rg only for text. |
+| nav-first (nudge) | first broad code search (Grep, rg, grep -r, find); denied once in a code repo with a graph | Code search: graphify query (where, how) or graphify affected (impact) first, then Serena find_symbol / find_referencing_symbols; rg only for text. |
 | knowledge-check (nudge) | after a git commit | Update the Map section of AGENTS.md, run ai-libs --sync or graphify update, as the commit needs. |
 | audit-before-install (gate) | before a package install command | agent-audit this package first. No @latest, no curl-to-shell. |
 | secret-scan (gate) | before git commit or push | Secret scan found a key, token or password. Remove it before commit or push. |
@@ -159,9 +160,14 @@ opt-in = only in projects that enabled the tool (ai-start, ai-adopt).
 | pr-rules (gate) | before gh pr create or edit | PR body (pr skill template): Summary with a Mermaid diagram, Evidence (Before and After), Merge Danger (Door: one-way or two-way; Blast Radius), Docs, Changed guards (Ledger on fix PRs), author-sessions block at the end. |
 | merge-approval (gate) | before gh pr merge, or a git push to main or master | Merge only after the owner's latest message says merge or approve (after the ship skill). No push to main or master. |
 | no-verify (gate) | git commit or push with --no-verify (or commit -n) | Never skip the git hooks: fix what the pre-commit check reports, then commit again. |
+| writing-for-agents (gate) | before an edit of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md | Agent docs: load the writing-for-agents skill first (Skill tool, or read its SKILL.md), then edit. |
+| diagnosing-bugs (stop) | bug or performance prompt (slow, perf, broken, debug, crash, regression; RO, RU) | Bug or performance work: use the diagnosing-bugs skill (Skill tool) and follow its loop before you end the turn. |
+| tdd (stop) | test-first prompt (tests first, tdd, red-green, failing test first; RO, RU) | Test-first work: use the tdd skill (Skill tool) and follow its red-green slices before you end the turn. |
+| ship (gate) | before gh pr ready | Run the ship skill first (checks, review, Evidence), then gh pr ready. |
+| gh-write (gate) | gh write other than the PR commands | gh reads run freely; other gh writes ask the owner first. |
 | ledger-nudge (nudge) | before an edit in a regression-ledger area | Edit in a docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests. |
 | no-em-dash (nudge) | after a write with U+2014 | Remove the em dash (U+2014). Use '-', ':' or a new sentence. |
-| docs-lookup (nudge) | docs, SDK or library prompt | Library code: context7 query-docs with the ID from the Libraries section (resolve only if missing), then the official docs site. (cached IDs) |
+| docs-lookup (nudge) | prompt names a library of the Libraries section, or before a dependency-file edit | Library code: context7 query-docs with the ID from the Libraries section (resolve only if missing), then the official docs site. (cached IDs) |
 | feature-grill (nudge) | feature request prompt (add, implement, build ... a feature, endpoint, page; RO, RU) | branch <feature-slug> before the first edit; grill-with-docs (where the project links it; else grilling), for 3+ files to-spec then to-tickets, then /implement per ticket (check-fast, verify-<app> evidence, e2e, commit; draft PR after the first ticket). Feature done: the ship skill, then ask the owner to merge. Trivial: none needed. |
 | verify-before-done (nudge) | after a code edit in a project with a verify-<app> skill | Before done: check-fast, then verify-<app> on the changed feature (evidence), then e2e tests. |
 | seo-not-enabled (nudge) | SEO prompt, project without claude-seo | claude-seo is off in this project. Suggest: ai-adopt --tools seo. Do not enable it yourself. |

@@ -149,7 +149,7 @@ def t_devmac_plan(work):
     assert "scanners not used by profile dev-mac removed: guarddog osv-scanner" in out, out
     assert "agents not used by profile dev-mac, undone: opencode" in out, out
     head = [ln for ln in out.splitlines() if ln.startswith("AI setup")][0]
-    assert "Agents: claude,codex." in head, head
+    assert "Agents: claude,codex,herdr." in head, head      # herdr on every machine (owner 2026-11-16)
     assert "(newest stable, audit skipped, wheels only)" in out, out
     for word in ("guarddog 3.2.0", "osv-scanner_", "opencode-ai@", "codex mcp add box", "agent-audit npm", "agent-audit pypi"):
         assert word not in out, (word, out)

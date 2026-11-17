@@ -350,6 +350,12 @@ Typed = you type `/<name>`. Auto = the model starts it when the task fits (you c
 | Store knowledge | AGENTS.md, GLOSSARY.md, docs/* | Serena memories, OMC wiki, Claude auto memory (off) |
 | Before the merge | ship (ours) | OMC verify alone |
 | Cut a version | release (ours) | OMC release |
+| Build test-first | tdd (Matt) | OMC tdd |
+| Write a PR body | pr (Matt) | OMC pr |
+
+The winner gate enforces this table: when an agent calls a losing OMC skill, the call is denied and the
+message names the winner. The exact list is in the skills guide, section 5. Your own typed /name always runs,
+and OMC orchestration (autopilot, ralph, team, ultragoal, ask, babysit, fix-ci, cancel) always runs.
 
 ---
 
@@ -1713,7 +1719,7 @@ adopted repo gets `.ai/docs-allow` with the files that were already there. A res
 
 Adopt an existing repo yourself, the same way:
 1. `git switch -c ai-setup-<date> origin/main` (or a worktree when you have open work: `git worktree add ../x-ai-setup -b ai-setup-<date> origin/main`).
-2. `ai-adopt`. It commits on that branch and pushes it with an upstream. In a worktree it uses the main checkout's name and its `.venv`.
+2. `ai-adopt`. It commits on that branch and pushes it with an upstream. In a worktree it uses the main checkout's name and its `.venv`. On main or master it never commits there: it makes the branch `ai-adopt` and tells you to merge it. Without a remote it does not push and says "no remote". A folder without git: `ai-adopt --init` runs `git init` first (never in your home folder or in `/`). A docs-only or empty repo gets a `make check` with the Markdown checks (placement, no em dash, relative links).
 3. Ask the agent to open the PR, or open it on GitHub. Merge it yourself, or say "merge".
 
 ### 15.9 Where to run a session

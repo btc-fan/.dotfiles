@@ -1,0 +1,6 @@
+{
+  "id": "docs-lookup",
+  "fixture": "app",
+  "prompt": "How do I use the pytest tmp_path fixture in tests/test_calc.py? Check the pytest docs.",
+  "expect": {"tools": ["context7"]}
+}

@@ -7,6 +7,7 @@
 - Installer: `install.sh` and `ai/adapters/*.sh`. Project layer: `ai/bin/ai-start` (`ai-adopt` is a link to it).
 - Our skills: `ai/skills/<name>/SKILL.md`, linked into `~/.claude/skills` and `~/.agents/skills`.
 - Check: `bash ai/tests/run.sh` (everything; about 10 min).
+- Evals: `ai/bin/ai-eval` (fixture repos, install level, headless behaviour level); cases in `ai/evals/cases/*.json`.
 
 ## Project rules
 <!-- Rules for this repo only, one line each. They may add or tighten the global rules, never loosen them. -->

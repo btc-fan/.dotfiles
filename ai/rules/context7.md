@@ -26,7 +26,7 @@ Quotes read at the repo head on 2026-11-10 and 2026-11-11, not at the 4.6.0 tag:
 - What `ai-libs` sends (owner approved 2026-11-12): only public library names, one search call per library, once. Never code. Never local, path, git or workspace packages. If any non-public index is configured anywhere for an ecosystem (lockfile sources and tarball URLs, `.npmrc` `registry=` or `@scope:registry=`, `.yarnrc`, pip.conf, `PIP_*`/`UV_*` env, `[tool.uv]` index, `[[tool.poetry.source]]`, `uv.toml`, `.cargo/config.toml` registries, `GOPRIVATE`/`GONOPROXY`/`GONOSUMDB`/`GOPROXY` also from `go env`), no name of that ecosystem is sent and the output says so. Public means an exact hostname on an allow list. `ai-libs --check` is read-only and refuses `--sync`.
 
 ## Enforcement
-- L0: AGENTS.md "Code navigation" and the `docs-lookup` row (also fires when the prompt names a library from the Libraries section, and shows the cached IDs).
+- L0: AGENTS.md "Code navigation" and the `docs-lookup` row (fires only when the prompt names a library, from the Libraries section, the manifests or a short known list, or before an edit of a dependency file; it shows the cached IDs).
 - Row `knowledge-check` after a commit asks for `ai-libs --sync` when a manifest changed or a new ID was used.
 - L4: none. Nudges only.
 

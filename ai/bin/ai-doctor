@@ -7,6 +7,7 @@
   ai-doctor --live    also one headless claude -p call that runs a sandboxed Bash command (costs one small call)
   ai-doctor --project PATH   also the project knowledge checks for PATH (default: the cwd when it is a
                       git repo with code): Serena memories, sizes, staleness, secrets, graph, .ai/libs.md
+  ai-doctor --project-only PATH   only those project checks (no machine checks; ai-eval install runs it)
 
 Exit 1 when any check FAILs. WARN does not fail.
 Profile (ai/profiles, owner decision 2026-11-14): shown first. dev-mac FAILs when guarddog or osv-scanner from
@@ -16,7 +17,8 @@ Checks: rendered routing up to date; AGENTS.md size (30 KB cap) and no em dash; 
 JSON; router smoke run; plugin installed in Claude/Codex; a usage contract (ai/rules/<tool>.md with
 the five sections and a verify command) for every MCP server of ai-core; copied rule blocks (Codex
 AGENTS.md, Hermes SOUL.md, Hermes plugin) equal the current ai/AGENTS.md (ai-sync --check); secrets.env mode 600;
-gate skips and misses of the last 7 days; setup checks (each catches a bug seen on a real server):
+gate skips and misses of the last 7 days; per-skill use and gated skill misses of the last 30 days (router logs
+only, never transcripts); setup checks (each catches a bug seen on a real server):
 Codex hook trust, Claude permissions, claude.ai connectors off on Linux, Grounded Docs service active,
 rule files per user, Hermes MCP state, OMC exa off, env switches for non-login processes, the
 secret-scan of commit messages, Claude hand-off readiness, the owner's drop and off lists (ai/pins.env: no caveman
@@ -71,6 +73,10 @@ def main(argv):
         check_handoff()
         check_copies()
         return finish()
+    if "--project-only" in argv:
+        i = argv.index("--project-only")
+        check_project(argv[i + 1] if i + 1 < len(argv) else os.getcwd(), explicit=True)
+        return finish()
     quick = "--quick" in argv
     check_profile()
     check_render()
@@ -79,6 +85,7 @@ def main(argv):
     check_router_smoke()
     check_installed()
     check_versions(network=not quick and "--offline" not in argv)
+    check_herdr()
     check_contracts()
     check_copies()
     check_secrets()
@@ -93,6 +100,7 @@ def main(argv):
     check_hooks_absolute()
     check_hook_paths()
     check_serena_config()
+    check_serena_plugin()
     check_no_duplicate_layers()
     check_skill_dups()
     check_rules_2026_11_16(live=not quick)
@@ -100,6 +108,7 @@ def main(argv):
     check_codex_policy()
     check_hermes()
     check_omc()
+    check_claude_cleanup()
     check_handoff()
     check_gate_smoke()
     proj = argv[argv.index("--project") + 1] if "--project" in argv and argv.index("--project") + 1 < len(argv) \
@@ -272,6 +281,28 @@ def check_versions(network=False):
                 "held version (ai/pins.env)" if r["state"] == "hold" else "newest stable"))
 
 
+def check_herdr():
+    """Owner 2026-11-16: the herdr CLI is on PATH, so the PR author-sessions block gets real ids. Without it the
+    router still gives the main: line from the hook payload, so a missing herdr is a WARN."""
+    path = shutil.which("herdr")
+    if not path:
+        say("WARN", "herdr CLI not on PATH (PR author-sessions herdr: lines need it)", "re-run install.sh")
+        return
+    sys.path.insert(0, os.path.join(AI_DIR, "lib"))
+    try:
+        import resolve
+        row = next((r for r in resolve.status(network=False) if r["tool"] == "herdr"), None)
+    except Exception as exc:          # a broken resolver must not stop the other checks
+        row = None
+        say("WARN", "herdr version not checked: resolver failed", str(exc))
+    have = row["installed"] if row else ""
+    if row and row["state"] == "update":
+        say("WARN", "herdr %s on PATH (%s), newest stable %s" % (have, path, row["newest"]),
+            "re-run install.sh (ai/pins.env HERDR_SOURCE)")
+    else:
+        say("PASS", "herdr %s on PATH (%s)" % (have or "?", path))
+
+
 def check_contracts():
     try:
         with open(os.path.join(PLUGIN, ".mcp.json")) as fh:
@@ -331,12 +362,28 @@ def report_logs():
     print("\nlast 7 days: rules fired %s" % fmt(fired))
     print("last 7 days: skills used %s" % fmt(skills))
     print("last 7 days: misses %s" % fmt(misses))
+    report_skill_stats(time.time() - 30 * 86400)
     skips = [ln for ln in read_lines(os.path.join(STATE, "gates.log")) if " SKIP " in ln]
     if skips:
         say("WARN", "%d gate skip(s) logged (last: %s)" % (len(skips), skips[-1][:120]))
     errors = read_lines(os.path.join(STATE, "router-errors.log"))
     if errors:
         say("WARN", "%d router error(s) logged (last: %s)" % (len(errors), errors[-1][:120]))
+
+
+def report_skill_stats(since):
+    """Per-skill use and the misses of gated skills (require_skill rules). Router logs only, never transcripts."""
+    used = {}
+    for name, n in count_jsonl(os.path.join(STATE, "fired.jsonl"), "skill", since).items():
+        short = hooklib_module().short_skill(name)     # ai-core:ship and a read of ship/SKILL.md: one skill
+        used[short] = used.get(short, 0) + n
+    print("last 30 days: skills used %s" % fmt(used))
+    rules = (load_json_file(os.environ.get("AI_ROUTING_JSON") or os.path.join(AI_DIR, "build", "routing.json"))
+             or {}).get("rules") or []
+    gated = {r["id"]: r["require_skill"] for r in rules if r.get("require_skill")}
+    misses = count_jsonl(os.path.join(STATE, "misses.jsonl"), "rule", since)
+    print("last 30 days: gated skill misses %s" % fmt({"%s (%s)" % (rid, gated[rid]): n
+                                                      for rid, n in misses.items() if rid in gated}))
 
 
 def check_validate():
@@ -357,8 +404,8 @@ def check_tests():
 
 
 def check_evals():
-    """ai/evals/*.md are prompt lists for people (HOWTO.md Appendix 5), not machine-readable: report them
-    as manual evals with their size. Automatic proof comes from the router tests and the fired/misses logs."""
+    """ai/evals/*.md are prompt lists for people (ai/evals/HOWTO.md), not machine-readable: report them
+    as manual evals with their size. ai-eval runs the JSON cases in ai/evals/cases/."""
     evals = os.path.join(AI_DIR, "evals")
     files = sorted(f for f in os.listdir(evals) if f.endswith(".md") and f != "HOWTO.md") if os.path.isdir(evals) else []
     if not files:
@@ -712,7 +759,8 @@ def check_claude_policy():
     say("PASS" if ok else "FAIL", "Claude runs the ai-core router (gates) from the root-owned copy (managed hooks)",
         "" if ok else "admin: sudo /opt/ai-setup/install.sh --update --for-user <user>")
     if shutil.which("rtk") and locked:
-        say("PASS" if "rtk hook claude" in hooks else "WARN", "RTK hook runs as a managed hook (user hooks are locked)")
+        say("PASS" if "/hooks/rtk-hook" in hooks else "WARN", "RTK hook runs as a managed hook through hooks/rtk-hook "
+            "(user hooks are locked; no rewrite in auto mode)")
     if (claude_settings().get("enabledPlugins") or {}).get("ai-serena@ai") is not True and shutil.which("serena"):
         say("FAIL", "Serena on at user scope (enabledPlugins ai-serena@ai true; on by default)", "re-run install.sh")
     for n in ("claude-seo@agricidaniel-claude-seo", "claude-blog@agricidaniel-blog", "oh-my-claudecode@omc"):
@@ -849,6 +897,15 @@ def check_serena_config():
         ("not set: %s (re-run install.sh)" % ", ".join(miss)) if miss else "")
 
 
+def check_serena_plugin(path=os.path.join(AI_DIR, "marketplace", "plugins", "ai-serena", ".mcp.json")):
+    """Without alwaysLoad: true Claude defers the Serena tools behind tool search and agents do not see them
+    (owner decision 2026-11-16, ticket 10)."""
+    server = ((load_json_file(path) or {}).get("mcpServers") or {}).get("serena") or {}
+    ok = server.get("alwaysLoad") is True
+    say("PASS" if ok else "FAIL", "ai-serena plugin: alwaysLoad true (Serena tools visible from the first turn)",
+        "" if ok else "set \"alwaysLoad\": true for serena in %s" % path)
+
+
 def check_no_duplicate_layers():
     """Overlaps removed (docs/TOOLS.md section 8): graphify's global instruction section and hooks are not in
     the Claude or Codex user files; Serena's system-prompt override is not added."""
@@ -975,6 +1032,39 @@ def check_omc():
         say("PASS" if exa is False else "FAIL", "OMC exa MCP off (%s)" % path,
             "" if exa is False else "exa sends search queries to an outside service; re-run install.sh")
     check_omc_companion()
+
+
+def check_claude_cleanup():
+    """Owner 2026-11-16 (ticket 03): ~/.claude/CLAUDE.md holds only our blocks (root rules import, machine line, OMC
+    note); the user RTK hook is the wrapper that skips auto mode; the global autoMode.environment names no repo."""
+    md = read_text_file(os.path.join(CLAUDE_DIR, "CLAUDE.md"))
+    if md is not None:
+        extra = [ln for ln in re.sub(r"<!-- AI:(\S+) v\d+ START -->.*?<!-- AI:\1 v\d+ END -->", "", md, flags=re.S)
+                 .splitlines() if ln.strip()]
+        level = "FAIL" if "<!-- OMC:START -->" in md else "WARN" if extra else "PASS"
+        say(level, "~/.claude/CLAUDE.md is short (rules import, machine line, OMC note)",
+            {"FAIL": "OMC's long block is back (an OMC setup or update wrote it): re-run install.sh",
+             "WARN": "text outside the managed blocks: %r; move it into ai/agents-md/" % (extra[0][:80] if extra else ""),
+             "PASS": ""}[level])
+    st = load_json_file(os.path.join(CLAUDE_DIR, "settings.json")) or {}
+    hooks = st.get("hooks") if isinstance(st.get("hooks"), dict) else {}
+    cmds = [str(h.get("command") or "") for gs in hooks.values() for g in gs or [] if isinstance(g, dict)
+            for h in g.get("hooks") or [] if isinstance(h, dict)]
+    bare = [c for c in cmds if re.search(r"(^|/)rtk hook claude$", c.strip())]
+    if bare or any("/hooks/rtk-hook" in c for c in cmds):
+        say("FAIL" if bare else "PASS", "RTK hook skips the rewrite in auto mode (hooks/rtk-hook)",
+            "bare %r in ~/.claude/settings.json: auto mode denies its rewrites with \"no verdict\"; re-run install.sh"
+            % bare[0] if bare else "")
+    env = (st.get("autoMode") or {}).get("environment") if isinstance(st.get("autoMode"), dict) else None
+    if env is not None:
+        # A local path or a single trusted repo is about one project ("repos under an org" is global).
+        repo = [e for e in env if isinstance(e, str) and re.search(r"(~/|/Users/|/home/)\S|\brepo(sitory)?\b", e, re.I)]
+        # Owner 2026-11-16: a WARN with the steps; this setup does not rewrite the owner's settings file.
+        say("WARN" if repo else "PASS", "global autoMode.environment names no single repo",
+            ("%r belongs to one repo. Move it by hand: 1. in %s, key autoMode.environment, remove this entry; "
+             "2. in the repo it names, add it to .claude/settings.local.json, key autoMode.environment (a list: "
+             "\"$defaults\" first, then this entry); 3. restart Claude in that repo"
+             % (repo[0][:120], os.path.join(CLAUDE_DIR, "settings.json"))) if repo else "")
 
 
 def check_omc_companion():
@@ -1476,8 +1566,9 @@ def run(cmd, timeout=60, cwd=None):
 
 
 def count_jsonl(path, kind, since):
+    """Rows of one kind since a time, the rotated log (.1, cut at 5 MB) included."""
     counts = {}
-    for line in read_lines(path):
+    for line in read_lines(path + ".1") + read_lines(path):
         try:
             row = json.loads(line)
         except ValueError:
@@ -1501,7 +1592,7 @@ def parse_ts(ts):
 def fmt(counts):
     if not counts:
         return "none"
-    return ", ".join("%s %d" % (k, v) for k, v in sorted(counts.items(), key=lambda kv: -kv[1])[:15])
+    return ", ".join("%s %d" % (k, v) for k, v in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:15])
 
 
 def read_lines(path):

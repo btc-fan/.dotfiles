@@ -1,7 +1,10 @@
 # Routing table: the only source of truth for "which tool, when".
 # The router hook reads it on every prompt, before/after tool calls, and at session start.
 # Matching is deterministic (regex, globs, project state). No LLM, no network.
-# strength: nudge = inject the action as context; gate = block the step until the condition is met.
+# strength: nudge = inject the action as context; gate = block the step until the condition is met;
+# stop = a Stop hook block (once per session per rule) when the prompt matched and the skill was not used.
+# require_skill: <name> = the rule passes only with a proof in this session: a Skill call, a typed /name or a
+# read of that skill's SKILL.md (gate and stop rules; the name must be in skills.must_use).
 # scope: global = every project; opt-in = only when the project enabled the tool (ai-adopt --tools <id>).
 # The opt-in rows are also the catalog of opt-in tools that ai-adopt offers.
 version: 4
@@ -75,10 +78,11 @@ rules:
 
   - id: nav-first
     scope: global
-    summary: 'first broad code search (Grep, rg, grep -r, find)'
+    summary: 'first broad code search (Grep, rg, grep -r, find); denied once in a code repo with a graph'
     trigger: {tool_before: 'Grep|Bash|shell|exec_command|local_shell', command: '(^|[;&|(]\s*)(rg|ag|ack|git grep|grep\s+(-\w*[rR]\w*|--recursive)|find\s+\S+\s+(-i?name|-path|-type))\b'}
     action: "{nav_hint}"   # empty when the repo has no graph and Serena is off
     once_per: 'session'
+    deny_once_when: graph   # the first search is denied once when the repo has a graph (stale: update it first)
     proof: 'graphify|serena|find_symbol|find_referencing_symbols'
     strength: nudge
 
@@ -144,6 +148,47 @@ rules:
     action: "Never skip the git hooks: fix what the pre-commit check reports, then commit again."
     strength: gate
 
+  # ---------- skill gates (require_skill: proof = a Skill call, a typed /name or a read of its SKILL.md) ----------
+  - id: writing-for-agents
+    scope: global
+    summary: 'before an edit of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md'
+    trigger: {tool_before: 'Edit|Write|MultiEdit|apply_patch|Bash|shell|exec_command|local_shell', paths: '**/AGENTS.md|**/CLAUDE.md|**/CLAUDE.local.md|**/SKILL.md'}   # shell: the files it writes (> >> tee, sed -i, cp, mv)
+    require_skill: writing-for-agents
+    action: "Agent docs: load the writing-for-agents skill first (Skill tool, or read its SKILL.md), then edit."
+    strength: gate
+
+  - id: diagnosing-bugs
+    scope: global
+    summary: 'bug or performance prompt (slow, perf, broken, debug, crash, regression; RO, RU)'
+    trigger: {prompt: '\b(slow(er|ly|ness|s|ed|ing)?|performance|perf|broken|debug(s|ged|ging)?|crash(es|ed|ing)?|regressions?)\b|\b(lent[aăe]?|performan[tț][aăe]|stricat[aăe]?|s-a stricat|nu (mai )?merge|depaneaz[aă]|crap[aă]|se blocheaz[aă]|regresie)\b|(?<!\w)(медленн|тормоз|производительн|слома|отлад|дебаг|пада|упал|краш|регресси)\w*|(?<!\w)не работает'}
+    require_skill: diagnosing-bugs
+    action: "Bug or performance work: use the diagnosing-bugs skill (Skill tool) and follow its loop before you end the turn."
+    strength: stop
+
+  - id: tdd
+    scope: global
+    summary: 'test-first prompt (tests first, tdd, red-green, failing test first; RO, RU)'
+    # owner 2026-11-16: the baseline showed 0/3 tdd skill use (Claude works test-first by hand without the skill)
+    trigger: {prompt: '\b(tests? first|test-first|tdd|red[- ]green|(write|add) (the |a )?(failing )?tests? (first|before)|failing tests? first)\b|\b(teste(le)? (mai )?[iî]nt[aâ]i|test(e|ul)? [iî]nainte|mai [iî]nt[aâ]i (un |testele|testul))\b|(?<!\w)(сначала тест|тесты сначала|тест сначала|красн\w* зел[её]н)\w*'}
+    require_skill: tdd
+    action: "Test-first work: use the tdd skill (Skill tool) and follow its red-green slices before you end the turn."
+    strength: stop
+
+  - id: ship
+    scope: global
+    summary: 'before gh pr ready'
+    trigger: {tool_before: 'Bash|shell|exec_command|local_shell', command: '\bgh\s+pr\s+ready\b(?!.*--undo)'}
+    require_skill: ship
+    action: "Run the ship skill first (checks, review, Evidence), then gh pr ready."
+    strength: gate
+
+  - id: gh-write
+    scope: global
+    summary: 'gh write other than the PR commands'
+    trigger: {tool_before: 'Bash|shell|exec_command|local_shell', command: '\bgh\b'}
+    action: "gh reads run freely; other gh writes ask the owner first."
+    strength: gate    # ask (Codex: deny); the PR commands keep their own gates (pr-rules, merge-approval, ship)
+
   - id: ledger-nudge
     scope: global
     summary: 'before an edit in a regression-ledger area'
@@ -161,8 +206,10 @@ rules:
 
   - id: docs-lookup
     scope: global
-    summary: 'docs, SDK or library prompt'
-    trigger: {prompt: '\b(docs|documentation|api reference|sdk|library|framework|how (do|to) (i )?use|migrat(e|ion) to|upgrade to)\b', prompt_libs: true}
+    summary: 'prompt names a library of the Libraries section, or before a dependency-file edit'
+    # Only a named library or a dependency change: the old "docs|sdk|library" words fired on every docs task
+    # and were ignored 72 of 88 times (owner 2026-11-16).
+    trigger: {prompt_libs: true, tool_before: 'Edit|Write|MultiEdit|apply_patch', paths: 'package.json|pyproject.toml|requirements*.txt|go.mod|Cargo.toml|Gemfile|composer.json'}
     action: "Library code: context7 query-docs with the ID from the Libraries section (resolve only if missing), then the official docs site. {libs_hits}"
     proof: 'tool:mcp__\S*context7'
     strength: nudge
@@ -301,3 +348,37 @@ tiebreaks:
   - {trigger: 'new app or project (kickoff)', winner: 'grilling (grill-with-docs where the project links it; typed: /grill-me)', loser: 'OMC deep-interview (fallback)', match: '\bnew (app|project)\b|\bkick ?off\b'}
   - {trigger: 'deep interview, ambiguity score', winner: 'OMC deep-interview', loser: 'matt grilling', match: '\bdeep interview\b|\bambiguity score\b'}
   - {trigger: 'library API docs', winner: 'context7 with the Libraries ID', loser: 'web search', match: '\b(api docs|library docs|docs for)\b'}
+
+# ---------- winner gate (the overlap table of ai/skills/skills-guide/SKILL.md section 5, as data) ----------
+# PreToolUse on the Skill tool (Codex: a shell read of the skill file): a name in `losers` is denied and the
+# message names `use`. A typed /name of the owner never reaches the Skill tool, so it always runs.
+# orchestration: skills that call other skills; after one ran in the session, the losers pass too (owner
+# 2026-11-16). ask, babysit, fix-ci and cancel are no losers, so they run, but they unlock nothing.
+# test_commands.py checks that this table and the skills guide table hold the same rows and losers.
+winners:
+  orchestration: [autopilot, ralph, team, ultragoal]
+  table:
+    - {job: 'New feature or kickoff interview', use: 'grill-with-docs', losers: []}
+    - {job: 'Plan a well-scoped feature', use: 'to-spec, to-tickets', losers: ['oh-my-claudecode:plan', 'oh-my-claudecode:omc-plan', 'oh-my-claudecode:ralplan', 'oh-my-codex:plan', 'oh-my-codex:ralplan']}
+    - {job: 'Plan a huge unclear effort', use: 'wayfinder', losers: []}
+    - {job: 'Build tickets', use: 'implement / implement-spec', losers: ['oh-my-claudecode:execute']}
+    - {job: 'Build test-first', use: 'tdd', losers: ['oh-my-claudecode:tdd']}
+    - {job: 'Research a library or API', use: 'research (context7 first)', losers: ['oh-my-claudecode:research', 'oh-my-codex:best-practice-research']}
+    - {job: 'Review a diff', use: 'Matt code-review', losers: ['oh-my-claudecode:review', 'oh-my-claudecode:omc-review', 'oh-my-codex:code-review']}
+    - {job: 'Write a PR body', use: 'pr', losers: ['oh-my-claudecode:pr']}
+    - {job: 'Prove a feature works', use: 'verify-<app> (create-verification-skill)', losers: []}
+    - {job: 'Knowledge', use: 'AGENTS.md Map, GLOSSARY.md, docs/adr, docs/specs, docs/tickets, docs/research', losers: ['oh-my-claudecode:wiki', 'oh-my-codex:wiki']}
+    - {job: 'Pre-merge checks', use: 'ship (ours)', losers: []}
+    - {job: 'Cut a version', use: 'release (ours)', losers: ['oh-my-claudecode:release']}
+
+# ---------- skill card (SessionStart: startup, resume, clear, compact; under 1500 characters) ----------
+# must_use: the skills the agent must use, one trigger line each. typed_only: skills with
+# disable-model-invocation (no Skill tool call); the card gives the SKILL.md path to read and follow.
+skills:
+  must_use:
+    - {name: writing-for-agents, when: 'before an edit of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md'}
+    - {name: diagnosing-bugs, when: 'a bug, crash, slow or performance prompt, before the turn ends'}
+    - {name: ship, when: 'the branch is done, before gh pr ready'}
+    - {name: tdd, when: 'a tests-first or red-green prompt, before the turn ends'}
+  typed_only: [grill-with-docs, to-spec, to-tickets, implement, handoff, wayfinder, improve-codebase-architecture,
+               retro, create-verification-skill, maintain-verification-skill]

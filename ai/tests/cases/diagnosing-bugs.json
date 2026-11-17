@@ -1,0 +1,115 @@
+{
+ "rule": "diagnosing-bugs",
+ "cases": [
+  {
+   "name": "EN bug prompt: the rule shows in the prompt context",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "The app is slow when I run the report. Find out why."}
+  },
+  {
+   "name": "EN bug prompt, no skill, Stop: block",
+   "expect": "block",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "the export crashed again, please debug it"}},
+    {"event": "Stop", "payload": {"stop_hook_active": false}}
+   ],
+   "contains": ["[ai router: diagnosing-bugs]", "diagnosing-bugs"],
+   "state_contains": {"misses.jsonl": "\"rule\": \"diagnosing-bugs\""}
+  },
+  {
+   "name": "skill used in the turn: Stop passes",
+   "expect": "allow",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "there is a performance regression in the parser"}},
+    {"event": "PostToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "diagnosing-bugs"}}},
+    {"event": "Stop", "payload": {}}
+   ],
+   "state_not_contains": {"misses.jsonl": "diagnosing-bugs"}
+  },
+  {
+   "name": "once per session: the second Stop passes",
+   "expect": "allow",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "the build is broken"}},
+    {"event": "Stop", "payload": {}},
+    {"event": "Stop", "payload": {"stop_hook_active": true}},
+    {"event": "UserPromptSubmit", "payload": {"prompt": "still broken, debug it"}},
+    {"event": "Stop", "payload": {}}
+   ]
+  },
+  {
+   "name": "a normal prompt: Stop passes",
+   "expect": "allow",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "rename the variable total to sum"}},
+    {"event": "Stop", "payload": {}}
+   ]
+  },
+  {
+   "name": "a normal prompt: no fire",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "add a docstring to the calc module"}
+  },
+  {
+   "name": "RO: aplicatia e lenta: block",
+   "expect": "block",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "aplicatia e foarte lenta la export"}},
+    {"event": "Stop", "payload": {}}
+   ]
+  },
+  {
+   "name": "RO: s-a stricat: fire",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "pagina de login s-a stricat dupa update"}
+  },
+  {
+   "name": "RU: тормозит: block",
+   "expect": "block",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "приложение тормозит при запуске"}},
+    {"event": "Stop", "payload": {}}
+   ]
+  },
+  {
+   "name": "RU: падает: fire",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "сервис падает после деплоя"}
+  },
+  {
+   "name": "Codex: bug prompt, no skill, Stop: block",
+   "expect": "block",
+   "agent": "codex",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "the app is slow", "turn_id": "t1"}},
+    {"event": "Stop", "payload": {"turn_id": "t1"}}
+   ]
+  },
+  {
+   "name": "Codex: SKILL.md read with cat: Stop passes",
+   "expect": "allow",
+   "agent": "codex",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "the app is slow", "turn_id": "t1"}},
+    {"event": "PostToolUse", "payload": {"tool_name": "Bash", "turn_id": "t1",
+                                         "tool_input": {"command": "sed -n 1,80p {{HOME}}/.agents/skills/diagnosing-bugs/SKILL.md"}}},
+    {"event": "Stop", "payload": {"turn_id": "t1"}}
+   ]
+  },
+  {
+   "name": "owner skip (sudo ai-gate-skip diagnosing-bugs): Stop passes, logged",
+   "expect": "allow",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "the export crashed again, please debug it"}},
+    {"event": "Stop", "payload": {}}
+   ],
+   "gate_skip": "diagnosing-bugs {{SOON}} known flaky export",
+   "state_contains": {"gates.log": "SKIP diagnosing-bugs"},
+   "state_not_contains": {"misses.jsonl": "diagnosing-bugs"}
+  }
+ ]
+}

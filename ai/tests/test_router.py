@@ -5,12 +5,14 @@ Run: bash ai/tests/run.sh   (or python3 ai/tests/test_router.py [-k <name part>]
 
 Each ai/tests/cases/<rule>.json holds {"rule": id, "cases": [...]}. A case:
   name     text
-  expect   fire | nofire | log | deny | ask | allow | miss | nomiss
-           (fire/nofire/log: did the rule fire in the LAST step; deny/ask/allow: the gate decision)
-  steps    [{event, payload, transcript_append: [json rows]}]  (or one "event" + "payload")
+  expect   fire | nofire | log | deny | ask | allow | block | miss | nomiss
+           (fire/nofire/log: did the rule fire in the LAST step; deny/ask/allow: the gate decision;
+           block: a Stop hook block in the last step)
+  steps    [{event, payload, transcript_append: [json rows], state_files: {rel: text}}]  (or one "event" + "payload")
   agent    claude (default) | codex
   project  {git: true, git_init: true, files: {rel: text}, stage: {rel: text}, commit: "<message>",
-           dirty: {rel: text} (written after the commit), worktree: "../wt" (git worktree add), extra_commits: [{rel: text}, ...] (after the commit)}
+           dirty: {rel: text} (written after the commit), worktree: "../wt" (git worktree add), extra_commits: [{rel: text}, ...] (after the commit),
+           age_days: {rel: days} (file mtime set back, e.g. a stale graph)}
   audit_log  lines for ~/.local/state/ai/audit.log
   ai_mcp   text for $AI_HOME/ai/mcp/context7.json, committed (secret-scan allowlist reads HEAD);
            ai_mcp_commit: false keeps it uncommitted
@@ -48,7 +50,7 @@ FAKE = {
     "{{HF_TOKEN}}": "hf" + "_" + "kQ" * 17,
     "{{DBURL}}": "postgres://app:" + "Hunter2" * 2 + "@db:5432/x",
 }
-FIRE_KINDS = {"fire", "log", "deny", "ask", "miss"}
+FIRE_KINDS = {"fire", "log", "deny", "ask", "miss", "block"}
 QUIET_KINDS = {"nofire", "allow", "nomiss"}
 
 
@@ -201,6 +203,8 @@ def run_case(rule_id, case, work, build):
         for row in step.get("transcript_append", []):
             with open(transcript, "a") as fh:
                 fh.write(json.dumps(row) + "\n")
+        for rel, text in step.get("state_files", {}).items():      # e.g. an emptied fired.jsonl (log rotation)
+            write(os.path.join(state, rel), sub(text, subs))
         payload = sub(step.get("payload", {}), subs)
         payload.setdefault("session_id", session)
         payload.setdefault("cwd", proj)
@@ -234,7 +238,7 @@ def judge(case, rule_id, agent, out, code, state, fired_before, misses_before):
         return "expected no fire; output: %s" % short(out)
     if expect == "log" and not (new_rows and new_rows[0].get("log_only") and not mentions(out, rule_id)):
         return "expected a log-only row and no context; output: %s" % short(out)
-    if expect in ("deny", "ask", "allow"):
+    if expect in ("deny", "ask", "allow", "block"):
         want = None if expect == "allow" else expect
         if decision != want:
             return "expected %s, got %s; output: %s" % (expect, decision or "allow", short(out))
@@ -263,6 +267,8 @@ def decision_of(out, code, agent):
             data = json.loads(line)
         except ValueError:
             continue
+        if data.get("decision") == "block" and "hookSpecificOutput" not in data:
+            return "block"          # a Stop hook block (Claude and Codex)
         if agent == "codex" and data.get("decision") == "block":
             return "deny"
         d = data.get("hookSpecificOutput", {}).get("permissionDecision")
@@ -307,6 +313,9 @@ def setup_project(proj, spec):
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for rel, text in spec.get("dirty", {}).items():     # changed after the commit (uncommitted work)
         write(os.path.join(proj, rel), text)
+    for rel, days in spec.get("age_days", {}).items():
+        old = time.time() - float(days) * 86400
+        os.utime(os.path.join(proj, rel), (old, old))
 
 
 def sub(obj, subs):

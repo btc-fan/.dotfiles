@@ -1,0 +1,75 @@
+{
+ "rule": "tdd",
+ "cases": [
+  {
+   "name": "EN test-first prompt: the rule shows in the prompt context",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "Write tests first for a new function sub(a, b), then implement it."}
+  },
+  {
+   "name": "EN test-first prompt, no skill, Stop: block",
+   "expect": "block",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "do this red-green: add a parser for dates"}},
+    {"event": "Stop", "payload": {"stop_hook_active": false}}
+   ],
+   "contains": ["[ai router: tdd]", "tdd"],
+   "state_contains": {"misses.jsonl": "\"rule\": \"tdd\""}
+  },
+  {
+   "name": "skill used in the turn: Stop passes",
+   "expect": "allow",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "use tdd for the refund calculation"}},
+    {"event": "PostToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "tdd"}}},
+    {"event": "Stop", "payload": {}}
+   ],
+   "state_not_contains": {"misses.jsonl": "tdd"}
+  },
+  {
+   "name": "the OMC tdd skill is not proof for Matt's tdd",
+   "expect": "block",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "write the failing test first, then the code"}},
+    {"event": "PostToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:tdd"}}},
+    {"event": "Stop", "payload": {}}
+   ]
+  },
+  {
+   "name": "once per session: the second Stop passes",
+   "expect": "allow",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "tests first please"}},
+    {"event": "Stop", "payload": {}},
+    {"event": "Stop", "payload": {"stop_hook_active": true}},
+    {"event": "UserPromptSubmit", "payload": {"prompt": "again test-first for the next helper"}},
+    {"event": "Stop", "payload": {}}
+   ]
+  },
+  {
+   "name": "RO test-first prompt fires",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "scrie testele mai întâi pentru funcția sub, apoi implementeaz-o"}
+  },
+  {
+   "name": "RU test-first prompt fires",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "сначала тесты для функции sub, потом реализация"}
+  },
+  {
+   "name": "a prompt that only mentions tests does not fire",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "run the tests and tell me what fails"}
+  },
+  {
+   "name": "a README typo prompt does not fire",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "fix the typo in README"}
+  }
+ ]
+}

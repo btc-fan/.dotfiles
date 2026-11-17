@@ -1,0 +1,63 @@
+{
+ "rule": "ship",
+ "cases": [
+  {
+   "name": "gh pr ready without the ship skill: deny",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "gh pr ready 12"}},
+   "contains": ["[ai gate ship]", "ship"],
+   "state_contains": {"misses.jsonl": "\"rule\": \"ship\""}
+  },
+  {
+   "name": "after the ship skill: allow",
+   "expect": "allow",
+   "steps": [
+    {"event": "PostToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "ship"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "gh pr ready"}}}
+   ]
+  },
+  {
+   "name": "after a Read of ship/SKILL.md: allow",
+   "expect": "allow",
+   "steps": [
+    {"event": "PostToolUse", "payload": {"tool_name": "Read", "tool_input": {"file_path": "{{HOME}}/.claude/skills/ship/SKILL.md"}}},
+    {"event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "cd {{PROJ}} && gh pr ready"}}}
+   ]
+  },
+  {
+   "name": "gh pr ready --undo (back to draft): allow",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "gh pr ready --undo"}}
+  },
+  {
+   "name": "quoted text is not a command: allow",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "echo \"next: gh pr ready\""}}
+  },
+  {
+   "name": "gh pr view: allow",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "gh pr view 12"}}
+  },
+  {
+   "name": "Codex gh pr ready without the skill: deny (block)",
+   "expect": "deny",
+   "agent": "codex",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "turn_id": "t1", "tool_input": {"command": "gh pr ready"}}
+  },
+  {
+   "name": "owner skip (sudo ai-gate-skip ship): allow, logged",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "gh pr ready 12"}},
+   "gate_skip": "ship {{SOON}} docs-only PR",
+   "contains": "skipped by the owner",
+   "state_contains": {"gates.log": "SKIP ship"}
+  }
+ ]
+}

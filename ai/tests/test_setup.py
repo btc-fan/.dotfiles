@@ -35,7 +35,7 @@ def main():
                      t_user_hook_match, t_verify_source, t_audited_plugin_trust, t_connectors_keep, t_sudo_gate, t_gate_skip_owner_only,
                      t_root_guard, t_update_clone, t_ai_sync_untrusted, t_plugin_files_tracked,
                      t_hooks_absolute, t_uv_copy, t_box_registration, t_readiness, t_managed_router,
-                     t_owner_2026_11_12, t_graph_refresh, t_env_key_outside_trust_block):
+                     t_owner_2026_11_12, t_graph_refresh, t_graph_build_at_session_start, t_env_key_outside_trust_block):
             try:
                 test(os.path.join(work, test.__name__))
                 print("ok   " + test.__name__)
@@ -925,7 +925,9 @@ def t_managed_router(work):
     root = "/usr/local/lib/ai/repo/ai/marketplace/plugins/ai-core/hooks/router.py"
     assert all(c.startswith('/usr/bin/python3 "%s" --agent claude ' % root) and c.endswith(" --managed")
                for c in cmds if "router.py" in c), cmds
-    assert "/usr/local/bin/rtk hook claude" in cmds and not any("${" in c for c in cmds), cmds
+    # RTK runs through the wrapper that skips auto mode (ticket 03), with the absolute rtk.
+    assert '/usr/bin/python3 "%s/rtk-hook" "/usr/local/bin/rtk"' % os.path.dirname(root) in cmds \
+        and not any("${" in c for c in cmds), cmds
     assert set(hooks) >= {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"}
     assert not any("serena-hook" in c or "claude-notify" in c or "caffeinate" in c for c in cmds), "router only"
     # The plugin copy (CLAUDE_PLUGIN_ROOT set) steps aside when managed settings run the router.
@@ -1080,6 +1082,49 @@ def t_graph_refresh(work):
     post("git commit -m z")                                 # project opted out
     assert not wait(lambda: os.path.exists(marker), 3), open(marker).read()
     assert not os.path.exists(pending), "no pass was requested"
+
+
+def t_graph_build_at_session_start(work):
+    """Spec story 32: the first code file in an adopted repo without a graph. The next session start builds the
+    graph in the background (once per session, the hook returns at once) and the Serena and graph rows are on."""
+    import time as _t
+    env, home, bindir = bash_env(work)
+    proj = os.path.join(work, "repo-gb")
+    subprocess.check_call(["git", "init", "-q", proj])
+    write(os.path.join(proj, ".ai", "enabled"), "tier: long\n")
+    marker = os.path.join(work, "gb-ran.log")
+    fake = os.path.join(work, "gfy-gb", "graphify")
+    write(fake, '#!/bin/sh\necho "$GRAPHIFY_BACKEND $*" >> %s\n' % marker, 0o755)
+    renv = dict(env, AI_GRAPHIFY_BIN=fake, AI_STATE_DIR=os.path.join(work, "st-gb"),
+                AI_CLAUDE_MANAGED_SETTINGS=os.devnull)
+    router = os.path.join(PLUGIN, "hooks", "router.py")
+
+    def start(session, source="startup"):
+        payload = {"hook_event_name": "SessionStart", "session_id": session, "cwd": proj, "source": source}
+        t0 = _t.time()
+        res = subprocess.run([sys.executable, router, "--agent", "claude", "SessionStart"],
+                             input=json.dumps(payload).encode(), env=renv, stdout=subprocess.PIPE, timeout=20)
+        return _t.time() - t0, res.stdout.decode()
+
+    def runs(secs):
+        deadline = _t.time() + secs
+        while _t.time() < deadline and not os.path.exists(marker):
+            _t.sleep(0.05)
+        return read(marker).splitlines() if os.path.exists(marker) else []
+
+    _took, out = start("a")
+    assert "[ai router: graph]" not in out and not runs(2), "docs only: no graph, no rows: " + out
+    write(os.path.join(proj, "app.py"), "print(1)\n")
+    took, out = start("b")
+    assert took < 1.5, "the hook must not wait for the build: %.2f s" % took
+    assert "[ai router: serena]" in out and "[ai router: graph]" in out, out
+    assert runs(20) == ["none update %s" % proj], "background graphify update"
+    os.remove(marker)
+    start("b", source="compact")
+    assert not runs(2), "once per session"
+    write(os.path.join(proj, ".ai", "enabled"), "no-graph\n")
+    start("c")
+    assert not runs(2), "no-graph: no build"
 
 
 def t_root_guard(work):

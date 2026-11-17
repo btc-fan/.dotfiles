@@ -170,6 +170,41 @@ def t_docs_check_research_header(work):
     assert "WARN docs/research/expo-push.md" in res.text and "ok.md" not in res.text, res.text
 
 
+def t_docs_check_md(work):
+    """--md (the check of a docs-only repo): placement, no em dash, relative links resolve."""
+    repo, env = new_repo(work, "md", {
+        "README.md": "# r\n\n[guide](docs/guide.md#step-1) [web](https://example.invalid/x) [top](#r)\n"
+                     "[mail](mailto:a@example.invalid) ![img](docs/pic.png)\n\n```\n[not a link](nowhere.md)\n```\n",
+        "docs/guide.md": "# Guide\n\n[back](../README.md) [missing](./gone.md)\n",
+        "docs/pic.png": "png"})
+    dc = [sys.executable, os.path.join(BIN, "ai-docs-check"), "--dir", repo]
+    assert run(dc, env=env).returncode == 0, "without --md: placement only"
+    res = run(dc + ["--md"], env=env)
+    assert res.returncode == 1 and "docs/guide.md:3: broken link ./gone.md" in res.text, res.text
+    assert "nowhere.md" not in res.text and "example.invalid" not in res.text, res.text
+    write(os.path.join(repo, "docs", "guide.md"), "# Guide\n\nStep 1 \u2014 read.\n\n[back](../README.md)\n")
+    res = run(dc + ["--md"], env=env)
+    assert res.returncode == 1 and "docs/guide.md:3: em dash (U+2014)" in res.text, res.text
+    write(os.path.join(repo, "docs", "guide.md"), "# Guide\n\nStep 1: read.\n\n[back](../README.md)\n")
+    res = run(dc + ["--md"], env=env)
+    assert res.returncode == 0, res.text
+
+
+def t_scenario_docs_only_and_empty(work):
+    """Spec story 25 and 30: a docs-only and an empty repo get a make check (the Markdown checks) that passes."""
+    for name, files in (("docs-only", {"README.md": "# d\n\nSee [the guide](docs/guide.md).\n",
+                                       "docs/guide.md": "# Guide\n"}), ("empty", {})):
+        repo, env = new_repo(work, name, files)
+        res = adopt(repo, env)
+        assert res.returncode == 0, res.text
+        mk = read(os.path.join(repo, "Makefile")) or ""
+        assert "check:" in mk and "check-fast:" in mk and "ai-docs-check --md" in mk, (name, mk)
+        assert "Makefile" in git(repo, "show", "--name-only", "--format=", "HEAD", env=env).text.split(), name
+        res = run(["make", "-C", repo, "check"], env=dict(env, PATH=BIN + os.pathsep + env["PATH"]))
+        assert res.returncode == 0 and "Markdown" in res.text, (name, res.text)
+        assert "nothing to change" in adopt(repo, env).text, name
+
+
 # ---------------------------------------------------------------- ai-precommit
 
 def fake_tool(home, name, body):
@@ -315,6 +350,8 @@ def t_scenario_long_evolution(work):
     """Many merges over time: each move of main asks for the review once; recording it quiets it."""
     repo, env = new_repo(work, "evolve", dict(PY_APP))
     assert adopt(repo, env).returncode == 0
+    git(repo, "switch", "-q", "main", env=env)      # the owner merges the ai-adopt branch (owner 2026-11-16)
+    git(repo, "merge", "-q", "ai-adopt", env=env)
     start = {"session_id": "e0", "cwd": repo, "source": "startup"}
     out = hook("SessionStart", start, env)
     assert "moved since the last architecture review" not in out, "first session only sets the mark"
@@ -415,6 +452,59 @@ def t_adopt_in_linked_worktree(work):
     assert ".venv/bin/python -m pytest" in read(os.path.join(wt, "Makefile")), read(os.path.join(wt, "Makefile"))
     assert "a - b  # open work" in read(os.path.join(repo, "src", "app", "core.py")), "open work in main touched"
     assert git(repo, "status", "--porcelain", env=env).text.strip() == "M src/app/core.py", "main checkout changed"
+
+
+def t_herdr_picked_on_mac(work):
+    """Ticket 08: herdr is picked on a Mac also when it is not installed yet, so tools_herdr puts it on PATH."""
+    pick = ('eval "$(sed -n \'/^pick_agents()/,/^}/p; /^profile_agents()/,/^}/p\' %s)"; skip() { :; }; '
+            'has() { case "$1" in claude|codex) return 0;; esac; return 1; }; hermes_exists() { return 1; }; '
+            'AI_MODE=all; AGENTS=; AI_OS=macos; PROFILE_OPENCODE=0; pick_agents; echo $AGENTS'
+            % os.path.join(os.path.dirname(AI_DIR), "install.sh"))
+    res = run(["bash", "-c", pick])
+    assert res.text.strip() == "claude,codex,herdr", res.text
+
+
+def t_doctor_herdr(work):
+    """Ticket 08: ai-doctor checks the herdr CLI: missing -> WARN; older than the newest stable in resolved.json
+    -> WARN; current -> PASS."""
+    state = os.path.join(work, "state")
+    write(os.path.join(state, "resolved.json"),
+          json.dumps({"tools": {"herdr": {"newest": {"version": "0.9.6"}, "source": "github herdrdev/herdr"}}}))
+    bindir = os.path.join(work, "bin")
+    env = {"AI_STATE_DIR": state, "AI_SYSTEM_STATE_DIR": os.path.join(work, "none"), "HOME": work,
+           "PATH": "/usr/bin:/bin"}
+    out = doctor_check(env, "check_herdr")
+    assert "WARN" in out and "herdr CLI not on PATH" in out, out
+    write(os.path.join(bindir, "herdr"), "#!/bin/sh\necho herdr 0.9.5\n")
+    os.chmod(os.path.join(bindir, "herdr"), 0o755)
+    env["PATH"] = bindir + ":/usr/bin:/bin"
+    out = doctor_check(env, "check_herdr")
+    assert "WARN" in out and "0.9.5" in out and "0.9.6" in out, out
+    write(os.path.join(bindir, "herdr"), "#!/bin/sh\necho herdr 0.9.6\n")
+    out = doctor_check(env, "check_herdr")
+    assert "PASS" in out and "WARN" not in out and "herdr 0.9.6" in out, out
+
+
+def doctor_check(env, name):
+    """One ai-doctor check run in this process with env; returns what it printed."""
+    import contextlib
+    import importlib.machinery
+    import importlib.util
+    import io
+    old = dict(os.environ)
+    os.environ.update(env)
+    try:
+        loader = importlib.machinery.SourceFileLoader("ai_doctor_flow", os.path.join(BIN, "ai-doctor"))
+        spec = importlib.util.spec_from_loader("ai_doctor_flow", loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            getattr(mod, name)()
+        return buf.getvalue()
+    finally:
+        os.environ.clear()
+        os.environ.update(old)
 
 
 if __name__ == "__main__":

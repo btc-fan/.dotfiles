@@ -1,5 +1,5 @@
   skip: opencode: not used by profile dev-mac
-AI setup (all mode) from $REPO on macos (arm64). Agents: claude,codex.
+AI setup (all mode) from $REPO on macos (arm64). Agents: claude,codex,herdr.
 Profile: dev-mac (default for macos).
 DRY RUN: commands are printed, nothing is changed.
   [dry-run] write   ~/.config/ai/profile new file
@@ -47,6 +47,7 @@ DRY RUN: commands are printed, nothing is changed.
   [dry-run] link    ~/.local/bin/ai-check-detect -> $REPO/ai/bin/ai-check-detect
   [dry-run] link    ~/.local/bin/ai-docs-check -> $REPO/ai/bin/ai-docs-check
   [dry-run] link    ~/.local/bin/ai-doctor -> $REPO/ai/bin/ai-doctor
+  [dry-run] link    ~/.local/bin/ai-eval -> $REPO/ai/bin/ai-eval
   [dry-run] link    ~/.local/bin/ai-info -> $REPO/ai/bin/ai-info
   [dry-run] link    ~/.local/bin/ai-ledger -> $REPO/ai/bin/ai-ledger
   [dry-run] link    ~/.local/bin/ai-libs -> $REPO/ai/bin/ai-libs
@@ -80,12 +81,14 @@ undo --only ^cmd:bin:osv-scanner$: 1 entr(y/ies) reversed
   codex: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 0.169.0
   codex 1.0.0 is not from npm ($WORK/devmac/bin/codex): left as it is (newest stable: 0.169.0)
   omx: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 0.22.6
-  omx 0.22.7 kept (offline: not moved to 0.22.6)
+  omx 0.22.8 kept (offline: not moved to 0.22.6)
   preview of 'omx setup' in a throwaway HOME ($TMP/ai-preview.XXXXXX):
   [dry-run] HOME=$TMP/ai-preview.XXXXXX env OMX_AUTO_UPDATE=0 OMX_NATIVE_AUTO_FETCH=0 omx setup
   [dry-run] env OMX_AUTO_UPDATE=0 OMX_NATIVE_AUTO_FETCH=0 omx setup
   files unchanged
   planned: omx setup done
+  herdr: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 0.9.5
+  [dry-run] download herdr-macos-aarch64 of herdr v0.9.5, check the published sha256 (and the GitHub attestation when gh is logged in), install to ~/.local/bin/herdr
 
 [6/14] tools: RTK, GitHub MCP, plugin sources, Serena, graphify, context7
   rtk: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 1.2.0
@@ -178,7 +181,7 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
   [dry-run] claude plugin install oh-my-claudecode@omc --scope user
   [dry-run] record  claude-plugin:oh-my-claudecode@omc undo: claude plugin uninstall oh-my-claudecode@omc
   planned: Claude plugin oh-my-claudecode@omc (user scope)
-  manual: OMC plugin route: run /oh-my-claudecode:omc-setup once in Claude (CLAUDE.md block, HUD)
+  manual: OMC plugin route: run /oh-my-claudecode:omc-setup once in Claude (HUD), then re-run install.sh
   [dry-run] claude plugin marketplace add $REPO/ai/marketplace
   [dry-run] record  claude-marketplace:ai undo: claude plugin marketplace remove ai
   [dry-run] claude plugin install ai-serena@ai --scope user
@@ -233,15 +236,10 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
 [10/14] hooks (plugin owns them; vendor hooks: RTK, herdr, graphify)
   same    ~/.claude/settings.json missing
   same    ~/.claude/settings.json missing
-  rtk init -g --hook-only --auto-patch --dry-run:
-    [dry-run] would patch settings.json (PreToolUse, matcher "Bash"): ~/.claude/settings.json
-    
-    [dry-run] Nothing written.
-  [dry-run] rtk init -g --hook-only --auto-patch
-  files unchanged
+  same    ~/.claude/settings.json missing
+  [dry-run] add     ~/.claude/settings.json hooks/PreToolUse += {"matcher": "Bash", "hooks": [{"type": "command", "command": "/usr/bin/python...
   same    ~/.claude/CLAUDE.md no line '@RTK.md'
-  [dry-run] record  rtk:claude undo: rtk init -g --uninstall
-  planned: RTK hook for Claude (proxy declined, no CLAUDE.md import)
+  planned: RTK hook for Claude (no rewrite in auto mode, no CLAUDE.md import)
   same    ~/.claude/settings.json no hook duplicates the plugin
   same    ~/.codex/hooks.json missing
   [dry-run] rtk init -g --codex
@@ -249,10 +247,13 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
   [dry-run] record  rtk:codex undo: rtk init -g --codex --uninstall
   planned: RTK for Codex
   [dry-run] aiconf codex-trust-hooks ~/.codex/config.toml --auto
+  skip: herdr integrations: herdr not found
 
 [11/14] root rules (managed blocks; other blocks kept)
   [dry-run] block   ~/.claude/CLAUDE.md AI:core v1 (N bytes)
   planned: Claude: managed block in ~/.claude/CLAUDE.md (other blocks kept)
+  same    ~/.claude/CLAUDE.md no block AI:omc-vendor
+  [dry-run] block   ~/.claude/CLAUDE.md AI:omc v1 (89 bytes)
   [dry-run] block   ~/.codex/AGENTS.md AI:core v1 (N bytes)
   planned: Codex: managed block in ~/.codex/AGENTS.md (OMX blocks kept)
   same    ~/.claude/CLAUDE.md no block AI:host
@@ -307,6 +308,9 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GIT_CONFIG_KEY_0 = "core.fsmonitor"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GIT_CONFIG_VALUE_0 = "false"
   planned: Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches, GIT_GUARD_AGENT and git fsmonitor off in shell_environment_policy.set
+  [dry-run] set     ~/.config/herdr/config.toml [update] version_check = false
+  [dry-run] set     ~/.config/herdr/config.toml [update] manifest_check = false
+  planned: herdr: version and manifest checks off (never run 'herdr update')
   [dry-run] set     ~/.config/claude-omc/config.jsonc security/disableAutoUpdate = true
   [dry-run] set     ~/.config/claude-omc/config.jsonc mcpServers/exa/enabled = false
   [dry-run] set     ~/.config/ponytail/config.json defaultMode = "full"
@@ -322,10 +326,11 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
   [dry-run] $REPO/ai/bin/ai-doctor --quick
   manual: log in once: claude (then /login)
   manual: log in once: codex login --device-auth
+  manual: log in once: gh auth login
 
 ==== summary ====
 
-done (36)
+done (37)
   - (planned) brew install curl
   - (planned) sources resolved (ai/pins.env)
   - (planned) links
@@ -352,7 +357,7 @@ done (36)
   - (planned) Codex plugin i-have-adhd@i-have-adhd
   - (planned) Claude: shared skills and the 5 mattpocock skills linked into ~/.claude/skills
   - (planned) Codex/opencode: shared skills and the 5 mattpocock skills linked into ~/.agents/skills
-  - (planned) RTK hook for Claude (proxy declined, no CLAUDE.md import)
+  - (planned) RTK hook for Claude (no rewrite in auto mode, no CLAUDE.md import)
   - (planned) RTK for Codex
   - (planned) Claude: managed block in ~/.claude/CLAUDE.md (other blocks kept)
   - (planned) Codex: managed block in ~/.codex/AGENTS.md (OMX blocks kept)
@@ -360,22 +365,25 @@ done (36)
   - (planned) Claude: env switches in ~/.claude/settings.json (merge): hooks, MCP servers and -p runs see them
   - (planned) Claude permissions merged into ~/.claude/settings.json: allow lists only; no ask or deny rules (profile dev-mac)
   - (planned) Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches, GIT_GUARD_AGENT and git fsmonitor off in shell_environment_policy.set
+  - (planned) herdr: version and manifest checks off (never run 'herdr update')
   - (planned) Claude add-ons: OMC auto-update off, Ponytail defaultMode full, auto memory off
   - (planned) git hooks post-merge + post-rewrite run ai-sync after a pull
 
-skipped (2)
+skipped (3)
   - opencode: not used by profile dev-mac
   - Serena config: serena not installed
+  - herdr integrations: herdr not found
 
 warnings (1)
   - pstack: newest stable unknown (offline): kept as it is
 
-manual steps left (6)
+manual steps left (7)
   - create ~/.config/ai/secrets.env: install -m 600 $REPO/secrets.env.example ~/.config/ai/secrets.env, then fill GITHUB_PERSONAL_ACCESS_TOKEN and CONTEXT7_API_KEY
-  - OMC plugin route: run /oh-my-claudecode:omc-setup once in Claude (CLAUDE.md block, HUD)
+  - OMC plugin route: run /oh-my-claudecode:omc-setup once in Claude (HUD), then re-run install.sh
   - Claude, once per machine, in a project with claude-seo on: /seo setup, then /seo doctor (venv + Chromium)
   - add to your shell rc: [ -f ~/.config/ai/env.sh ] && . ~/.config/ai/env.sh
   - log in once: claude (then /login)
   - log in once: codex login --device-auth
+  - log in once: gh auth login
 
 (dry run: nothing was changed)

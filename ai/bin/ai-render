@@ -65,7 +65,7 @@ def main(argv):
     if EM_DASH in l0_text:
         print("ai-render: ERROR em dash in L0 table", file=sys.stderr)
         return 1
-    over = session_start_budget(routing, l0_text)
+    over = card_budget(routing.get("skills") or {}) or session_start_budget(routing, l0_text)
     if over:
         print("ai-render: ERROR " + over, file=sys.stderr)
         return 1
@@ -157,13 +157,18 @@ def validate(data):
     except ImportError:
         states, gates, holders = None, None, None
     errors, seen = [], set()
+    must_use = {s.get("name") for s in (data.get("skills") or {}).get("must_use") or []}
     for r in data.get("rules", []):
         rid = r.get("id")
         if not rid or rid in seen:
             errors.append("rule id missing or duplicate: %r" % rid)
         seen.add(rid)
-        if r.get("strength") not in ("nudge", "gate"):
-            errors.append("%s: strength must be nudge or gate" % rid)
+        if r.get("strength") not in ("nudge", "gate", "stop"):
+            errors.append("%s: strength must be nudge, gate or stop" % rid)
+        if r.get("strength") == "stop" and not (r.get("require_skill") and (r.get("trigger") or {}).get("prompt")):
+            errors.append("%s: strength stop needs require_skill and a prompt trigger" % rid)
+        if r.get("require_skill") and r["require_skill"] not in must_use:
+            errors.append("%s: require_skill %r is not in skills.must_use (the skill card)" % (rid, r["require_skill"]))
         if r.get("scope", "global") not in ("global", "opt-in"):
             errors.append("%s: scope must be global or opt-in" % rid)
         trig = r.get("trigger") or {}
@@ -183,11 +188,13 @@ def validate(data):
                     errors.append("%s: bad %s regex: %s" % (rid, key, exc))
         if r.get("once_per") not in (None, "session"):
             errors.append("%s: once_per must be session (or absent)" % rid)
+        if r.get("deny_once_when") not in (None, "graph"):
+            errors.append("%s: deny_once_when must be graph (or absent)" % rid)
         if trig.get("paths") == "code" or r.get("log_only") or r.get("reset_on"):
             errors.append("%s: paths: code, log_only and reset_on were removed from the router" % rid)
         if states is not None and trig.get("state") and trig["state"] not in states:
             errors.append("%s: unknown state %r (add a predicate in router.STATE_PREDICATES)" % (rid, trig["state"]))
-        if gates is not None and r.get("strength") == "gate" and rid not in gates:
+        if gates is not None and r.get("strength") == "gate" and rid not in gates and not r.get("require_skill"):
             errors.append("%s: gate without an implementation in router.GATES" % rid)
         if holders is not None:
             for name in re.findall(r"\{([a-z_]+)\}", str(r.get("action") or "")):
@@ -196,8 +203,8 @@ def validate(data):
         bad = [p for p in (r.get("profiles") or []) if p not in ai_profile.names()]
         if "profiles" in r and (not isinstance(r["profiles"], list) or not r["profiles"] or bad):
             errors.append("%s: profiles must be a non-empty list of known profiles (%s)" % (rid, ", ".join(ai_profile.names())))
-        if "prompt_libs" in trig and (not isinstance(trig["prompt_libs"], bool) or not trig.get("prompt")):
-            errors.append("%s: prompt_libs must be true/false next to a prompt regex" % rid)
+        if "prompt_libs" in trig and not isinstance(trig["prompt_libs"], bool):
+            errors.append("%s: prompt_libs must be true/false" % rid)
     for tb in data.get("tiebreaks", []):
         rx = tb.get("match")
         if not rx:
@@ -207,6 +214,10 @@ def validate(data):
             re.compile(rx)
         except re.error as exc:
             errors.append("tie-break %r: bad regex: %s" % (tb.get("trigger"), exc))
+    winners = data.get("winners") or {}
+    for row in winners.get("table") or []:
+        if not row.get("job") or not row.get("use") or not isinstance(row.get("losers"), list):
+            errors.append("winners row %r needs job, use and a losers list" % row.get("job"))
     return errors
 
 
@@ -221,7 +232,8 @@ def build_routing(data, sha, profile):
     for tb in data.get("tiebreaks", []):
         ties.append(dict(tb))
     return {"version": data.get("version"), "source_sha256": sha, "layers": data.get("layers", {}),
-            "rules": rules, "tiebreaks": ties}
+            "rules": rules, "tiebreaks": ties, "winners": data.get("winners") or {},
+            "skills": data.get("skills") or {}}
 
 
 # ---------------------------------------------------------------- session start budget
@@ -245,7 +257,7 @@ def session_start_budget(routing, l0_text):
             continue
         action = re.sub(r"\{([a-z_]+)\}", lambda m: "x" * ph_max.get(m.group(1), 200), str(r.get("action", "")))
         parts.append("[ai router: %s] %s" % (r["id"], action))
-    lines = len("\n\n".join(parts))
+    lines = len("\n\n".join(parts)) + 2 + getattr(router, "CARD_CAP", 0)
     if lines > cap - SESSION_START_MARGIN:
         return ("SessionStart status lines worst case is %d chars: over %d (cut %d minus margin %d). "
                 "Shorten the session_start actions in ai/routing.yaml." % (lines, cap - SESSION_START_MARGIN,
@@ -257,6 +269,27 @@ def session_start_budget(routing, l0_text):
     return ""
 
 
+CARD_DIR_WORST = 100    # a long skills folder path; the typed-only skills can sit in up to 4 folders
+
+
+def card_budget(skills):
+    """Error text when the skill card, worst case, would pass router.CARD_CAP; else ""."""
+    try:
+        import router
+        cap, render = router.CARD_CAP, router.render_card
+    except (ImportError, AttributeError):
+        return ""
+    if any(not s.get("name") or not s.get("when") for s in skills.get("must_use") or []):
+        return "skills.must_use: every entry needs a name and a when line"
+    names = list(skills.get("typed_only") or [])
+    dirs = {("/%d" % i).ljust(CARD_DIR_WORST, "x"): names[i::4] for i in range(4) if names[i::4]}
+    size = len(render(skills, dirs))
+    if size > cap:
+        return ("skill card worst case is %d chars, cap %d. Shorten the skills block in ai/routing.yaml."
+                % (size, cap))
+    return ""
+
+
 # ---------------------------------------------------------------- L0 table
 
 def render_l0(routing):
@@ -264,6 +297,7 @@ def render_l0(routing):
         "## Routing table (L0)",
         "Generated from ai/routing.yaml v%s by ai-render. Do not edit here." % routing.get("version"),
         "nudge = do it unless it clearly does not apply. gate = the step is blocked until the condition is met.",
+        "stop = the turn cannot end until the named skill was used (once per session).",
         "opt-in = only in projects that enabled the tool (ai-start, ai-adopt).",
         "",
         "| Rule | When | Do |",

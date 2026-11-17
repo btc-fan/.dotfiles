@@ -37,9 +37,10 @@ RTK_WRAPPERS = {"rtk"}
 # ---------------------------------------------------------------- shell parsing
 
 class Stage(object):
-    def __init__(self, words, op):
+    def __init__(self, words, op, redirs=()):
         self.words = words            # [(text, quoted)]
         self.op = op                  # operator after this stage, or ""
+        self.redirs = list(redirs)    # [(operator, target)], e.g. (">>", "AGENTS.md")
         self.nxt = None
         self.env = {}
         self.wrappers = []
@@ -204,21 +205,22 @@ def tokenize(s):
 
 
 def split_stages(toks):
-    stages, words, skip_next = [], [], False
+    stages, words, redirs, redir_op = [], [], [], None
     for text, kind in toks:
-        if skip_next and kind is not None and kind != "redir" and text not in OPS:
-            skip_next = False
+        if redir_op is not None and kind is not None and kind != "redir" and text not in OPS:
+            redirs.append((redir_op, text))      # the redirection target is not a command word
+            redir_op = None
             continue
-        skip_next = False
+        redir_op = None
         if kind == "redir":
-            skip_next = True
+            redir_op = text
             continue
         if kind is None and text in OPS:
-            stages.append(Stage(words, text))
-            words = []
+            stages.append(Stage(words, text, redirs))
+            words, redirs = [], []
             continue
         words.append((text, bool(kind)))
-    stages.append(Stage(words, ""))
+    stages.append(Stage(words, "", redirs))
     stages = [s for s in stages if s.exe or s.op in ("(",)]
     for a, b in zip(stages, stages[1:]):
         a.nxt = b
@@ -270,6 +272,54 @@ def shell_inner_text(st):
             if re.match(r"^-[a-zA-Z]*c[a-zA-Z]*$", a) and i + 1 < len(st.args):
                 return st.args[i + 1]
     return None
+
+
+def write_targets(stages, cwd):
+    """Files a shell command writes: redirections (> >> &>), tee, sed -i, and the destination of cp and mv.
+    shortcut: perl -i, dd of=, a script or an interpreter (python -c) are not seen; add them when one shows up."""
+    out = []
+    for st in stages:
+        out += [t for op, t in st.redirs if op.lstrip("&") in (">", ">>")]
+        if st.exe == "tee":
+            out += [a for a in st.args if a and not a.startswith("-")]
+        elif st.exe == "sed" and any(a.startswith("--in-place") or re.match(r"^-[a-zA-Z]*i", a) for a in st.args):
+            out += sed_files(st.args)
+        elif st.exe in ("cp", "mv"):
+            out += copy_targets(st.args, cwd)
+    return out
+
+
+def sed_files(args):
+    """The file arguments of sed: the first free word is the script unless -e or -f gave it."""
+    files, script_given, it = [], False, iter(args)
+    for a in it:
+        if a in ("-e", "-f", "--expression", "--file"):
+            script_given = True
+            next(it, None)
+        elif a.startswith(("--expression=", "--file=")):
+            script_given = True
+        elif a and not a.startswith("-"):
+            files.append(a)
+    return files if script_given else files[1:]
+
+
+def copy_targets(args, cwd):
+    """cp and mv: the destination, or each source name inside the destination folder (-t DIR, a folder)."""
+    folder, paths, it = None, [], iter(args)
+    for a in it:
+        if a in ("-t", "--target-directory"):
+            folder = next(it, None)
+        elif a.startswith("--target-directory="):
+            folder = a.split("=", 1)[1]
+        elif a and not a.startswith("-"):
+            paths.append(a)
+    if folder is None:
+        if len(paths) < 2:
+            return []
+        folder = paths.pop()
+        if not (folder.endswith("/") or os.path.isdir(os.path.join(cwd, os.path.expanduser(folder)))):
+            return [folder]
+    return [os.path.join(folder, os.path.basename(p.rstrip("/"))) for p in paths]
 
 
 # ---------------------------------------------------------------- escape hatch (owner only)
@@ -1047,6 +1097,9 @@ def gate_pr(ctx, cmd, stages):
             missing.append("a ```mermaid diagram")
         if "<!-- author-sessions" not in text:
             missing.append("the <!-- author-sessions block")
+        line = session_line(ctx)
+        if line and re.search(r"(?im)^\s*main:\s*unknown\b", text):
+            missing.append("a real main: line in the author-sessions block (this session: %s)" % line)
         root = project_root(ctx.cwd)
         fields = list(PR_FIELDS)
         fix = bool(PR_FIX_TITLE.match(flag_value(args, ("--title", "-t")) or ""))
@@ -1070,6 +1123,17 @@ def gate_pr(ctx, cmd, stages):
             "or two-way and why; **Blast Radius:** what can break). Also: Docs, Changed guards, Ledger "
             "on fix PRs. Author-sessions block at the end. Pass it with --body or --body-file."
             % "; ".join(problems))
+
+
+def session_line(ctx):
+    """The author-sessions `main:` line of this session, from the hook payload; "" without a session id.
+    Without herdr the agent has no other way to learn its own session id."""
+    if ctx.session in ("", "nosession"):
+        return ""
+    home, cwd = os.path.expanduser("~"), ctx.cwd or ""
+    if home and (cwd == home or cwd.startswith(home + os.sep)):
+        cwd = "~" + cwd[len(home):]
+    return "main: %s dir: %s" % (ctx.session, cwd)
 
 
 def pr_body_text(ctx, cmd, args):
@@ -1303,6 +1367,58 @@ def probe_no_verify(stages, cmd=""):
     return any(st.exe == "git" and ("--no-verify" in st.args or any(a.startswith("-") and not a.startswith("--")
                                                                     and "n" in a for a in st.args))
                for st in stages)
+
+
+# ---------------------------------------------------------------- gh-write (owner 2026-11-16)
+# gh reads run freely. The PR commands have their own gates (pr-rules, merge-approval, ship). Every other gh
+# command can write to GitHub (or we cannot tell), so it asks the owner first.
+
+GH_READS = {"pr": {"view", "list", "diff", "checks", "status", "checkout"}, "issue": {"view", "list", "status"},
+            "repo": {"view", "list"}, "run": {"view", "list", "watch"}, "workflow": {"view", "list"},
+            "auth": {"status"}, "search": None, "status": None, "version": None, "help": None, "--version": None}
+GH_OWN_GATES = {"create", "edit", "ready", "merge"}       # gh pr <these>: the PR gates decide
+GH_WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+GH_FIELD_FLAGS = {"-f", "-F", "--field", "--raw-field", "--input"}
+
+
+def gate_gh(ctx, cmd, stages):
+    writes = [" ".join(["gh"] + st.args[:2]) for st in stages if st.exe == "gh" and gh_writes(st.args)]
+    if not writes:
+        return None
+    return ("ask", "%s writes to GitHub. gh writes other than the PR commands need the owner's OK: say what it "
+            "will do and why." % ", ".join(writes))
+
+
+def gh_writes(args):
+    if not args:
+        return False
+    group, sub = args[0], (args[1] if len(args) > 1 else "")
+    if group == "api":
+        return gh_api_writes(args[1:])
+    if group == "pr" and sub in GH_OWN_GATES:
+        return False
+    if group in GH_READS:
+        subs = GH_READS[group]
+        return subs is not None and sub not in subs
+    return True
+
+
+def gh_api_writes(args):
+    """gh api is a GET unless -X/--method says otherwise; fields (-f, -F, --input) make it a POST."""
+    method = None
+    for i, a in enumerate(args):
+        opt, eq, val = a.partition("=")
+        if opt in ("-X", "--method"):
+            method = val if eq else (args[i + 1] if i + 1 < len(args) else "")
+        elif a.startswith("-X") and len(a) > 2:
+            method = a[2:]
+    if method is not None:
+        return method.upper() in GH_WRITE_METHODS
+    return any(a.partition("=")[0] in GH_FIELD_FLAGS for a in args)
+
+
+def probe_gh(stages, cmd=""):
+    return any(st.exe == "gh" for st in stages)
 
 
 def probe_merge(stages, cmd=""):
@@ -1805,10 +1921,10 @@ def repo_cmd_rule(st, prefixes):
 
 
 GATES = {"audit-before-install": gate_audit, "secret-scan": gate_secrets, "pr-rules": gate_pr, "no-sudo": gate_sudo,
-         "no-destroy": gate_destroy, "merge-approval": gate_merge, "no-verify": gate_no_verify}
+         "no-destroy": gate_destroy, "merge-approval": gate_merge, "no-verify": gate_no_verify, "gh-write": gate_gh}
 GATE_PROBES = {"audit-before-install": probe_audit, "secret-scan": probe_secrets, "pr-rules": probe_pr,
                "no-sudo": probe_sudo, "no-destroy": probe_destroy, "merge-approval": probe_merge,
-               "no-verify": probe_no_verify}
+               "no-verify": probe_no_verify, "gh-write": probe_gh}
 
 
 # ---------------------------------------------------------------- regression ledger (docs/REGRESSIONS.md)
@@ -1927,6 +2043,11 @@ def project_skills(root):
             names = [n.strip() for n in m.group(1).split(",") if n.strip() and n.strip() != "none"]
     return [n for n in names if any(os.path.isfile(os.path.join(root, d, n, "SKILL.md"))
                                     for d in (os.path.join(".claude", "skills"), os.path.join(".agents", "skills")))]
+
+
+def short_skill(name):
+    """The bare skill name: "/ai-core:Ship" and "ship" are the same skill."""
+    return str(name).strip().lstrip("/").split(":")[-1].lower()
 
 
 def skill_md(root, name, agent="claude"):
@@ -2454,12 +2575,13 @@ with open(log, "a") as out:
 """
 
 
-def start_graph_refresh(root):
-    """Start the detached refresh for one repo. True when started (or handed to a running one)."""
+def start_graph_refresh(root, build=False):
+    """Start the detached refresh for one repo. True when started (or handed to a running one).
+    build: also when there is no graph yet (`graphify update` makes the first one)."""
     import hashlib
     import subprocess
     gfy = graphify_bin()
-    if not gfy or not os.path.isfile(os.path.join(root, "graphify-out", "graph.json")):
+    if not gfy or not (build or os.path.isfile(os.path.join(root, "graphify-out", "graph.json"))):
         return False
     key = hashlib.sha1(os.path.realpath(root).encode("utf-8")).hexdigest()[:12]
     lock, pending = state_path("graph-%s.lock" % key), state_path("graph-%s.pending" % key)
@@ -2517,58 +2639,19 @@ def origin_slug(root):
     return "Repo: %s/%s (origin remote)." % (m.group(1), m.group(2)) if m else ""
 
 
-def project_libs(root):
-    """Library names this project uses: Libraries rows of AGENTS.md plus direct deps of the root manifests."""
-    names = set()
-    doc = libs_doc(root)
-    if doc:
-        names.update(doc["rows"])
-    if not root:
-        return names
-    pkg = read_text(os.path.join(root, "package.json"))
-    if pkg:
-        try:
-            data = json.loads(pkg)
-            for key in ("dependencies", "devDependencies", "peerDependencies"):
-                names.update(k.lower() for k in (data.get(key) or {}))
-        except ValueError:
-            pass
-    for rel, rx in (("pyproject.toml", r"^\s*[\"']([A-Za-z0-9][A-Za-z0-9._-]*)"),
-                    ("requirements.txt", r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)"),
-                    ("go.mod", r"^\s*(?:require\s+)?[\w.-]+\.[a-z]+/(?:[\w.-]+/)*([\w.-]+)\s+v\d")):
-        text = read_text(os.path.join(root, rel)) or ""
-        names.update(norm_pypi(x) for x in re.findall(rx, text, re.M))
-    cargo = read_text(os.path.join(root, "Cargo.toml")) or ""
-    m = re.search(r"^\[dependencies\]\s*$(.*?)(?=^\[|\Z)", cargo, re.M | re.S)
-    if m:
-        names.update(x.lower() for x in re.findall(r"^\s*([A-Za-z0-9_-]+)\s*=", m.group(1), re.M))
-    return {n for n in names if len(n) >= 3}
-
-
-# Popular libraries that are not plain English words (a prompt naming one is a docs question).
-KNOWN_LIBS = {
-    "react", "nextjs", "next.js", "vue", "nuxt", "svelte", "sveltekit", "angular", "solidjs", "astro", "remix",
-    "tailwind", "tailwindcss", "shadcn", "vite", "webpack", "esbuild", "typescript", "nodejs", "deno", "bun",
-    "fastapi", "django", "flask", "starlette", "pydantic", "sqlalchemy", "alembic", "celery", "pytest", "numpy",
-    "pandas", "polars", "scipy", "matplotlib", "plotly", "streamlit", "langchain", "llamaindex", "openai",
-    "anthropic", "transformers", "pytorch", "tensorflow", "keras", "scikit-learn", "sklearn", "httpx", "aiohttp",
-    "prisma", "drizzle", "sequelize", "typeorm", "mongoose", "postgres", "postgresql", "psycopg", "asyncpg",
-    "redis", "kafka", "graphql", "apollo", "trpc", "zod", "axios", "jest", "vitest", "playwright", "puppeteer",
-    "cypress", "electron", "tauri", "expo", "react-native", "flutter", "supabase", "firebase", "stripe",
-    "tokio", "axum", "actix", "serde", "diesel", "gin", "fiber", "echo", "gorm", "spring", "hibernate", "rails",
-    "laravel", "symfony", "kubernetes", "terraform", "docker", "ansible", "htmx", "alpinejs", "echarts",
-    "chart.js", "d3", "three.js", "meilisearch", "elasticsearch", "opensearch", "dbos", "temporal", "typer",
-    "click", "rich", "textual", "uvicorn", "gunicorn", "nginx", "caddy",
-}
+# Library names that are also plain English words: a prompt with one is not a docs question.
 COMMON_WORDS = {"click", "rich", "echo", "fiber", "spring", "temporal", "express", "next", "gin"}
 
 
 def prompt_libs(prompt, root):
-    """Library names the prompt mentions (word-bounded, case-insensitive)."""
+    """Libraries of the repo's Libraries block (AGENTS.md) that the prompt names (word-bounded, any case).
+    Only that block (owner 2026-11-16): a global list of known libraries fired on prompts that were not
+    docs questions."""
     text = (prompt or "").lower()
     if not text.strip():
         return set()
-    names = (project_libs(root) | (KNOWN_LIBS - COMMON_WORDS)) - own_names(root)
+    doc = libs_doc(root) if root else None
+    names = set(doc["rows"] if doc else ()) - own_names(root)
     hits = set()
     for n in names:
         if len(n) < 3 or n in COMMON_WORDS:

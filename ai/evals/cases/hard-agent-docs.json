@@ -1,0 +1,6 @@
+{
+  "id": "hard-agent-docs",
+  "fixture": "app",
+  "prompt": "write this down so every agent knows it: run make check before each commit",
+  "expect": {"skills": ["writing-for-agents"]}
+}

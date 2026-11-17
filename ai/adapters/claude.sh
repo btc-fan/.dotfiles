@@ -725,27 +725,20 @@ claude_hooks() {
     return 0
 }
 
-# RTK rewrite hook: dry-run first, decline the proxy, no CLAUDE.md edit (contracts-mcp-a finding 3).
+# RTK rewrite hook through our wrapper hooks/rtk-hook: in auto mode it does nothing, because the auto mode
+# classifier denies a rewritten command with "no verdict" (owner 2026-11-16). No `rtk init`: it writes the bare
+# `rtk hook claude` hook. An older install's bare hook (or a wrapper with an old rtk path) is replaced (recorded).
 claude_rtk() {
     has rtk || { warn "RTK hook: rtk not installed (or not built): Claude runs without it"; return 0; }
-    if grep -qs 'rtk' "$CLAUDE_DIR/settings.json" && aiconf hooks-diff "$CLAUDE_DIR/settings.json" | grep -q 'rtk'; then
-        info "RTK hook already in $CLAUDE_DIR/settings.json"; return 0
+    local cmd; cmd="/usr/bin/python3 \"$(PLUGIN_DIR)/hooks/rtk-hook\" \"$(command -v rtk)\""
+    if ! aiconf hooks-diff "$CLAUDE_DIR/settings.json" 2>/dev/null | grep -qxF "PreToolUse	$cmd"; then
+        aiconf hooks-remove "$CLAUDE_DIR/settings.json" '(^|/)rtk hook claude$|/hooks/rtk-hook"'
+        aiconf json-add "$CLAUDE_DIR/settings.json" hooks/PreToolUse \
+            "$(python3 -c 'import json,sys; print(json.dumps({"matcher": "Bash", "hooks": [{"type": "command", "command": sys.argv[1]}]}))' "$cmd")"
     fi
-    local help flags="-g"
-    help=$(rtk init --help 2>&1 || true)
-    case "$help" in *--hook-only*) flags="$flags --hook-only" ;; esac
-    case "$help" in *--auto-patch*) flags="$flags --auto-patch" ;; esac
-    if printf '%s' "$help" | grep -q -- '--dry-run'; then
-        info "rtk init $flags --dry-run:"
-        rtk init $flags --dry-run </dev/null 2>&1 | sed 's/^/    /' | head -30 || true
-    fi
-    local before; before=$(snap_files "$CLAUDE_DIR/settings.json" "$CLAUDE_DIR/CLAUDE.md")
-    run rtk init $flags </dev/null
-    report_changes "$before" "$CLAUDE_DIR/settings.json" "$CLAUDE_DIR/CLAUDE.md"
-    # AGENTS.md carries the RTK block A.4: drop the vendor import if it was added.
+    # AGENTS.md carries the RTK block A.4: drop the vendor import an older install added.
     aiconf line-remove "$CLAUDE_DIR/CLAUDE.md" "@RTK.md"
-    aiconf record-cmd rtk:claude -- rtk init -g --uninstall
-    ok "RTK hook for Claude (proxy declined, no CLAUDE.md import)"
+    ok "RTK hook for Claude (no rewrite in auto mode, no CLAUDE.md import)"
 }
 
 # ---------------------------------------------------------------- permissions (allow safe reads, deny config edits)
@@ -1000,7 +993,9 @@ for event, groups in data.items():
         if hooks:
             out.setdefault(event, []).append(dict(g, hooks=hooks))
 if rtk:
-    out.setdefault("PreToolUse", []).append({"matcher": "Bash", "hooks": [{"type": "command", "command": rtk + " hook claude"}]})
+    # Through the wrapper: no RTK rewrite in auto mode (claude_rtk).
+    cmd = '/usr/bin/python3 "%s/hooks/rtk-hook" "%s"' % (root, rtk)
+    out.setdefault("PreToolUse", []).append({"matcher": "Bash", "hooks": [{"type": "command", "command": cmd}]})
 print(json.dumps(out, sort_keys=True))
 EOS
 }
@@ -1060,7 +1055,8 @@ claude_omc_wiring() {
                 aiconf json-set "$CLAUDE_DIR/settings.json" "enabledPlugins/oh-my-claudecode@omc" false
                 ok "Claude: oh-my-claudecode off by default here (per project: ai-adopt --tools omc)"
             else
-                manual "OMC plugin route: run /oh-my-claudecode:omc-setup once in Claude (CLAUDE.md block, HUD)"
+                # omc-setup also writes its long CLAUDE.md block: the rules step turns it into the short note.
+                manual "OMC plugin route: run /oh-my-claudecode:omc-setup once in Claude (HUD), then re-run install.sh"
             fi
             ;;
         remove)

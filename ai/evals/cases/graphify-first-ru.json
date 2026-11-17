@@ -1,0 +1,10 @@
+{
+  "id": "graphify-first-ru",
+  "fixture": "app",
+  "prompt": "Где используется функция add в этом репозитории?",
+  "expect": {
+    "tools": [
+      "graphify (query|affected)|serena__find_(symbol|referencing_symbols)"
+    ]
+  }
+}
