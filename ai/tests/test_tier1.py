@@ -217,6 +217,35 @@ def t_adopt_failing_check_turns_stop_off(work):
     assert hook(repo, env, "Stop", session="s2"), "control: without the line the red check-fast blocks"
 
 
+def t_adopt_leaves_tree_clean(work):
+    """QA 2026-11-17: the check-fast timing, no-stop-check and the docs baseline were written after the commit."""
+    # A docs-only repo (check-fast runs ai-docs-check --md) with stray Markdown under an untracked folder.
+    repo, env = adopt_repo(work, "clean-docs", {})
+    run(["git", "-C", repo, "rm", "-rq", "src", "tests", "uv.lock", "pyproject.toml"], env=env)
+    run(["git", "-C", repo, "commit", "-qm", "docs only"], env=env)
+    env["PATH"] = env["PATH"] + os.pathsep + BIN
+    write(os.path.join(repo, "research_notes", "a.md"), "owner notes\n")
+    res = adopt(repo, env)
+    assert res.returncode == 0 and "check-fast passed" in res.stdout, res.stdout
+    assert "no-stop-check  #" not in read(os.path.join(repo, ".ai", "enabled")), "baseline first: " + res.stdout
+    status = run(["git", "-C", repo, "status", "--porcelain"]).stdout
+    assert status == "?? research_notes/\n", "first run left changes: %r" % status
+    # A rerun that rewrites the Makefile measures a red check-fast: the new seconds and no-stop-check are committed.
+    repo, env = adopt_repo(work, "clean-rerun", {"AGENTS.md": "# x\n<!-- AI:map START -->\n## Map\n<!-- AI:map END -->\n"})
+    adopt(repo, env)
+    run(["git", "-C", repo, "rm", "-q", "Makefile"], env=env)
+    run(["git", "-C", repo, "commit", "-qm", "no Makefile"], env=env)
+    write(os.path.join(env["PATH"].split(os.pathsep)[0], "uv"), FAIL_UV.replace("echo", "sleep 1; echo"))
+    res = adopt(repo, env)
+    assert "FAILS today" in res.stdout, res.stdout
+    status = run(["git", "-C", repo, "status", "--porcelain"]).stdout
+    assert status == "", "rerun left changes: %r" % status
+    shown = run(["git", "-C", repo, "show", "HEAD:.ai/enabled"]).stdout
+    assert "no-stop-check  #" in shown, shown
+    shown = run(["git", "-C", repo, "show", "HEAD:AGENTS.md"]).stdout
+    assert "measured 1 s" in shown, shown
+
+
 def t_adopt_commits_on_branch(work):
     """Owner 2026-11-16: never commit on main or master; a repo without a remote gets a warning, not a push."""
     repo, env = adopt_repo(work, "on-main", {})
@@ -979,7 +1008,7 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
 
 
 TESTS_LIST = [t_verify_skills_copy, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_skills_none, t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_go_rust, t_detect_monorepo,
-              t_detect_probe_drops_missing_tool, t_adopt_failing_check_turns_stop_off, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
+              t_detect_probe_drops_missing_tool, t_adopt_failing_check_turns_stop_off, t_adopt_leaves_tree_clean, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
               t_adopt_branch_exists_main_clean, t_adopt_unborn_main, t_typed_only_skill_paths,
               t_plan_keeps_targets, t_adopt_own_done, t_adopt_long_tier, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused,
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_continuation_checks_the_fix, t_stop_chain_cap, t_stop_no_baseline_uses_head,
