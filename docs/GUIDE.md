@@ -1,11 +1,11 @@
 # The AI setup: owner guide
 
-Status: 2026-11-16. Branch `ai`. Profile `dev-mac` on all 3 machines (M3, old Intel Mac, ubuntu01).
+Status: 2026-11-17. Branch `ai`. Profile `dev-mac` on all 3 machines (the main Mac, an old Intel Mac, a home server).
 
 Read this guide from the top once. After that, use the table of contents and the cheat sheet (section 12).
 
 Rules for this document:
-- Every command and every output block below is real output from the M3, unless the block says "example" or
+- Every command and every output block below is real output from the main Mac, unless the block says "example" or
   "not verified".
 - Secrets are replaced with `<REDACTED>`.
 - The agent can answer questions about skills for you: ask "which skill for X?" in any session. That starts the
@@ -16,6 +16,8 @@ Rules for this document:
 1. [The idea in one page](#1-the-idea-in-one-page)
 2. [The layers: what loads, from where, and why](#2-the-layers-what-loads-from-where-and-why)
 3. [Inside the router: hooks, nudges, gates](#3-inside-the-router-hooks-nudges-gates)
+   - [3.5 Enforcement: gates, stop rules, skill card, winner table](#35-enforcement-gates-stop-rules-skill-card-winner-table)
+   - [3.6 Testing the setup with ai-eval](#36-testing-the-setup-with-ai-eval)
 4. [Skills: how they load, where they live, which are on](#4-skills-how-they-load-where-they-live-which-are-on)
 5. [Project knowledge: where it lives](#5-project-knowledge-where-it-lives)
 6. [How the setup builds: install.sh, ai-sync, ai-doctor, ai-info](#6-how-the-setup-builds-installsh-ai-sync-ai-doctor-ai-info)
@@ -23,7 +25,7 @@ Rules for this document:
 8. [ai-start and ai-adopt: the project layer, file by file](#8-ai-start-and-ai-adopt-the-project-layer-file-by-file)
 9. [The flows: idea to ship, phase boundaries](#9-the-flows-idea-to-ship-phase-boundaries)
 10. [Scenarios with full example sessions](#10-scenarios-with-full-example-sessions)
-   - [10.G New feature on scriptube, prompt to draft PR](#10g-simulation-a-new-feature-on-scriptube-from-prompt-to-draft-pr)
+   - [10.G New feature in a crawler project, prompt to draft PR](#10g-simulation-a-new-feature-in-a-crawler-project-from-prompt-to-draft-pr)
 11. [Pull requests: the template, the gate, the git workflow](#11-pull-requests-the-template-and-the-gate)
 12. [Cheat sheet](#12-cheat-sheet)
 13. [Troubleshooting](#13-troubleshooting)
@@ -49,14 +51,25 @@ Five ideas carry the whole design:
 3. **A deterministic router, not an LLM, decides when to remind the agent.** One Python script (`router.py`)
    runs on every hook event. It uses regex and project state. It is fast (50 ms measured) and it cannot
    hallucinate.
-4. **Four gates only.** On `dev-mac` the agent is fully autonomous except for four hard stops: `secret-scan`
-   (no key, token or password in a commit or push), `pr-rules` (a PR body must have the agreed parts),
-   `merge-approval` (no merge and no push to main without your OK) and `no-verify` (no skipped git hooks).
+4. **Few hard stops, and mechanisms for the rest.** On `dev-mac` the agent is autonomous except for the gates:
+   `secret-scan` (no key, token or password in a commit or push), `pr-rules` (a PR body must have the agreed
+   parts), `merge-approval` (no merge and no push to main without your OK), `no-verify` (no skipped git hooks),
+   and since 2026-11-16 the skill gates, `gh-write`, the winner gate and the graph-first deny. Two stop rules
+   make the agent use a skill before it ends a turn. Section 3.5 lists them all.
 5. **Skills do the method.** Matt Pocock's skills give the engineering flow (grill, spec, tickets, tdd,
    review, PR, retro). Our own skills add verification (`verify-<app>`), prompting other agents and the
    `skills-guide`.
 
-What changed recently (owner decisions, 2026-11-16, details in section 15):
+What changed in the enforcement round (2026-11-16 to 2026-11-17, details in section 3.5):
+- Text in `AGENTS.md` is advice. The logs showed 3 skill uses in 7 days. So the rules that matter now run at the
+  moment of the action: gates, stop rules, a skill card at session start and a winner table for overlapping
+  skills. `ai-eval` measures it (section 3.6).
+- A harness notification (a task result that arrives as a prompt) fires no rule and never sets or clears the
+  merge-approval OK.
+- The global `~/.claude/CLAUDE.md` is short. The RTK hook on Claude is our wrapper and does nothing in auto mode.
+  Serena tools are always loaded. herdr is on every machine.
+
+What changed before (owner decisions, 2026-11-16, details in section 15):
 - Every PR goes through you. The agent merges only after you say "merge" (or "approve"). The `merge-approval`
   gate blocks `gh pr merge` and a push to main or master without that.
 - Feature done: the `ship` skill. After a merge: `/improve-codebase-architecture` and `/retro`. You say release:
@@ -70,7 +83,8 @@ Owner decisions, 2026-11-15:
 - `skill-scanner` is off on every machine. Installs are not blocked by scanner rejects.
 - Every tool installs at its newest stable release.
 - Full autonomy on `dev-mac`: `no-sudo`, `no-destroy`, the Stop check and the Claude ask/deny permission rules
-  are off. Only `secret-scan` and `pr-rules` gate (2026-11-16: plus `merge-approval` and `no-verify`).
+  are off. Only `secret-scan` and `pr-rules` gate (2026-11-16: plus `merge-approval` and `no-verify`, and the
+  enforcement round of section 3.5).
 - Project tiers are removed. Every project gets the full set: Done list, regression ledger
   (`docs/REGRESSIONS.md`), ratchet (`.ai/ratchet.json`), PR extras (Docs, Changed guards, Ledger on fix PRs).
 - All 27 skills of Matt Pocock's official plugin are available. 6 are global. 13 (since 2026-11-16) are linked in every project by
@@ -94,9 +108,9 @@ flowchart TD
         RENDER --> RJ
     end
 
-    subgraph Machine["One machine (M3, old Mac, ubuntu01)"]
+    subgraph Machine["One machine (main Mac, old Mac, home server)"]
         CFG["~/.config/ai/AGENTS.md (link to ai/AGENTS.md)"]
-        CCM["~/.claude/CLAUDE.md: OMC block + @~/.config/ai/AGENTS.md + host line"]
+        CCM["~/.claude/CLAUDE.md: @~/.config/ai/AGENTS.md + host line + 3-line OMC note"]
         CDX["~/.codex/AGENTS.md: OMX block + copy of the rules (ai-sync)"]
         PLUG["Claude plugin ai-core: hooks.json -> router.py, hooklib.py, routing.json"]
         SK["Global skills: ~/.claude/skills, ~/.agents/skills"]
@@ -130,7 +144,7 @@ flowchart TD
 |---|---|---|---|---|
 | Rule sources | `ai/agents-md/00-owner.md` ... `90-toolbox-and-vendor-rules.md`, `ai/routing.yaml` | You (or an agent) in this repo | `ai-render` | When you change a rule |
 | Rendered rules | `ai/AGENTS.md` | `ai-render` | Everything below | Built, committed |
-| Global rules for Claude | `~/.claude/CLAUDE.md` | install.sh (managed blocks `AI:core`, `AI:host`), OMC (its own block) | Claude Code | Every Claude session start |
+| Global rules for Claude | `~/.claude/CLAUDE.md` | install.sh (managed blocks `AI:core`, `AI:host`, and a 3-line OMC note). `ai-doctor` reports the long OMC block if an OMC update writes it back | Claude Code | Every Claude session start |
 | The rules file Claude imports | `~/.config/ai/AGENTS.md` | install.sh (a link into `~/.dotfiles-ai/ai/AGENTS.md`) | Claude, through `@~/.config/ai/AGENTS.md` | Every Claude session start |
 | Global rules for Codex | `~/.codex/AGENTS.md` | install.sh and `ai-sync` (block `AI:core`, a copy), OMX (its own blocks) | Codex | Every Codex session start |
 | Host line | `AI:host` block in the two files above | install.sh | Both agents | "This machine: projects live in ~/work ..." |
@@ -155,15 +169,15 @@ cannot. So `ai-sync` copies the text into the `AI:core` block of `~/.codex/AGENT
 
 ### 2.3 What loads into a session, and what it costs
 
-Measured on the M3 (2026-11-15):
+Measured on the main Mac (2026-11-15):
 
 | Item | Size | Loads |
 |---|---|---|
 | `~/.config/ai/AGENTS.md` (our global rules) | 2,032 words, about 2.7k tokens | Claude and Codex, every session |
-| OMC block in `~/.claude/CLAUDE.md` | 679 words, about 0.9k tokens | Claude only |
+| OMC note in `~/.claude/CLAUDE.md` | 3 lines (it was a block of 679 words before 2026-11-16) | Claude only |
 | `~/.codex/AGENTS.md` total | 5,455 words, about 7k tokens (OMX about 3,400 words + our copy) | Codex only |
 | i-have-adhd ruleset | about 1,200 words | Claude, injected at session start |
-| Project `AGENTS.md` | 500 to 1,500 words (radar999: 518, scriptube: 1,305) | Every session in the repo |
+| Project `AGENTS.md` | 500 to 1,500 words (a web app: 518, a crawler: 1,305) | Every session in the repo |
 | Each skill | name + description only, about 50 tokens | Every session; the body loads only when the skill runs |
 | A typed-only skill (`disable-model-invocation: true`) | 0 tokens | Only when you type `/name` |
 | Session start status lines (router) | about 150 words | Every session start |
@@ -189,12 +203,12 @@ exits 0. A deny decided before the error still counts.
 
 | Event | Matcher | What the router does |
 |---|---|---|
-| `SessionStart` | startup, resume, clear, compact | Status line for this repo (Map, Libraries, Serena, Graph, Verify skill) and the session-start rules. After `compact` or `clear` it sends the routing table again. |
+| `SessionStart` | startup, resume, clear, compact | Status line for this repo (Map, Libraries, Serena, Graph, Verify skill), the session-start rules, the skill card and the author-sessions line (`main: <session id> dir: <cwd>`). After `compact` or `clear` it sends the routing table and the card again. |
 | `UserPromptSubmit` | every prompt | Regex on your prompt. When a rule matches, it adds an "L2" checklist: the agent must answer YES or NO per tool before it acts. |
 | `UserPromptExpansion` | typed `/skill` | Logs that a typed skill fired (proof). |
-| `PreToolUse` | Bash, Read, Edit, Write, Grep, Glob, Agent, Task | The gates (`secret-scan`, `pr-rules`) and some nudges (ledger areas). |
+| `PreToolUse` | Bash, Read, Edit, Write, MultiEdit, Grep, Glob, Skill, Agent, Task | The gates (section 3.5) and some nudges (ledger areas). Claude Bash also runs the `rtk-hook` wrapper. |
 | `PostToolUse` | Bash, Edit, Write, Skill, context7 tools | Nudges after the fact: after `git commit` (update the Map), after a write with an em dash, after a docs lookup. |
-| `Stop` | every stop | Miss log: a rule fired but the agent never called the tool it named. Then `claude-notify`. The `stop-check` (runs check-fast before "done") is off on `dev-mac`. |
+| `Stop` | every stop | The stop rules (`diagnosing-bugs`, `tdd`: block once per session when the skill was not used). The miss log: a rule fired but the agent never called the tool it named. Then `claude-notify`. The `stop-check` (runs check-fast before "done") is off on `dev-mac`. |
 | `SessionEnd` | every end | Drops the session state file, cleans Serena. |
 | `Notification` | permission or idle prompt | `claude-notify` (a desktop or phone note). |
 
@@ -213,8 +227,9 @@ The design names each kind of help with a layer number. You see these names in t
 | L4 | Gate | The tool call is denied. | `[ai gate secret-scan] Secret scan found ...` |
 | L7 | Miss log | `~/.local/state/ai/misses.jsonl`: a rule fired, the agent did not follow it. | Read it to find rules that do not work. |
 
-Why a gate and not a nudge: a nudge is a reminder. The agent can ignore it. A gate cannot be ignored. Only two
-things are important enough to block on `dev-mac`: leaked secrets and PR quality.
+Why a gate and not a nudge: a nudge is a reminder. The agent can ignore it. A gate cannot be ignored. The gates
+block what must never happen (leaked secrets, a merge without your OK, skipped git hooks) and the steps where a
+skipped skill costs most (agent docs, `gh pr ready`). Section 3.5 has the full list.
 
 ### 3.3 The rules (routing.yaml v4)
 
@@ -233,16 +248,129 @@ Global rules (every repo):
 | feature-grill | nudge | a feature request prompt (EN, RO, RU) | Grill first, then to-spec and to-tickets for 3+ files. |
 | verify-before-done | nudge | after a code edit, project with a `verify-<app>` skill | check-fast, then verify-<app> evidence, then e2e. |
 | seo-, blog-, browser-not-enabled | nudge | SEO, blog or browser prompt in a project without that tool | Suggest `ai-adopt --tools <id>`. Do not install it. |
+| merge-approval, no-verify | **gate** | `gh pr merge` or a push to main; `--no-verify` | Wait for your "merge"; fix what the git hook reports. |
+| writing-for-agents | **gate** | before an edit or shell write of AGENTS.md, CLAUDE.md, CLAUDE.local.md, a SKILL.md | Load the `writing-for-agents` skill first. |
+| ship | **gate** | before `gh pr ready` | Run the `ship` skill first. |
+| gh-write | **gate** | a `gh` write other than the PR commands | Ask the owner. |
+| diagnosing-bugs | **stop** | a bug or performance prompt | Use the `diagnosing-bugs` skill before the turn ends. |
+| tdd | **stop** | a tests-first prompt | Use Matt's `tdd` skill before the turn ends. |
 
 Opt-in rows (only where the project turned the tool on): serena, graph (both on by default), omc, seo, blog,
 browser, ui, tracker-flow, domain-docs, knowledge-wiki.
 
 Rows that exist but are off on `dev-mac` (server profile only): `no-sudo`, `no-destroy`, `audit-before-install`.
 
+The `docs-lookup` row fires only when the prompt names a library of the repo's Libraries block, or before an edit
+of a dependency file (`package.json`, `pyproject.toml`, `requirements*.txt`, `go.mod`, `Cargo.toml`, `Gemfile`,
+`composer.json`). A prompt that only says "docs" stays quiet: it was missed 72 of 88 times before.
+
 ### 3.4 Fixed stale text (2026-11-15)
 
 - The `knowledge-check` row now says "Update the Map section of AGENTS.md" (it said "Update mem:core").
 - The `knowledge-wiki` row is removed. `llm-wiki-compiler` is not installed; the audit rejected it for code repos.
+
+### 3.5 Enforcement: gates, stop rules, skill card, winner table
+
+Why: the install was complete (`ai-doctor` 0 fail), but agents skipped most rules and skills. Text in
+`AGENTS.md` is advice: when two texts conflict, the model picks one. Only hooks and gates were followed. So a rule
+that matters is a mechanism that runs at the moment of the action, for Claude Code and Codex together.
+
+| Mechanism | Event | What it does |
+|---|---|---|
+| Gate | PreToolUse | Denies the tool call with the reason and the next step |
+| Stop rule | Stop | A prompt arms it. The next Stop gets `{"decision": "block"}` once per session when the skill was not used |
+| Skill card | SessionStart | A short text (under 1500 characters) with the must-use skills and the typed-only skills |
+| Winner table | PreToolUse on the Skill tool | Denies a skill that loses in an overlap, and names the winner |
+| Measurement | `ai-doctor`, `ai-eval` | Skill use over 30 days, misses of the skill rules, hit rate per case |
+
+**Proof of a skill.** A skill counts as used when the session has one of these: a Skill tool call, a typed `/name`,
+or a read of that skill's `SKILL.md` from a skill install folder (`.claude/skills`, `.agents/skills`, a plugin
+cache, the machine copy). The proof lives in the session state, not in the shared log. A vendor copy such as
+`oh-my-claudecode:tdd` is never a proof for `tdd`. A `SKILL.md` in the repo's own `ai/skills/` is no proof.
+
+**Gates and stop rules** (a rule with `require_skill: <name>` in `ai/routing.yaml`):
+
+| Rule | Strength | Needs | Note |
+|---|---|---|---|
+| `writing-for-agents` | gate | the skill before an Edit, Write, MultiEdit or `apply_patch` of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md, and before a shell write (`>`, `>>`, `tee`, `sed -i`, `cp`, `mv`) onto them | Not seen: `python -c`, `perl -i`, a script file |
+| `ship` | gate | the skill before `gh pr ready` | `gh pr ready --undo` passes |
+| `diagnosing-bugs` | stop | the skill before the turn ends, after a bug or performance prompt (slow, performance, broken, debug, crash, regression; Romanian and Russian forms) | Once per session |
+| `tdd` | stop | Matt's `tdd` before the turn ends, after a tests-first, tdd or red-green prompt | Once per session |
+| `gh-write` | gate | the owner says yes (Codex: denied with a message) | `gh` reads pass. `pr create`, `edit`, `ready`, `merge` keep their own gates |
+| graph-first (`nav-first`) | gate, once | `graphify query` before the first broad search (`rg`, `grep -r`, `find -name`, the Grep tool) in a repo with a graph | The next search passes. A stale graph: "graphify update, then query". A session that used graphify or a Serena tool passes. Serena symbol tools are the right answer for "where is X used" |
+
+Each block is a row in `~/.local/state/ai/misses.jsonl`. `ai-doctor` shows the misses and the use of each skill over
+30 days.
+
+**The skill card.** At every SessionStart (startup, resume, clear, compact) the agent gets one card. It names the
+4 must-use skills (`writing-for-agents`, `diagnosing-bugs`, `ship`, `tdd`) with one trigger line each. It also lists
+the 10 typed-only skills (`grill-with-docs`, `to-spec`, `to-tickets`, `implement`, `handoff`, `wayfinder`,
+`improve-codebase-architecture`, `retro`, `create-verification-skill`, `maintain-verification-skill`). The model
+cannot call a typed-only skill (`disable-model-invocation`). So the card says: read the `SKILL.md`, follow it, and
+tell the owner the typed form. The data is the `skills:` block of `ai/routing.yaml`. `ai-render` fails when the
+worst case is over 1500 characters.
+
+**The winner table.** OMC and OMX add about 85 and 24 skills, and many do the same job as ours. `skillOverrides`
+cannot hide plugin skills. So the `winners:` block of `ai/routing.yaml` holds the overlap table of the skills guide
+(section 5 of `ai/skills/skills-guide/SKILL.md`) as data. A Skill call of a losing skill is denied with the
+winner's name. When the winner is typed-only, the text says "read `<SKILL.md path>` and follow it". Example: a call
+of `oh-my-claudecode:tdd` is denied, and the agent uses Matt's `tdd`.
+- Orchestration skills (`autopilot`, `ralph`, `team`, `ultragoal`) pass. They call other skills inside. After one of
+  them ran, the losers pass for the rest of the session.
+- `ask`, `babysit`, `fix-ci` and `cancel` are no losers: they pass, and unlock nothing.
+- A typed `/name` never reaches the Skill tool, so your own choice always runs.
+- Codex has no Skill tool. There, a shell read of a losing skill file is denied the same way.
+- A test keeps the skills guide table and the data in step.
+
+**The escape hatch.** Every deny path honours it: `sudo ai-gate-skip <gate> <minutes max 60> <why>`. The gate name is
+the rule id, `winner-gate` or `nav-first`. The agent has no sudo, so it cannot skip a gate itself.
+
+**Known limits.**
+- The winner gate on the Skill tool is Claude only. Codex gets the file-read form.
+- The `writing-for-agents` gate cannot see `python -c`, `perl -i` or a script file.
+- After `/compact` or `/clear` the SessionStart text is about 10.1k characters. The L0 table tail is cut at 9.5k
+  there. It stays complete in the root rules.
+- Codex must trust the changed `router.py`, `hooklib.py` and `stop-check.py` again after an install (`ai-sync`
+  writes the trust hashes).
+- A git hook in the dotfiles checkout (post-merge, post-rewrite) runs `ai-sync` and so puts the checkout live in
+  `~/.codex`. While a feature branch of this repo is merged in a dev checkout, merge with
+  `git -c core.hooksPath=/dev/null merge ...`, so unreviewed code does not go live.
+
+### 3.6 Testing the setup with ai-eval
+
+`ai/bin/ai-eval` tests the setup in three levels. Reports go outside the repo.
+
+| Level | Command | What it does |
+|---|---|---|
+| Fixtures | `ai-eval fixtures DIR` | Makes the fixture repos in DIR: `empty-git`, `docs-only`, `no-git`, `app` (a Python package with a test, a Makefile with `check` and a `verify-app` skill) and `project-copy` (a clone of the repo in `$AI_EVAL_PROJECT`, without its remotes) |
+| Install | `ai-eval install [--keep] [--out DIR]` | Runs `ai-adopt` twice on each fixture in a throwaway HOME, then `ai-doctor --project-only` and the uninstall. A pass: both runs exit 0, the second run changes no tracked file, doctor and uninstall exit 0. `no-git` must be refused first, then pass with `--init` |
+| Behaviour | `ai-eval behaviour [--agent claude\|codex\|both] [--runs N] [--dry] [--out DIR]` | Starts a fresh headless `claude -p` or `codex exec` per case and run, on a fresh copy of the adopted fixture. `--dry` only lists the runs |
+
+How a behaviour run is made safe and scored:
+- `AI_STATE_DIR` points to a folder of the run, so your own stats stay clean. The herdr variables are unset.
+- Claude gets at most 15 turns, so a Stop rule can fire.
+- A run that fails before any tool call (for example a usage limit) is an error, not a miss.
+- A run is a hit when every expected item is seen and no `not_*` item is seen. Seen items: Skill tool calls, a read of a
+  `SKILL.md`, tool calls, and the rules and skills in the run's `fired.jsonl`.
+
+The cases are the files `ai/evals/cases/*.json` (21 today): plain, Romanian, Russian, should-not-fire and vague
+("hard") prompts. The case format and the run steps are in `ai/evals/HOWTO.md`. How to add a case: `docs/EXTENDING.md`,
+section 6.
+
+Result on 2026-11-16 (Claude, hits in 3 runs, before to after):
+
+| Case | Before | After |
+|---|---|---|
+| `hard-perf` ("investigate how it performs") | 0/3 | 3/3 |
+| `hard-ship` ("wrap it up for review") | 0/3 | 3/3 |
+| `ship` | 1/3 | 3/3 |
+| `diagnosing-bugs`, `writing-for-agents` (English, Romanian, Russian) | 3/3 | 3/3 |
+| 4 should-not-fire cases | 3/3 | 3/3 (no false fire) |
+| `winner-tdd` | 0/3 | the `tdd` stop rule came after this run |
+
+20 of 21 cases reach 3/3. `graphify-first` is answered with the Serena symbol tools (the navigation rule). Codex: the
+first baseline was 18 of 18 on plain prompts; the hard-case run hit the usage limit (24 of 27 runs were errors). The
+Codex after-run is open. The report is `docs/reports/ai-eval-baseline-2026-11-16.md`.
 
 ---
 
@@ -445,7 +573,7 @@ Use it after you edit a rule, or after a `git pull` when you do not want a full 
 
 ### 6.3 ai-info: what is on this machine
 
-Real output on the M3 (from inside `~/work/mail-domain`, a repo that is not adopted):
+Real output on the main Mac (from inside `~/work/<project>`, a repo that is not adopted):
 
 ```
 AI setup on this machine (ai-info). Names and versions only.
@@ -491,7 +619,7 @@ skill list also shows `ask-matt` and `skills-guide` (not verified at the time of
 
 ### 6.4 ai-doctor: is everything healthy
 
-`ai-doctor` prints one PASS, WARN or FAIL line per check. Real output on the M3 (trimmed):
+`ai-doctor` prints one PASS, WARN or FAIL line per check. Real output on the main Mac (trimmed):
 
 ```
 PASS profile dev-mac (/Users/<you>/.config/ai/profile)
@@ -782,9 +910,9 @@ to-spec -> ~/.local/share/ai/plugins/mattpocock-skills/to-spec
 to-tickets -> ~/.local/share/ai/plugins/mattpocock-skills/to-tickets
 ```
 
-Important finding on the M3: the global git ignore file `~/.config/git/ignore` ignores `AGENTS.md`,
+Important finding on the main Mac: the global git ignore file `~/.config/git/ignore` ignores `AGENTS.md`,
 `**/CLAUDE.md`, `.claude/` and `.serena/`. In the demo repo `git status` did not list `AGENTS.md` or
-`CLAUDE.md`. In a new repo on the M3, add them with `git add -f AGENTS.md CLAUDE.md .claude/settings.json
+`CLAUDE.md`. In a new repo on the main Mac, add them with `git add -f AGENTS.md CLAUDE.md .claude/settings.json
 .serena/project.yml`, or remove those lines from the global ignore file. Repos that already track these files
 are not affected (git ignores the ignore file for tracked files).
 
@@ -1025,7 +1153,7 @@ ai-start
 Every project gets the full set: Done list, ledger, ratchet, 13 default skills (wayfinder and prototype
 included). There is no tier question.
 
-On the M3: `git add -f AGENTS.md CLAUDE.md .claude/settings.json` if the global ignore hides them (section 8.3).
+On the main Mac: `git add -f AGENTS.md CLAUDE.md .claude/settings.json` if the global ignore hides them (section 8.3).
 
 #### Step B2: wayfinder for the foggy start
 
@@ -1202,7 +1330,7 @@ You:    /implement docs/tickets/tripnotes-v1/02-sync-note-up.md
 |---|---|
 | Continue a Claude session on the same machine | `claude --resume` |
 | Move work from Claude to Codex | `/handoff continue in Codex: finish ticket 03`, then `codex` and paste the file path |
-| Move from the M3 to ubuntu01 | Commit and push the branch. `/handoff` with the next step. On ubuntu01: `ssh -o RemoteCommand=none ubuntu01`, `cd ~/work/<repo> && git pull`, start the agent with the handoff file. `$TMPDIR` is per machine: copy the file (`scp`) or paste its text. |
+| Move from the main Mac to the home server | Commit and push the branch. `/handoff` with the next step. On the server: `ssh -o RemoteCommand=none <server>`, `cd ~/work/<repo> && git pull`, start the agent with the handoff file. `$TMPDIR` is per machine: copy the file (`scp`) or paste its text. |
 | A side task found in the middle | `/handoff` it to a new session; continue the current phase |
 | Resume the sessions that wrote a PR | `pr-resume <pr>` |
 
@@ -1342,13 +1470,12 @@ You:    /teach me Kotlin Multiplatform, with this repo as the workspace.
 Agent:  [writes a mission, a glossary, a learning record; one lesson per session]
 ```
 
-### 10.G Simulation: a new feature on scriptube, from prompt to draft PR
+### 10.G Simulation: a new feature in a crawler project, from prompt to draft PR
 
-scriptube lives on the old Mac in `~/openclaw/projects/scriptube` (remote `btc-fan/yt-transcripts`, branch
-`master`). It was adopted before the 2026-11-15 changes, so step 0 upgrades it.
+The crawler project lives on the old Mac in `~/work/<project>` (branch `master`). It was adopted before the 2026-11-15 changes, so step 0 upgrades it.
 
 ```
-0. ssh oldmac  (tmux)          cd ~/openclaw/projects/scriptube && ai-adopt
+0. ssh <old-mac>  (tmux)       cd ~/work/<project> && ai-adopt
    ai-adopt: note: tier long (was mvp); write .ai/enabled, docs/REGRESSIONS.md, CODING_STANDARDS.md,
              docs/agents/issue-tracker.md (+ Wayfinding operations); link 12 skills; ai-ratchet --init
    Commit this and push? [y/N] y
@@ -1578,7 +1705,8 @@ were there at adopt time.
 
 ### RTK changed my command
 
-A hook rewrites shell commands to `rtk <cmd>` to cut output. That is normal.
+A hook rewrites shell commands to `rtk <cmd>` to cut output. That is normal. On Claude the hook is our wrapper
+`rtk-hook`: in auto mode it does nothing, and the router does not rewrite there (it denies with the command to run).
 - Need full output (security tools, debugging): `rtk bypass <cmd>`.
 - `uv run` is not rewritten: write `uv run rtk pytest` by hand.
 - A refused command: `rtk pipeline explain` shows the rule.
@@ -1587,6 +1715,15 @@ A hook rewrites shell commands to `rtk <cmd>` to cut output. That is normal.
 
 Run `ai-sync`. Check with `ai-sync --check`.
 
+### A gate or a stop rule blocked the agent
+
+1. Read the reason. It names the skill or the step: "load the writing-for-agents skill first", "run the ship skill",
+   "run graphify query first", "use X, not Y" (winner gate).
+2. The agent fixes it: it calls the skill, or reads its `SKILL.md`. A typed-only skill: it reads the file.
+3. A real exception (owner only): `sudo ai-gate-skip <gate> <minutes max 60> <why>`. Gate names: the rule id,
+   `winner-gate`, `nav-first`. Each skip is a line in `~/.local/state/ai/gates.log`.
+4. Count the blocks: `ai-doctor` (misses of the skill rules, 30 days) or `~/.local/state/ai/misses.jsonl`.
+
 ### Something is broken after an upgrade
 
 1. `ai-doctor` and read the FAIL lines.
@@ -1594,7 +1731,7 @@ Run `ai-sync`. Check with `ai-sync --check`.
 3. Router errors: `~/.local/state/ai/router-errors.log`.
 4. Rules the agent ignores: `~/.local/state/ai/misses.jsonl`.
 
-### AGENTS.md or CLAUDE.md does not show in git status (M3)
+### AGENTS.md or CLAUDE.md does not show in git status (main Mac)
 
 The global git ignore file hides them. `ai-adopt` ignores the global file since 2026-11-15, so its commit holds
 them. For your own later edits: `git add -f AGENTS.md`.
@@ -1609,7 +1746,7 @@ At the time of writing (2026-11-15):
 - How `triage`, `implement-spec` and `wizard` behave with our local tracker in a real project.
 - The mobile tool choices (Expo, EAS, Maestro, Detox, simulator screenshot commands) with this setup.
 - Which `code-review` runs when Claude Code's built-in `/code-review` and Matt's skill have the same name.
-- A live Ubuntu MCP proof: ubuntu01 has no Claude or Codex login yet (run `claude` then `/login`, and
+- A live Ubuntu MCP proof: the home server has no Claude or Codex login yet (run `claude` then `/login`, and
   `codex login --device-auth`).
 - The ship, merge and release flow (2026-11-16) in a real feature session: the gates and nudges are tested
   (router cases and `ai/tests/test_flow.py` scenarios); the first real feature will show how well agents follow
@@ -1617,7 +1754,7 @@ At the time of writing (2026-11-15):
 - Serena on Swift and Kotlin code: test it on the first mobile repo; `no-serena` is the fallback.
 - A real agent session that tries to merge or skip hooks: the auto-mode classifier refused the live test, so the
   proof is the installed router (10 gate checks per machine) and the scenario tests. The first real refusal came
-  from the pre-commit hook in radar999 (`ruff format`).
+  from the pre-commit hook of a web app project (`ruff format`).
 
 Next step for each item: run it once in a real project and update this guide.
 
@@ -1687,13 +1824,13 @@ CHANGELOG, CONTRIBUTING, SECURITY, LICENSE), README/AGENTS/CLAUDE in any folder,
 adopted repo gets `.ai/docs-allow` with the files that were already there. A research note
 (`docs/research/*.md`) needs `Date:`, `Sources:` and `Status:` lines at the top (a warning only).
 
-### 15.6 Scenario: a feature on scriptube, from prompt to release (example)
+### 15.6 Scenario: a feature in a crawler project, from prompt to release (example)
 
 1. You: "add CSV export of transcripts". The feature flow nudge fires. The agent runs `git switch -c csv-export`,
    then `/grill-with-docs`, `/to-spec`, `/to-tickets`.
 2. Ticket 01: `/implement`. On `git commit` the pre-commit hook runs ruff on the staged files. Draft PR.
 3. Ticket 02 and 03 the same. The agent says "ship it" to itself: `make check` (tests, ratchet, ledger,
-   `ai-docs-check`), verify-scriptube, Matt code-review, `/security-review`. Evidence goes into the PR.
+   `ai-docs-check`), verify-<app>, Matt code-review, `/security-review`. Evidence goes into the PR.
 4. The agent: "PR #41 ready: CSV export, evidence artifacts/csv-export/, two-way door. Say merge and I merge it."
 5. You: "merge". The gate sees your word. `gh pr merge 41 --squash --delete-branch`.
 6. Next session: "main moved since the last architecture review (4 new commits)". The agent runs
@@ -1714,8 +1851,8 @@ adopted repo gets `.ai/docs-allow` with the files that were already there. A res
 
 | Repo | Machine | How | PR | Notes |
 |---|---|---|---|---|
-| radar999 | ubuntu01 | `~/work/radar999-main`, branch `ai-setup-2026-11-16` from `origin/main` | btc-fan/radar-999#1 (merged) | `AGENTS.md` and `CLAUDE.md` stay local (the repo lists them in `.git/info/exclude`). The 3 ruff findings on main: btc-fan/radar-999#3 (open). `tests/test_intern_rute.py::test_panoul_htmx_cu_telefon_si_audit` fails on main too: fix it, then remove `no-stop-check`. The pre-commit hook blocked the first lint commit on `ruff format`: it works. |
-| scriptube | old Mac | a separate worktree from `origin/master` (removed after the merge); the open work in the main checkout was not touched | btc-fan/yt-transcripts#10 and #11 (merged) | #11 unifies the setup with the local extras: the old agents (sdev, sqa, srefactor, sskills) and two path rules are gone; their judgement rules are in CODING_STANDARDS.md, aligned with the 2026-09-15 docs audit; `verify-scriptube` lives in `.agents/skills/` with a `.claude/skills` link. 191 Markdown files outside `docs/` are in the baseline. Only the app work (2 templates, 2 tests) stays uncommitted. |
+| a web app project | home server | a branch `ai-setup-2026-11-16` from `origin/main` | PR 1 (merged) | `AGENTS.md` and `CLAUDE.md` stay local (the repo lists them in `.git/info/exclude`). The 3 ruff findings on main: a separate PR (open). One test fails on main too: fix it, then remove `no-stop-check`. The pre-commit hook blocked the first lint commit on `ruff format`: it works. |
+| a crawler project | old Mac | a separate worktree from `origin/master` (removed after the merge); the open work in the main checkout was not touched | PR 10 and PR 11 (merged) | PR 11 unifies the setup with the local extras: the old project agents and two path rules are gone; their judgement rules are in CODING_STANDARDS.md; `verify-<app>` lives in `.agents/skills/` with a `.claude/skills` link. 191 Markdown files outside `docs/` are in the baseline. Only the app work (2 templates, 2 tests) stays uncommitted. |
 
 Adopt an existing repo yourself, the same way:
 1. `git switch -c ai-setup-<date> origin/main` (or a worktree when you have open work: `git worktree add ../x-ai-setup -b ai-setup-<date> origin/main`).
@@ -1728,12 +1865,12 @@ Run Claude or Codex **on the machine where the repo lives**:
 
 | Repo | Machine | Start |
 |---|---|---|
-| scriptube | old Mac | `ssh oldmac`, then `cd ~/openclaw/projects/scriptube && claude` |
-| radar999 | ubuntu01 | `ssh ubuntu01`, then `cd ~/work/radar999-main && claude` |
-| Projects in `~/work` on the M3 | M3 | `cd ~/work/<project> && claude` |
+| a crawler project | old Mac | `ssh <old-mac>`, then `cd ~/work/<project> && claude` |
+| a web app project | home server | `ssh <server>`, then `cd ~/work/<project> && claude` |
+| Projects in `~/work` on the main Mac | Main Mac | `cd ~/work/<project> && claude` |
 
 Why: the hooks, gates, Serena, graphify and the repo's `AGENTS.md` work on the machine that runs the agent. A
-session on the M3 that reaches the old Mac through `ssh` only shows `ssh ...` to the hooks, so the gates cannot see
+session on the main Mac that reaches the old Mac through `ssh` only shows `ssh ...` to the hooks, so the gates cannot see
 the real commands, and the repo's Map and rules never load. Start the session in `tmux` on that machine, so it
 survives a closed window.
 
@@ -1744,7 +1881,7 @@ got the worktree folder name in the Design line and the system `python3` in the 
 
 ## 16. Tests, scenarios and how the setup behaves (real output)
 
-Every block in 16.3 is real output of the installed router on the M3 (2026-11-16), from a throwaway repo.
+Every block in 16.3 is real output of the installed router on the main Mac (2026-11-16), from a throwaway repo.
 Commands to rerun all of it are in 16.1.
 
 ### 16.1 Run the tests
@@ -1757,13 +1894,13 @@ Commands to rerun all of it are in 16.1.
 | One machine, live | `bash check-flow.sh` (the rollout check: skills, rules, 10 gate checks through the installed router, ai-adopt plan, ai-doctor) | about 1 min |
 | One project | `ai-doctor --project .` in the repo | seconds |
 
-Result on 2026-11-16 (commit `6490b4b` and later): 11 of 11 suites green, 0 failed.
+Result on 2026-11-17 (after the enforcement round): 14 suites, all 0 failed; the router has 600 cases.
 
 ### 16.2 What each suite proves
 
 | Suite | Tests | Proves |
 |---|---|---|
-| `test_router.py` | 449 cases in 34 rule files (`ai/tests/cases/*.json`) | every routing rule fires where it must and stays quiet where it must, for Claude and Codex |
+| `test_router.py` | 600 cases (`ai/tests/cases/*.json`; it was 449 before the enforcement round) | every routing rule fires where it must and stays quiet where it must, for Claude and Codex |
 | `test_flow.py` | 17 | the ship, merge and release flow: the scenarios in 16.4 |
 | `test_tier1.py` | 39 | check targets, the Stop check, the regression ledger, the ratchet, ai-adopt on its own Done, the doctor budgets |
 | `test_resolve.py` | 38 | newest stable versions, plugin updates and rollbacks, Matt skills copies |
@@ -1773,10 +1910,12 @@ Result on 2026-11-16 (commit `6490b4b` and later): 11 of 11 suites green, 0 fail
 | `test_commands.py` | 14 | ai-start, ai-sync, hooks files, no em dash, router speed |
 | `test_profiles.py` | 7 | dev-mac and server render and install plans (fixtures) |
 | `test_info.py` | 6 | ai-info output |
+| `test_eval.py` | 11 | `ai-eval`: fixtures, the install level on fake binaries, the stream scorer, `behaviour --dry`, the case files |
 | `test_box.py` | 30 checks | the box MCP server (servers only) |
 
 New router rules of 2026-11-16 and their cases: merge-approval 16, no-verify 7, nav-first 7, merge-review 4,
-upgrade-review 4, legacy-memory 3.
+upgrade-review 4, legacy-memory 3. The enforcement round added the skill gates, `gh-write`, the winner gate and
+graph-first (section 3.5).
 
 ### 16.3 How it behaves: what the agent sees
 
@@ -1838,7 +1977,7 @@ feature-grill nudge names the branch, `grill-with-docs`, `to-spec` and `to-ticke
 `/implement` per ticket, and "Feature done: the ship skill, then ask the owner to merge". In a repo without the
 skills it asks for plain grilling first.
 
-**A commit with a lint or format problem** (real, radar999, 2026-11-16):
+**A commit with a lint or format problem** (real, a web app project, 2026-11-16):
 
 ```text
 unformatted: File would be reformatted
@@ -1886,7 +2025,7 @@ inside a commit message, `git log -n 5`.
 
 ### 16.6 Live on the 3 machines (2026-11-16)
 
-| Check | M3 | Old Mac | ubuntu01 |
+| Check | Main Mac | Old Mac | Home server |
 |---|---|---|---|
 | Flow skills linked for Claude and Codex | PASS | PASS | PASS |
 | Rules updated (Claude and Codex files) | PASS | PASS | PASS |
