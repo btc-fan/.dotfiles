@@ -23,7 +23,7 @@ def main():
     work = tempfile.mkdtemp(prefix="ai-cmd-tests-")
     try:
         for test in (t_hook_files, t_no_em_dash, t_render_cap, t_pr_resume, t_notify, t_agent_audit,
-                     t_ai_start, t_router_speed, t_ai_sync, t_sync_hooks, t_hermes_plugin, t_playwright,
+                     t_ai_start, t_router_speed, t_ai_sync, t_ai_sync_links_skills, t_sync_hooks, t_hermes_plugin, t_playwright,
                      t_state_mode, t_skill_scanner_reject, t_winners_table):
             try:
                 test(work)
@@ -376,6 +376,36 @@ def t_ai_sync(work):
     open(agents_file, "w").write(before.replace(root[:40], "OLD RULES"))
     res = run(["bash", sync, "--check"], env=env)
     assert res.returncode == 1 and "FAIL Codex" in res.stdout, res.stdout
+
+
+def t_ai_sync_links_skills(work):
+    """R-007: a skill added to ai/skills after install gets its links on the next pull (ai-sync), in the
+    Claude and Codex skill folders that install made. ai-sync makes no skill folder, and keeps a real folder."""
+    home = os.path.join(work, "sync-skills-home")
+    claude = os.path.join(home, ".claude", "skills")
+    agents = os.path.join(home, ".agents", "skills")
+    os.makedirs(claude)
+    os.makedirs(agents)
+    os.makedirs(os.path.join(agents, "ship"))                  # a real folder: not ours, kept
+    sync = os.path.join(BIN, "ai-sync")
+    res = run(["bash", sync], env={"HOME": home})
+    assert res.returncode == 0, res.stdout
+    own = os.path.join(AI_DIR, "skills", "setup-rollout")
+    link = os.path.join(claude, "setup-rollout")
+    assert os.path.islink(link) and os.readlink(link) == own, "Claude link: " + res.stdout
+    link = os.path.join(agents, "setup-rollout")
+    assert os.path.islink(link) and os.readlink(link) == own, "Codex link: " + res.stdout
+    assert not os.path.islink(os.path.join(agents, "ship")), "real folder must stay"
+    served = os.path.join(claude, "prompting-claude-and-codex")
+    assert not os.path.lexists(served), "the ai-core plugin serves this skill in Claude"
+    res = run(["bash", sync], env={"HOME": home})
+    assert res.returncode == 0 and "same " not in res.stdout, "second pull must print no unchanged link: " + res.stdout
+    bare = os.path.join(work, "sync-skills-bare")
+    os.makedirs(bare)
+    res = run(["bash", sync], env={"HOME": bare})
+    assert res.returncode == 0, res.stdout
+    assert not os.path.exists(os.path.join(bare, ".agents")), "no skill folder without install"
+    assert not os.path.exists(os.path.join(bare, ".claude", "skills")), "no skill folder without install"
 
 
 def t_sync_hooks(work):
