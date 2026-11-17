@@ -34,7 +34,7 @@ def main():
     work = tempfile.mkdtemp(prefix="ai-cleanup-tests-")
     saved = {k: os.environ.get(k) for k in m3.ENV_KEYS}
     try:
-        for test in (t_rtk_wrapper, t_rtk_install, t_rtk_managed, t_claude_md_short, t_claude_md_owner_text,
+        for test in (t_rtk_wrapper, t_rtk_install, t_rtk_managed, t_claude_md_short, t_claude_md_owner_text, t_claude_md_short_any_wiring,
                      t_rtk_off_install, t_rtk_off_doctor,
                      t_doctor_checks, t_doctor_owner_text):
             for k, v in saved.items():
@@ -150,6 +150,27 @@ def t_claude_md_owner_text(work):
     text = m3.read(md)
     assert code == 0 and "OMC:" not in text and "old vendor text" not in text, (out, text)
     assert [ln for ln in text.splitlines() if ln in mine] == mine and NOTE[0] in text, text
+
+
+def t_claude_md_short_any_wiring(work):
+    """QA 2026-11-17: the root rules step writes the OMC note on every OMC wiring (plugin and npm CLI), also over an
+    old CLI block; owner text outside our blocks stays; undo puts the vendor block back. A temp AI_HOME with a
+    built ai/AGENTS.md: base_rules_user stops early without one."""
+    mine = ["# My rules", "keep this line"]
+    for wiring in ("plugin", "cli"):
+        env, home, bindir = m3.claude_env(os.path.join(work, wiring))
+        fake_home = os.path.join(work, wiring, "ai-home")
+        m3.write(os.path.join(fake_home, "ai", "AGENTS.md"), "# rules\n")
+        os.symlink(os.path.join(AI_DIR, "lib"), os.path.join(fake_home, "ai", "lib"))
+        env["AI_OMC_WIRING"] = wiring
+        md = os.path.join(home, ".claude", "CLAUDE.md")
+        m3.write(md, mine[0] + "\n" + OMC_LONG + mine[1] + "\n")
+        code, out = m3.bash(m3.LIBS + 'AI_HOME=%s; want() { [ "$1" = claude ]; }; base_rules_user' % fake_home, env)
+        text = m3.read(md)
+        assert code == 0 and "OMC:START" not in text and all(n in text for n in NOTE), (wiring, out, text)
+        assert [ln for ln in text.splitlines() if ln in mine] == mine, (wiring, text)
+        code, out = m3.run_undo(env, home)
+        assert code == 0 and "long vendor text" in m3.read(md), (wiring, out, m3.read(md))
 
 
 def t_rtk_off_install(work):
