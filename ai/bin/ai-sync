@@ -83,7 +83,8 @@ sync_skill_links() {
         [ -d "$CLAUDE_DIR/skills" ] && link_skills "$CLAUDE_DIR/skills" "$(PLUGIN_DIR)/skills"
         [ -d "$HOME/.agents/skills" ] && link_skills "$HOME/.agents/skills"
         true
-    } 2>&1 | { grep -v '^ *same ' || true; }
+    } 2>&1 | { grep -v '^ *same ' || true; } \
+        || warn "skill links not refreshed: run install.sh"   # the rules refresh goes on
 }
 
 tree_owner() { stat -c %U "$AI_HOME" 2>/dev/null || stat -f %Su "$AI_HOME" 2>/dev/null || echo unknown; }
