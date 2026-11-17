@@ -1051,7 +1051,10 @@ def check_claude_cleanup():
     cmds = [str(h.get("command") or "") for gs in hooks.values() for g in gs or [] if isinstance(g, dict)
             for h in g.get("hooks") or [] if isinstance(h, dict)]
     bare = [c for c in cmds if re.search(r"(^|/)rtk hook claude$", c.strip())]
-    if bare or any("/hooks/rtk-hook" in c for c in cmds):
+    switch = os.environ.get("AI_RTK_HOOK") or (read_text_file(os.path.join(HOME, ".config", "ai", "rtk-hook")) or "").strip()
+    if switch == "off" and not bare:
+        say("PASS", "RTK hook off by owner choice (manual rtk)", "")
+    elif bare or any("/hooks/rtk-hook" in c for c in cmds):
         say("FAIL" if bare else "PASS", "RTK hook skips the rewrite in auto mode (hooks/rtk-hook)",
             "bare %r in ~/.claude/settings.json: auto mode denies its rewrites with \"no verdict\"; re-run install.sh"
             % bare[0] if bare else "")
