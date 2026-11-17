@@ -4,9 +4,9 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Fixtures are generated in a temp folder; no real repo is touched
-- [ ] Install level reports pass or fail per fixture
-- [ ] Behaviour level reports a score per rule and per skill, per agent
-- [ ] A dry mode runs without network and without agent sessions, for CI
+- [x] Fixtures are generated in a temp folder; no real repo is touched
+- [x] Install level reports pass or fail per fixture
+- [x] Behaviour level reports a score per rule and per skill, per agent
+- [x] A dry mode runs without network and without agent sessions, for CI

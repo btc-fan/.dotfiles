@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Report file with the date, the setup commit and the numbers
-- [ ] The edge cases that fail today are listed
+- [x] Report file with the date, the setup commit and the numbers
+- [x] The edge cases that fail today are listed

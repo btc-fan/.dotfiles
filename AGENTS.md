@@ -3,11 +3,13 @@
 ## Map
 - Owner guide: `docs/GUIDE.md` (how it works, scenarios, troubleshooting). Decisions and history: `docs/agents/notes.md`, `ai/SPEC-LOG.md`.
 - Global rules: `ai/agents-md/*.md` (joined by `ai/bin/ai-render` into `~/.config/ai/AGENTS.md` and the Codex block). Routing rows: `ai/routing.yaml`.
-- Router hooks: `ai/marketplace/plugins/ai-core/hooks/` (`router.py`, `hooklib.py`). The Hermes copies are generated.
+- Router hooks: `ai/marketplace/plugins/ai-core/hooks/` (`router.py`, `hooklib.py`; `rtk-hook` is the Claude RTK wrapper, silent in auto mode; `README.md` lists every gate and stop rule). The Hermes copies are generated.
+- Gates, stop rules, skill card, winner table: rows and the `skills:` and `winners:` blocks of `ai/routing.yaml`; one contract per rule in `ai/rules/` (for example `winner-gate.md`, `skill-card.md`).
 - Installer: `install.sh` and `ai/adapters/*.sh`. Project layer: `ai/bin/ai-start` (`ai-adopt` is a link to it).
 - Our skills: `ai/skills/<name>/SKILL.md`, linked into `~/.claude/skills` and `~/.agents/skills`.
 - Check: `bash ai/tests/run.sh` (everything; about 10 min).
 - Evals: `ai/bin/ai-eval` (fixture repos, install level, headless behaviour level); cases in `ai/evals/cases/*.json`.
+- Work files: specs `docs/specs/`, tickets `docs/tickets/<slug>/` (finished ones in `done/`), eval reports `docs/reports/`.
 
 ## Project rules
 <!-- Rules for this repo only, one line each. They may add or tighten the global rules, never loosen them. -->
