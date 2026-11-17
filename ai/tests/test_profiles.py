@@ -82,6 +82,20 @@ def fake_env(work, name, tools=()):
     return env, home, bindir
 
 
+def fake_homebrew(root, env):
+    """Forced macOS puts /opt/homebrew/bin in front of PATH, so the real tools of this machine would be read.
+    Listing the dirs behind a fake first dir stops that. Its npm tree holds omx, omc, node, npm (the pinned versions)."""
+    nm = os.path.join(root, "brew", "lib", "node_modules")
+    brew = os.path.join(root, "brew", "bin")
+    for tool, ver in (("omx", "oh-my-codex v0.22.8"), ("omc", "5.8.4"), ("node", "v26.0.0"), ("npm", "11.0.0")):
+        body = "#!/bin/sh\ncase \"$1 $2\" in 'root -g') echo '%s';; esac\n[ \"$1\" = --version ] && echo '%s'\n[ \"$1\" = -p ] && echo 26\nexit 0\n" % (nm, ver)
+        stub(nm, tool, body)
+        os.makedirs(brew, exist_ok=True)
+        os.symlink(os.path.join(nm, tool), os.path.join(brew, tool))
+    env["PATH"] = ":".join([brew, "/opt/homebrew/bin", "/usr/local/bin", env["PATH"]])
+    return brew
+
+
 def install(env, *args):
     res = subprocess.run(["bash", os.path.join(REPO, "install.sh")] + list(args), stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, env=env, timeout=300)
@@ -135,6 +149,7 @@ def t_devmac_plan(work):
     no box; the profile is shown and saved."""
     env, home, bindir = fake_env(work, "devmac", ("claude", "codex", "node", "npm", "uv"))
     seed_records(home, ["uv:guarddog", "bin:osv-scanner", "npm:opencode"])
+    brew = fake_homebrew(os.path.dirname(bindir), env)
     code, out = install(dict(env, AI_OS_FORCE="macos"), "--dry-run", "--yes")
     assert code == 0, out
     compare("devmac-macos-all.txt", out)

@@ -272,3 +272,77 @@ Read: `README.md`, `ai/SPEC.md`, `docs/INSTALL.md`, `docs/SECURITY.md`, `docs/TO
    folder and read the first call's input tokens.
 5. Score the setup against G1 to G10, list ranked risks with a concrete failure scenario and fix,
    and say what to cut.
+
+## 10. Round 2026-11-16: enforcement
+
+This section was added on 2026-11-17. Sections 1 to 9 describe the state of 2026-11-12 and stay as written. Where they
+disagree with this section, this section is newer (for example: Serena and graphify are on in every project now).
+Source files: `docs/specs/ai-setup-enforcement.md` (spec), `ai/SPEC-LOG.md` (the owner decisions, sections of
+2026-11-16), `docs/tickets/ai-setup-enforcement/` (tickets 01 to 10 done, 11 and 12 open), and
+`docs/reports/ai-eval-baseline-2026-11-16.md` (the baseline). The change is in PR 1 of the `ai` branch.
+
+### What was wrong
+
+The install was complete (`ai-doctor` 0 fail), but agents skipped most rules and skills: 3 skill uses in 7 days over
+all sessions. Text in `CLAUDE.md` and `AGENTS.md` is advice. Only hooks and gates were followed. Routing v4 had
+removed the per-action nudges for Serena, graphify and agent docs. Ten required skills are typed-only, so the agent
+did not see them. OMC and OMX add about 85 and 24 skills that duplicate ours, and `skillOverrides` cannot hide plugin
+skills. The Serena tools were deferred (`alwaysLoad` missing), so agents did not see them.
+
+### What changed
+
+1. A harness notification (a task result that arrives as a prompt) fires no rule and never sets or clears the
+   merge-approval OK. Before, a notification that said "merge" could set the OK (a security fix).
+2. The global `~/.claude/CLAUDE.md` is short. `ai-doctor` reports the long OMC block if an OMC update writes it back.
+3. RTK on Claude is the wrapper `ai-core/hooks/rtk-hook`. It does nothing in auto mode. `install.sh` no longer runs
+   `rtk init -g` for Claude. Codex keeps `rtk hook codex`.
+4. `ai-doctor` warns when the global `autoMode.environment` names one repo, and gives the steps to move it. It never
+   rewrites personal settings.
+5. Winner gate: the overlap table of the skills guide is data (`winners:`). A Skill call of a losing skill is denied
+   with the winner's name. Orchestration skills unlock the losers for the session. Codex gets the file-read form.
+6. Skill card: a SessionStart text under 1500 characters with 4 must-use and 10 typed-only skills.
+7. Skill gates and stop rules (`require_skill`): `writing-for-agents` (gate), `ship` (gate before `gh pr ready`),
+   `diagnosing-bugs` (stop), `tdd` (stop).
+8. Graph-first: the first broad search of a session is denied once with "run graphify query first".
+9. `docs-lookup` fires only for a library of the Libraries block or before an edit of a dependency file. It was
+   missed 72 of 88 times before.
+10. `gh-write` gate: every `gh` write except the PR commands asks the owner.
+11. The author-sessions block gets a real session id from the router. herdr is on every machine.
+12. Serena: `alwaysLoad: true` in the ai-serena plugin. `ai-doctor` fails without it.
+13. `ai-adopt`: idempotent, commits on a branch `ai-adopt` when run on main, `--init` for a folder without git, a
+    Markdown check for a repo with no code, a background `graphify update` once.
+14. `ai/SPEC.md` section 16 lists GitHub MCP and Grounded Docs as not adopted.
+15. `ai-eval`: fixtures, an install level and a headless behaviour level, with 21 cases. `ai-doctor` shows skill use and
+    rule misses over 30 days.
+
+Every new deny path honours the owner escape hatch (`sudo ai-gate-skip <gate> <minutes> <why>`).
+
+### What is proven
+
+- Offline: 14 test suites, all 0 failed. Router cases: 449 before, 600 after.
+- Claude behaviour (hits in 3 runs, before to after): vague performance prompt 0/3 to 3/3, vague ship prompt 0/3 to
+  3/3, `ship` 1/3 to 3/3. `diagnosing-bugs` and `writing-for-agents` (English, Romanian, Russian) 3/3. The 4
+  should-not-fire cases 3/3 (no false fire). 20 of 21 cases at 3/3.
+- Codex: the first baseline was 18 of 18 on plain prompts.
+
+### What is open
+
+- `winner-tdd` was 0/3 before the `tdd` stop rule. The rule came after that run, and a new run is open.
+- Codex after-run: the hard-case run hit the usage limit (24 of 27 runs were errors).
+- The auto-mode session after install: the RTK wrapper is unit-tested only (ticket 03).
+- The post-compact SessionStart text is about 10.1k characters. The L0 table tail is cut at 9.5k there.
+- Ticket 11 (evolution test) and ticket 12 (final audit and rollout). Ticket 12 also holds: `ai-adopt` runs
+  `make check-fast` before `ai-docs-check --init`, the wording of two `ai-doctor` WARN lines, the `docs-lookup` eval
+  case needs a Libraries block in the `app` fixture, the `pr-rules` gate cannot diff against the base branch, and
+  the setup did not install `gh` on one Mac.
+- Known limits: the winner gate on the Skill tool is Claude only; the `writing-for-agents` gate cannot see `python -c`,
+  `perl -i` or a script file; Codex must trust the changed `router.py`, `hooklib.py` and `stop-check.py` after an
+  install.
+
+### How to audit this round
+
+1. `bash ai/tests/run.sh` in the `ai` checkout.
+2. `ai-eval behaviour --dry`, then a real run of a few cases (`--agent claude --runs 3`). Read the transcripts, not
+   only the score.
+3. Try to break each new deny path with the escape hatch off, then on.
+4. Read the owner checklist in `README.md`, section 6.

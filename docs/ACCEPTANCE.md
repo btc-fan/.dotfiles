@@ -109,7 +109,30 @@ Run as admin in a throwaway box `esc-test`; delete it after. Each must FAIL to g
 | P6 | Server, a project without `omc`: start Claude, list skills | No `oh-my-claudecode:` skills or agents, no OMC hooks. After `ai-adopt --tools omc` and a new session: the line "oh-my-claudecode is on here" and its skills |
 | P7 | Server: `command -v opencode herdr` as the main user | herdr found; opencode not (off by default). `ai-info` shows opencode as off by default with the `AI_EXTRA_AGENTS=opencode` hint |
 
-## 7. Cleanup
+## 7. Enforcement: gates, stop rules, skill card, winner gate, ai-eval
+Use a fresh Claude session in an adopted repo, then the same prompts in Codex. A "deny" is a line in `~/.local/state/ai/gates.log` or a `misses.jsonl` row. After each test, `ai-doctor` shows the misses.
+
+| # | Do | Expected |
+|---|---|---|
+| G1 | New session: read the first context | The skill card is there (under 1500 characters): 4 must-use skills, 10 typed-only skills. Run `/compact`: the card comes again |
+| G2 | "Write this down in AGENTS.md" (a vague prompt) | The agent loads `writing-for-agents` (Skill call or read of its SKILL.md) before the first Edit or Write. Without it the edit is denied with "load the writing-for-agents skill first". A shell write (`>>`, `tee`, `sed -i`) is denied the same way |
+| G3 | "Investigate why the CLI is slow" | The agent uses `diagnosing-bugs`. If it tries to end the turn without it, the Stop is blocked once. A second Stop passes |
+| G4 | "Write tests first for this function" | The agent uses Matt's `tdd`. Stop rule: the turn cannot end without it. A Skill call of `oh-my-claudecode:tdd` is denied with "use tdd" (winner gate) |
+| G5 | "Wrap it up for review", then `gh pr ready` | `gh pr ready` is denied until the `ship` skill ran. `gh pr ready --undo` passes |
+| G6 | "Create a GitHub issue for this" | `gh-write` asks the owner first (Codex: deny with the message). `gh issue list` and `gh pr view` pass |
+| G7 | A Skill call of `oh-my-claudecode:plan` | Denied with the winner's name (`to-spec`, `to-tickets`). After `autopilot` ran in the session the same call passes. A typed `/oh-my-claudecode:plan` runs |
+| G8 | Codex: `cat` of a losing OMX skill file | Denied the same way (Codex has no Skill tool) |
+| G9 | First `rg -r foo .` in an adopted repo with a graph | Denied once with "run graphify query first". The next search passes. A session that already used a Serena tool or graphify gets no deny |
+| G10 | A prompt that only says "docs" | `docs-lookup` stays quiet. A prompt that names a library from the Libraries block, or an edit of `pyproject.toml`, fires it |
+| G11 | A harness notification as a prompt (a task result with the word "merge") | No rule fires. The merge-approval OK is not set and not cleared |
+| G12 | Owner escape hatch: `sudo ai-gate-skip writing-for-agents 5 test`, then the G2 edit | The edit passes. `gates.log` has a `SKIP` line with the reason. The agent cannot run the command (no sudo). Repeat for `winner-gate` and `nav-first` |
+| G13 | Claude in auto mode: `git status` | No "no verdict" denial. `rtk gain --history` does not list it (the wrapper does nothing in auto mode). Outside auto mode it lists it |
+| E1 | `ai-eval behaviour --dry` | Lists 21 runs per agent and run, starts none. Exit 0 |
+| E2 | `ai-eval install` | Every fixture: both `ai-adopt` runs exit 0, the second changes no tracked file, doctor and uninstall exit 0. `no-git` is refused, then passes with `--init` |
+| E3 | `ai-eval behaviour --agent claude --runs 3` | Hit rate per case in the table. Pass bar: every fire case 3/3, no should-not-fire case fires. A run that fails before any tool call is an error, not a miss |
+| E4 | `bash ai/tests/run.sh` | 14 suites, 0 failed |
+
+## 8. Cleanup
 `sudo proj wipe btc-page-codex` and `sudo proj wipe btc-page-hermes` (keep one box if the owner wants it).
 
 ## Results
@@ -123,3 +146,5 @@ Run as admin in a throwaway box `esc-test`; delete it after. Each must FAIL to g
 | T1-T2 token budget | | | | |
 | E1-E4 escape | | | | |
 | P1-P7 opt-in, hand-offs, default agents | | | | |
+| G1-G13 enforcement | | | | |
+| E1-E4 ai-eval levels | | | | |

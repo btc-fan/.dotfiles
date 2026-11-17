@@ -1,7 +1,7 @@
 # herdr
 
 Version: newest stable release (SPEC 23). Read and audited at intake: 0.9.5. License Apache-2.0. Sources: https://herdr.dev/tui/docs, https://github.com/herdrdev/herdr
-Installed by default on Linux servers (owner decision 2026-11-12 evening: "should be installed, leave it alone"). macOS: installed where present.
+Installed on every machine (owner decision 2026-11-16: its CLI gives the PR author-sessions block a real session id; before that, Linux servers only and macOS where present).
 
 ## Vendor rules
 No CLAUDE.md or AGENTS.md text found. The docs point to https://herdr.dev/agent-guide.md. It was not fetched: UNVERIFIED. Fetch it at build and decide whether to import it.

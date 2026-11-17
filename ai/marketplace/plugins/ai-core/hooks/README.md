@@ -5,7 +5,7 @@
 | `hooks.json` | Claude Code hooks (Claude loads it by default; plugin.json does not list it) |
 | `codex-hooks.json` | Codex hooks (`.codex-plugin/plugin.json` `"hooks": "./hooks/codex-hooks.json"`) |
 | `router.py` | one entry point for every event: L1 inject, L2/L3 prompt rules, nudges, miss log |
-| `hooklib.py` | shell command parser, the five gates (L4), the regression-ledger parser, shared helpers |
+| `hooklib.py` | shell command parser, the gates (L4, section Gates below), the regression-ledger parser, shared helpers |
 | `stop-check.py` | Stop hook (Claude, Codex): runs the project's `check-fast` when files changed this session; baseline at SessionStart (owner plan Tier 1; `ai/rules/stop-check.md`) |
 | `claude-notify` | owner notification (macOS desktop, Linux webhook through the root helper) |
 | `rtk-hook` | Claude PreToolUse Bash hook (install.sh writes it into settings.json, or managed settings on a server): runs `rtk hook claude`, except in auto mode (`permission_mode` "auto"), where a rewritten command gets a "no verdict" denial. Codex keeps `rtk hook codex` (no auto mode classifier) |
@@ -31,11 +31,14 @@ Skill gates (`require_skill: <name>` in `routing.yaml`): the rule passes only wh
 session (a Skill call, a typed `/name`, or a read of its SKILL.md). With `strength: gate` a PreToolUse deny
 (writing-for-agents before Edit, Write, MultiEdit, Codex `apply_patch` or a shell write (`>`, `>>`, `tee`, `sed -i`,
 `cp`, `mv`) of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md; ship before `gh pr ready`). With `strength: stop` the prompt arms the rule and the next Stop gets
-`{"decision": "block"}` when the skill was not used (diagnosing-bugs), once per session per rule. Each block is a
+`{"decision": "block"}` when the skill was not used (diagnosing-bugs, tdd), once per session per rule. Each block is a
 row in `misses.jsonl`; `ai-doctor` shows these misses over 30 days. The owner skip below works for these rules
 too (gate name = rule id), and for `winner-gate` and `nav-first`.
 
 ## Gates
+
+Every deny path asks `owner_skip` first, so the owner escape hatch works for every gate and stop rule. Gate names
+are the rule ids, plus `winner-gate` and `nav-first`.
 
 Gates catch honest mistakes. They are not a sandbox against an adversary: an agent that wants to bypass a
 gate can (for example, write a script file and run it). Escape hatch for a real exception, owner only:
@@ -58,6 +61,17 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   or a commit pathspec it also scans unstaged changes and untracked files. `git push` scans commits not
   on any remote (last 300). gitleaks runs too when installed. Allowlist: only the context7 key, exact
   value, from committed (HEAD) MCP config of this repo or `CONTEXT7_API_KEY` in `~/.config/ai/secrets.env`.
+- no-sudo: `sudo`, `su`, `doas`, `pkexec`, `sudoedit`, `run0` at a command position (also inside `bash -c`, behind
+  `env`, `nice`, `timeout`). Profile `server` only (`dev-mac` does not render this row, nor audit-before-install and
+  no-destroy).
+- merge-approval: `gh pr merge` and a `git push` to main or master are denied until the owner's latest message says
+  merge or approve. A harness notification (task-notification, "[SYSTEM NOTIFICATION") never sets or clears that OK.
+- no-verify: `git commit` or `git push` with `--no-verify` (or `commit -n`) is denied.
+- writing-for-agents (gate, `require_skill`): Edit, Write, MultiEdit, `apply_patch` or a shell write of AGENTS.md,
+  CLAUDE.md, CLAUDE.local.md or a SKILL.md, until the skill has a proof in the session.
+- ship (gate, `require_skill`): `gh pr ready` (not `--undo`), until the ship skill ran.
+- Stop rules (`strength: stop`, `require_skill`): diagnosing-bugs (a bug or performance prompt) and tdd (a tests-first
+  prompt). The next Stop is blocked once per session per rule. The separate `stop-check.py` runs `check-fast`.
 - pr-rules: `gh pr create` and `gh pr edit` with a body need a mermaid block and the author-sessions block,
   plus the fields of the project tier (mvp: `Verify:`, `Risk:`; long: also `Docs:`, `Changed guards:`, `Ledger:`
   on fix PRs; placeholders count as missing). A fix PR needs a test file in its diff; over 400 lines warns.

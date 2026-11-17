@@ -730,6 +730,9 @@ claude_hooks() {
 # `rtk hook claude` hook. An older install's bare hook (or a wrapper with an old rtk path) is replaced (recorded).
 claude_rtk() {
     has rtk || { warn "RTK hook: rtk not installed (or not built): Claude runs without it"; return 0; }
+    # Owner switch (per machine): AI_RTK_HOOK=off, or the word "off" in ~/.config/ai/rtk-hook. Manual rtk: no hook.
+    local sw="${AI_RTK_HOOK:-$(sed -n '1{s/[[:space:]]//g;p;}' "${AI_TARGET_HOME:-$HOME}/.config/ai/rtk-hook" 2>/dev/null)}"
+    [ "$sw" = off ] && { ok "RTK hook off by owner choice (manual rtk): nothing written"; return 0; }
     local cmd; cmd="/usr/bin/python3 \"$(PLUGIN_DIR)/hooks/rtk-hook\" \"$(command -v rtk)\""
     if ! aiconf hooks-diff "$CLAUDE_DIR/settings.json" 2>/dev/null | grep -qxF "PreToolUse	$cmd"; then
         aiconf hooks-remove "$CLAUDE_DIR/settings.json" '(^|/)rtk hook claude$|/hooks/rtk-hook"'

@@ -34,7 +34,9 @@ def main():
     work = tempfile.mkdtemp(prefix="ai-cleanup-tests-")
     saved = {k: os.environ.get(k) for k in m3.ENV_KEYS}
     try:
-        for test in (t_rtk_wrapper, t_rtk_install, t_rtk_managed, t_claude_md_short, t_doctor_checks):
+        for test in (t_rtk_wrapper, t_rtk_install, t_rtk_managed, t_claude_md_short, t_claude_md_owner_text,
+                     t_rtk_off_install, t_rtk_off_doctor,
+                     t_doctor_checks, t_doctor_owner_text):
             for k, v in saved.items():
                 if v is None:
                     os.environ.pop(k, None)
@@ -137,6 +139,45 @@ def t_claude_md_short(work):
     assert code == 0 and "long vendor text" in m3.read(md) and NOTE[0] not in m3.read(md), (out, m3.read(md))
 
 
+def t_claude_md_owner_text(work):
+    """An old OMC CLI block (version 4.x, owner text before and after it) goes; every owner line stays unchanged."""
+    env, home, bindir = m3.claude_env(work)
+    md = os.path.join(home, ".claude", "CLAUDE.md")
+    mine = ["# My rules", "never run `rtk init -g`", "## RTK (all projects)", "ALWAYS prefix commands with `rtk`"]
+    old = "<!-- OMC:START -->\n<!-- OMC:VERSION:4.15.7 -->\n\n# oh-my-claudecode\n\nold vendor text\n<!-- OMC:END -->\n"
+    m3.write(md, mine[0] + "\n" + mine[1] + "\n\n" + old + "\n" + mine[2] + "\n" + mine[3] + "\n")
+    code, out = m3.bash(m3.LIBS + 'want() { [ "$1" = claude ]; }; claude_omc_note', env)
+    text = m3.read(md)
+    assert code == 0 and "OMC:" not in text and "old vendor text" not in text, (out, text)
+    assert [ln for ln in text.splitlines() if ln in mine] == mine and NOTE[0] in text, text
+
+
+def t_rtk_off_install(work):
+    """AI_RTK_HOOK=off (or "off" in ~/.config/ai/rtk-hook): claude_rtk writes no hook and removes nothing."""
+    env, home, bindir = m3.claude_env(work)
+    m3.stub(os.path.join(bindir, "rtk"), FAKE_RTK)
+    settings = os.path.join(home, ".claude", "settings.json")
+    other = {"matcher": "Edit", "hooks": [{"type": "command", "command": "/bin/echo other"}]}
+    m3.write(settings, json.dumps({"hooks": {"PreToolUse": [other]}}))
+    before = m3.read(settings)
+    env["AI_RTK_HOOK"] = "off"
+    code, out = m3.bash(m3.LIBS + "claude_rtk", env)
+    assert code == 0 and m3.read(settings) == before and "off by owner choice" in out, out
+    del env["AI_RTK_HOOK"]
+    m3.write(os.path.join(home, ".config", "ai", "rtk-hook"), "off\n")
+    code, out = m3.bash(m3.LIBS + "claude_rtk", env)
+    assert code == 0 and m3.read(settings) == before, out
+
+
+def t_rtk_off_doctor(work):
+    """With the switch off and no RTK hook, ai-doctor says PASS; without the switch it still FAILs for a bare hook."""
+    env, home, bindir = m3.claude_env(work)
+    m3.write(os.path.join(home, ".claude", "settings.json"), json.dumps({"hooks": {}}))
+    m3.write(os.path.join(home, ".config", "ai", "rtk-hook"), "off\n")
+    assert line_of(doctor_out(env), "RTK hook").startswith("PASS"), doctor_out(env)
+    assert "manual rtk" in line_of(doctor_out(env), "RTK hook")
+
+
 def t_doctor_checks(work):
     """ai-doctor: FAIL when OMC's long block is back in ~/.claude/CLAUDE.md, PASS for the short form; FAIL for a
     bare `rtk hook claude` in settings.json; WARN when the global autoMode.environment names a repo path or a
@@ -165,6 +206,17 @@ def t_doctor_checks(work):
     out = doctor_out(env)
     for what in ("CLAUDE.md", "RTK hook", "autoMode.environment"):
         assert line_of(out, what).startswith("PASS"), (what, out)
+
+
+def t_doctor_owner_text(work):
+    """Owner text outside our blocks is a WARN, never a FAIL; the OMC long block (old 4.x style too) is a FAIL."""
+    env, home, bindir = m3.claude_env(work)
+    md = os.path.join(home, ".claude", "CLAUDE.md")
+    short = "<!-- AI:core v1 START -->\n@~/.config/ai/AGENTS.md\n<!-- AI:core v1 END -->\n"
+    m3.write(md, "## RTK (all projects)\nowner text\n" + short)
+    assert line_of(doctor_out(env), "CLAUDE.md").startswith("WARN")
+    m3.write(md, "<!-- OMC:START -->\n<!-- OMC:VERSION:4.15.7 -->\nold\n<!-- OMC:END -->\n## RTK\nowner text\n" + short)
+    assert line_of(doctor_out(env), "CLAUDE.md").startswith("FAIL")
 
 
 # ---------------------------------------------------------------- helpers

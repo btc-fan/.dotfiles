@@ -14,22 +14,38 @@ The owner guide explains how the setup works inside (rules, router, gates, skill
 It has full example sessions: adopt a messy repo, start an iOS and Android app, fix a bug, build V2, triage.
 In any session, ask "which skill for X?" to get the global `skills-guide` skill.
 
-Status (2026-11-16): one profile, `dev-mac`, on all 3 machines (M3, old Intel Mac, ubuntu01). Windows planned, not supported yet.
+Status (2026-11-17): one profile, `dev-mac`, on all 3 machines (an Apple silicon Mac, an old Intel Mac, a home server). Windows planned, not supported yet.
 
-## Current state (2026-11-16)
+## Current state (2026-11-17)
 
 - **Flow:** feature branch, the `ship` skill, then every PR goes through the owner (the agent merges only after the
   owner says merge). After a merge: `/improve-codebase-architecture` and `/retro`. The owner says release: the
   `release` skill. Details: `docs/GUIDE.md` section 15. Decisions: `docs/agents/notes.md`.
+- **Enforcement round (2026-11-16 to 2026-11-17, PR #1):** the install was complete, but agents skipped most rules
+  and skills (3 skill uses in 7 days). Text in AGENTS.md is advice. So the rules that matter now run as mechanisms
+  at the moment of the action: gates (PreToolUse deny), stop rules (Stop hook block, once per session), a short
+  skill card at session start, and a winner table for skills that overlap. `ai-eval` measures it. Section 3 of
+  `docs/GUIDE.md` has the detail ("Enforcement: gates, stop rules, skill card, winner table").
+- **Numbers:** router cases 449 before, 600 after; 14 test suites, 0 failed. Claude behaviour, hits in 3 runs,
+  before to after: vague performance prompt 0/3 to 3/3, vague ship prompt 0/3 to 3/3, `ship` 1/3 to 3/3;
+  4 should-not-fire cases 3/3 (no false fire); 20 of 21 cases at 3/3. The `tdd` case was 0/3: the `tdd` stop rule
+  came after that run. Codex after-run: open (usage limit hit; ticket 12).
 - **Gates (dev-mac):** secret-scan, pr-rules, merge-approval (no merge, no push to main without the owner's OK),
-  no-verify (no skipped git hooks). Everything else is a nudge.
+  no-verify (no skipped git hooks), writing-for-agents, ship, gh-write, winner-gate and the first broad search
+  (graph-first). **Stop rules:** diagnosing-bugs and tdd. `audit-before-install`, `no-sudo`, `no-destroy` and the
+  project `check-fast` stop hook are off on `dev-mac` (profile `server` only). Everything else is a nudge. Every
+  deny path honours the owner escape hatch (`sudo ai-gate-skip`).
 - **Per project (ai-adopt):** 13 Matt Pocock skills, ui-ux-pro-max, a pre-commit hook, `ai-docs-check` in
   `make check`, `## Project rules` (add or tighten, never loosen), CODING_STANDARDS.md for the reviewer.
 - **One knowledge store:** the repo (Map, GLOSSARY.md, docs/). Claude auto memory is off.
-- **Navigation:** graphify for wide questions, Serena for exact symbols, rg for text.
-- **Run a session on the machine where the repo lives** (`ssh oldmac`, then `claude` in the repo). A session on
+- **Navigation:** graphify for wide questions, Serena for exact symbols, rg for text. The first broad search of a
+  session is denied once with "run graphify query first". Serena tools are always loaded (`alwaysLoad`).
+- **Run a session on the machine where the repo lives** (`ssh <machine>`, then `claude` in the repo). A session on
   another machine that works through ssh has no gates, no Serena and no project rules for that repo.
-- **Adopted:** radar999 (ubuntu01) and scriptube (old Mac), through PRs. Other M3 projects: the owner picks them.
+- **Adopted:** two real projects, one on the home server and one on the old Mac, through PRs. Other projects on the
+  main Mac: the owner picks them.
+- **Open (ticket 12):** Codex after-run, the evolution test (ticket 11), trim of the post-compact context (about
+  10.1k characters; the L0 table tail is cut at 9.5k there), final audit and rollout.
 
 ## History: where we stopped on 2026-11-13 (server work)
 
@@ -55,7 +71,7 @@ Audit reports (local, not in git) live next to the checkouts in `ai-audit/`.
 **Tier 1 project checks: DONE in code on branch `ai` (2026-11-14), not deployed.** Tier per repo (`try`, `mvp`,
 `long`), `ai-check-detect` + `check-fast`/`check` targets, the `stop-check` Stop hook, `no-destroy` gate, PR tier
 fields, Done/Lessons, regression ledger (`ai-ledger`), `ai-ratchet`, the `feature-grill` row (SPEC 25). Next: the
-scriptube pilot (`ai-adopt --tier long`), a real plugin install and a real Codex run of the Stop hook.
+the crawler project pilot (`ai-adopt --tier long`), a real plugin install and a real Codex run of the Stop hook.
 
 **Profiles: DONE in code (2026-11-14), not deployed.** `server` (today) and `dev-mac`
 (both Macs and Ubuntu dev boxes: no scanner, no package audit, no audit gate, no opencode, no box, no last30days); `install.sh --profile NAME`,
@@ -105,7 +121,7 @@ On a Mac: `git -C ~/.dotfiles-ai pull` (ai-sync runs), or rerun `~/.dotfiles-ai/
 3. [How it works, in plain words (6 examples)](#3-how-it-works-in-plain-words)
 4. [What runs where](#4-what-runs-where)
 5. [Manual steps per machine](#5-manual-steps-per-machine)
-6. [Verify](#6-verify)
+6. [Verify](#6-verify) (includes the owner checklist)
 7. [Update](#7-update)
 8. [Remove or revert](#8-remove-or-revert)
 9. [Where things live](#9-where-things-live)
@@ -158,7 +174,7 @@ Read it from the top.
 2. `ai-render` joins the parts and the L0 table into one root rules file. It also builds `routing.json` for the hooks.
 3. Each agent receives that one file in the way it supports (see [docs/AGENTS-MD.md](docs/AGENTS-MD.md)).
 4. The plugin `ai-core` gives Claude and Codex our hooks, skills and MCP server list.
-5. The router hook adds a short status line at session start and a few cheap reminders. The gates block five kinds of unsafe steps. A separate Stop hook runs the project's `check-fast` before the agent says it is done (section 3, example E).
+5. The router hook adds a short status line and the skill card at session start, and a few cheap reminders. The gates block unsafe or skipped steps (the table below). Stop rules make the agent use a skill before it ends a turn. A separate Stop hook runs the project's `check-fast` before the agent says it is done (section 3, example E).
 6. Every decision is logged. `ai-doctor` reads the logs and the contracts and tells you what is wrong. `ai-doctor --live` runs a canary `claude -p` session: a token commit, `gh pr create` without the PR blocks, an unaudited `uv add` and a force push to main (in a scratch repo with no remote) must each be denied (new DENY lines in `gates.log`).
 7. On a server, project work happens inside a box, never on the host.
 
@@ -169,34 +185,34 @@ Read it from the top.
 | Agents | Claude Code (main), Codex + OMX (main), Hermes. OMC: on on macOS, per project on servers (`ai-adopt --tools omc`). herdr: everywhere. opencode: macOS; on servers only with `AI_EXTRA_AGENTS=opencode`. omo: optional | [docs/TOOLS.md](docs/TOOLS.md) |
 | Plugin `ai-core` | our skills, hooks and MCP list, one folder, installed by Claude and Codex | `ai/marketplace/plugins/ai-core/` |
 | MCP servers | global: context7 (the one docs tool), box (project boxes on a server) and Serena (on by default in every project; a line `no-serena` in `.ai/enabled` opts out). Per project only: Playwright | [docs/TOOLS.md](docs/TOOLS.md) |
-| Other tools | RTK, Ponytail, i-have-adhd, five mattpocock skills, `gh`, graphify (CLI, on by default; `no-graph` opts out), last30days (Claude, on by default). Per project only: claude-seo, claude-blog, ui-ux-pro-max (`ai-adopt --tools seo,blog,ui`). Dropped and removed by install: caveman, `byterover-mcp` | [docs/TOOLS.md](docs/TOOLS.md) |
+| Other tools | RTK (Claude: our wrapper hook `rtk-hook`; it does nothing in auto mode), Ponytail, i-have-adhd, five mattpocock skills, `gh`, graphify (CLI, on by default; `no-graph` opts out), last30days (Claude, on by default). Per project only: claude-seo, claude-blog, ui-ux-pro-max (`ai-adopt --tools seo,blog,ui`). Dropped and removed by install: caveman, `byterover-mcp` | [docs/TOOLS.md](docs/TOOLS.md) |
 | Root rules | the one AGENTS.md all agents read | [docs/AGENTS-MD.md](docs/AGENTS-MD.md) |
 | Usage contracts | `ai/rules/<tool>.md`, five sections each | [docs/EXTENDING.md](docs/EXTENDING.md) |
-| Router + gates | session-start status, a few prompt rows, five gates | section 3 below |
+| Router + gates + stop rules | session-start status and skill card, a few prompt rows, gates, two skill stop rules, the winner table for overlapping skills | "Gates and stop rules" below; `docs/GUIDE.md` |
 | Project checks (Tier 1) | per adopted repo: a tier (`try`, `mvp`, `long`) in `.ai/enabled`; `check-fast` / `check` targets (`ai-check-detect`); a Stop hook that runs `check-fast`; Done and Lessons in AGENTS.md; long tier: regression ledger (`docs/REGRESSIONS.md`, `ai-ledger`) and `ai-ratchet` | section 3, example E; `ai/rules/check-command.md` |
 | Project knowledge | per repo, inside its AGENTS.md: a "## Map" (where things live, how to run and test, conventions) and a "## Libraries" table (version, context7 ID). Made by `ai-adopt`, kept fresh by `ai-libs --sync` and a post-commit note | section 3, example D |
-| Evals | prompts that must and must not fire a tool (English, Romanian, Russian) | `ai/evals/` |
+| Evals | prompts that must and must not fire a tool (English, Romanian, Russian), run by `ai-eval` (fixture repos, install level, headless behaviour level) | `ai/evals/`, `ai/bin/ai-eval` |
 
 ### The routing layers
 
-One table (`ai/routing.yaml`) feeds every layer, so they never disagree. Since v4 (owner decision 2026-11-12, after an audit) the table is small: passive context in AGENTS.md beats tool nudges, and the logs showed per-tool nudges ignored. What is left: the five gates, the session-start status, a post-commit freshness note, the em dash lint, the library-docs row, the "not enabled" suggestions and the opt-in catalog.
+One table (`ai/routing.yaml`) feeds every layer, so they never disagree. Since v4 (owner decision 2026-11-12, after an audit) the table is small: passive context in AGENTS.md beats tool nudges, and the logs showed per-tool nudges ignored. What is left: the gates and stop rules, the session-start status and skill card, a post-commit freshness note, the em dash lint, the library-docs row (it fires only on a library named in the Libraries block, or before an edit of a dependency file), the "not enabled" suggestions and the opt-in catalog. Since 2026-11-16 the rules that matter most are enforced, not only said (see below).
 
 | Layer | What | Catches |
 |---|---|---|
 | L0 | routing table inside the root rules | knowledge missing from context, all agents |
-| L1 | status lines at session start; the table again after compaction or /clear | drift late in a session |
+| L1 | status lines and the skill card at session start; the table and the card again after compaction or /clear | drift late in a session, skills the agent did not see |
 | L2 | forced evaluation: the agent must answer YES or NO per matched tool ("none needed" is allowed) | paraphrases |
 | L3 | regex fast path: file types, tool names, commands | exact cases |
-| L4 | gates for rules with no exception | "skipped it and did it anyway" |
+| L4 | gates (PreToolUse deny) and stop rules (Stop block, once per session) | "skipped it and did it anyway", skills never used |
 | L5 | subagents get the table at start | subagent misses |
 | L6 | skill descriptions: triggers first, Romanian and Russian phrases | non-English prompts |
 | L7 | evals, miss log, `ai-doctor` | silent regressions |
 
 A miss (a rule fired and the matching tool was not used) is logged. It is never silent.
 
-### The five gates
+### Gates and stop rules
 
-A gate blocks a step until its condition holds.
+A gate blocks a step until its condition holds. A stop rule blocks the end of a turn until a skill ran.
 
 | Gate | Blocks | Until |
 |---|---|---|
@@ -204,9 +220,28 @@ A gate blocks a step until its condition holds.
 | `secret-scan` | `git commit`, `git push` | the diff has no key, token, password or private key |
 | `no-destroy` | `rm -r` of the home folder, `/`, the repo root, `.git`, data folders or paths outside the repo; force push or delete of `main`/`master`; `git reset --hard` on main with changes; `git clean -x` at the root; `compose down -v`, `docker volume prune`; per repo (`.ai/destructive.txt`): SQL `DROP`/`TRUNCATE` on a protected database and extra command prefixes | never: the owner runs it. Rebuildable folders (`node_modules`, `.venv`, `dist`, `build` ...) and text that only names a command pass |
 | `pr-rules` | `gh pr create`, `gh pr edit`; `--fill` and `--web` | the body has a Mermaid block, the author-sessions block and the fields of the `pr` skill template (`Evidence`, `Door:`, `Blast Radius:`) plus `Docs:`, `Changed guards:` and `Ledger: R-NNN` on fix PRs, no placeholder text, and a fix PR has a test file in its diff. Over 400 changed lines: a warning |
+| `merge-approval` | `gh pr merge`, `git push` to `main` or `master` | the owner's latest message says merge or approve |
+| `no-verify` | `git commit` or `git push` with `--no-verify` (or `commit -n`) | never: fix what the git hook reports |
+| `writing-for-agents` | Edit, Write, MultiEdit, `apply_patch` or a shell write (`>`, `>>`, `tee`, `sed -i`, `cp`, `mv`) of `AGENTS.md`, `CLAUDE.md`, `CLAUDE.local.md` or a `SKILL.md` | the session has a proof of the `writing-for-agents` skill (a Skill call, a typed `/name` or a read of its SKILL.md). Not seen: `python -c`, `perl -i`, a script file |
+| `ship` | `gh pr ready` | the `ship` skill ran in this session |
+| `gh-write` | every `gh` write except the PR commands (issue create or comment, repo edit, release, label, `gh api` with a write method or fields, unknown subcommands) | the owner says yes (Codex: denied with a message). `gh` reads pass. `gh pr create`, `edit`, `ready`, `merge` keep their own gates |
+| `winner-gate` | a Skill call of a skill that loses in the `winners` table of `ai/routing.yaml` (for example `oh-my-claudecode:tdd`, `:plan`, `:execute`, `:research`, `:review`, `:pr`, `:wiki`, `:release`) | never: the deny names the winner. A typed `/name` never reaches the Skill tool, so the owner's choice always runs. `autopilot`, `ralph`, `team` and `ultragoal` unlock the losers for the rest of the session. Codex: a shell read of a losing skill file is denied the same way |
+| graph-first (rule `nav-first`) | the first broad search of a session (`rg`, `grep -r`, `find -name`, the Grep tool) in a repo with a graph | one deny with "run graphify query first"; the next search passes. A session that already used graphify or a Serena tool passes |
 | `no-sudo` | `sudo`, `su`, `doas`, `pkexec`, `sudoedit`, `run0` at a command position (also inside `bash -c`, behind `env`, `nice`, `timeout`) | never: the agent gives the owner the exact command. This includes `sudo proj-agent`. Box work: the box tool (MCP server `box`: list, new, exec, logs, status, restart, ports, url, snapshot, doctor, help); outside a sandbox also plain `proj-agent <subcommand>`; never sudo (`proj-agent` is the root-owned `/usr/local/sbin/proj-agent`) |
 
-Gates catch honest mistakes. They are not a sandbox against a hostile agent: the OS sandbox and the box are (see [docs/SECURITY.md](docs/SECURITY.md)). Escape hatch, owner only: `sudo ai-gate-skip <gate> <minutes max 60> <why>` (root-owned `/usr/local/sbin/ai-gate-skip` on Linux installs). It writes the root-owned `/etc/ai/gate-skip`; the gate lets the step through until it expires, and each pass is logged to `~/.local/state/ai/gates.log`. `AI_GATE_SKIP=...` inside a command does nothing any more (an agent could type it). Details and known limits: `ai/marketplace/plugins/ai-core/hooks/README.md`.
+On profile `dev-mac` the rows `audit-before-install`, `no-sudo` and `no-destroy` are not rendered, and the `stop-check` hook is off (profile `server` only).
+
+Stop rules (strength `stop`): the prompt arms the rule, and the next Stop is blocked once per session when the skill was not used.
+
+| Stop rule | Armed by | Until |
+|---|---|---|
+| `diagnosing-bugs` | a bug or performance prompt (slow, performance, broken, debug, crash, regression; Romanian and Russian forms) | the `diagnosing-bugs` skill ran |
+| `tdd` | a tests-first prompt (tests first, tdd, red-green; Romanian and Russian forms) | Matt's `tdd` skill ran (the OMC `tdd` is no proof) |
+| `stop-check` (separate hook) | files changed in the session | the project `check-fast` is green |
+
+A vendor copy (`oh-my-claudecode:x`, `oh-my-codex:x`) is never a proof for `x`. Each block is a row in `misses.jsonl`; `ai-doctor` shows them over 30 days.
+
+Gates catch honest mistakes. They are not a sandbox against a hostile agent: the OS sandbox and the box are (see [docs/SECURITY.md](docs/SECURITY.md)). Escape hatch, owner only: `sudo ai-gate-skip <gate> <minutes max 60> <why>` (root-owned `/usr/local/sbin/ai-gate-skip` on Linux installs). The gate name is the rule id, or `winner-gate`, or `nav-first`. It writes the root-owned `/etc/ai/gate-skip`; the gate lets the step through until it expires, and each pass is logged to `~/.local/state/ai/gates.log`. `AI_GATE_SKIP=...` inside a command does nothing any more (an agent could type it). Details and known limits: `ai/marketplace/plugins/ai-core/hooks/README.md`.
 
 ## 2. Install
 
@@ -224,7 +259,7 @@ git -C ~/.dotfiles worktree add ~/.dotfiles-ai ai
 ```
 3. As the ADMIN user, from a root-owned clone in `/opt/ai-setup` (owner decision: root never runs code from the agent's home). `--update` fetches and fast-forwards that clone (it refuses a dirty clone or rewritten history), then runs the updated script. Dry run first, read the output:
 ```
-sudo git clone --branch ai https://github.com/btc-fan/.dotfiles.git /opt/ai-setup   # once
+sudo git clone --branch ai https://github.com/<owner>/.dotfiles.git /opt/ai-setup   # once
 sudo /opt/ai-setup/install.sh --update --for-user <user> --dry-run                   # read it
 sudo /opt/ai-setup/install.sh --update --for-user <user>                             # install, and every update
 ```
@@ -406,6 +441,21 @@ Spot checks:
 - `claude mcp list` shows context7, box and serena connected (Playwright only inside projects that turned it on).
 - `rtk gain --history` grows after you run `git status` in a session.
 - The full acceptance run for a server: [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md).
+
+### Owner checklist (after the enforcement round)
+
+Run these on each machine.
+1. `git -C ~/.dotfiles-ai log --oneline -1` shows the installed `ai` commit. `~/.dotfiles-ai/ai/bin/ai-doctor --quick | tail -1` ends with 0 fail.
+2. `grep -E "^\| (tdd|ship|writing-for-agents|diagnosing-bugs|gh-write) " ~/.config/ai/AGENTS.md` shows 5 rows.
+3. `cat ~/.claude/CLAUDE.md` is the short form. `grep -o rtk-hook ~/.claude/settings.json` finds the wrapper. The ai-serena plugin `.mcp.json` has `alwaysLoad`.
+4. In an adopted repo: `make check-fast` is green, and `grep -c '^no-stop-check' .ai/enabled` is 0.
+5. In a fresh session:
+   - The skill card shows at the start.
+   - "write this down in AGENTS.md" loads `writing-for-agents` first.
+   - "investigate why X is slow" uses `diagnosing-bugs`.
+   - "write tests first" uses `tdd` (`oh-my-claudecode:tdd` is denied).
+   - "ship it" runs `ship` before `gh pr ready`.
+   - "create a GitHub issue" asks first.
 
 To see that a tool really fires, read the logs in `~/.local/state/ai/` ([docs/CONTEXT.md](docs/CONTEXT.md)).
 
