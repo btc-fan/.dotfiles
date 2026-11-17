@@ -418,7 +418,7 @@ Where Codex looks: `~/.agents/skills/` (global) and `<repo>/.agents/skills/` (pr
 |---|---|---|
 | Global, every repo | Matt: grilling, grill-me, wait-what, writing-for-agents, retro, ask-matt. Ours: skills-guide, prompting-claude-and-codex, create-verification-skill, maintain-verification-skill | install.sh |
 | Plugins, global | ai-core (router, context7 MCP, prompting-claude-and-codex), ai-serena (Serena MCP), ponytail (6 skills), i-have-adhd, oh-my-claudecode (35 skills, 19 agents) | install.sh |
-| Global flow skills (ours) | ship, release, promote-skill, upgrade-review, setup-rollout (section 15) | install.sh |
+| Global flow skills (ours) | ship, release, promote-skill, upgrade-review, setup-rollout (section 15) | install.sh; a new one: `git pull` (ai-sync links it) |
 | Project default (every project) | grill-with-docs, domain-modeling, to-spec, to-tickets, tdd, pr, diagnosing-bugs, improve-codebase-architecture, implement, research, handoff, wayfinder, prototype. Callees linked with them: codebase-design, code-review | `skills:` line in `.ai/enabled` |
 | Project opt-in | implement-spec, triage, wizard, to-questionnaire, teach, setup-matt-pocock-skills | `ai-adopt --skills <full list>` |
 | Plugin, on in every project | ui-ux-pro-max (`no-ui` in `.ai/enabled` turns it off) | `ai-adopt` |
@@ -571,6 +571,10 @@ ai-sync --dry-run             print what would change
 ```
 
 Use it after you edit a rule, or after a `git pull` when you do not want a full install.
+
+It also links each skill in `ai/skills` into `~/.claude/skills` and `~/.agents/skills` (only folders that
+install.sh made; a real folder that is not ours stays). So a new skill arrives with `git pull`: no install.sh run.
+It prints only the links that changed. A link that fails gives a warning; the rules refresh goes on (R-007).
 
 ### 6.3 ai-info: what is on this machine
 
@@ -1908,7 +1912,7 @@ Result on 2026-11-17 (after the enforcement round): 14 suites, all 0 failed; the
 | `test_setup.py` | 31 | Codex trust, permissions, env, hooks, gate skips, the managed router |
 | `test_m3.py` | 21 | owner decisions of 2026-11-14 (drops, off-by-default plugins, Serena take over, rtk) |
 | `test_knowledge.py` | 15 | the Map, the Libraries block, the .gitignore block, opt-in plugins |
-| `test_commands.py` | 14 | ai-start, ai-sync, hooks files, no em dash, router speed |
+| `test_commands.py` | 16 | ai-start, ai-sync (rules copies, skill links), hooks files, no em dash, router speed |
 | `test_profiles.py` | 7 | dev-mac and server render and install plans (fixtures) |
 | `test_info.py` | 6 | ai-info output |
 | `test_eval.py` | 11 | `ai-eval`: fixtures, the install level on fake binaries, the stream scorer, `behaviour --dry`, the case files |
