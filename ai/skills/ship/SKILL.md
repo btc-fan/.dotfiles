@@ -32,5 +32,6 @@ Do not merge. The owner merges, or tells you "merge" (the merge-approval gate ch
 
 ## After the owner says merge
 
-`gh pr merge <n> --squash --delete-branch`, then `git switch main && git pull`. The next session start asks for
+`gh pr merge <n> --squash --delete-branch`, then `git switch main && git pull --prune`. Remove the branch's worktree
+(`git worktree remove <path>`) and any local branch that is left (`git branch -D <branch>`). The next session start asks for
 `/improve-codebase-architecture` and `/retro` (merge-review rule).
