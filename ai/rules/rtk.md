@@ -15,7 +15,7 @@ The owner block A.4 is the source text. It sits in `ai/agents-md/20-rtk.md`. Ven
 - The agent does not call `rtk` itself. The hook rewrites. Manual use only for `rtk gain`, `rtk gain --history`, `rtk discover`, `rtk bypass <cmd>`, `rtk pipeline explain`.
 - Not for built-in Read, Grep, Glob. `uv run` is not rewritten: in a project that needs it, type `uv run rtk pytest` by hand.
 - Use `rtk bypass` for debugging and always for security tools (agent-audit, gitleaks, osv-scanner), so findings are not truncated.
-- Mac: the owner turned the hook off. Never turn it on silently. Ask. Macs are out of scope now.
+- macOS: the hook is on, as on Linux. install.sh writes the Claude wrapper `hooks/rtk-hook` into `~/.claude/settings.json` (setup step 3). In Claude auto mode the wrapper does nothing, so a command there is not rewritten.
 
 ## Enforcement
 - L0: block A.4. L1 to L3: none. L4: RTK's own pipeline gate (run `rtk pipeline explain` when refused).
