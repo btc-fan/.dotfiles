@@ -50,17 +50,40 @@ Note: plugin skills cannot be hidden one by one. Think about the context cost.
 
 ## 4. Add a routing rule
 
-1. First ask: would one line in the root AGENTS.md or the project Map do? Passive context beats nudges, and v4 removed the nudges the logs showed ignored. A new nudge must show in `fired.jsonl` and `misses.jsonl` that it is followed. Then edit `ai/routing.yaml`. Fields: `id`, `scope` (global or opt-in), `trigger` (prompt regex, tool, command, paths, state), `action` (one short sentence), `strength` (nudge or gate).
-2. Use a gate only for a rule with no exception. Its escape hatch is the owner-only `sudo ai-gate-skip <gate> <minutes> <why>`; never an in-command variable an agent could type.
+1. First ask: would one line in the root AGENTS.md or the project Map do? Passive context beats nudges, and v4 removed the nudges the logs showed ignored. A new nudge must show in `fired.jsonl` and `misses.jsonl` that it is followed. Then edit `ai/routing.yaml`. Fields: `id`, `scope` (global or opt-in), `trigger` (prompt regex, tool, command, paths, state), `action` (one short sentence), `strength` (nudge, gate or stop).
+2. Use a gate only for a rule with no exception. Its escape hatch is the owner-only `sudo ai-gate-skip <gate> <minutes> <why>`; never an in-command variable an agent could type. Every new deny path must honour that escape hatch: in `router.py`, ask `owner_skip(ctx, <gate name>, <what>)` (it reads `ctx.skips`) just before the deny, and deny only when it returns false. A deny path without it cannot be skipped by the owner, and a test case should prove the skip works.
 3. A rule that overlaps another: add a row to `tiebreaks`.
 4. Keep regexes strict. A loose prompt regex fires on unrelated prompts.
 5. Run `ai-render`. It rebuilds `routing.json` and the L0 table. Check the root file size (under 30 KB). On other machines, `git pull` plus `ai-sync` delivers it (see [AGENTS-MD.md](AGENTS-MD.md)).
 6. Add evals: one should-fire and one should-not-fire prompt for the rule.
 7. Reinstall. `ai-doctor`. Look at `~/.local/state/ai/misses.jsonl` after a few days.
 
+### 4.1 Add a skill rule (require_skill: a gate or a stop rule)
+
+Use this when an agent must use a skill at a given moment. Text in AGENTS.md is advice; this is a mechanism.
+
+1. Put the skill in `skills.must_use` of `ai/routing.yaml` with one trigger line (`{name, when}`). `require_skill` accepts only a name from that list. A skill the model cannot call (`disable-model-invocation`) goes into `typed_only`; it cannot be a `require_skill` target. Check the card size: `ai-render` fails above 1500 characters.
+2. Add the rule row with `require_skill: <name>` and one of two strengths:
+   - `strength: gate`: a PreToolUse deny. The trigger names the tool and a `command` regex or `paths` glob (example: `ship` triggers on `gh pr ready`; `writing-for-agents` triggers on the agent doc files, also for a shell write). The deny passes when the session has a proof of the skill.
+   - `strength: stop`: the `prompt` regex arms the rule. The next Stop gets `{"decision": "block"}` when the skill was not used. It blocks once per session per rule. Write the regex for English, Romanian and Russian, and keep it strict.
+3. A proof is a Skill call, a typed `/name`, or a read of that skill's `SKILL.md` from a skill install folder. A vendor copy (`oh-my-claudecode:x`) is never a proof for `x`.
+4. The deny path must honour `ctx.skips` (section 4, step 2). The skip name is the rule id.
+5. Add router cases in `ai/tests/cases/<rule id>.json`: a block row, an allow row after the skill proof, a skip row, and rows for Claude and Codex. Add eval cases (section 6): English, Romanian, Russian, a vague ("hard") prompt and a should-not-fire prompt.
+6. `ai-render`, `bash ai/tests/run.sh`, then `ai-eval behaviour --dry` and a real run of the new cases. Write the contract file (section 5) with the proof and the known limits.
+
+### 4.2 Add a winner row
+
+The `winners:` block of `ai/routing.yaml` is the overlap table of `ai/skills/skills-guide/SKILL.md`, section 5, as data.
+
+1. Add a row `{job, use, losers: [...]}` in `winners.table`. `use` is the winner. `losers` are the skill names the Skill tool would get (`oh-my-claudecode:x`, `oh-my-codex:x`). A job with no loser has `losers: []`.
+2. Add the same row to the table in section 5 of the skills guide. `ai/tests/test_commands.py` fails when the two tables differ.
+3. A skill that calls other skills inside goes to `winners.orchestration`: it passes the gate, and after it ran the losers pass for the session. A skill that only helps (`ask`, `babysit`, `fix-ci`, `cancel`) is in neither list: it passes and unlocks nothing.
+4. The deny names the winner. When the winner is typed-only, it also gives the `SKILL.md` path to read.
+5. Add a router case in `ai/tests/cases/_winners.json` for the Skill call of the loser (deny) and for the winner (pass). The skip name is `winner-gate`. Card cases are in `_skill-card.json`, proof cases in `_proof.json`.
+
 ## 5. Write a usage contract
 
-File `ai/rules/<tool>.md`. Sections, in order:
+File `ai/rules/<tool>.md` (for a rule of the router, `<rule id>.md`). Sections, in order:
 1. Vendor rules: the tool's own recommended rules text, verbatim, with the version you read it at and the source link. If the vendor has none, say "NOT FOUND". Never paraphrase a block marked verbatim. Long text goes in `ai/rules/vendor/` as a byte copy. Replace U+2014 with "-" and say so.
 2. When / when not.
 3. Enforcement: which layers (L0 to L7) apply, the exact trigger, what the tool enforces itself.
@@ -72,7 +95,16 @@ Only if every agent needs it in every session: one short line in `ai/agents-md/9
 
 ## 6. Add evals
 
-1. Put one JSON case file per prompt in `ai/evals/cases/`: `<tool>.json` (English), `<tool>-ro.json`, `<tool>-ru.json` (should fire), and `<tool>-not.json` (should not fire). Form: `{"id", "fixture", "prompt", "expect"}`. A fire case expects `skills`, `tools` (regex) or `rules`. A should-not-fire case has only `not_skills`, `not_tools` or `not_rules`. `ai/bin/ai-eval behaviour` runs the cases; `ai/tests/test_eval.py` checks the files. A manual prompt list `ai/evals/<tool>.md` (tool | FIRE (EN ; RO ; RU) | NOT (a ; b) | signal) is only for a signal that ai-eval cannot see.
+1. Put one JSON case file per prompt in `ai/evals/cases/`: `<tool>.json` (English), `<tool>-ro.json`, `<tool>-ru.json` (should fire), and `<tool>-not.json` (should not fire). A vague prompt that real sessions used ("wrap it up for review") goes into a `hard-<name>.json` file. Form: `{"id", "fixture", "prompt", "expect"}`. A fire case expects `skills`, `tools` (regex) or `rules`. A should-not-fire case has only `not_skills`, `not_tools` or `not_rules`. Example:
+   ```json
+   {
+     "id": "hard-ship",
+     "fixture": "app",
+     "prompt": "ok this is good, wrap it up for review",
+     "expect": {"skills": ["ship"]}
+   }
+   ```
+   `fixture` is `empty-git`, `docs-only`, `no-git`, `app` or `project-copy`. `tools` entries are regexes over `Name {input json}`. `id` equals the file name without `.json`. `ai/bin/ai-eval behaviour` runs the cases; `ai/tests/test_eval.py` checks the files. A manual prompt list `ai/evals/<tool>.md` (tool | FIRE (EN ; RO ; RU) | NOT (a ; b) | signal) is only for a signal that ai-eval cannot see.
 2. Pass bar: all fire cases fire, no NOT case fires.
 3. Run method and the full case format: `ai/evals/HOWTO.md`.
 4. Re-run on every model change, and when a new release of the tool changes its rules text or triggers.
