@@ -20,3 +20,4 @@
 - [x] ai-adopt writes the check-fast seconds and the ai-libs rows into AGENTS.md after its commit (found 2026-11-17)
 - [x] An ai-adopt rerun replaced the managed Makefile block and dropped an owner flag on a command line (found 2026-11-17)
 - [x] The OMC note in ~/.claude/CLAUDE.md on every OMC wiring (plugin and npm CLI): the root rules step already writes it since the last merge; a test pins both wirings (2026-11-17)
+- [x] ai-doctor FAILs the bare RTK hook when the owner switch says off (found 2026-11-17)

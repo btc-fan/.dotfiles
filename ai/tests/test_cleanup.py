@@ -34,7 +34,7 @@ def main():
     work = tempfile.mkdtemp(prefix="ai-cleanup-tests-")
     saved = {k: os.environ.get(k) for k in m3.ENV_KEYS}
     try:
-        for test in (t_rtk_wrapper, t_rtk_install, t_rtk_managed, t_claude_md_short, t_claude_md_owner_text, t_claude_md_short_any_wiring,
+        for test in (t_rtk_wrapper, t_rtk_install, t_rtk_managed, t_claude_md_short, t_claude_md_owner_text, t_claude_md_short_any_wiring, t_rtk_off_doctor_bare_hook,
                      t_rtk_off_install, t_rtk_off_doctor,
                      t_doctor_checks, t_doctor_owner_text):
             for k, v in saved.items():
@@ -197,6 +197,24 @@ def t_rtk_off_doctor(work):
     m3.write(os.path.join(home, ".config", "ai", "rtk-hook"), "off\n")
     assert line_of(doctor_out(env), "RTK hook").startswith("PASS"), doctor_out(env)
     assert "manual rtk" in line_of(doctor_out(env), "RTK hook")
+
+
+def t_rtk_off_doctor_bare_hook(work):
+    """QA 2026-11-17: the switch is off and the owner's own bare `rtk hook claude` stays (the installer removes
+    nothing then): ai-doctor said FAIL. The switch wins, from the file (first line) or from AI_RTK_HOOK=off."""
+    env, home, bindir = m3.claude_env(work)
+    m3.write(os.path.join(home, ".claude", "settings.json"), json.dumps({"hooks": {"PreToolUse": [
+        {"matcher": "Bash", "hooks": [{"type": "command", "command": "rtk hook claude"}]}]}}))
+    assert line_of(doctor_out(env), "RTK hook").startswith("FAIL"), "control: no switch, bare hook"
+    m3.write(os.path.join(home, ".config", "ai", "rtk-hook"), "off\n# manual rtk, OMC hooks conflict\n")
+    assert line_of(doctor_out(env), "RTK hook").startswith("PASS"), doctor_out(env)
+    os.remove(os.path.join(home, ".config", "ai", "rtk-hook"))
+    os.environ["AI_RTK_HOOK"] = "off"
+    try:
+        out = doctor_out(env)
+    finally:
+        del os.environ["AI_RTK_HOOK"]
+    assert line_of(out, "RTK hook").startswith("PASS"), out
 
 
 def t_doctor_checks(work):
