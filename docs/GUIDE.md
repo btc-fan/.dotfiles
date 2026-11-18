@@ -350,9 +350,11 @@ PASS` and `db_writes: no` (contract: `ai/rules/verification-skill.md`).
 - Commit gate (`ai-precommit`, every writer: Claude, Codex, subagents, the shell, you): in a project with a verify
   skill, a staged `def test_...(` (Python) or `test(` / `it(` in a JS or TS spec file needs a valid run that finished
   after HEAD's commit time. Edits and deletions of tests pass. Each refusal is a `verify-commit` line in the wall log.
+- PR gate (`pr-rules`, hook 4): a PR with app code needs a valid run at the PR head. `gh pr edit <N>` and `gh pr
+  ready <N>` read that head from `gh pr view <N>`. Each verify refusal is a `verify-pr` line in the wall log.
 
 **The escape hatch.** Every deny path honours it: `sudo ai-gate-skip <gate> <minutes max 60> <why>`. The gate name is
-the rule id, `winner-gate`, `nav-first`, `verify-tool-exists` or `verify-tool-used`. The agent has no sudo, so it cannot skip a gate itself.
+the rule id, `winner-gate`, `nav-first`, `verify-tool-exists`, `verify-tool-used` or `verify-commit` (the commit gate). The agent has no sudo, so it cannot skip a gate itself.
 
 **Known limits.**
 - The winner gate on the Skill tool is Claude only. Codex gets the file-read form.
@@ -783,9 +785,11 @@ Only the owner can let it through, by running the command himself. Do not try to
 
 The agent must stop and tell you. If the hit is a false alarm, you run the commit yourself.
 
-Since ticket 11 (2026-11-18) fewer false alarms reach you. In a test fixture path (`tests/`, `fixtures/`,
-`conftest.py`, `.env.example`) only a real key shape blocks, for example a `ghp_` token with real length and
-entropy. A fake test password such as `adminpass123` passes there. A merge commit does not scan content
+Since ticket 11 (2026-11-18) fewer false alarms reach you. In test code (`tests/`, `fixtures/`, `conftest.py`)
+only a real key shape blocks, for example a `ghp_` token with real length and entropy. A fake test password such
+as `adminpass123` passes there. Config and sample files (`.env.example`, `*.sample`, a `.yml` or `.properties`
+file in a test folder) keep every rule: there only a value with a clear fake marker (`test`, `fake`, `changeme`,
+`xxx`, ...) passes. A merge commit does not scan content
 that is already on the default branch again. The same key shapes in app code still block. Profile dev-mac
 installs gitleaks (pinned version), and the gate runs it next to its own patterns.
 

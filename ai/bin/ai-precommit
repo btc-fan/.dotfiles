@@ -19,7 +19,8 @@ Verify gate (verify-enforcement 04): in a project with a verify-<app> skill, a c
 (Python `def test_...(`; `test(` or `it(` in a JS or TS spec file) needs a valid run.log in .verify/evidence/ of
 this checkout (a linked worktree: its own) that finished after HEAD's commit time. A refusal names the verify
 skill and its steps, and writes a line to walls.jsonl (wall verify-commit). Edits and deletions of tests pass.
-Agents never skip it (git commit --no-verify is blocked for agents by the no-verify gate).
+Agents never skip it (git commit --no-verify is blocked for agents by the no-verify gate). The owner can:
+sudo ai-gate-skip verify-commit <minutes> <why> (only the root-owned /etc/ai/gate-skip counts; logged in gates.log).
 """
 import os
 import re
@@ -31,7 +32,8 @@ import time
 BIN = os.path.dirname(os.path.realpath(__file__))
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(os.path.dirname(BIN), "marketplace", "plugins", "ai-core", "hooks"))
-from hooklib import log_wall, verify_proof, verify_skill, verify_steps  # noqa: E402
+from hooklib import (gate_skips, iso_now, log_line, log_wall, redact, verify_proof, verify_skill,  # noqa: E402
+                     verify_steps)
 
 GROUPS = [
     # (extensions, [(label, argv builder, fix hint)])
@@ -54,6 +56,11 @@ def main(argv):
     if not files:
         return 0
     refusal = verify_gate(root)
+    skip = gate_skips(env_ok=False)[0].get("verify-commit") if refusal else None
+    if skip is not None:        # the git env comes from the agent's command: only the root-owned file counts
+        log_line("gates.log", "%s SKIP verify-commit dir=%s reason=%s" % (iso_now(), root, redact(skip)))
+        print("ai-precommit: the verify gate was skipped by the owner (/etc/ai/gate-skip, logged): %s" % skip)
+        refusal = ""
     failed, skipped = [], []
     for exts, kind in GROUPS:
         group = [f for f in files if f.lower().endswith(exts)]

@@ -84,7 +84,13 @@ def t_parallel_sessions(work):
     assert argv["empty"][argv["empty"].index("--max-turns") + 1] == "120", argv["empty"]
     assert extra in argv["empty"] and extra not in argv["docs-only"], argv
     assert "Bash" in argv["empty"] and "Bash" not in argv["docs-only"], argv
+    # review T3: `verify evidence` judges run.log with the hooks' parser (hooklib.verify_runs) and its reason
+    res = subprocess.run([helper, "evidence"], env=env, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         text=True, timeout=60)
+    assert res.returncode == 1 and "NOT proof: missing db_writes, finished" in res.stdout, res.stdout
     run(env, root, helper, "cleanup")
+    out = run(env, root, helper, "evidence")
+    assert "run.log: proof" in out, out
 
 
 def checkout_copy(work):

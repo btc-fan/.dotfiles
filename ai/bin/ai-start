@@ -281,14 +281,22 @@ ENABLED_GENERATED = ownertext.GENERATED[".ai/enabled"]
 
 def old_adopt_branch(root, mode, dry_run):
     """On main with an ai-adopt branch left from an earlier run (local or on origin; ticket 16, ScripTube: the
-    remote branch of merged PR #22). Its PR merged: delete the branch (local and remote), start fresh. Its PR open:
-    switch to it, the commit goes there. Else (no gh, no PR, closed): stop before any write. False = stop."""
+    remote branch of merged PR #22). Its PR merged and every tip of the branch is the PR head (headRefOid): delete
+    the branch (local and remote), start fresh. Its PR open: switch to it, the commit goes there. Else (no gh, no PR,
+    closed, or a tip with commits the merged PR does not have): stop before any write. False = stop."""
     local = git(root, "rev-parse", "-q", "--verify", "refs/heads/" + ADOPT_BRANCH)
     remote = has_remote(root) and git(root, "ls-remote", "--heads", "origin", ADOPT_BRANCH)
     if not (local or remote):
         return True
-    state = has_remote(root) and (cmd_out(["gh", "pr", "view", ADOPT_BRANCH, "--json", "state", "-q", ".state"],
-                                          cwd=root) or "").strip()
+    try:
+        pr = has_remote(root) and json.loads(cmd_out(["gh", "pr", "view", ADOPT_BRANCH, "--json", "state,headRefOid"],
+                                                     cwd=root) or "{}") or {}
+    except ValueError:
+        pr = {}
+    state = str(pr.get("state") or "")
+    tips = ([local.strip()] if local else []) + ([remote.split()[0]] if remote else [])
+    if state == "MERGED" and any(t != pr.get("headRefOid") for t in tips):     # review S5: never delete new commits
+        state = "MERGED, but a branch tip is not the PR head %s" % str(pr.get("headRefOid") or "?")[:12]
     if state == "MERGED":
         print("ai-%s: the PR of the branch %s is merged: the old branch is deleted, a new one starts from main"
               % (mode, ADOPT_BRANCH))
@@ -303,7 +311,7 @@ def old_adopt_branch(root, mode, dry_run):
             ([["merge", "-q", "--ff-only", track]] if local and remote else [])
     else:
         print("ai-%s: nothing written: you are on main and the branch %s exists (%s), but the state of its PR is "
-              "unknown (`gh pr view %s --json state`: %s). If the PR is merged, delete the branch:\n"
+              "unknown (`gh pr view %s --json state,headRefOid`: %s). If the PR is merged, delete the branch:\n"
               "  git branch -D %s; git push origin --delete %s\n"
               "If the PR is open, switch to it (git switch %s). Then run again."
               % (mode, ADOPT_BRANCH, " and ".join(w for w, ok in (("local", local), ("on origin", remote)) if ok),

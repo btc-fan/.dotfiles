@@ -64,7 +64,7 @@ The feature map in [features/README.md](features/README.md) gives the recipe per
 - Folder: `<checkout>/.verify/evidence/<run>/` (gitignored). `<run>` is the UTC start time and the label.
 - `run.log`: the helper writes `commit:` at launch, `doctor:` at doctor, `db_writes: no` and `finished:` at cleanup. Never edit it by hand. This tool has no database: `db_writes` is always `no`.
 - One file per drive: `NN-hook.txt`, `NN-cli.txt`, `NN-install-<profile>.txt`, `NN-merge.txt`, `NN-session.txt` with `NN-session-stream.jsonl` and `NN-session-state/fired.jsonl`. `state.json` has the fixture paths and the guard hashes. `guard.txt` has the guard result.
-- `$H evidence` lists the folder and says whether `run.log` is proof (4 lines, `doctor: PASS`, `db_writes: no`).
+- `$H evidence` lists the folder of the current run (after cleanup: the newest run) and says whether `run.log` is proof. It reads `run.log` with the hooks' parser (`hooklib.verify_runs`): `commit`, `doctor: PASS`, `db_writes: no`, `finished`.
 - Proof standard: drive the real entry point (a hook payload or a real session, the real CLI, the real installer). Show the action and the end state: the decision and the remote refs for a gate, `git status` and the fixture files for a CLI, the planned lines and the untouched real files for the installer.
 
 ## Cleanup

@@ -351,8 +351,10 @@ def t_adopt_branch_exists_main_clean(work):
 def t_adopt_old_branch(work):
     """Ticket 16 (ScripTube: remote ai-adopt 31a87c00 of merged PR #22): on main with an ai-adopt branch left,
     a merged PR means delete it (local and remote) and start fresh; an open PR means add the commit to it; an
-    unknown state (gh fails, no PR) means stop before any write and name the commands. gh is a fake on PATH."""
-    def setup(name, state, local):
+    unknown state (gh fails, no PR) means stop before any write and name the commands. gh is a fake on PATH.
+    Review S5: a merged PR deletes the branch only when its local and remote tips are the PR head (headRefOid);
+    a commit added after the merge stops before any write."""
+    def setup(name, state, local, head=None):
         repo, env = adopt_repo(work, name, {".ai/enabled": "no-serena\nno-graph\n"})
         run(["git", "-C", repo, "branch", "-M", "main"])
         origin = os.path.join(work, "someone", name + ".git")      # owner "someone" (AI_GITHUB_OWNERS)
@@ -369,8 +371,10 @@ def t_adopt_old_branch(work):
         if not local:
             run(["git", "-C", repo, "branch", "-q", "-D", "ai-adopt"])
         fake = env["PATH"].split(os.pathsep)[0]
-        write(os.path.join(fake, "gh"), '#!/bin/sh\n[ "$*" = "pr view ai-adopt --json state -q .state" ] || exit 1\n'
-              + ('echo %s\n' % state if state else 'echo "no pull requests found" >&2; exit 1\n'))
+        answer = ('[ "$*" = "pr view ai-adopt --json state,headRefOid" ] || exit 1\n'
+                  'echo \'{"state": "%s", "headRefOid": "%s"}\'\n' % (state, head or old)) if state \
+            else 'echo "no pull requests found" >&2; exit 1\n'
+        write(os.path.join(fake, "gh"), '#!/bin/sh\n' + answer)
         os.chmod(os.path.join(fake, "gh"), 0o755)
         return repo, env, origin, old
 
@@ -388,6 +392,13 @@ def t_adopt_old_branch(work):
     res = adopt(repo, env)
     assert res.returncode == 0, res.stdout
     assert rev(repo, "ai-adopt~1") == old and rev(origin, "ai-adopt") == rev(repo, "ai-adopt"), res.stdout
+
+    for name, local in (("old-merged-moved", True), ("old-merged-remote-moved", False)):
+        repo, env, origin, old = setup(name, "MERGED", local=local, head="0" * 40)    # the PR head is another commit
+        res = adopt(repo, env)
+        assert res.returncode == 1 and "git push origin --delete ai-adopt" in res.stdout, res.stdout
+        assert "write " not in res.stdout and rev(origin, "ai-adopt") == old, res.stdout
+        assert not local or rev(repo, "ai-adopt") == old, "the local branch was deleted: " + res.stdout
 
     repo, env, origin, old = setup("old-unknown", None, local=False)
     res = adopt(repo, env)

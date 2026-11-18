@@ -39,7 +39,7 @@ def main():
                      t_claude_dir_same_version, t_claude_fresh_install_checked, t_claude_own_replace_rollback,
                      t_claude_plugin_rejected_newest,
                      t_codex_plugin_refresh, t_bash_mattpocock_optin, t_bash_pstack, t_audit_accept_by_commit, t_uv_tool_normalized, t_scanners,
-                     t_osv_scanner, t_herdr, t_src_swap_and_dry_sha, t_playwright_keep_only,
+                     t_osv_scanner, t_gitleaks_pin, t_herdr, t_src_swap_and_dry_sha, t_playwright_keep_only,
                      t_playwright_profile_audit):
             for k in ENV_KEYS:
                 os.environ.pop(k, None)
@@ -367,6 +367,8 @@ def t_pins_file(work):
         assert t in specs and specs[t]["channel"] == "stable" and not specs[t]["hold"], t
     keys = [ln.split("=", 1)[0] for ln in text.splitlines() if "=" in ln and not ln.startswith("#")]
     for k in keys:
+        if k.startswith("GITLEAKS_SHA256_") and "GITLEAKS_HOLD" in keys:
+            continue        # review S6: the archive sha256 of the held gitleaks release, checked by tools_gitleaks
         assert not k.endswith(("_INTEGRITY", "_SHA", "_REF", "_TAG", "_COMMIT", "_COOLDOWN_DAYS", "_NOT_BEFORE")) \
             and "_SHA256" not in k, "exact pin left in pins.env: " + k
         assert not k.endswith("_VERSION") or k in ("SKILL_SCANNER_MACOS_LEGACY_VERSION", "PYYAML_VERSION"), k
@@ -783,6 +785,42 @@ def t_osv_scanner(work):
     write(os.path.join(work, "web", (base + asset).replace("/", "_")), binary + "# changed\n")
     code, out = bash(LIBS + "tools_osv_scanner", env)
     assert "sha256 differs" in out and not os.path.exists(inst), out
+
+
+def t_gitleaks_pin(work):
+    """Review S6: gitleaks installs only when the archive's sha256 is the one pinned in ai/pins.env
+    (GITLEAKS_SHA256_<OS>_<ARCH>, for GITLEAKS_HOLD), not only the one in the release's own checksums file."""
+    import io
+    import tarfile
+    asset = "gitleaks_8.30.1_darwin_%s.tar.gz" % ("x64" if os.uname().machine in ("x86_64", "amd64") else "arm64")
+    pin_var = "GITLEAKS_SHA256_DARWIN_%s" % ("X64" if "x64" in asset else "ARM64")
+    binary = b"#!/bin/sh\necho gitleaks version 8.30.1\n"
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        info = tarfile.TarInfo("gitleaks")
+        info.size, info.mode = len(binary), 0o755
+        tf.addfile(info, io.BytesIO(binary))
+    import hashlib
+    digest = hashlib.sha256(buf.getvalue()).hexdigest()
+    base = "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/"
+    sums = "gitleaks_8.30.1_checksums.txt"
+    rel = {"tag_name": "v8.30.1", "prerelease": False, "draft": False,
+           "assets": [{"name": sums, "browser_download_url": base + sums}]}
+    http = {"https://api.github.com/repos/gitleaks/gitleaks/releases?per_page=100": [rel],
+            "https://api.github.com/repos/gitleaks/gitleaks/releases/tags/v8.30.1": rel,
+            base + sums: "%s  %s\n" % (digest, asset)}
+    env, home, bindir = web_env(work, 'GITLEAKS_SOURCE="github gitleaks/gitleaks stable"\nGITLEAKS_HOLD=8.30.1\n',
+                                {}, http)
+    os.makedirs(os.path.join(work, "web"), exist_ok=True)
+    with open(os.path.join(work, "web", (base + asset).replace("/", "_")), "wb") as fh:
+        fh.write(buf.getvalue())
+    inst = os.path.join(home, ".local", "bin", "gitleaks")
+    code, out = bash(LIBS + '%s=%s; tools_gitleaks' % (pin_var, "0" * 64), env)
+    assert "differs from the pin" in out and not os.path.exists(inst), out
+    code, out = bash(LIBS + '%s=""; tools_gitleaks' % pin_var, env)
+    assert "no pinned sha256" in out and not os.path.exists(inst), out
+    code, out = bash(LIBS + '%s=%s; tools_gitleaks' % (pin_var, digest), env)
+    assert os.path.exists(inst) and "pinned sha256 checked" in out, out
 
 
 def t_herdr(work):
