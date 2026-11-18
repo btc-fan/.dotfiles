@@ -6,6 +6,7 @@
 
 - `precommit-python`: ruff check and ruff format --check on staged `.py` files.
 - `precommit-skip`: a linter that is not installed is skipped with a line, not a failure.
+- The verify gate (a commit that adds a test needs a fresh valid verify run) is in [verify-hooks.md](./verify-hooks.md).
 
 ## How to get to it (user POV)
 

@@ -1,0 +1,261 @@
+{
+ "rule": "verify-tool-exists",
+ "cases": [
+  {
+   "name": "app code changed (shell write, no turn baseline: HEAD), no verify skill: blocked",
+   "expect": "block",
+   "project": {
+    "git_init": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     ".gitignore": ".verify/\n",
+     "src/app.py": "def add(a, b):\n    return a + b\n"
+    },
+    "commit": "init",
+    "dirty": {
+     "src/app.py": "def add(a, b):\n    return b + a\n"
+    }
+   },
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false
+     }
+    }
+   ],
+   "contains": [
+    "[ai router: verify-tool-exists]",
+    "src/app.py",
+    "create-verification-skill"
+   ]
+  },
+  {
+   "name": "a subagent stop is blocked the same way",
+   "expect": "block",
+   "project": {
+    "git_init": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     ".gitignore": ".verify/\n",
+     "src/app.py": "def add(a, b):\n    return a + b\n"
+    },
+    "commit": "init",
+    "dirty": {
+     "src/new.py": "X = 1\n"
+    }
+   },
+   "steps": [
+    {
+     "event": "SubagentStop",
+     "payload": {
+      "stop_hook_active": false,
+      "agent_id": "a1",
+      "agent_type": "general-purpose"
+     }
+    }
+   ],
+   "contains": [
+    "src/new.py"
+   ]
+  },
+  {
+   "name": "codex Stop",
+   "expect": "block",
+   "agent": "codex",
+   "project": {
+    "git_init": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     ".gitignore": ".verify/\n",
+     "src/app.py": "def add(a, b):\n    return a + b\n"
+    },
+    "commit": "init",
+    "dirty": {
+     "src/app.py": "Y = 2\n"
+    }
+   },
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "turn_id": "t1"
+     }
+    }
+   ],
+   "contains": [
+    "verify-tool-exists"
+   ]
+  },
+  {
+   "name": "verify skill without a valid run: prove it once",
+   "expect": "block",
+   "project": {
+    "git_init": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     ".gitignore": ".verify/\n",
+     "src/app.py": "def add(a, b):\n    return a + b\n",
+     ".agents/skills/verify-app/SKILL.md": "---\nname: verify-app\n---\n\n## Launch\n\n```\n./verify launch\n```\n"
+    },
+    "commit": "init",
+    "dirty": {
+     "src/app.py": "Y = 2\n"
+    }
+   },
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false
+     }
+    }
+   ],
+   "contains": [
+    "verify-tool-exists",
+    "verify-app has no valid run yet",
+    "launch: ./verify launch"
+   ]
+  },
+  {
+   "name": "linked worktree: root from the agent's cwd",
+   "expect": "block",
+   "project": {
+    "git_init": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     ".gitignore": ".verify/\n",
+     "src/app.py": "def add(a, b):\n    return a + b\n"
+    },
+    "commit": "init",
+    "setup_sh": "git worktree add -q -b wt ../wt && echo 'Z = 3' > ../wt/src/z.py"
+   },
+   "steps": [
+    {
+     "event": "SubagentStop",
+     "payload": {
+      "stop_hook_active": false,
+      "agent_id": "a2",
+      "cwd": "{{PROJ}}/../wt"
+     }
+    }
+   ],
+   "contains": [
+    "/wt in this turn",
+    "src/z.py"
+   ]
+  },
+  {
+   "name": "docs-only change: no block",
+   "expect": "allow",
+   "project": {
+    "git_init": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     "README.md": "# x\n"
+    },
+    "commit": "init",
+    "dirty": {
+     "README.md": "# y\n"
+    }
+   },
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false
+     }
+    }
+   ],
+   "not_contains": [
+    "verify-tool"
+   ]
+  },
+  {
+   "name": "empty repo: no block",
+   "expect": "allow",
+   "project": {
+    "git_init": true,
+    "files": {
+     ".ai/enabled": "tier: long\n"
+    }
+   },
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "no app-code change in the turn: no block",
+   "expect": "allow",
+   "project": {
+    "git_init": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     ".gitignore": ".verify/\n",
+     "src/app.py": "def add(a, b):\n    return a + b\n"
+    },
+    "commit": "init"
+   },
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "not adopted (no .ai/enabled): no block",
+   "expect": "allow",
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/app.py": "X = 1\n"
+    },
+    "commit": "init",
+    "dirty": {
+     "src/app.py": "X = 2\n"
+    }
+   },
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "verify skill and one valid run after the change: the turn ends",
+   "expect": "allow",
+   "project": {
+    "git_init": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     ".gitignore": ".verify/\n",
+     "src/app.py": "def add(a, b):\n    return a + b\n",
+     ".agents/skills/verify-app/SKILL.md": "---\nname: verify-app\n---\n\n## Launch\n\n```\n./verify launch\n```\n",
+     ".verify/evidence/r1/run.log": "commit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\ndoctor: PASS\ndb_writes: no\nfinished: {{OLD}}\n"
+    },
+    "commit": "init",
+    "setup_sh": "echo 'X = 9' > src/app.py && touch -t 202001010000 src/app.py"
+   },
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -36,7 +36,7 @@ Each feature file has an H1, one paragraph, then `Sub-features`, `How to get to 
 8. [Skill card](./skill-card.md): the session start text.
 9. [Router gates](./router-gates.md): deny and pass, by payload and in a real session (merge-approval, gh, secret-scan, pr-rules).
 10. [Stop rules](./stop-rules.md): the turn end of a bug prompt.
-11. [Verify hooks](./verify-hooks.md): planned, tickets 02 to 05.
+11. [Verify hooks](./verify-hooks.md): the turn end, the commit and the PR need a valid verify run (hooks 1 to 4).
 12. [Dev worktree never syncs the live machine](./dev-worktree-no-sync.md): a git merge in a dotfiles dev worktree changes no live link.
 
 Then the flows in [../multi-surface-journeys.md](../multi-surface-journeys.md).

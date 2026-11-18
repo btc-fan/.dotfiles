@@ -4,9 +4,9 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Red: app code changed through a shell write in a linked worktree, no new log: blocked. This is the ScripTube regression.
-- [ ] Green: a valid log newer than the first change: the turn ends.
-- [ ] Invalid logs do not count: doctor FAIL, or a direct DB write in the run.
-- [ ] The stop loop limit still applies (no endless block).
+- [x] Red: app code changed through a shell write in a linked worktree, no new log: blocked. This is the ScripTube regression.
+- [x] Green: a valid log newer than the first change: the turn ends.
+- [x] Invalid logs do not count: doctor FAIL, or a direct DB write in the run.
+- [x] The stop loop limit still applies (no endless block).

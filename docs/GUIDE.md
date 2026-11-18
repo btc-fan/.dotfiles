@@ -210,7 +210,8 @@ exits 0. A deny decided before the error still counts.
 | `UserPromptExpansion` | typed `/skill` | Logs that a typed skill fired (proof). |
 | `PreToolUse` | Bash, Read, Edit, Write, MultiEdit, Grep, Glob, Skill, Agent, Task | The gates (section 3.5) and some nudges (ledger areas). Claude Bash also runs the `rtk-hook` wrapper. |
 | `PostToolUse` | Bash, Edit, Write, Skill, context7 tools | Nudges after the fact: after `git commit` (update the Map), after a write with an em dash, after a docs lookup. |
-| `Stop` | every stop | The stop rules (none since 2026-11-18: `diagnosing-bugs` and `tdd` are hints). The miss log: a rule fired but the agent never called the tool it named. Then `claude-notify`. The `stop-check` (runs check-fast before "done") is off on `dev-mac`. |
+| `Stop` | every stop | The stop rules (none since 2026-11-18: `diagnosing-bugs` and `tdd` are hints). The verify walls `verify-tool-exists` and `verify-tool-used` (section 3.5). The miss log: a rule fired but the agent never called the tool it named. Then `claude-notify`. The `stop-check` (runs check-fast before "done") is off on `dev-mac`. |
+| `SubagentStop` | every subagent stop | The verify hooks, for each subagent in its own checkout. |
 | `SessionEnd` | every end | Drops the session state file, cleans Serena. |
 | `Notification` | permission or idle prompt | `claude-notify` (a desktop or phone note). |
 
@@ -283,6 +284,8 @@ that matters is a mechanism that runs at the moment of the action, for Claude Co
 | Stop rule | Stop | A prompt arms it. The next Stop gets `{"decision": "block"}` once per session when the skill was not used. No rule uses it since 2026-11-18 |
 | Skill card | SessionStart | A short text (under 1500 characters) with the must-use skills, the hint skills and the typed-only skills |
 | Winner table | PreToolUse on the Skill tool | Denies a skill that loses in an overlap, and names the winner |
+| Verify walls | Stop, SubagentStop | `verify-tool-exists` and `verify-tool-used`: block the end of a turn that changed app code without a proven `verify-<app>` or a fresh valid run (below) |
+| Verify commit gate | git pre-commit (`ai-precommit`) | Refuses a commit that adds a test without a valid verify run newer than HEAD |
 | Measurement | `ai-doctor`, `ai-eval` | Skill use over 30 days, misses of the skill rules, hit rate per case |
 
 **Proof of a skill.** A skill counts as used when the session has one of these: a Skill tool call, a typed `/name`,
@@ -334,8 +337,22 @@ of `oh-my-claudecode:tdd` is denied, and the agent uses Matt's `tdd`.
 - Codex has no Skill tool. There, a shell read of a losing skill file is denied the same way.
 - A test keeps the skills guide table and the data in step.
 
+**Verify walls (2026-11-18, verify-enforcement 02 to 04).** They read `.verify/evidence/<run>/run.log` of the
+agent's own checkout (a linked worktree is its own checkout). A run counts when its log has all 4 lines, `doctor:
+PASS` and `db_writes: no` (contract: `ai/rules/verification-skill.md`).
+- `verify-tool-exists` (Stop, SubagentStop, adopted repos): app code changed in the turn, and the project has no
+  `verify-<app>` skill, or one without a valid run. The message says: build it with `create-verification-skill`,
+  prove it with one real run.
+- `verify-tool-used` (Stop, SubagentStop, adopted repos): app code changed in the turn, and no valid run finished
+  after the first change. The message names the skill and its launch, doctor, drive and cleanup commands.
+- The change comes from git (the code files that differ from the turn start, tests too), so a shell write and a
+  commit count. Loop limits: 2 blocks per app-code state, 4 per chain of stops.
+- Commit gate (`ai-precommit`, every writer: Claude, Codex, subagents, the shell, you): in a project with a verify
+  skill, a staged `def test_...(` (Python) or `test(` / `it(` in a JS or TS spec file needs a valid run that finished
+  after HEAD's commit time. Edits and deletions of tests pass. Each refusal is a `verify-commit` line in the wall log.
+
 **The escape hatch.** Every deny path honours it: `sudo ai-gate-skip <gate> <minutes max 60> <why>`. The gate name is
-the rule id, `winner-gate` or `nav-first`. The agent has no sudo, so it cannot skip a gate itself.
+the rule id, `winner-gate`, `nav-first`, `verify-tool-exists` or `verify-tool-used`. The agent has no sudo, so it cannot skip a gate itself.
 
 **Known limits.**
 - The winner gate on the Skill tool is Claude only. Codex gets the file-read form.
@@ -1823,7 +1840,7 @@ flowchart TD
 
 | Event | What runs | How it starts |
 |---|---|---|
-| `git commit` | lint and format check on the staged files (`ai-precommit`) | `.git/hooks/pre-commit` (ai-adopt; a repo with its own hooks keeps them) |
+| `git commit` | lint and format check on the staged files (`ai-precommit`); with a `verify-<app>` skill, a commit that adds a test needs a valid verify run newer than HEAD | `.git/hooks/pre-commit` (ai-adopt; a repo with its own hooks keeps them) |
 | Feature done | `ship` skill | you say "ship it", or the feature flow nudge |
 | Before a merge | your word: "merge" or "approve" | `merge-approval` gate |
 | main moved | `/improve-codebase-architecture` and `/retro` on the changed area | `merge-review` rule at session start (`.ai/last-review` holds main at the last review) |
