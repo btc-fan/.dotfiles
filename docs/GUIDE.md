@@ -344,9 +344,11 @@ PASS` and `db_writes: no` (contract: `ai/rules/verification-skill.md`).
   `verify-<app>` skill, or one without a valid run. The message says: build it with `create-verification-skill`,
   prove it with one real run.
 - `verify-tool-used` (Stop, SubagentStop, adopted repos): app code changed in the turn, and no valid run finished
-  after the first change. The message names the skill and its launch, doctor, drive and cleanup commands.
+  after the last change. The message names the skill and its launch, doctor, drive and cleanup commands.
 - The change comes from git (the code files that differ from the turn start, tests too), so a shell write and a
   commit count. Loop limits: 2 blocks per app-code state, 4 per chain of stops.
+- Why the hooks read a small `run.log`, how it works, and where the idea comes from (pstack, verify-atlas, kody, the
+  Claude Code and Codex hook docs): `ai/rules/verification-skill.md`, section "Why a run log".
 - Commit gate (`ai-precommit`, every writer: Claude, Codex, subagents, the shell, you): in a project with a verify
   skill, a staged `def test_...(` (Python) or `test(` / `it(` in a JS or TS spec file needs a valid run that finished
   after HEAD's commit time. Edits and deletions of tests pass. Each refusal is a `verify-commit` line in the wall log.

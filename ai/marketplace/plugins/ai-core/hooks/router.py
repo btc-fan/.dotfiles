@@ -822,7 +822,7 @@ def verify_turn_start(ctx):
 
 
 def verify_stop(ctx):
-    """Stop and SubagentStop: hook 1 (no proven verify skill) or hook 2 (no valid run after the first change)."""
+    """Stop and SubagentStop: hook 1 (no proven verify skill) or hook 2 (no valid run after the last change; owner 2026-11-18)."""
     root = ctx.root
     if not adopted(root):
         return
@@ -836,16 +836,16 @@ def verify_stop(ctx):
     if not changed:
         return
     times = [os.path.getmtime(os.path.join(root, f)) for f in changed if now.get(f) not in (None, "deleted")]
-    first = min(times) if times else turn.get("ts") or time.time()
+    last = max(times) if times else turn.get("ts") or time.time()
     info = verify_skill(root)
     proven = bool(info) and any(verify_proof(r)[0] for r in {root, main_checkout(root)} if r)
     rid = "verify-tool-used" if proven else "verify-tool-exists"
     if proven:
-        fresh, note = verify_proof(root, first)
+        fresh, note = verify_proof(root, last)
         if fresh:
             return
-        why = ("App code changed in %s in this turn (%s) and no valid run.log in %s finished after the first change "
-               "(%s). %s%s" % (root, files_note(changed), os.path.join(root, ".verify", "evidence"), iso_of(first),
+        why = ("App code changed in %s in this turn (%s) and no valid run.log in %s finished after the last change "
+               "(%s). %s%s" % (root, files_note(changed), os.path.join(root, ".verify", "evidence"), iso_of(last),
                                "%s. " % note if note else "", verify_steps(root, info)))
     elif info:
         why = ("App code changed in %s in this turn (%s). %s has no valid run yet: prove the tool once. %s"
