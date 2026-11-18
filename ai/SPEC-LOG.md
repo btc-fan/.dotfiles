@@ -605,8 +605,8 @@ Seen on the owner's M3 Mac (macOS 15.5), read only:
   (legacy-memory nudge), through a PR.
 - Navigation: graphify for wide questions, Serena for exact symbols. Both are local, free and per repo; agents
   skip them, so the first broad search of a session gets one reminder.
-- Adopting from a worktree needs the main checkout's name and venv (found on scriptube); a branch made from its
-  base tracks the base, so the push needs -u origin HEAD (found on radar999 and scriptube).
+- Adopting from a worktree needs the main checkout's name and venv (found on a web app project); a branch made from its
+  base tracks the base, so the push needs -u origin HEAD (found on a crawler project and a web app project).
 
 
 ## 2026-11-16: enforcement over text (owner, grilling Q1 to Q37)
