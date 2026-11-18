@@ -39,7 +39,7 @@ def main():
                      t_serena_take, t_rtk_brew, t_rtk_no_brew, t_omx_node_fix, t_last30days, t_doctor,
                      t_omc_companion, t_drop_failures, t_rtk_brew_mismatch, t_codex_restore_quoted,
                      t_yaml_top_set_block_list, t_skill_dups, t_omx_nvm_fix, t_rejected_sha_cached, t_omc_keep, t_nvm_node_path, t_skip_scan,
-                     t_serena_always_load):
+                     t_serena_always_load, t_omc_keywords_off):
             for k, v in saved.items():
                 if v is None:
                     os.environ.pop(k, None)
@@ -829,6 +829,31 @@ def t_omc_companion(work):
     dtext = read(os.path.join(AI_DIR, "bin", "ai-doctor"))
     assert "check_omc_companion()" in dtext
 
+
+
+def t_omc_keywords_off(work):
+    """Ticket 15: OMC magic keywords off through OMC's own switch (OMC_SKIP_HOOKS=keyword-detector, docs/HOOKS.md).
+    install.sh writes env.list into the Claude settings env on every machine, so an OMC update keeps it off.
+    ai-doctor FAILs without the switch and PASSes with it."""
+    envlist = read(os.path.join(AI_DIR, "adapters", "env.list"))
+    assert "\nOMC_SKIP_HOOKS=keyword-detector\n" in envlist, "env.list must turn the OMC keyword detector off"
+    env, home, bindir = claude_env(work)
+    settings = os.path.join(home, ".claude", "settings.json")
+    write(settings, json.dumps({"env": {}}))
+    mod = load_doctor(env)
+    assert omc_walls_out(mod).startswith("FAIL"), omc_walls_out(mod)
+    code, out = bash(LIBS + 'want() { [ "$1" = claude ]; }; base_env_user', env)
+    assert code == 0, out
+    assert jload(settings)["env"]["OMC_SKIP_HOOKS"] == "keyword-detector", jload(settings)
+    out = omc_walls_out(mod)
+    assert out.startswith("PASS") and "OMC magic keywords off" in out, out
+
+
+def omc_walls_out(mod):
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        mod.check_omc_walls()
+    return buf.getvalue()
 
 
 def t_yaml_top_set_block_list(work):

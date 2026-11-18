@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Both rules are nudges in the routing table; the rendered rules and the skill card say so.
-- [ ] A research turn that mentions "debug" or "broken" ends without a block.
+- [x] Both rules are nudges in the routing table; the rendered rules and the skill card say so.
+- [x] A research turn that mentions "debug" or "broken" ends without a block.

@@ -37,7 +37,7 @@ from hooklib import (GATES, GATE_PROBES, ai_home, append_jsonl, command_text, ga
                      state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
                      graph_status, git_history, short_skill, write_targets,
                      owner_merge_ok, merge_review_note, nav_note, upgrade_note, legacy_memory_note, probe_pr,
-                     session_line)
+                     session_line, log_wall)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
 CONTEXT_CAP = 9500          # additionalContext is cut here (hook output caps: Claude 10,000 chars, Codex ~2,500 tokens)
@@ -466,6 +466,8 @@ HANDLERS = {
 
 # ---------------------------------------------------------------- context object and output
 
+WALL_RX = re.compile(r"\[ai (?:gate |router: )([\w.-]+)\]\s*")
+
 class Ctx(object):
     def __init__(self, agent, event, payload, raw):
         self.agent = agent
@@ -538,6 +540,17 @@ class Ctx(object):
         if order[decision] > order[self.decision]:
             self.decision = decision
         self.reasons.append(reason)
+        if decision == "deny":
+            self.wall(reason)
+
+    def wall(self, reason):
+        """The wall log (walls.jsonl): the id and the first line of a "[ai gate X]" or "[ai router: X]" reason."""
+        try:
+            m = WALL_RX.match(reason)
+            log_wall(m.group(1) if m else "router", reason[m.end() if m else 0:].split("\n")[0],
+                     self.root or self.cwd)
+        except Exception as exc:
+            log_error("wall log", exc)
 
     def row(self, **kw):
         base = {"ts": iso_now(), "session": self.session, "agent": self.agent, "cwd": self.cwd}
@@ -634,7 +647,7 @@ SKILL_HOMES = ("/.claude/skills/", "/.agents/skills/", "/.claude/plugins/", "/.c
 
 
 def skill_card(skills, ctx):
-    """The must-use skills, and where this agent reads each typed-only skill that is installed."""
+    """The must-use and hint skills, and where this agent reads each typed-only skill that is installed."""
     dirs = {}
     for name in skills.get("typed_only") or []:
         path = skill_md(ctx.root, name, ctx.agent)
@@ -645,11 +658,14 @@ def skill_card(skills, ctx):
 
 def render_card(skills, dirs):
     """dirs: skills folder -> typed-only skill names in it. "" when there is nothing to say."""
-    must = skills.get("must_use") or []
-    if not must and not dirs:
+    must, hints = skills.get("must_use") or [], skills.get("hints") or []
+    if not must and not hints and not dirs:
         return ""
     lines = ["[ai router: skill-card] Must-use skills (the router checks them):"]
     lines += ["- %s: %s" % (s["name"], s["when"]) for s in must]
+    if hints:
+        lines.append("Use these skills when the prompt fits (a hint, the router does not block):")
+        lines += ["- %s: %s" % (s["name"], s["when"]) for s in hints]
     if dirs:
         lines.append("Typed-only skills (no Skill tool call): read <dir>/<name>/SKILL.md and follow it; tell the "
                      "owner the typed form /name.")
@@ -761,6 +777,7 @@ def check_stop_rules(ctx):
         if skill_used(ctx, rule["require_skill"]) or owner_skip(ctx, rid, ""):
             continue
         ctx.stop_block.append("[ai router: %s] %s Then finish the turn." % (rid, render_action(rule, ctx)))
+        ctx.wall(ctx.stop_block[-1])
         skill_missed(rule, ctx, "Stop")
 
 
@@ -1575,7 +1592,7 @@ def search(rx, text):
 
 
 def rotate_logs(limit=5 * 1024 * 1024):
-    for rel in ("fired.jsonl", "misses.jsonl", "gates.log", "router-errors.log", "docs-ids.jsonl"):
+    for rel in ("fired.jsonl", "misses.jsonl", "gates.log", "router-errors.log", "docs-ids.jsonl", "walls.jsonl"):
         p = state_path(rel)
         try:
             if os.path.getsize(p) > limit:

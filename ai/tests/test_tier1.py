@@ -713,6 +713,8 @@ def t_stop_blocks_twice_then_stops(work):
     assert out and "decision" not in out and "not blocking again" in out.get("systemMessage", ""), out
     assert hook(repo, env, "Stop", stop_hook_active=True) is None, "told once: silent after"
     assert runs(env) == 2, "the check ran %d times, want 2" % runs(env)
+    walls = (read(os.path.join(env["AI_STATE_DIR"], "walls.jsonl")) or "").splitlines()
+    assert len(walls) == 2 and all('"wall": "stop-check"' in w and "check-fast failed" in w for w in walls), walls
     write(os.path.join(repo, "src", "app.py"), "x = 3\n")       # new files: a new try count
     assert hook(repo, env, "Stop")["decision"] == "block"
 

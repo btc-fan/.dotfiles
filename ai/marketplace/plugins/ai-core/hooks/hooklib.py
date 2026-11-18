@@ -2893,6 +2893,18 @@ def append_jsonl(rel, row):
     log_line(rel, json.dumps(row, ensure_ascii=False))
 
 
+def log_wall(wall, reason, repo=""):
+    """One line per wall fire (a gate deny, a stop block, an ai-adopt or agent-audit refusal) in walls.jsonl.
+    ai-doctor shows 7 days per wall (ticket 17). Never raises."""
+    import socket
+    try:
+        host = socket.gethostname().split(".")[0]
+    except OSError:
+        host = "?"
+    append_jsonl("walls.jsonl", {"ts": iso_now(), "host": host, "repo": repo or "", "wall": wall,
+                                 "reason": redact(one_line(reason))[:160]})
+
+
 def log_error(where, exc):
     log_line("router-errors.log", "%s %s %s: %s" % (iso_now(), where, type(exc).__name__, exc))
 

@@ -363,12 +363,30 @@ def report_logs():
     print("last 7 days: skills used %s" % fmt(skills))
     print("last 7 days: misses %s" % fmt(misses))
     report_skill_stats(time.time() - 30 * 86400)
+    report_walls()
     skips = [ln for ln in read_lines(os.path.join(STATE, "gates.log")) if " SKIP " in ln]
     if skips:
         say("WARN", "%d gate skip(s) logged (last: %s)" % (len(skips), skips[-1][:120]))
     errors = read_lines(os.path.join(STATE, "router-errors.log"))
     if errors:
         say("WARN", "%d router error(s) logged (last: %s)" % (len(errors), errors[-1][:120]))
+
+
+def report_walls():
+    """Ticket 17: per wall (gate deny, stop block, ai-adopt or agent-audit refusal) the fires of the last 7 days and
+    the last 3 short reasons, from walls.jsonl (and the rotated .1). The wall review reads this table."""
+    since, walls = time.time() - 7 * 86400, {}
+    path = os.path.join(STATE, "walls.jsonl")
+    for line in read_lines(path + ".1") + read_lines(path):
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if parse_ts(row.get("ts", "")) >= since:
+            walls.setdefault(row.get("wall") or "?", []).append(row.get("reason") or "")
+    print("walls, last 7 days (wall, fires, last 3 reasons):%s" % ("" if walls else " none"))
+    for wall, reasons in sorted(walls.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        print("  %-20s %4d  %s" % (wall, len(reasons), " | ".join(r[:60] for r in reasons[-3:][::-1])))
 
 
 def report_skill_stats(since):
@@ -1031,7 +1049,19 @@ def check_omc():
         exa = (((data or {}).get("mcpServers") or {}).get("exa") or {}).get("enabled") if data is not None else None
         say("PASS" if exa is False else "FAIL", "OMC exa MCP off (%s)" % path,
             "" if exa is False else "exa sends search queries to an outside service; re-run install.sh")
+        check_omc_walls()
     check_omc_companion()
+
+
+def check_omc_walls():
+    """Ticket 15: OMC magic keywords off through OMC's own switch in the Claude settings env (env.list)."""
+    env = dict(claude_settings().get("env") or {})
+    if LINUX:
+        env.update((load_json_file(MANAGED) or {}).get("env") or {})
+    skip = str(env.get("OMC_SKIP_HOOKS") or "")
+    off = "keyword-detector" in [s.strip() for s in skip.split(",")]
+    say("PASS" if off else "FAIL", "OMC magic keywords off (OMC_SKIP_HOOKS=keyword-detector)",
+        "" if off else "a normal prompt can start an OMC mode; re-run install.sh")
 
 
 def check_claude_cleanup():

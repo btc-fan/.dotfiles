@@ -76,10 +76,10 @@ The versions and commits above are the intake audits. Installed today: the newes
 | Event | What | Layer |
 |---|---|---|
 | SessionStart | rules with `when: session_start` (status lines); the skill card (every start, again after compact and clear); the author-sessions line (`main: <session id> dir: <cwd>`); the L0 table after compaction or /clear (startup and resume get only the status lines; the table is in the root rules) | L1 |
-| UserPromptSubmit | regex rules, then forced-eval text when a rule matched; arms the stop rules (`diagnosing-bugs`, `tdd`). A harness notification (task-notification) fires no rule and never sets or clears the merge-approval OK | L2, L3 |
+| UserPromptSubmit | regex rules, then forced-eval text when a rule matched; shows the `diagnosing-bugs` and `tdd` hints (no stop since 2026-11-18). A harness notification (task-notification) fires no rule and never sets or clears the merge-approval OK | L2, L3 |
 | PreToolUse | gates: audit, secret scan, no sudo, no destroy, PR rules, merge approval, no verify, writing-for-agents (Edit, Write, shell writes), ship (`gh pr ready`), gh-write, winner gate (Skill tool), graph-first (first broad search); Claude Bash only: the `rtk-hook` wrapper | L4 |
 | PostToolUse | knowledge-check after a commit, no-em-dash lint, docs ID log, skill proof (kept in the session state, logged to `fired.jsonl`), graphify and Serena use (ends graph-first) | L3, L7 |
-| Stop | stop rules (`diagnosing-bugs`, `tdd`: block once per session), `stop-check` (`check-fast`), miss log, then `claude-notify` | L4, L7 |
+| Stop | stop rules (none since 2026-11-18), `stop-check` (`check-fast`), miss log, then `claude-notify` | L4, L7 |
 | Notification | `claude-notify` | owner hook |
 | SessionStart (startup, resume) | caffeinate | owner hook |
 | Vendor hooks | RTK rewrite, Ponytail, i-have-adhd, OMC, herdr status | per tool |
