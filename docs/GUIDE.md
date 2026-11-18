@@ -342,9 +342,10 @@ the rule id, `winner-gate` or `nav-first`. The agent has no sudo, so it cannot s
   there. It stays complete in the root rules.
 - Codex must trust the changed `router.py`, `hooklib.py` and `stop-check.py` again after an install (`ai-sync`
   writes the trust hashes).
-- A git hook in the dotfiles checkout (post-merge, post-rewrite) runs `ai-sync` and so puts the checkout live in
-  `~/.codex`. While a feature branch of this repo is merged in a dev checkout, merge with
-  `git -c core.hooksPath=/dev/null merge ...`, so unreviewed code does not go live.
+- The git hooks of the dotfiles repo (post-merge, post-rewrite) are shared by every worktree. Since hook v2
+  (ticket 19) they run `ai-sync` only in the installed copy `~/.dotfiles-ai`. `ai-sync` itself also stops in any
+  other checkout: it prints one line and changes no link and no cache. So a merge in a dev worktree stays off
+  the live machine. A machine with a v1 hook gets v2 from `~/.dotfiles-ai/ai/bin/ai-sync --install-hook`.
 
 ### 3.6 Testing the setup with ai-eval
 
@@ -581,6 +582,10 @@ ai-sync --dry-run             print what would change
 ```
 
 Use it after you edit a rule, or after a `git pull` when you do not want a full install.
+
+Only the installed copy changes the machine: `~/.dotfiles-ai`, or a root-owned admin copy such as
+`/opt/ai-setup`. Run from another checkout (a dev worktree), `ai-sync` prints one line, changes nothing and
+exits 0. Use `--dry-run` there to see the plan (ticket 19, R-010).
 
 It also links each skill in `ai/skills` into `~/.claude/skills` and `~/.agents/skills` (only folders that
 install.sh made; a real folder that is not ours stays). So a new skill arrives with `git pull`: no install.sh run.

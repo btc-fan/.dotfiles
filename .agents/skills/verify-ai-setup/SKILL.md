@@ -22,6 +22,7 @@ $H launch --label <what> empty docs-only python-with-tests web-app existing-proj
 
 - Name only the kinds you drive. Each kind is a git repo on `main`, with one commit pushed to a local bare remote `remotes/fixture-owner/<kind>.git`.
 - `empty`: no files. `docs-only`: Markdown. `python-with-tests`: the ai-eval app (pyproject, pytest test, Makefile), no verify skill. `web-app`: Node, 3 pages, `node --test`. `existing-project-with-own-Done`: the Python app plus an AGENTS.md with the owner's own `## Done`.
+- `dotfiles-worktrees`: a dotfiles dev worktree on `main` and its installed copy `<tmp>/home-sync/.dotfiles-ai`. They share the git hooks from this checkout's `ai-sync --install-hook`.
 - A fake `gh` is first on the drive PATH. It logs to `<tmp>/gh.log` and never reaches GitHub.
 - Ready means: launch printed `run:`, `evidence:` and one path per kind.
 - Each launch is a new run. After a failed doctor, or after a change to this checkout's code, launch again.
@@ -40,7 +41,7 @@ It runs once per run and writes the `doctor:` line of `run.log`. It checks:
 - `plugin`: a session loads `--plugin-dir <checkout>/ai/marketplace/plugins/ai-core`, and its router resolves `ai_home` to this checkout.
 - `routing`: `ai-render --profile dev-mac` wrote `routing.json` into the run's temp folder (sessions get it as `AI_ROUTING_JSON`).
 - `fixture`, `fake-gh`: each fixture is on `main` with a temp origin; the drive PATH finds the fake gh.
-- `isolation`: the temp folder is outside `~/.claude`, `~/.codex`, `~/.dotfiles-ai` and the checkout. Launch recorded hashes of `~/.claude/settings.json`, `~/.claude/plugins/installed_plugins.json`, `~/.codex/config.toml`, `~/.codex/hooks.json` and the git state of `~/.dotfiles-ai`; cleanup compares them.
+- `isolation`: the temp folder is outside `~/.claude`, `~/.codex`, `~/.dotfiles-ai` and the checkout. Launch recorded hashes of `~/.claude/settings.json`, `~/.claude/plugins/installed_plugins.json`, `~/.codex/config.toml`, `~/.codex/hooks.json`, the git state of `~/.dotfiles-ai` and the link targets in `~/.claude/skills` and `~/.agents/skills`; cleanup compares them.
 - `claude`, `codex`: installed and logged in (`claude auth status`, `codex login status`).
 
 ## Drive
@@ -54,12 +55,13 @@ The feature map in [features/README.md](features/README.md) gives the recipe per
   - It prints the ai-core path, the rules fired, the `[ai gate <id>]` lines seen, the tool calls, and whether a remote branch moved.
 - **CLI:** `$H drive cli [--fixture K] [--timeout S] [KEY=VALUE ...] NAME [ARG ...]`. It runs `<checkout>/ai/bin/NAME` in the fixture, in its own PTY, with the ai-eval throwaway HOME (`<tmp>/home`) and `AI_GITHUB_OWNERS=fixture-owner`. `KEY=VALUE` sets env, for example `AI_PROFILE=server`. It saves the transcript, the exit code and `git status --short` after.
 - **Installer:** `$H drive install dev-mac|server`. It runs `install.sh --dry-run --yes --profile P --user` with HOME, `CLAUDE_CONFIG_DIR` and `CODEX_HOME` in a temp folder. It prints the real files that changed (must be `none`) and the files the dry run left in the temp HOME.
+- **Merge:** `$H drive merge dev|installed`. It runs a real `git merge` in a worktree of the `dotfiles-worktrees` fixture with HOME=`<tmp>/home-sync`. It prints the hook version and whether HOME changed.
 
 ## Evidence
 
 - Folder: `<checkout>/.verify/evidence/<run>/` (gitignored). `<run>` is the UTC start time and the label.
 - `run.log`: the helper writes `commit:` at launch, `doctor:` at doctor, `db_writes: no` and `finished:` at cleanup. Never edit it by hand. This tool has no database: `db_writes` is always `no`.
-- One file per drive: `NN-hook.txt`, `NN-cli.txt`, `NN-install-<profile>.txt`, `NN-session.txt` with `NN-session-stream.jsonl` and `NN-session-state/fired.jsonl`. `state.json` has the fixture paths and the guard hashes. `guard.txt` has the guard result.
+- One file per drive: `NN-hook.txt`, `NN-cli.txt`, `NN-install-<profile>.txt`, `NN-merge.txt`, `NN-session.txt` with `NN-session-stream.jsonl` and `NN-session-state/fired.jsonl`. `state.json` has the fixture paths and the guard hashes. `guard.txt` has the guard result.
 - `$H evidence` lists the folder and says whether `run.log` is proof (4 lines, `doctor: PASS`, `db_writes: no`).
 - Proof standard: drive the real entry point (a hook payload or a real session, the real CLI, the real installer). Show the action and the end state: the decision and the remote refs for a gate, `git status` and the fixture files for a CLI, the planned lines and the untouched real files for the installer.
 

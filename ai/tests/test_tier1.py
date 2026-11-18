@@ -108,6 +108,16 @@ def t_detect_monorepo(work):
         assert res.returncode == 2 and "monorepo" in res.stdout, (name, res.stdout)
 
 
+def t_detect_missing_dir(work):
+    """Ticket 19 (found by verify-ai-setup): a --dir that is not a folder gives one error line and exit 2,
+    not a Python traceback."""
+    missing = os.path.join(work, "no-such-folder")
+    res = run([sys.executable, os.path.join(BIN, "ai-check-detect"), "--dir", missing])
+    assert res.returncode == 2, (res.returncode, res.stdout)
+    assert "Traceback" not in res.stdout and len(res.stdout.strip().splitlines()) == 1, res.stdout
+    assert missing in res.stdout, res.stdout
+
+
 def t_plan_keeps_targets(work):
     mod = load(os.path.join(BIN, "ai-check-detect"), "acd")
     repo = tree(work, "plan-keep", {"go.mod": "module x\n", "Makefile": "check-fast:\n\tgo test ./pkg/...\n"})
@@ -1236,7 +1246,7 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
     return res
 
 
-TESTS_LIST = [t_verify_skills_copy, t_pstack_adapt_ours, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_skills_none, t_detect_python_uv, t_detect_python_pip, t_detect_python_no_manifest, t_detect_node, t_detect_go_rust, t_detect_monorepo,
+TESTS_LIST = [t_verify_skills_copy, t_pstack_adapt_ours, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_skills_none, t_detect_python_uv, t_detect_python_pip, t_detect_python_no_manifest, t_detect_node, t_detect_go_rust, t_detect_monorepo, t_detect_missing_dir,
               t_detect_probe_drops_missing_tool, t_adopt_failing_check_turns_stop_off, t_adopt_leaves_tree_clean, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
               t_adopt_branch_exists_main_clean, t_adopt_old_branch, t_adopt_unborn_main, t_typed_only_skill_paths,
               t_plan_keeps_targets, t_plan_keeps_owner_flags, t_adopt_owner_text_survives_rerun, t_adopt_gitignore_makefile_owner_lines,

@@ -8,6 +8,9 @@
 #   ai-sync --uninstall-hook [dir]
 #   ai-sync --dry-run             print what would change
 #
+# Only the installed copy changes the machine: ~/.dotfiles-ai (install.sh links it) or a root-owned admin
+# copy (/opt/ai-setup). From any other checkout (a dev worktree) ai-sync prints one line and exits 0.
+#
 # Copies (agents that cannot @import ~/.config/ai/AGENTS.md):
 #   Codex   ~/.codex/AGENTS.md block AI:core          (same block-upsert as install.sh, base_rules), and
 #           the hook trust hashes in ~/.codex/config.toml (codex_trust)
@@ -24,7 +27,8 @@ set -euo pipefail
 SELF=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$0")
 AI_HOME=${AI_HOME:-$(cd "$(dirname "$SELF")/../.." && pwd -P)}
 export AI_HOME
-HOOK_MARK="ai-sync-hook v1"
+HOOK_MARK="ai-sync-hook v2"
+HOOK_ANY="ai-sync-hook v"     # v1 hooks are ours too: --install-hook replaces them
 
 main() {
     case "${1:-}" in
@@ -33,9 +37,13 @@ main() {
         --check) check_copies; return ;;
         --dry-run) export AI_DRY_RUN=1 ;;
         --quiet|"") ;;
-        -h|--help) sed -n '2,16p' "$SELF" | sed 's/^# \{0,1\}//'; return 0 ;;
+        -h|--help) sed -n '2,19p' "$SELF" | sed 's/^# \{0,1\}//'; return 0 ;;
         *) echo "unknown option: $1" >&2; return 2 ;;
     esac
+    if [ "${AI_DRY_RUN:-0}" != 1 ] && ! installed_copy; then
+        echo "ai-sync: $AI_HOME is not the installed copy ($HOME/.dotfiles-ai): no live link or cache changed (--dry-run shows the plan)"
+        return 0
+    fi
     load_libs
     python3 "$AI_HOME/ai/bin/ai-render" >/dev/null || die "ai-render failed: copies not refreshed"
     [ -f "$AI_HOME/ai/AGENTS.md" ] || die "ai/AGENTS.md missing after ai-render"
@@ -92,6 +100,13 @@ sync_skill_links() {
         true
     } 2>&1 | { grep -v '^ *same ' || true; } \
         || warn "skill links not refreshed: run install.sh"   # the rules refresh goes on
+}
+
+# Ticket 19: git hooks are shared by every worktree, so a merge in a dev worktree ran its own ai-sync and
+# pointed the live skill links and the Codex copies at unmerged code.
+installed_copy() {
+    [ "$(cd "$AI_HOME" && pwd -P)" = "$(cd "$HOME/.dotfiles-ai" 2>/dev/null && pwd -P)" ] && return 0
+    [ "$(tree_owner)" = root ]      # the admin copy: no agent can change it
 }
 
 tree_owner() { stat -c %U "$AI_HOME" 2>/dev/null || stat -f %Su "$AI_HOME" 2>/dev/null || echo unknown; }
@@ -190,7 +205,7 @@ install_hooks() {
     mkdir -p "$dir"
     for name in post-merge post-rewrite; do
         path="$dir/$name"
-        if [ -f "$path" ] && ! grep -q "$HOOK_MARK" "$path"; then
+        if [ -f "$path" ] && ! grep -q "$HOOK_ANY" "$path"; then
             echo "skip $path: a hook that is not ours exists. Add this line to it: ai/bin/ai-sync --quiet" >&2
             continue
         fi
@@ -206,17 +221,19 @@ uninstall_hooks() {
     dir=$(git -C "$repo" rev-parse --git-path hooks) || return 0
     case "$dir" in /*) ;; *) dir="$repo/$dir" ;; esac
     for name in post-merge post-rewrite; do
-        if [ -f "$dir/$name" ] && grep -q "$HOOK_MARK" "$dir/$name"; then rm -f "$dir/$name"; echo "removed $dir/$name"; fi
+        if [ -f "$dir/$name" ] && grep -q "$HOOK_ANY" "$dir/$name"; then rm -f "$dir/$name"; echo "removed $dir/$name"; fi
     done
 }
 
-# Shared by all worktrees of the repo: only a worktree that has ai/bin/ai-sync (branch ai) runs it.
+# Shared by all worktrees of the repo: only the installed copy ~/.dotfiles-ai runs ai-sync (ticket 19).
 hook_text() {
     cat <<EOF
 #!/bin/sh
 # $HOOK_MARK: refresh copied AI rules after pull (installed by ai-sync --install-hook).
+# Every worktree shares this hook: a dev worktree never syncs the machine.
 top=\$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 [ -x "\$top/ai/bin/ai-sync" ] || exit 0
+[ "\$(cd "\$top" && pwd -P)" = "\$(cd "\$HOME/.dotfiles-ai" 2>/dev/null && pwd -P)" ] || exit 0
 "\$top/ai/bin/ai-sync" --quiet || echo "ai-sync failed: run \$top/ai/bin/ai-sync by hand" >&2
 exit 0
 EOF
