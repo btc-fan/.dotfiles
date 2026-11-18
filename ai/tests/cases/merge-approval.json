@@ -450,6 +450,102 @@
      }
     }
    ]
+  },
+  {
+   "name": "owner said 'merge go ahead': allowed (R-009)",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "merge go ahead"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 12 --squash"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "owner said 'merge, go ahead': allowed (R-009)",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "merge, go ahead"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 12 --squash"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "owner said 'merge now go ahead': allowed (R-009)",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "merge now go ahead"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 12 --squash"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "owner said 'go ahead, but do not merge yet': denied",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go ahead, but do not merge yet"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 12 --squash"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
   }
  ]
 }
