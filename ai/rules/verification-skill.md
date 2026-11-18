@@ -93,7 +93,7 @@ the app changes."
   `[ai router: verify-before-done]`. Tests: `ai/tests/test_tier1.py` (`t_verify_*`, `t_pstack_adapt_ours`,
   `t_adopt_verify_link`, `t_typed_only_skill_paths`), `ai/tests/cases/verify-before-done.json`, `pr-rules.json`,
   `test_resolve.py` (`t_bash_pstack`), `cases/verify-tool-exists.json`, `cases/verify-tool-used.json`, `test_flow.py`
-  (`t_vh_*`: the hooks and the commit gate, the worktree regression).), `test_flow.py` (`t_pr_gate_*`), `test_skills.py`
+  (`t_vh_*`: the hooks and the commit gate, the worktree regression; `t_pr_gate_*`: the PR gate), `test_skills.py`
   (`t_release_runs_maintain`).
 
 ## Setup checklist
