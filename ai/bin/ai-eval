@@ -10,9 +10,13 @@
   ai-eval behaviour [--agent claude|codex|both] [--runs N] [--dry] [--out DIR]
                                         one fresh headless session per case and run, on a fresh copy of the
                                         adopted fixture; cases are ai/evals/cases/*.json. --dry only lists the runs.
+  ai-eval scenario [--agent claude|codex|both] [--runs N] [--dry] [--out DIR]
+                                        multi-session runs on ONE repo copy (ai/evals/scenarios/*.json): each step
+                                        is a session (scored like a case), a harness git step, or a state check.
 
 Fixtures: empty-git (git init only), docs-only (README.md, docs/*.md), no-git (a plain folder), app (Python package,
-pytest test, Makefile with check, .claude/skills/verify-app/SKILL.md), project-copy (a clone of $AI_EVAL_PROJECT
+pytest test, Makefile with check, .claude/skills/verify-app/SKILL.md, AGENTS.md with a Libraries block for
+pytest), project-copy (a clone of $AI_EVAL_PROJECT
 without its remotes; skipped when the variable is not set).
 Case file: {"id", "fixture", "prompt", "expect": {"skills": [...], "tools": [regex, ...], "rules": [rule id, ...],
 "not_skills": [...], "not_rules": [...], "not_tools": [regex, ...]}}. A run is a hit when every expected item is
@@ -22,6 +26,9 @@ the rules and skills in fired.jsonl of the run.
 Child sessions: HC_TERMINAL_ID and HERDR_* are unset (the herdr PermissionRequest hook waits up to 30 minutes
 otherwise). AI_STATE_DIR points to a folder of the run, so the router writes fired.jsonl and misses.jsonl there,
 not into the owner's stats.
+Scenario file: {"id", "fixture", "steps": [{"session": prompt, "expect": {...}} | {"git": [[arg, ...], ...]} |
+{"check": {"map_contains": text, "branch": name, "graph": "fresh"}}]}. Git steps run with the repo's own hooks (a
+merge refreshes the graph as on a real machine). A run passes when every session is a hit and every check holds.
 Reports: a table on stdout and <level>.json in --out (default: a new temp folder; never inside this repo).
 """
 import hashlib
@@ -39,6 +46,7 @@ BIN = os.path.dirname(os.path.realpath(__file__))
 AI_DIR = os.path.dirname(BIN)
 AI_HOME = os.path.dirname(AI_DIR)
 CASES = os.path.join(AI_DIR, "evals", "cases")
+SCENARIOS = os.path.join(AI_DIR, "evals", "scenarios")
 ADOPT = os.path.join(BIN, "ai-adopt")
 DOCTOR = os.path.join(BIN, "ai-doctor")
 UNINSTALL = os.path.join(AI_HOME, "uninstall.sh")
@@ -64,6 +72,8 @@ def main(argv):
         return install(opts)
     if cmd == "behaviour":
         return behaviour(opts)
+    if cmd == "scenario":
+        return scenario(opts)
     print(__doc__)
     return 2
 
@@ -232,6 +242,130 @@ def behaviour(opts):
     return 0
 
 
+def scenario(opts):
+    agents = ["claude", "codex"] if opts["agent"] == "both" else [opts["agent"]]
+    scs = load_scenarios()
+    plan = [(agent, sc, n) for agent in agents for sc in scs for n in range(1, opts["runs"] + 1)]
+
+    if opts["dry"]:
+        for agent, sc, n in plan:
+            sessions = sum(1 for st in sc["steps"] if "session" in st)
+            print("%-6s %-12s run %d  fixture %-10s %d steps, %d sessions" % (agent, sc["id"], n, sc["fixture"],
+                                                                           len(sc["steps"]), sessions))
+        print("%d runs planned, none started (--dry)" % len(plan))
+        return 0
+
+    out = out_dir(opts)
+    notes = prepare(out, sorted({sc["fixture"] for sc in scs}))
+    results = [run_scenario(out, notes, agent, sc, n) for agent, sc, n in plan]
+
+    rows = []
+    for agent in agents:
+        for sc in scs:
+            mine = [r for r in results if r["agent"] == agent and r["scenario"] == sc["id"]]
+            for i, step in enumerate(sc["steps"]):
+                kind = next(iter(step))
+                if kind == "git":
+                    continue
+                oks = [r["steps"][i].get("ok") for r in mine if len(r["steps"]) > i]
+                errors = sum(1 for ok in oks if ok is None)
+                rows.append([agent, sc["id"], i + 1, step_text(step), "%d/%d" % (sum(1 for ok in oks if ok),
+                                                                               len(oks) - errors), errors or ""])
+            rows.append([agent, sc["id"], "all", "run passes", "%d/%d" % (sum(1 for r in mine if r["pass"]),
+                                                                         len(mine)), ""])
+    print_table(["agent", "scenario", "step", "expected", "ok/runs", "errors"], rows)
+    write_report(out, "scenario", {"runs": results})
+    return 0
+
+
+def load_scenarios():
+    scs = []
+    for name in sorted(os.listdir(SCENARIOS)) if os.path.isdir(SCENARIOS) else []:
+        if name.endswith(".json"):
+            with open(os.path.join(SCENARIOS, name), encoding="utf-8") as fh:
+                scs.append(json.load(fh))
+    return scs
+
+
+def run_scenario(out, notes, agent, sc, n):
+    """One run: the steps in order on one copy of the adopted fixture. A git step that fails stops the run."""
+    result = {"agent": agent, "scenario": sc["id"], "run": n, "steps": [], "pass": False}
+    if sc["fixture"] not in notes or notes[sc["fixture"]]:
+        return dict(result, note=notes.get(sc["fixture"]) or "unknown fixture")
+
+    base = os.path.join(out, "scenarios", agent, "%s-%d" % (sc["id"], n))
+    repo = os.path.join(base, "repo")
+    copy_fixture(os.path.join(out, "fixtures", sc["fixture"]), repo)
+    for i, step in enumerate(sc["steps"], 1):
+        if "git" in step:
+            rc, text = git_step(repo, step["git"])
+            result["steps"].append({"kind": "git", "ok": rc == 0, "out": last_line(text)})
+            if rc != 0:
+                return result
+        elif "session" in step:
+            result["steps"].append(dict(session_step(base, repo, agent, step, i), kind="session"))
+        else:
+            result["steps"].append(dict(check_step(repo, step["check"]), kind="check"))
+    result["pass"] = all(st["ok"] for st in result["steps"])
+    return result
+
+
+def session_step(base, repo, agent, step, i):
+    state = os.path.join(base, "state-%d" % i)
+    rc, text = call(agent_cmd(agent, step["session"], repo), child_env(state), repo, RUN_TIMEOUT)
+    write(os.path.join(base, "stream-%d.jsonl" % i), text)
+    seen = score_stream(text)
+    router = router_seen(state)
+    seen["skills"] += router["skills"]
+    seen["rules"] = router["rules"]
+    if rc != 0 and not seen["tools"]:
+        return {"ok": None, "rc": rc, "error": run_error(text), "seen": seen}
+    return {"ok": hit(step["expect"], seen), "rc": rc, "seen": seen}
+
+
+def git_step(repo, commands):
+    """Harness git commands with the repo's own hooks (unlike git(), which turns hooks off for fixtures)."""
+    text = ""
+    for args in commands:
+        rc, out = call(["git", "-c", "user.name=ai-eval", "-c", "user.email=ai-eval@example.invalid",
+                        "-c", "commit.gpgsign=false", "-C", repo] + list(args), dict(os.environ), repo, 300)
+        text += out
+        if rc != 0:
+            return rc, text
+    return 0, text
+
+
+def check_step(repo, check):
+    """State checks between sessions: the Map names a module, the current branch, the graph freshness."""
+    got = {}
+    if "map_contains" in check:
+        got["map_contains"] = check["map_contains"] in map_section(repo)
+    if "branch" in check:
+        got["branch"] = (call(["git", "-C", repo, "branch", "--show-current"], dict(os.environ), repo, 30)[1]
+                         .strip() == check["branch"])
+    if "graph" in check:
+        sys.path.insert(0, os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks"))
+        import hooklib
+        got["graph"] = hooklib.graph_status(repo, hooklib.git_history(repo)) == check["graph"]
+    return {"ok": all(got.values()), "got": got}
+
+
+def map_section(repo):
+    try:
+        with open(os.path.join(repo, "AGENTS.md"), encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return ""
+    m = re.search(r"^## Map\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+    return m.group(1) if m else ""
+
+
+def step_text(step):
+    if "session" in step:
+        return "session: " + expected_text(step)
+    return "check: " + ", ".join("%s=%s" % kv for kv in sorted(step["check"].items()))
+
+
 def load_cases():
     cases = []
     for name in sorted(os.listdir(CASES)):
@@ -241,10 +375,24 @@ def load_cases():
     return cases
 
 
-def agent_cmd(agent, prompt):
+# Scenario sessions write code and commit in the throwaway repo copy: edits plus these commands, nothing wider.
+WRITE_TOOLS = ["Edit", "Write", "Bash(git *)", "Bash(uv *)", "Bash(python3 *)", "Bash(pytest *)", "Bash(make *)",
+               "Bash(graphify *)", "Bash(rtk *)", "Bash(mkdir *)"]
+
+
+def agent_cmd(agent, prompt, repo=None):
+    """The headless command. With repo (scenario sessions): write access inside that repo only."""
     if agent == "claude":
         # 15 turns: a Stop gate (diagnosing-bugs) blocks the first stop, and the agent needs turns after it.
-        return ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--max-turns", "15"]
+        # 40 for a scenario session: it builds code, runs the tests and commits.
+        cmd = ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--max-turns",
+               "40" if repo else "15"]
+        if repo:
+            cmd += ["--permission-mode", "acceptEdits", "--allowedTools"] + WRITE_TOOLS
+        return cmd
+    if repo:    # workspace-write keeps .git read-only: name it, so a branch and a commit work
+        return ["codex", "exec", "--json", "-s", "workspace-write",
+                "-c", 'sandbox_workspace_write.writable_roots=["%s"]' % os.path.join(repo, ".git"), prompt]
     return ["codex", "exec", "--json", prompt]
 
 
@@ -415,6 +563,14 @@ def make_fixtures(root, project=None):
     return notes
 
 
+# The block ai-libs --sync writes (no lockfile: lock none, version "?"), so the docs-lookup case can fire.
+# test_eval.py checks that it matches ai-libs render() byte for byte.
+APP_LIBRARIES = ("<!-- AI:libraries START lock: none -->\n## Libraries\n"
+                 'Docs: context7 query-docs with the ID below; skip resolve-library-id. "?" = not looked up yet, '
+                 '"-" = no match or not sent. Generated by ai-libs --sync; edit only the note column.\n\n'
+                 "| lib | version | context7 | note |\n|---|---|---|---|\n"
+                 "| pytest | ? | /pytest-dev/pytest |  |\n<!-- AI:libraries END -->\n")
+
 APP_FILES = {
     "README.md": "# app\n\nA small calculator.\n",
     "pyproject.toml": "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n[tool.pytest.ini_options]\ntestpaths = [\"tests\"]\n",
@@ -426,6 +582,7 @@ APP_FILES = {
     ".claude/skills/verify-app/SKILL.md": "---\nname: verify-app\ndescription: Use to verify the app: run "
                                           "python3 -m app.cli 2 3 and expect 5.\n---\n\n1. Run `python3 -m app.cli 2 3`.\n"
                                           "2. The output must be 5.\n",
+    "AGENTS.md": "# app\n\n" + APP_LIBRARIES,
 }
 
 

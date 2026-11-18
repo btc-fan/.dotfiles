@@ -66,7 +66,7 @@ Ask in this order. The first yes wins.
 1. Continue? Yes when the next phase needs this one verbatim (grill -> implement) or there is room left
    (about 150k tokens of sharp reasoning).
 2. Context no longer relevant? `/clear`.
-3. Work must travel (Claude -> Codex, M3 -> ubuntu01, another repo, a colleague, a side task found mid-phase)?
+3. Work must travel (Claude -> Codex, the main Mac -> the home server, another repo, a colleague, a side task found mid-phase)?
    `/handoff`. The file goes to $TMPDIR. It is portable, not stored knowledge.
 4. Can it run alone (a review, a research question)? A subagent.
 5. Otherwise `/compact <what the next phase needs>`.
@@ -162,7 +162,7 @@ Decide only at a boundary. Mid-phase: continue, or split the rest into subagents
 ### Communication and learning
 - **handoff** (typed, project). Writes a short summary of this session to $TMPDIR with "suggested skills" for the
   next agent. It points to specs, tickets and commits instead of copying them, and removes secrets. Use it only
-  when work travels (see section 3). Example: `/handoff continue the refund slice in Codex on ubuntu01`.
+  when work travels (see section 3). Example: `/handoff continue the refund slice in Codex on the home server`.
 - **wait-what** (typed, global). "That did not land." The agent re-explains its last message in plain words with
   the GLOSSARY.md terms.
 - **teach** (typed, opt-in). Teaches a concept over several sessions; the folder keeps the learning record.

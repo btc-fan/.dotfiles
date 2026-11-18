@@ -155,4 +155,4 @@ Open items:
 1. MCP: the comparison of SPEC.md with the installed MCP servers is not finished. Its deviations become the scope of PR 5.
 2. A repo without a remote (decided 2026-11-16): `ai-adopt` warns, and `ship` stops at step 1 with "no remote".
 3. `ai-adopt` on main (decided 2026-11-16): `ai-adopt` commits on a branch `ai-adopt` and asks the owner to merge.
-4. After the last phase: `server-start` (the owner's test repo) gets the full setup, and the owner tests it there first.
+4. After the last phase: the owner's test repo gets the full setup, and the owner tests it there first.

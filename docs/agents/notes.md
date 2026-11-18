@@ -14,10 +14,10 @@ Moved here from Claude auto memory on 2026-11-16 (auto memory is off: the repo i
 - No scheduler: every review runs on an event (a merge, a release, an upgrade, a session start).
 - Adopt an existing repo on a branch (or a worktree when there is open work), through a PR; never on main.
 - Run a session on the machine where the repo lives (not through ssh from another machine).
-- A repo's own setup files are unified into ours: ours first, the project's extras kept (scriptube #11).
+- A repo's own setup files are unified into ours: ours first, the project's extras kept (a web app project, PR #11).
 
 ## 2026-11-15
-- One light profile, `dev-mac`, on all 3 machines (M3, old Intel Mac, ubuntu01). No scanners, no package audit,
+- One light profile, `dev-mac`, on all 3 machines (the main Mac, an old Intel Mac, the home server). No scanners, no package audit,
   no install gate, no opencode, no box, no sandbox, no root layer. The `server` profile stays in the code, unused.
 - skill-scanner is off in every profile (add `skill-scanner` to PROFILE_SCANNERS to turn it on).
 - Full agent autonomy on dev-mac: the gates are secret-scan, pr-rules, merge-approval and no-verify.
@@ -26,5 +26,5 @@ Moved here from Claude auto memory on 2026-11-16 (auto memory is off: the repo i
 - All 27 Matt Pocock skills (6 global, 21 per project); skills-guide explains them.
 - PR body: the Matt pr template plus a required Mermaid diagram.
 - Git workflow close to Matt; local tracker in docs/ (no GitHub issues).
-- scriptube: the owner finishes the open work first, then runs ai-adopt there.
+- The web app project: the owner finishes the open work first, then runs ai-adopt there.
 - Per-machine projects folder: ~/work (old Mac: ~/openclaw/projects and ~/work).

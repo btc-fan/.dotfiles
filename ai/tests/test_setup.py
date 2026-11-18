@@ -665,6 +665,14 @@ def t_session_start_order(work):
     assert "WARN" in err.getvalue()
     big = {"rules": [{"id": "a", "when": "session_start", "action": "z" * 8500}]}
     assert "status lines" in mod.session_start_budget(big, "| t |\n"), "status lines past cut minus margin must fail"
+    # The real routing.yaml, every profile: after compact or clear the whole L0 table must fit under the cut.
+    for profile in mod.ai_profile.names():
+        res = subprocess.run([sys.executable, os.path.join(AI_DIR, "bin", "ai-render"), "--profile", profile,
+                              "--out", os.path.join(work, "budget-" + profile)],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        err = res.stderr.decode()
+        assert res.returncode == 0 and "would be" not in err, \
+            "%s: after compact the SessionStart context passes the cut; shorten ai/routing.yaml texts: %s" % (profile, err)
 
 
 def t_user_hook_match(work):
