@@ -30,7 +30,7 @@ Preconditions: a run with `python-with-tests`, `web-app`, `docs-only`, `doctor: 
 
 - success: the 3 stacks above.
 - cancel: n/a (read only, no prompt).
-- error: `$H drive cli ai-check-detect --dir /nonexistent`. Seen on 2026-11-18: `rc: 1` with a Python traceback (`FileNotFoundError: ... '/nonexistent'`), not a one-line error. This is a bug, not yet ticketed.
+- error: `$H drive cli ai-check-detect --dir /nonexistent`. Expect one line `ai-check-detect: not a folder: /nonexistent` and `rc: 2` (ticket 19; before it, a Python traceback with `rc: 1`).
 - empty: `empty` kind: the Markdown checks, as `docs-only`.
 - persistence: n/a (read only).
 - Unreachable: none.

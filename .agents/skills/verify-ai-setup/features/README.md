@@ -37,5 +37,6 @@ Each feature file has an H1, one paragraph, then `Sub-features`, `How to get to 
 9. [Router gates](./router-gates.md): deny and pass, by payload and in a real session.
 10. [Stop rules](./stop-rules.md): the turn end of a bug prompt.
 11. [Verify hooks](./verify-hooks.md): planned, tickets 02 to 05.
+12. [Dev worktree never syncs the live machine](./dev-worktree-no-sync.md): a git merge in a dotfiles dev worktree changes no live link.
 
 Then the flows in [../multi-surface-journeys.md](../multi-surface-journeys.md).

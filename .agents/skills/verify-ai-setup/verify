@@ -7,10 +7,11 @@
   verify drive session claude|codex [--fixture K] 'PROMPT'
   verify drive cli [--fixture K] [--timeout S] [KEY=VALUE ...] NAME [ARG ...]   NAME: a file in ai/bin here
   verify drive install dev-mac|server
+  verify drive merge dev|installed               a git merge in a worktree of the dotfiles-worktrees fixture
   verify evidence                              list the run folder and check run.log
   verify cleanup                               remove the fixtures, finish run.log, keep the evidence
 
-KIND: empty, docs-only, python-with-tests, web-app, existing-project-with-own-Done.
+KIND: empty, docs-only, python-with-tests, web-app, existing-project-with-own-Done, dotfiles-worktrees.
 Evidence: <checkout>/.verify/evidence/<run>/ (run.log, state.json, one NN-<surface>.txt per drive).
 """
 import hashlib
@@ -36,12 +37,14 @@ PLUGIN = os.path.join(AI, "marketplace", "plugins", "ai-core")
 ROUTER = os.path.join(PLUGIN, "hooks", "router.py")
 EVIDENCE = os.path.join(ROOT, ".verify", "evidence")
 CURRENT = os.path.join(ROOT, ".verify", "current")
-KINDS = ("empty", "docs-only", "python-with-tests", "web-app", "existing-project-with-own-Done")
+KINDS = ("empty", "docs-only", "python-with-tests", "web-app", "existing-project-with-own-Done", "dotfiles-worktrees")
 HOME = os.path.expanduser("~")
 # Real files a run must never change: Claude and Codex settings, the installed setup.
 GUARDS = [os.path.join(HOME, p) for p in (".claude/settings.json", ".claude/plugins/installed_plugins.json",
                                           ".codex/config.toml", ".codex/hooks.json")]
 INSTALLED = os.path.join(HOME, ".dotfiles-ai")
+# Live skill links: a dev worktree's ai-sync once repointed them at unmerged code (ticket 19).
+LIVE_LINKS = [os.path.join(HOME, p) for p in (".claude/skills", ".agents/skills")]
 OWNER = "fixture-owner"     # remotes live in remotes/<OWNER>/: ai-adopt adopts only repos of AI_GITHUB_OWNERS
 NO_INSTALLED_CORE = '{"enabledPlugins": {"ai-core@ai": false}}'     # the installed copy stays off in a session
 
@@ -95,6 +98,8 @@ def launch(args):
 
 
 def make_fixture(kind, repo, remote):
+    if kind == "dotfiles-worktrees":
+        return make_dotfiles(repo, remote)
     files = dict(FILES.get(kind, {}))
     if kind in ("python-with-tests", "existing-project-with-own-Done"):
         files = dict({k: v for k, v in EVAL.APP_FILES.items() if not k.startswith(".claude/")}, **files)
@@ -108,6 +113,34 @@ def make_fixture(kind, repo, remote):
     EVAL.git(remote, "init", "-q", "--bare")
     EVAL.git(repo, "remote", "add", "origin", remote)
     EVAL.git(repo, "push", "-q", "-u", "origin", "main")
+
+
+def make_dotfiles(repo, remote):
+    """Ticket 19: the installed copy <tmp>/home-sync/.dotfiles-ai (branch ai, a copy of this checkout's ai/) and
+    the dev worktree <repo> (branch main) share the git hooks. home-sync is the temp HOME of `drive merge`."""
+    home = os.path.join(os.path.dirname(repo), "home-sync")
+    installed = os.path.join(home, ".dotfiles-ai")
+    for d in (".claude/skills", ".agents/skills", ".codex"):
+        os.makedirs(os.path.join(home, d))
+    shutil.copytree(AI, os.path.join(installed, "ai"),
+                    ignore=shutil.ignore_patterns("tests", "__pycache__", "*.pyc", "build"))
+    EVAL.git(installed, "init", "-q", "-b", "ai")
+    EVAL.git(installed, "add", "-A")
+    EVAL.git(installed, "commit", "-q", "-m", "setup")
+    EVAL.git(installed, "worktree", "add", "-q", "-b", "main", repo)
+    os.makedirs(remote)
+    EVAL.git(remote, "init", "-q", "--bare")
+    EVAL.git(repo, "remote", "add", "origin", remote)
+    EVAL.git(repo, "push", "-q", "-u", "origin", "main")
+    for tree, branch in ((repo, "feat"), (installed, "feat-installed")):    # one branch to merge per worktree
+        EVAL.git(tree, "branch", branch)
+        EVAL.git(tree, "checkout", "-q", branch)
+        write(os.path.join(tree, branch + ".txt"), branch + "\n")
+        EVAL.git(tree, "add", branch + ".txt")
+        EVAL.git(tree, "commit", "-q", "-m", branch)
+        EVAL.git(tree, "checkout", "-q", "-")
+    call([os.path.join(installed, "ai", "bin", "ai-sync"), "--install-hook", installed], dict(os.environ, HOME=home),
+         installed, 60)
 
 
 # ---------------------------------------------------------------- doctor
@@ -192,6 +225,8 @@ def drive(surface, args):
         return drive_cli(state, repo, out, args)
     if surface == "install" and args in (["dev-mac"], ["server"]):
         return drive_install(state, out, args[0])
+    if surface == "merge" and args in (["dev"], ["installed"]) and "dotfiles-worktrees" in state["fixtures"]:
+        return drive_merge(state, out, args[0])
     sys.exit(__doc__)
 
 
@@ -294,6 +329,41 @@ def drive_install(state, out, profile):
     return 0
 
 
+def drive_merge(state, out, where):
+    """A real git merge (post-merge hook, then ai-sync) with HOME=<tmp>/home-sync. Dev: HOME must stay the same."""
+    home = os.path.join(state["tmp"], "home-sync")
+    tree, branch = ((os.path.join(state["tmp"], "dotfiles-worktrees"), "feat") if where == "dev"
+                    else (os.path.join(home, ".dotfiles-ai"), "feat-installed"))
+    env = {k: v for k, v in os.environ.items() if k not in ("AI_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR")}
+    env["HOME"] = home
+    before = home_listing(home)
+    rc, text = call(["git", "-c", "user.name=verify", "-c", "user.email=verify@example.invalid", "-C", tree, "merge",
+                     "--no-ff", "-m", "merge " + branch, branch], env, tree, 300)
+    after = home_listing(home)
+    changed = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+    hook = read(os.path.join(home, ".dotfiles-ai", ".git", "hooks", "post-merge")).splitlines()[1:2]
+    summary = ("worktree: %s (%s)\nhook: %s\nrc: %s\nHOME changed: %s\n%s"
+               % (where, tree, " ".join(hook), rc, "yes" if changed else "no",
+                  "".join("  %s: %s\n" % (k, after.get(k, "removed")) for k in changed)))
+    write(out + ".txt", "git merge --no-ff %s (HOME=%s)\n%s--- output\n%s" % (branch, home, summary, text))
+    print(summary + "evidence: %s.txt" % out)
+    return 0
+
+
+def home_listing(home):
+    """Each path under HOME except the dotfiles trees: a link's target or a file's hash."""
+    seen = {}
+    for root, dirs, files in os.walk(home):
+        dirs[:] = [d for d in dirs if not (root == home and d == ".dotfiles-ai")]
+        for name in dirs + files:
+            path = os.path.join(root, name)
+            if os.path.islink(path):
+                seen[os.path.relpath(path, home)] = "-> " + os.readlink(path)
+            elif os.path.isfile(path):
+                seen[os.path.relpath(path, home)] = hashlib.sha1(open(path, "rb").read()).hexdigest()[:12]
+    return seen
+
+
 # ---------------------------------------------------------------- evidence, cleanup
 
 def evidence():
@@ -320,7 +390,7 @@ def cleanup():
         except (ValueError, OSError):
             pass
     shutil.rmtree(state["tmp"], ignore_errors=True)
-    changed = [g for g in GUARDS + [INSTALLED] if guards().get(g) != state["guards"].get(g)]
+    changed = [g for g in GUARDS + [INSTALLED] + LIVE_LINKS if guards().get(g) != state["guards"].get(g)]
     write(os.path.join(folder, "guard.txt"), "real files changed during the run: %s\n" % (", ".join(changed) or "none"))
     end = ("" if "\ndoctor: " in "\n" + log else "doctor: FAIL\n") + "db_writes: no\nfinished: %s\n" % (
         time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
@@ -375,6 +445,10 @@ def guards():
         out[INSTALLED] = call(["git", "-C", INSTALLED, "rev-parse", "HEAD"], None, INSTALLED, 30)[1].strip() + \
             hashlib.sha1(call(["git", "-C", INSTALLED, "status", "--porcelain"], None, INSTALLED, 60)[1]
                          .encode()).hexdigest()
+    for folder in LIVE_LINKS:       # the link targets only: a skill's own files may change
+        names = sorted(os.listdir(folder)) if os.path.isdir(folder) else []
+        out[folder] = hashlib.sha1("".join(n + os.readlink(os.path.join(folder, n)) for n in names
+                                           if os.path.islink(os.path.join(folder, n))).encode()).hexdigest()
     return out
 
 

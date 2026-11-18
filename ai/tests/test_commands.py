@@ -23,7 +23,7 @@ def main():
     work = tempfile.mkdtemp(prefix="ai-cmd-tests-")
     try:
         for test in (t_hook_files, t_no_em_dash, t_render_cap, t_pr_resume, t_notify, t_agent_audit,
-                     t_ai_start, t_router_speed, t_ai_sync, t_ai_sync_links_skills, t_ai_sync_keeps_pstack, t_merged_branches_note, t_sync_hooks, t_hermes_plugin, t_playwright,
+                     t_ai_start, t_router_speed, t_ai_sync, t_ai_sync_links_skills, t_ai_sync_keeps_pstack, t_merged_branches_note, t_sync_hooks, t_dev_worktree_no_sync, t_hermes_plugin, t_playwright,
                      t_state_mode, t_skill_scanner_reject, t_winners_table):
             try:
                 test(work)
@@ -365,6 +365,7 @@ def t_ai_sync(work):
     os.makedirs(os.path.join(home, ".codex"))
     agents_file = os.path.join(home, ".codex", "AGENTS.md")
     open(agents_file, "w").write("my own codex text\n")
+    installed_link(home)
     env = {"HOME": home}
     sync = os.path.join(BIN, "ai-sync")
     res = run(["bash", sync], env=env)
@@ -392,6 +393,7 @@ def t_ai_sync_links_skills(work):
     os.makedirs(claude)
     os.makedirs(agents)
     os.makedirs(os.path.join(agents, "ship"))                  # a real folder: not ours, kept
+    installed_link(home)
     sync = os.path.join(BIN, "ai-sync")
     res = run(["bash", sync], env={"HOME": home})
     assert res.returncode == 0, res.stdout
@@ -407,6 +409,7 @@ def t_ai_sync_links_skills(work):
     assert res.returncode == 0 and "same " not in res.stdout, "second pull must print no unchanged link: " + res.stdout
     bare = os.path.join(work, "sync-skills-bare")
     os.makedirs(bare)
+    installed_link(bare)
     res = run(["bash", sync], env={"HOME": bare})
     assert res.returncode == 0, res.stdout
     assert not os.path.exists(os.path.join(bare, ".agents")), "no skill folder without install"
@@ -424,6 +427,7 @@ def t_ai_sync_keeps_pstack(work):
     open(os.path.join(src, ".commit"), "w").write("newer-audited-commit\n")
     for d in (os.path.join(home, ".claude", "skills"), os.path.join(home, ".agents", "skills")):
         os.makedirs(d)
+    installed_link(home)
     res = run(["bash", os.path.join(BIN, "ai-sync")], env={"HOME": home})
     assert res.returncode == 0, res.stdout
     for d in (".claude", ".agents"):
@@ -467,10 +471,14 @@ def t_sync_hooks(work):
     for name in ("post-merge", "post-rewrite"):
         path = os.path.join(repo, ".git", "hooks", name)
         body = open(path).read()
-        assert "ai-sync-hook v1" in body and os.access(path, os.X_OK), name
-        assert "ai/bin/ai-sync" in body
+        assert "ai-sync-hook v2" in body and os.access(path, os.X_OK), name
+        assert "ai/bin/ai-sync" in body and ".dotfiles-ai" in body, "v2 runs only in the installed copy"
     res = run(["sh", os.path.join(repo, ".git", "hooks", "post-merge")], env={"HOME": work})
     assert res.returncode == 0, "hook in a worktree without ai/bin/ai-sync must be a no-op"
+    old_hook = os.path.join(repo, ".git", "hooks", "post-rewrite")
+    open(old_hook, "w").write("#!/bin/sh\n# ai-sync-hook v1: old text\n")
+    run(["bash", sync, "--install-hook", repo], env={"HOME": work})
+    assert "ai-sync-hook v2" in open(old_hook).read(), "--install-hook must replace a v1 hook (ticket 19)"
     foreign = os.path.join(repo, ".git", "hooks", "post-merge")
     open(foreign, "w").write("#!/bin/sh\necho mine\n")
     res = run(["bash", sync, "--install-hook", repo], env={"HOME": work})
@@ -478,6 +486,70 @@ def t_sync_hooks(work):
     run(["bash", sync, "--uninstall-hook", repo], env={"HOME": work})
     assert os.path.exists(foreign), "uninstall keeps foreign hooks"
     assert not os.path.exists(os.path.join(repo, ".git", "hooks", "post-rewrite")), "our hook removed"
+
+
+def t_dev_worktree_no_sync(work):
+    """Ticket 19: the git hooks are shared by every worktree. A merge in a dev worktree of the dotfiles repo
+    changes no link and no cache under HOME; the same merge in the installed copy ~/.dotfiles-ai still syncs.
+    Seen 2026-11-18: a merge in ~/work/dotfiles-ai-verify pointed the live skill links at unmerged code."""
+    home = os.path.realpath(os.path.join(work, "wt-home"))    # macOS /var is /private/var: links are physical
+    for d in (".claude/skills", ".agents/skills", ".codex"):
+        os.makedirs(os.path.join(home, d))
+    installed = os.path.join(home, ".dotfiles-ai")         # the installed copy (main worktree here)
+    dev = os.path.realpath(os.path.join(work, "wt-dev"))                     # a dev worktree, as ~/work/dotfiles-ai-verify
+    shutil.copytree(AI_DIR, os.path.join(installed, "ai"),
+                    ignore=shutil.ignore_patterns("tests", "__pycache__", "*.pyc", "build"))
+    env = {"HOME": home}
+    git = lambda repo, *a: run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t"] + list(a), env=env)
+    git(installed, "init", "-q", "-b", "ai")
+    git(installed, "add", "-A")
+    git(installed, "commit", "-q", "-m", "setup")
+    git(installed, "worktree", "add", "-q", "-b", "dev", dev)
+    res = run(["bash", os.path.join(installed, "ai", "bin", "ai-sync"), "--install-hook", installed], env=env)
+    assert res.returncode == 0 and "hook:" in res.stdout, res.stdout
+
+    def merge(repo, name):
+        git(repo, "checkout", "-q", "-b", name)
+        open(os.path.join(repo, name + ".txt"), "w").write(name + "\n")
+        git(repo, "add", name + ".txt")
+        git(repo, "commit", "-q", "-m", name)
+        git(repo, "checkout", "-q", "-")
+        return git(repo, "merge", "-q", "--no-ff", "-m", "merge " + name, name)
+
+    before = home_state(home)
+    res = merge(dev, "feat-dev")
+    assert res.returncode == 0, res.stdout
+    assert home_state(home) == before, "a merge in a dev worktree changed HOME: " + res.stdout
+    res = run(["bash", os.path.join(dev, "ai", "bin", "ai-sync")], env=env)     # an old v1 hook calls it directly
+    assert res.returncode == 0 and len(res.stdout.strip().splitlines()) == 1, res.stdout
+    assert "not the installed copy" in res.stdout, res.stdout
+    assert home_state(home) == before, "ai-sync from a dev worktree changed HOME: " + res.stdout
+
+    res = merge(installed, "feat-installed")
+    assert res.returncode == 0, res.stdout
+    link = os.path.join(home, ".claude", "skills", "setup-rollout")
+    assert os.path.islink(link) and os.readlink(link) == os.path.join(installed, "ai", "skills", "setup-rollout"), \
+        "the installed copy must still sync after a merge: " + res.stdout
+    assert "<!-- AI:core v1 START -->" in open(os.path.join(home, ".codex", "AGENTS.md")).read(), res.stdout
+
+
+def installed_link(home):
+    """install.sh links ~/.dotfiles-ai to the tree it ran from: this checkout is then the installed copy."""
+    os.symlink(REPO, os.path.join(home, ".dotfiles-ai"))
+
+
+def home_state(home):
+    """Every path under HOME except the dotfiles trees: link target or file bytes."""
+    state = {}
+    for root, dirs, files in os.walk(home):
+        dirs[:] = [d for d in dirs if not (root == home and d == ".dotfiles-ai")]
+        for name in dirs + files:
+            path = os.path.join(root, name)
+            if os.path.islink(path):
+                state[path] = "-> " + os.readlink(path)
+            elif os.path.isfile(path):
+                state[path] = open(path, "rb").read()
+    return state
 
 
 def t_hermes_plugin(work):

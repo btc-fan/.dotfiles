@@ -14,10 +14,11 @@ Each item happened on a real machine. Machine names are generic.
   line in `~/.claude/CLAUDE.md`, for example "never run rtk init -g". Before ddabcc1, `ai-doctor` failed here (R-003).
 - **Old OMC block.** An old `<!-- OMC:START -->` block in `~/.claude/CLAUDE.md` becomes the 3-line note when
   `install.sh` runs with Claude detected. Owner text stays.
-- **Live sync from the dev checkout.** The dev checkout has post-merge and post-rewrite hooks. They run `ai-sync`
-  into the live `~/.codex`. When you merge unreviewed branches there, use `git -c core.hooksPath=/dev/null merge ...`.
-  Never run `git commit --amend` there. A sync that went live by accident:
-  `AI_HOME=~/.dotfiles-ai ~/.dotfiles-ai/ai/bin/ai-sync`.
+- **Live sync from the dev checkout.** Every worktree shares the post-merge and post-rewrite hooks. Hook v2 and
+  `ai-sync` sync only from the installed copy `~/.dotfiles-ai`; a dev worktree prints one line and changes nothing
+  (ticket 19, R-010). A machine with a v1 hook (`grep ai-sync-hook ~/.dotfiles/.git/hooks/post-merge`) gets v2
+  from `~/.dotfiles-ai/ai/bin/ai-sync --install-hook`. A sync that went live by accident before v2:
+  `~/.dotfiles-ai/ai/bin/ai-sync`.
 - **Dry run from a worktree.** The plan is safe. A real install from a worktree links everything to it.
 - **Audit guard.** A newest-stable tool that fails `agent-audit` stays at the audited version (seen: OMC 5.8.6 held
   at 5.8.5). This is not an error.

@@ -816,6 +816,8 @@ def t_omc_companion(work):
     assert code == 0 and read(comp) == OMC_COMPANION, (out, read(comp))
     # ai-sync (after a pull): OMC made the file after install.
     write(comp, OMC_COMPANION)
+    if not os.path.lexists(os.path.join(home, ".dotfiles-ai")):     # install.sh makes this link (ticket 19)
+        os.symlink(os.path.dirname(AI_DIR), os.path.join(home, ".dotfiles-ai"))
     uv = shutil.which("uv")                # ai-sync runs ai-render, which needs uv (or PyYAML)
     sync_env = dict(env, PATH=env["PATH"] + (":" + os.path.dirname(uv) if uv else ""))
     res = subprocess.run(["bash", os.path.join(AI_DIR, "bin", "ai-sync")], stdout=subprocess.PIPE,

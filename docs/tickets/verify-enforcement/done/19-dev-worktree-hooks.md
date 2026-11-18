@@ -4,8 +4,8 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Red: a merge in a second worktree of a fixture dotfiles repo changes no link and no cache under a temp HOME.
-- [ ] Green: the same merge in the installed copy still syncs.
-- [ ] `ai-check-detect --dir /nonexistent` prints one error line and exits 2, no traceback (found by verify-ai-setup).
+- [x] Red: a merge in a second worktree of a fixture dotfiles repo changes no link and no cache under a temp HOME.
+- [x] Green: the same merge in the installed copy still syncs.
+- [x] `ai-check-detect --dir /nonexistent` prints one error line and exits 2, no traceback (found by verify-ai-setup).
