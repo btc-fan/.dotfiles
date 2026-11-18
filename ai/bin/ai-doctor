@@ -1031,7 +1031,19 @@ def check_omc():
         exa = (((data or {}).get("mcpServers") or {}).get("exa") or {}).get("enabled") if data is not None else None
         say("PASS" if exa is False else "FAIL", "OMC exa MCP off (%s)" % path,
             "" if exa is False else "exa sends search queries to an outside service; re-run install.sh")
+        check_omc_walls()
     check_omc_companion()
+
+
+def check_omc_walls():
+    """Ticket 15: OMC magic keywords off through OMC's own switch in the Claude settings env (env.list)."""
+    env = dict(claude_settings().get("env") or {})
+    if LINUX:
+        env.update((load_json_file(MANAGED) or {}).get("env") or {})
+    skip = str(env.get("OMC_SKIP_HOOKS") or "")
+    off = "keyword-detector" in [s.strip() for s in skip.split(",")]
+    say("PASS" if off else "FAIL", "OMC magic keywords off (OMC_SKIP_HOOKS=keyword-detector)",
+        "" if off else "a normal prompt can start an OMC mode; re-run install.sh")
 
 
 def check_claude_cleanup():

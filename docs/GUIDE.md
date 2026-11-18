@@ -307,6 +307,11 @@ broken, debug, crash, regression; Romanian and Russian forms) and `tdd` (a tests
 stop rules. As stops they blocked 7 of 7 turns falsely: research and setup prompts that only mention debug, broken
 or crash. Now they are nudges. The prompt still shows the hint. The end of the turn is never blocked.
 
+**OMC walls (2026-11-18, ticket 15).** OMC's magic keywords are off: install.sh puts `OMC_SKIP_HOOKS=keyword-detector`
+(OMC's own switch) into the Claude settings env on every machine. The word "autopilot" in a normal prompt starts
+nothing. A typed `/oh-my-claudecode:autopilot` still runs the skill. `ai-doctor` checks the switch. The OMC
+context-guard Stop hook (it blocks the turn end above 75 percent context) stays on: OMC 5.8.5 has no switch for it.
+
 **The skill card.** At every SessionStart (startup, resume, clear, compact) the agent gets one card. It names the
 2 must-use skills that a gate checks (`writing-for-agents`, `ship`) and 2 hint skills (`diagnosing-bugs`, `tdd`), with
 one trigger line each. It also lists
