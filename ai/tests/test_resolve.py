@@ -39,7 +39,8 @@ def main():
                      t_claude_dir_same_version, t_claude_fresh_install_checked, t_claude_own_replace_rollback,
                      t_claude_plugin_rejected_newest,
                      t_codex_plugin_refresh, t_bash_mattpocock_optin, t_bash_pstack, t_audit_accept_by_commit, t_uv_tool_normalized, t_scanners,
-                     t_osv_scanner, t_herdr, t_src_swap_and_dry_sha, t_playwright_keep_only):
+                     t_osv_scanner, t_herdr, t_src_swap_and_dry_sha, t_playwright_keep_only,
+                     t_playwright_profile_audit):
             for k in ENV_KEYS:
                 os.environ.pop(k, None)
             resolve._FIXTURES = None
@@ -850,6 +851,29 @@ def t_playwright_keep_only(work):
     res = subprocess.run(["bash", os.path.join(AI_DIR, "bin", "ai-playwright-mcp")], stdout=subprocess.PIPE,
                          env={"HOME": home, "PATH": os.environ["PATH"]})
     assert res.stdout.decode().strip() == "pw-0.0.85", res.stdout
+
+
+def t_playwright_profile_audit(work):
+    """ai-adopt --tools browser (ticket 16): profile dev-mac audits no npm installs (owner 2026-11-14), so the
+    pinned @playwright/mcp installs with "audit skipped: profile dev-mac"; profile server still needs a PASS."""
+    pins = 'PLAYWRIGHT_MCP_SOURCE="npm @playwright/mcp stable"\n'
+    latest = {NPM + "@playwright%2Fmcp/latest": {"version": "0.0.90", "dist": {"integrity": "sha512-pw"}}}
+    for profile in ("dev-mac", "server"):
+        env, home = npm_env(os.path.join(work, profile), pins, latest, {"@playwright/mcp@0.0.90": "sha512-pw"},
+                            {"AI_PROFILE": profile, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t.invalid",
+                             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t.invalid"})
+        proj = os.path.join(work, profile, "proj")
+        git("init", "-q", proj)
+        res = subprocess.run([sys.executable, os.path.join(AI_DIR, "bin", "ai-start"), "--dir", proj, "--tools",
+                              "browser", "--yes", "--no-onboard", "--no-knowledge", "--no-measure"],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, timeout=120)
+        out = res.stdout.decode()
+        pkg = os.path.join(home, ".local", "share", "ai", "npm", "playwright-mcp-0.0.90", "node_modules",
+                           "@playwright", "mcp", "package.json")
+        if profile == "dev-mac":
+            assert "audit skipped: profile dev-mac" in out and os.path.isfile(pkg), out
+        else:
+            assert "no agent-audit PASS" in out and not os.path.exists(pkg), out
 
 
 FAKE_CLAUDE = r'''#!/usr/bin/env python3
