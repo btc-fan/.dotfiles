@@ -1126,23 +1126,29 @@ PR_GENERATED = re.compile(r"(^|/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|
                           r"go\.sum|bun\.lockb?|composer\.lock|Gemfile\.lock)$|\.(lock|min\.js|min\.css|snap)$|"
                           r"(^|/)(dist|vendor|generated|__generated__)/")
 PR_SIZE_WARN = 400
+PR_GATED = ("create", "edit", "ready")      # ticket 05: the verify log on all 3
 
 
 def gate_pr(ctx, cmd, stages):
-    problems, warnings, here = [], [], ctx.cwd or "."
+    problems, warnings, here, verify = [], [], ctx.cwd or ".", None
     for st in stages:
         if st.exe in ("cd", "pushd", "popd"):
             here = cd_target(st, here) or ctx.cwd or "."     # the folder the gh command runs in
             continue
-        if st.exe != "gh" or st.args[:1] != ["pr"] or len(st.args) < 2 or st.args[1] not in ("create", "edit"):
+        if st.exe != "gh" or st.args[:1] != ["pr"] or len(st.args) < 2 or st.args[1] not in PR_GATED:
             continue
         sub, args = st.args[1], st.args[2:]
+        if sub == "ready" and "--undo" in args:
+            continue
+        root = project_root(here)
+        diff = pr_diff(ctx, root, args) if root else None
+        verify = verify or pr_verify_log(root, diff)
         if sub == "create" and any(a.split("=")[0] in PR_FILL for a in args):
             problems.append("--fill / --web hide the body from this check: write the body and pass it with --body "
                             "or --body-file")
             continue
         body_flag = any(a.split("=")[0] in ("--body", "-b", "--body-file", "-F") for a in args)
-        if sub == "edit" and not body_flag:
+        if sub == "ready" or (sub == "edit" and not body_flag):
             continue
         text, unread = pr_body_text(here, cmd, args)
         if unread:
@@ -1157,7 +1163,6 @@ def gate_pr(ctx, cmd, stages):
         line = session_line(ctx)
         if line and re.search(r"(?im)^\s*main:\s*unknown\b", text):
             missing.append("a real main: line in the author-sessions block (this session: %s)" % line)
-        root = project_root(here)
         fix = bool(PR_FIX_TITLE.match(flag_value(args, ("--title", "-t")) or ""))
         for name in PR_FIELDS:
             why = pr_field_problem(name, pr_field(text, name))
@@ -1167,22 +1172,18 @@ def gate_pr(ctx, cmd, stages):
             why = pr_field_problem(name, pr_field(text, name))
             if why and why not in warnings:
                 warnings.append(why)
-        if sub == "create" and root:
-            diff_problems, files = pr_diff_checks(ctx, root, args, fix)
-            missing.extend(diff_problems)
-            why = pr_verify_evidence(root, pr_field(text, "Evidence"), files)
-            if why:
-                missing.append(why)
+        if sub == "create":
+            missing.extend(pr_diff_checks(ctx, diff, fix))
         problems.extend(m for m in missing if m not in problems)
     if warnings:
         ctx.add_context("[ai gate pr-rules] warning, add to the PR body: %s." % "; ".join(warnings))
     if not problems:
-        return None
+        return ("deny", verify) if verify else None
     return ("deny", "PR not ready, missing: %s. Body follows the pr skill template: ## Summary (with a ```mermaid "
             "diagram), ## Evidence (Before and After: command and output tail), ## Merge Danger (**Door:** one-way "
             "or two-way and why; **Blast Radius:** what can break). Author-sessions block at the end. Also "
-            "(a warning only): Docs, Changed guards, Ledger on fix PRs. Pass it with --body or --body-file."
-            % "; ".join(problems))
+            "(a warning only): Docs, Changed guards, Ledger on fix PRs. Pass it with --body or --body-file.%s"
+            % ("; ".join(problems), "\n" + verify if verify else ""))
 
 
 def session_line(ctx):
@@ -1295,8 +1296,9 @@ def pr_field_problem(name, value):
     return None
 
 
-def pr_diff_checks(ctx, root, args, fix):
-    """A fix: PR without a test file -> problem; size over PR_SIZE_WARN -> a warning in the context only."""
+def pr_diff(ctx, root, args):
+    """(base ref, head ref, [(added, deleted, path)]) of the PR against its base branch, or None (no base found).
+    The base is the one the command names (--base), else origin/HEAD, main or master."""
     base = flag_value(args, ("--base", "-B"))
     head = flag_value(args, ("--head", "-H")) or "HEAD"
     if ":" in head:
@@ -1314,16 +1316,19 @@ def pr_diff_checks(ctx, root, args, fix):
     numstat = git_quick(root, ["diff", "--numstat", "%s...%s" % (base_ref, head)]) if base_ref else None
     if numstat is None:
         ctx.add_context("[ai gate pr-rules] could not diff against the base branch: the test-file, size and "
-                        "verify-evidence checks did not run.")
-        return [], None
-    files, lines = [], 0
-    for row in numstat.splitlines():
-        parts = row.split("\t")
-        if len(parts) < 3:
-            continue
-        files.append(parts[2])
-        if not PR_GENERATED.search(parts[2]):
-            lines += sum(int(x) for x in parts[:2] if x.isdigit())
+                        "verify-log checks did not run.")
+        return None
+    rows = [tuple(row.split("\t", 2)) for row in numstat.splitlines() if row.count("\t") >= 2]
+    return base_ref, head, rows
+
+
+def pr_diff_checks(ctx, diff, fix):
+    """A fix: PR without a test file -> problem; size over PR_SIZE_WARN -> a warning in the context only."""
+    if diff is None:
+        return []
+    base_ref, _head, rows = diff
+    files = [r[2] for r in rows]
+    lines = sum(int(x) for r in rows if not PR_GENERATED.search(r[2]) for x in r[:2] if x.isdigit())
     out = []
     if fix and not any(PR_TEST_PATH.search(f) for f in files):
         out.append("a test file in the diff of a fix: PR (tests/..., test_*.py, *_test.go, *.test.ts); none against %s"
@@ -1331,29 +1336,66 @@ def pr_diff_checks(ctx, root, args, fix):
     if lines > PR_SIZE_WARN:
         ctx.add_context("[ai gate pr-rules] warning: %d changed lines against %s (generated files left out), over %d. "
                         "Split the PR or say in the body why it must stay one." % (lines, base_ref, PR_SIZE_WARN))
-    return out, files
+    return out
 
 
-def pr_verify_evidence(root, evidence, files):
-    """A project with a verify-<app> skill and a PR that changes app code: Evidence names the skill
-    run, its evidence path and the e2e test (the Done order: check-fast, verify evidence, then e2e)."""
-    if evidence is None or files is None:
+def pr_verify_log(root, diff):
+    """Ticket 05 (hook 4): a PR that changes app code in a project with a verify-<app> skill needs a valid run log
+    (valid_verify_logs) at the PR head SHA that finished after the last app-code commit. None = pass."""
+    info = verify_skill(root) if diff else None
+    if not info:
         return None
-    info = verify_skill(root)
-    if not info or not any(is_code_file(f) and not PR_TEST_PATH.search(f) and not f.startswith(info["path"] + "/")
-                           for f in files):
+    base_ref, head, rows = diff
+    code = [r[2] for r in rows if is_code_file(r[2]) and not PR_TEST_PATH.search(r[2])
+            and not r[2].startswith(info["path"] + "/")]
+    if not code:
         return None
-    tokens = re.findall(r"[\w.@~-]*/[\w./@~-]+", evidence)
-    has_test = any(PR_TEST_PATH.search(t) for t in tokens)
-    has_evidence = any(not PR_TEST_PATH.search(t) for t in tokens)
-    if info["name"] in evidence and has_test and has_evidence:
+    sha = (git_quick(root, ["rev-parse", "-q", "--verify", head + "^{commit}"]) or "").strip()
+    # shortcut: the newest commit that touched the first 500 app-code paths; enough for one PR.
+    last = (git_quick(root, ["--literal-pathspecs", "log", "-1", "--format=%H %ct", "%s..%s" % (base_ref, head),
+                             "--"] + code[:500]) or "").split()
+    last_ct = int(last[1]) if len(last) == 2 else 0
+    logs = valid_verify_logs(root)
+    if any(c == sha and fin > last_ct for c, fin in logs):
         return None
-    return ("Evidence: the %s run (its evidence path, e.g. artifacts/<feature>/...) and the e2e test it led to "
-            "(a tests/... path): app code changed and this project has a verify skill" % info["name"])
+    newest = max(logs, key=lambda x: x[1]) if logs else None
+    when = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(last_ct)) if last_ct else "?"
+    return ("verify proof: the PR changes app code (%s) and this project has %s, but no valid run log is at the PR "
+            "head %s with a finish after the last app-code commit %s (%s). %s Run %s on this checkout (launch, "
+            "doctor, drive the changed features, cleanup), then retry. Valid .verify/evidence/<run>/run.log: "
+            "commit: %s, doctor: PASS, db_writes: no, finished: after %s."
+            % (", ".join(code[:3]) + (" ..." if len(code) > 3 else ""), info["name"], sha[:12],
+               last[0][:12] if last else "?", when,
+               "Newest valid log: commit %s." % newest[0][:12] if newest else "No valid log in this checkout.",
+               info["name"], sha, when))
+
+
+VERIFY_LOG_RX = re.compile(r"^(commit|doctor|db_writes|finished):[ \t]*(\S+)[ \t]*$", re.M)
+
+
+def valid_verify_logs(root):
+    """[(commit, finished epoch)] of the valid runs in <root>/.verify/evidence/<run>/run.log. Valid: all 4 lines,
+    a 40-hex commit, doctor: PASS, db_writes: no, a UTC ISO 8601 finished time (rules/verification-skill.md)."""
+    base, out = os.path.join(root, ".verify", "evidence"), []
+    try:
+        names = os.listdir(base)
+    except OSError:
+        return out
+    for name in names:
+        f = dict(VERIFY_LOG_RX.findall(read_text(os.path.join(base, name, "run.log")) or ""))
+        fin = parse_iso(f.get("finished", ""))
+        if re.fullmatch(r"[0-9a-f]{40}", f.get("commit", "")) and f.get("doctor") == "PASS" \
+                and f.get("db_writes") == "no" and fin:
+            out.append((f["commit"], fin))
+    return out
 
 
 def probe_pr(stages, cmd=""):
     return any(st.exe == "gh" and st.args[:1] == ["pr"] and st.args[1:2] in (["create"], ["edit"]) for st in stages)
+
+
+def probe_pr_gate(stages, cmd=""):
+    return any(st.exe == "gh" and st.args[:1] == ["pr"] and st.args[1:2] in [[s] for s in PR_GATED] for st in stages)
 
 
 # ---------------------------------------------------------------- merge-approval (owner 2026-11-16)
@@ -2015,7 +2057,7 @@ def repo_cmd_rule(st, prefixes):
 
 GATES = {"audit-before-install": gate_audit, "secret-scan": gate_secrets, "pr-rules": gate_pr, "no-sudo": gate_sudo,
          "no-destroy": gate_destroy, "merge-approval": gate_merge, "no-verify": gate_no_verify, "gh-write": gate_gh}
-GATE_PROBES = {"audit-before-install": probe_audit, "secret-scan": probe_secrets, "pr-rules": probe_pr,
+GATE_PROBES = {"audit-before-install": probe_audit, "secret-scan": probe_secrets, "pr-rules": probe_pr_gate,
                "no-sudo": probe_sudo, "no-destroy": probe_destroy, "merge-approval": probe_merge,
                "no-verify": probe_no_verify, "gh-write": probe_gh}
 
@@ -2308,7 +2350,7 @@ def verify_skill(root):
 
 def verify_staleness(root, info):
     """(code commits since the feature map last changed, days since that change) or None (no git history).
-    Stale (time for /maintain-verification-skill): >= VERIFY_STALE_COMMITS such commits, or >= VERIFY_STALE_DAYS
+    Stale (time for maintain-verification-skill): >= VERIFY_STALE_COMMITS such commits, or >= VERIFY_STALE_DAYS
     days with at least one."""
     rel = info.get("features_dir") or info["path"]
     last = (git_quick(root, ["log", "-1", "--format=%H %ct", "--", rel]) or "").split()
@@ -2343,8 +2385,8 @@ def verify_status_line(root, agent="claude"):
     stats = verify_staleness(root, info)
     line = "Verify skill: %s (%d features)" % (info["name"], info["features"])
     if verify_stale(stats):
-        line += ", stale (%d code commits, %d days since the feature map changed): run /maintain-verification-skill" \
-            % stats
+        line += (", stale (%d code commits, %d days since the feature map changed). Agent task: run "
+                 "maintain-verification-skill now" % stats)
         line += read_and_follow(root, "maintain-verification-skill", agent)
     return line + "."
 

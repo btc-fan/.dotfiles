@@ -14,8 +14,9 @@ version: 4
 # opt-in catalog. Removed (logs showed them ignored or unmeasured): kickoff, no-memories, no-graph, graph-first,
 # serena-first, graph-update, docs-on-dependency, github, prompting-others, agent-docs, wait-what, toolbox.
 # Serena and graphify are opt-in per project. Grounded Docs and the GitHub MCP are dropped (context7, gh).
-# Fields: proof = regex over the session's tool/skill calls for the Stop miss log; once_per = session |
-# library_per_session; prompt_libs = also fire when the prompt names a library from the Libraries block.
+# Fields: proof = regex over the session's tool/skill calls for the Stop miss log; once_per = session | agent
+# (the main agent and each subagent by its agent_id) | library_per_session; prompt_libs = also fire when the prompt
+# names a library from the Libraries block.
 # Action placeholders the router fills at fire time: {knowledge_index} {knowledge_delta} {libs_hits}
 # {claude_handoff}. Each value is a full phrase; an empty value disappears; an empty action sends nothing.
 
@@ -129,10 +130,10 @@ rules:
 
   - id: pr-rules
     scope: global
-    summary: 'before gh pr create or edit'
-    trigger: {tool_before: 'Bash', command: '\bgh pr (create|edit)\b'}
+    summary: 'before gh pr create, edit or ready'
+    trigger: {tool_before: 'Bash', command: '\bgh pr (create|edit|ready)\b'}
     action: "PR body (pr skill template): Summary with a Mermaid diagram, Evidence (Before, After), Merge Danger (Door: one-way or two-way; Blast Radius), Docs, Changed guards (Ledger on fix PRs), author-sessions block last."
-    strength: gate    # blocks without ```mermaid, <!-- author-sessions, the fields Evidence, Door (one-way or two-way), Blast Radius (placeholders refused), a test file in a fix: PR; --fill/--web refused; Docs, Changed guards, Ledger warn only
+    strength: gate    # blocks without ```mermaid, <!-- author-sessions, the fields Evidence, Door (one-way or two-way), Blast Radius (placeholders refused), a test file in a fix: PR; --fill/--web refused; Docs, Changed guards, Ledger warn only; create, edit and ready: app code in the diff and a verify-<app> skill need a valid .verify/evidence run.log at the PR head SHA (ticket 05)
 
   - id: merge-approval
     scope: global
@@ -225,7 +226,7 @@ rules:
     summary: 'after a code edit where a verify-<app> skill exists'
     trigger: {tool_after: 'Edit|Write|MultiEdit|NotebookEdit'}
     action: "{verify_hint}"   # empty without a verify skill or for a non-code file
-    once_per: 'session'
+    once_per: 'agent'         # ticket 06: the main agent and each subagent get it once
     proof: 'verify-[\w-]+'
     strength: nudge
 

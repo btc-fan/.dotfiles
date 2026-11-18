@@ -186,8 +186,8 @@ def validate(data):
                     re.compile(r[key])
                 except re.error as exc:
                     errors.append("%s: bad %s regex: %s" % (rid, key, exc))
-        if r.get("once_per") not in (None, "session"):
-            errors.append("%s: once_per must be session (or absent)" % rid)
+        if r.get("once_per") not in (None, "session", "agent"):
+            errors.append("%s: once_per must be session or agent (or absent)" % rid)
         if r.get("deny_once_when") not in (None, "graph"):
             errors.append("%s: deny_once_when must be graph (or absent)" % rid)
         if trig.get("paths") == "code" or r.get("log_only") or r.get("reset_on"):

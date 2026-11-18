@@ -161,6 +161,28 @@ def t_adopt_own_done(work):
     assert "nothing to change" in adopt(repo, env).stdout, "a rerun changes nothing"
 
 
+def t_adopt_own_done_verify_block(work):
+    """Ticket 06: the verify line reaches a project with its own Done section as one managed AI:verify block at the
+    end of that section. The owner text stays byte for byte; a rerun changes nothing. No own Done: the full block."""
+    own = "# own\n\nIntro.\n\n## Done\n- tests pass\n- docs updated\n\n## Notes\nkeep me\n"
+    repo, env = adopt_repo(work, "own-done-verify", {"AGENTS.md": own})
+    res = adopt(repo, env)
+    assert res.returncode == 0, res.stdout
+    agents = read(os.path.join(repo, "AGENTS.md"))
+    m = re.search(r"<!-- AI:verify START[^>]*-->\n(.*?)<!-- AI:verify END -->\n", agents, re.S)
+    assert m, agents
+    assert m.group(1).count("\n") == 1 and "verify-<app>" in m.group(1) and ".verify/evidence/" in m.group(1) \
+        and "then its tests are automated" in m.group(1), m.group(1)
+    assert agents.index("- docs updated\n") < m.start() < agents.index("## Notes"), "block under the own Done: " + agents
+    without = agents[:m.start()] + agents[m.end():]
+    assert without.startswith(own), "owner text changed:\n%r\n%r" % (own, without[:len(own) + 40])
+    assert "nothing to change" in adopt(repo, env).stdout, "a rerun changes nothing"
+    plain, env2 = adopt_repo(work, "no-done-verify", {})
+    assert adopt(plain, env2).returncode == 0
+    agents = read(os.path.join(plain, "AGENTS.md"))
+    assert "<!-- AI:done START" in agents and "<!-- AI:verify" not in agents, agents
+
+
 def t_adopt_long_tier(work):
     repo, env = adopt_repo(work, "long", {})
     res = adopt(repo, env, "--tier", "long")
@@ -594,11 +616,13 @@ def t_verify_status_and_doctor(work):
         write(os.path.join(repo, "src", "app.py"), "x = %d\n" % i)
         run(["git", "-C", repo, "commit", "-qam", "c%d" % i], env=env)
     line = hooklib.knowledge_index(repo)
-    assert "stale (25 code commits" in line and "/maintain-verification-skill" in line, line
+    assert "stale (25 code commits" in line and "Agent task: run maintain-verification-skill" in line, line
+    assert "run /maintain-verification-skill" not in line, "ticket 06: an agent task, not a typed owner step: " + line
     out = io.StringIO()
     with redirect_stdout(out):
         doctor.check_verify_skill(repo, hooklib, "mvp")
-    assert "WARN verify skill verify-shop (2 features), map stale" in out.getvalue(), out.getvalue()
+    assert "WARN verify skill verify-shop (2 features), map stale" in out.getvalue() \
+        and "agent task: run maintain-verification-skill" in out.getvalue(), out.getvalue()
     assert "WARN Claude link .claude/skills/verify-shop" in out.getvalue(), out.getvalue()
     write(os.path.join(repo, ".agents", "skills", "verify-shop", "features", "pay.md"), "# pay\n")
     run(["git", "-C", repo, "add", "-A"], env=env)
@@ -1240,7 +1264,7 @@ TESTS_LIST = [t_verify_skills_copy, t_pstack_adapt_ours, t_adopt_verify_link, t_
               t_detect_probe_drops_missing_tool, t_adopt_failing_check_turns_stop_off, t_adopt_leaves_tree_clean, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
               t_adopt_branch_exists_main_clean, t_adopt_old_branch, t_adopt_unborn_main, t_typed_only_skill_paths,
               t_plan_keeps_targets, t_plan_keeps_owner_flags, t_adopt_owner_text_survives_rerun, t_adopt_gitignore_makefile_owner_lines,
-              t_adopt_conflict_writes_nothing, t_doctor_owner_text, t_adopt_own_done, t_adopt_long_tier, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused,
+              t_adopt_conflict_writes_nothing, t_doctor_owner_text, t_adopt_own_done, t_adopt_own_done_verify_block, t_adopt_long_tier, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused,
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_continuation_checks_the_fix, t_stop_chain_cap, t_stop_no_baseline_uses_head,
               t_stop_recipe_changed, t_stop_skipped_only_and_group_kill,
               t_stop_success_silent_both_agents, t_stop_codex_block_and_timeout, t_stop_floor_zero_tests,

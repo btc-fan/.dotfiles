@@ -163,7 +163,7 @@ opt-in = only where the project enabled the tool (ai-start, ai-adopt).
 | secret-scan (gate) | before git commit or push | Secret scan found a key, token or password. Remove it before commit or push. |
 | no-sudo (gate) | any sudo, su, doas, pkexec | No sudo for agents: give the owner the exact command. Server box work: the box MCP tools, or outside a sandbox plain proj-agent <subcommand>. |
 | no-destroy (gate) | rm -r of data, home or repo root; force push or delete of main; reset --hard with changes; root clean -x; compose down -v; DROP/TRUNCATE of a protected DB | Give the owner the exact command and why. Rebuildable folders (node_modules, .venv, dist, build) are fine. |
-| pr-rules (gate) | before gh pr create or edit | PR body (pr skill template): Summary with a Mermaid diagram, Evidence (Before, After), Merge Danger (Door: one-way or two-way; Blast Radius), Docs, Changed guards (Ledger on fix PRs), author-sessions block last. |
+| pr-rules (gate) | before gh pr create, edit or ready | PR body (pr skill template): Summary with a Mermaid diagram, Evidence (Before, After), Merge Danger (Door: one-way or two-way; Blast Radius), Docs, Changed guards (Ledger on fix PRs), author-sessions block last. |
 | merge-approval (gate) | before gh pr merge, or a git push to main or master | Merge only after the ship skill and when the owner's latest message says merge or approve. No push to main or master. |
 | no-verify (gate) | git commit or push with --no-verify (or commit -n) | Never skip git hooks: fix what pre-commit reports, then commit again. |
 | writing-for-agents (gate) | before an edit of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md | Load the writing-for-agents skill first (Skill tool, or read its SKILL.md), then edit. |

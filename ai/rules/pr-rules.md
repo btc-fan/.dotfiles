@@ -9,12 +9,15 @@ placeholder text), read 2026-11-12.
 NOT FOUND (our own gate).
 
 ## When / when not
-- Every `gh pr create` and `gh pr edit` with a body (also behind `rtk` and `rtk proxy`).
+- Every `gh pr create` and `gh pr edit` with a body (also behind `rtk` and `rtk proxy`). The verify-log check
+  (below) also runs on every `gh pr edit` and `gh pr ready`.
 - Always: a ```mermaid block and the `<!-- author-sessions` block.
 - Fields that block (no tiers since 2026-11-15, every project is long): `Evidence` (check command and the tail of
   its output; a `## Evidence` heading or an `Evidence:` label), `Door:` (must say one-way or two-way),
-  `Blast Radius:`. With a verify-<app> skill and app code changed, Evidence also names the skill run, an evidence
-  path and the e2e test.
+  `Blast Radius:`.
+- Verify log (ticket 05; it replaced the old Evidence text check): with a verify-<app> skill and app code in the
+  diff, a valid `.verify/evidence/<run>/run.log` must have `commit:` equal to the PR head SHA and `finished:`
+  after the last app-code commit. Root and HEAD come from the checkout the command runs in (`cd <worktree> &&`).
 - Fields that only warn (ticket 13, 2026-11-18): `Docs:` (files, or "none, because ..."), `Changed guards:` (each
   edited or removed test and why, or "none"), and on a fix PR `Ledger: R-NNN`.
 - Body file: `$VAR`, `"$VAR"`, `${VAR}` come from a simple `VAR=value` earlier in the same command; a `cd`

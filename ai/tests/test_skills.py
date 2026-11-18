@@ -224,7 +224,18 @@ def write(path, text):
         fh.write(text)
 
 
-TESTS_LIST = [t_card_fits_worst_case, t_doctor_skill_stats, t_render_checks_skill_rules, t_eval_turns_let_stop_fire,
+def t_release_runs_maintain(work):
+    """Ticket 06: the release skill runs maintain-verification-skill itself (model-invocable since ticket 01)."""
+    def text(name):
+        with open(os.path.join(AI_DIR, "skills", name, "SKILL.md"), encoding="utf-8") as fh:
+            return fh.read()
+    release = text("release")
+    assert "maintain-verification-skill" in release and "verify-<app>" in release, "release skill: no maintain pass"
+    head = text("maintain-verification-skill").split("\n---", 1)[0]
+    assert "disable-model-invocation" not in head, "maintain-verification-skill must stay model-invocable"
+
+
+TESTS_LIST = [t_release_runs_maintain, t_card_fits_worst_case, t_doctor_skill_stats, t_render_checks_skill_rules, t_eval_turns_let_stop_fire,
               t_verify_ai_setup_run, t_doctor_wall_table]
 
 if __name__ == "__main__":

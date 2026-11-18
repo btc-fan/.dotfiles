@@ -101,6 +101,11 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   the body file <path>"), not a list of every field. A heredoc in the command counts as the body. The diff uses
   the base the command names (`--base ai`: `origin/ai`, else `ai`, else a 5 s `git fetch origin ai`), never main
   in its place.
+  Verify log (ticket 05, hook 4): `gh pr create`, `gh pr edit` (also without a body) and `gh pr ready` are denied
+  when the diff has app code, the repo has a `verify-<app>` skill, and no valid `.verify/evidence/<run>/run.log`
+  has `commit:` equal to the PR head SHA and `finished:` after the last app-code commit (`valid_verify_logs`:
+  all 4 lines, `doctor: PASS`, `db_writes: no`). Root and HEAD come from the checkout the command runs in.
+  A docs-only PR is not gated. `gh pr ready --undo` is not gated.
   `--fill` and `--web` are refused. A `main: unknown` line is refused when the hook payload has a session id:
   the router gives the real line (`main: <session id> dir: <cwd with ~>`) at session start and as context on
   `gh pr create|edit`, so the block gets a real id also without herdr. The command is never rewritten.
