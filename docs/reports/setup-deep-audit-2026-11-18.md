@@ -253,8 +253,9 @@ Three layers, each with one job.
 
 1. **Text, short.** Only what a hook cannot check: reply shape, judgement, where knowledge lives. One reply-shape
    rule, not three. Target: under 100 lines of global rules.
-2. **Git hooks for git rules.** One hook folder for all repos (global `core.hooksPath`) that runs the repo's own
-   hooks after ours. `pre-commit`: no commit on main or master, built-in secret scan on the staged diff, the
+2. **Git hooks for git rules.** One global hook that runs before the repo's own hooks. A research pass of the
+   same day found that a global `core.hooksPath` alone does not work with husky and the pre-commit tool; see
+   `docs/maps/setup-shape/issues/03-git-hooks-as-the-seam.md` for the open test. `pre-commit`: no commit on main or master, built-in secret scan on the staged diff, the
    verify commit gate, lint. `pre-push`: no push to main or master, secret scan on the pushed range (gitleaks
    may run here). These hooks hold for Claude, Codex, subagents, the shell and the owner. They need no parser of
    shell command text and they have no agent hook timeout.

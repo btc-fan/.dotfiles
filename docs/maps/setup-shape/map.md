@@ -23,6 +23,10 @@ The map ends when nothing is left to decide before `to-tickets` can slice the sp
 
 <!-- one line per resolved ticket: gist, then the link -->
 
+- [Can git hooks carry the git rules for each agent and each repo](issues/03-git-hooks-as-the-seam.md): some
+  rules yes (commit and push on a protected branch, secrets, commit message); a global `core.hooksPath` alone
+  does not work with husky and the pre-commit tool; `git add -A` and `--no-verify` have no hook point.
+
 ## Not yet specified
 
 - The outcome eval: which tasks and which numbers prove that the smaller setup is not worse. It waits for the
@@ -30,8 +34,8 @@ The map ends when nothing is left to decide before `to-tickets` can slice the sp
 - Codex: which of the new hook fields (`if`, `onFailure`) Codex has, and what replaces them there.
 - The order of the change on the 3 machines, and how a machine goes back when the new shape fails.
 - How "uses the defined skills" is counted when a skill is read as a file and not called.
-- Which rules move from text to a git hook after the research ticket on git hooks (candidates: no commit on main,
-  no `git add -A`, PR size, branch cleanup).
+- Which rules move to a git hook, after a test of git config hooks (git 2.54 or later) on a real machine. The
+  research found no hook point for `git add -A`; that rule needs an agent hook.
 - A home for the setup: own repo, CI. It waits for the profile decision.
 
 ## Out of scope
