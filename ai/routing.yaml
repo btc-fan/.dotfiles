@@ -381,4 +381,4 @@ skills:
     - {name: ship, when: 'the branch is done, before gh pr ready'}
     - {name: tdd, when: 'a tests-first or red-green prompt, before the turn ends'}
   typed_only: [grill-with-docs, to-spec, to-tickets, implement, handoff, wayfinder, improve-codebase-architecture,
-               retro, create-verification-skill, maintain-verification-skill]
+               retro]

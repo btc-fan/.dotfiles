@@ -46,7 +46,9 @@ def main():
 def t_card_fits_worst_case(work):
     render = load(os.path.join(BIN, "ai-render"), "airender_card")
     skills = rendered(work)["skills"]
-    assert len(skills["typed_only"]) == 10, "all 10 typed-only skills: %s" % skills["typed_only"]
+    assert len(skills["typed_only"]) == 8, "all 8 typed-only skills: %s" % skills["typed_only"]
+    assert not {"create-verification-skill", "maintain-verification-skill"} & set(skills["typed_only"]), \
+        "the verification skills are model-invocable (verify-enforcement 01)"
     assert render.card_budget(skills) == "", render.card_budget(skills)
     long_when = dict(skills, must_use=skills["must_use"] + [{"name": "x", "when": "y" * 1500}])
     assert "skill card worst case" in render.card_budget(long_when), "an oversized card must fail ai-render"

@@ -597,7 +597,8 @@ def t_bash_pstack(work):
     for n in ("create-verification-skill", "maintain-verification-skill"):
         write(os.path.join(up, "pstack", "skills", n, "SKILL.md"),
               '---\nname: %s\ndescription: "Write .cursor/skills/verify-<app>/ files."\n---\n\n# %s\n'
-              'Use `.cursor/skills/verify-<app>/SKILL.md`.\n' % (n, n))
+              'Use `.cursor/skills/verify-<app>/SKILL.md`.\n'      # the sentence the adapter replaces (ticket 01)
+              'A repo can have several; pick the primary one and note the rest.\n' % (n, n))
     git("add", "-A", cwd=up)
     git("commit", "-q", "-m", "one", cwd=up)
     sha = git("rev-parse", "HEAD", cwd=up)

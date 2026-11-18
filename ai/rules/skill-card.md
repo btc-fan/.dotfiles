@@ -10,7 +10,7 @@ NOT FOUND (our own context).
 - At every SessionStart: startup, resume, clear and compact. Under 1500 characters; `ai-render` fails above that.
 - Must-use skills with one trigger line: `writing-for-agents`, `diagnosing-bugs`, `ship`, `tdd`.
 - Typed-only skills: `grill-with-docs`, `to-spec`, `to-tickets`, `implement`, `handoff`, `wayfinder`,
-  `improve-codebase-architecture`, `retro`, `create-verification-skill`, `maintain-verification-skill`. For these the card says:
+  `improve-codebase-architecture`, `retro`. For these the card says:
   read `<SKILL.md>` and follow it, and tell the owner the typed form.
 - Only typed-only skills that are installed get a folder in the card.
 

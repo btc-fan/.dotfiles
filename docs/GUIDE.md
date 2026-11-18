@@ -305,9 +305,8 @@ Each block is a row in `~/.local/state/ai/misses.jsonl`. `ai-doctor` shows the m
 
 **The skill card.** At every SessionStart (startup, resume, clear, compact) the agent gets one card. It names the
 4 must-use skills (`writing-for-agents`, `diagnosing-bugs`, `ship`, `tdd`) with one trigger line each. It also lists
-the 10 typed-only skills (`grill-with-docs`, `to-spec`, `to-tickets`, `implement`, `handoff`, `wayfinder`,
-`improve-codebase-architecture`, `retro`, `create-verification-skill`, `maintain-verification-skill`). The model
-cannot call a typed-only skill (`disable-model-invocation`). So the card says: read the `SKILL.md`, follow it, and
+the 8 typed-only skills (`grill-with-docs`, `to-spec`, `to-tickets`, `implement`, `handoff`, `wayfinder`,
+`improve-codebase-architecture`, `retro`). The model cannot call a typed-only skill (`disable-model-invocation`). So the card says: read the `SKILL.md`, follow it, and
 tell the owner the typed form. The data is the `skills:` block of `ai/routing.yaml`. `ai-render` fails when the
 worst case is over 1500 characters.
 
@@ -689,9 +688,8 @@ When you start Claude in a repo, the router sends this (real, demo repo before `
 ```
 [ai router: project-knowledge] Read the Map and Libraries sections of this repo's AGENTS.md first, then search
 narrowly. tier: none (not adopted; ai-adopt sets it). Map: missing (ai-adopt writes it). Libraries: no lockfile.
-Serena on. Graph: missing, run GRAPHIFY_BACKEND=none graphify extract . --code-only. Verify skill: missing, run
-/create-verification-skill (typed-only; agent: read ~/.claude/skills/create-verification-skill/SKILL.md and
-follow it).
+Serena on. Graph: missing, run GRAPHIFY_BACKEND=none graphify extract . --code-only. Verify skill: missing. Agent
+task: build verify-<app> with create-verification-skill at the first feature task, and prove it with one real run.
 
 [ai router: no-ai-base] No AI base or Map here. Suggest the owner runs ai-adopt.
 
@@ -710,7 +708,7 @@ Read each field:
 | Libraries | current, stale, no lockfile | stale: `ai-libs --sync` |
 | Serena | on or off (`no-serena`) | nothing |
 | Graph | present or missing | missing: the command it prints |
-| Verify skill | `verify-<app> (N features)`, stale, missing | missing: type `/create-verification-skill` once |
+| Verify skill | `verify-<app> (N features)`, stale, missing | missing: nothing. The agent builds it with `create-verification-skill` at the first feature task |
 
 Note: the word "tier" in the status line is from the version installed today. Tiers are removed in the next
 rollout (every project is the full set). Not verified at the time of writing.
@@ -1275,18 +1273,18 @@ Keep this in one session (no compact between to-spec and to-tickets).
 
 #### Step B5: the verify skill for a mobile app
 
-Do this once the app launches. It is the proof tool for every later ticket.
+The agent does this at the first feature task, once the app launches. It is the proof tool for every later ticket.
 
 ```
-You:    /create-verification-skill
-Agent:  [reads ~/.claude/skills/create-verification-skill/SKILL.md]
+Agent:  [first feature task (step B6); status: "Verify skill: missing. Agent task: build verify-<app> ..."]
+        [Skill: create-verification-skill]
         [writes .agents/skills/verify-tripnotes/SKILL.md: Launch, Doctor, Drive, Evidence, Cleanup, Helpers]
         Launch:   npx expo run:ios / npx expo run:android (simulator and emulator)
         Doctor:   xcrun simctl list devices booted; adb devices
         Drive:    Maestro flows per feature (features/create-note.md -> flows/create-note.yaml)
-        Evidence: xcrun simctl io booted screenshot artifacts/create-note/ios.png;
-                  adb exec-out screencap -p > artifacts/create-note/android.png; app logs
-        [runs it once end to end; a skill that never ran is a draft]
+        Evidence: xcrun simctl io booted screenshot .verify/evidence/<run>/ios.png;
+                  adb exec-out screencap -p > .verify/evidence/<run>/android.png; app logs; run.log
+        [runs it once end to end; a skill that never ran is a draft; then the ticket starts]
 ```
 
 Then rerun `ai-adopt` to add the committed link `.claude/skills/verify-tripnotes`.
@@ -1306,7 +1304,7 @@ Agent:  Ticket: "Create a note offline".
         [Skill: code-review]  Standards: 1 finding (naming). Spec: matches the ticket.
         [fixes the finding] [commit: feat(notes): create a note offline]
         [verify-before-done nudge] check-fast green; verify-tripnotes create-note: evidence in
-        artifacts/create-note/; then e2e: flows/create-note.yaml added.
+        .verify/evidence/<run>/; then e2e: flows/create-note.yaml added.
         [moves the ticket to docs/tickets/tripnotes-v1/done/]
 You:    /clear
 You:    /implement docs/tickets/tripnotes-v1/02-sync-note-up.md
@@ -1643,7 +1641,7 @@ Never: a commit on `main` or `master`, `git add -A` without `git status` first, 
 | Build one ticket | `/implement <ticket path>` | code, tests, commit |
 | Build a whole spec in parallel | `/implement-spec <spec>` (opt-in) | integration branch |
 | Hard bug | "diagnose <symptom>" | regression test, fix, ledger row |
-| Prove a feature | verify-<app> (make it once: `/create-verification-skill`) | `artifacts/<feature>/` |
+| Prove a feature | verify-<app> (the agent makes it with `create-verification-skill`) | `.verify/evidence/<run>/` |
 | Review a diff | "Matt code-review skill since main" | Standards + Spec report |
 | Open a PR | ask the agent; the pr skill shapes the body | PR that passes the gate |
 | Session must travel | `/handoff <next focus>` | file in `$TMPDIR` |

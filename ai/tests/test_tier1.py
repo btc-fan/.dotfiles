@@ -359,8 +359,8 @@ def t_typed_only_skill_paths(work):
     repo = tree(work, "typed", {".claude/skills/create-verification-skill/SKILL.md": typed % "c",
                                 ".agents/skills/create-verification-skill/SKILL.md": typed % "c"})
     line = hooklib.verify_status_line(repo)
-    assert "run /create-verification-skill (typed-only; agent: read %s/.claude/skills/create-verification-skill/" \
-        "SKILL.md and follow it)." % repo in line, line
+    assert "Agent task: build verify-<app> with create-verification-skill (typed-only; agent: read %s/.claude/" \
+        "skills/create-verification-skill/SKILL.md and follow it)" % repo in line, line
     assert "/.agents/skills/create-verification-skill/SKILL.md" in hooklib.verify_status_line(repo, "codex")
     home = os.path.join(work, "home-typed")
     write(os.path.join(home, ".agents", "skills", "to-spec", "SKILL.md"), typed % "to-spec")
@@ -455,8 +455,45 @@ def t_verify_skills_copy(work):
                 assert read(os.path.join(out, rel)) == read(os.path.join(AI_DIR, "skills", rel)), "%s differs" % rel
         text = read(os.path.join(mine, "SKILL.md"))
         assert ".cursor/skills" not in text and "Lauren Tan" in read(os.path.join(mine, "LICENSE")), name
-        assert "disable-model-invocation: true" in text and "RO:" in text and "RU:" in text, name
+        assert "RO:" in text and "RU:" in text, name
     assert ".agents/skills/verify-<app>/" in read(os.path.join(AI_DIR, "skills", "create-verification-skill", "SKILL.md"))
+
+
+def t_pstack_adapt_ours(work):
+    """Ticket verify-enforcement 01: the adapter on the vendor copy removes the typed-only flag (create and
+    maintain), turns "pick the primary one" into "cover every surface", and appends one "Our additions" section
+    with the drivers, the atlas proof set, the evidence folder and the log fields the hooks read. An upstream
+    without the sentence fails the adapter (the installer then keeps the repo copy)."""
+    vendor = os.path.join(AI_DIR, "rules", "vendor", "pstack-verification")
+    adapt = os.path.join(AI_DIR, "lib", "pstack_adapt.py")
+    primary = "A repo can have several; pick the primary one and note the rest."
+    vcreate = read(os.path.join(vendor, "skills", "create-verification-skill", "SKILL.md"))
+    assert primary in vcreate and "disable-model-invocation: true" in vcreate, "the vendor copy stays upstream text"
+    out = os.path.join(work, "pstack-ours")
+    res = run([sys.executable, adapt, vendor, out, "abc123"])
+    assert res.returncode == 0, res.stdout
+    create = read(os.path.join(out, "create-verification-skill", "SKILL.md"))
+    maintain = read(os.path.join(out, "maintain-verification-skill", "SKILL.md"))
+    for name, text in (("create", create), ("maintain", maintain)):
+        assert "disable-model-invocation" not in text, "%s: model-invocable" % name
+        assert text.count("\n## Our additions\n") == 1, "%s: one Our additions section" % name
+        assert text.startswith("---\nname: "), "%s: frontmatter intact" % name
+    assert primary not in create and "cover every surface the repo has" in create, create
+    ours = create.split("\n## Our additions\n", 1)[1]
+    assert "\n## " not in ours, "Our additions is the last section"
+    for want in ("HTTP helper", "Playwright", "3 or more pages", "ai-adopt --tools browser", "PTY or tmux",
+                 "job trigger", "Maestro", "success", "cancel", "error", "empty", "persistence", "unreachable",
+                 "own port", "worktree", "features/README.md", "multi-surface-journeys.md", "same PR",
+                 ".verify/evidence/<run>/", ".gitignore", "run.log", "commit: ", "doctor: PASS", "doctor: FAIL",
+                 "db_writes: yes", "db_writes: no", "finished: ", "first feature task", "one real run"):
+        assert want in ours, "Our additions lacks %r" % want
+    assert ".verify/evidence/<run>/" in maintain.split("\n## Our additions\n", 1)[1], "maintain: evidence note"
+    drift = os.path.join(work, "pstack-drift")
+    shutil.copytree(vendor, drift)
+    path = os.path.join(drift, "skills", "create-verification-skill", "SKILL.md")
+    write(path, read(path).replace(primary, "A repo can have several."))
+    res = run([sys.executable, adapt, drift, os.path.join(work, "pstack-drift-out"), "abc123"])
+    assert res.returncode != 0 and "pick the primary one" in res.stdout, "upstream drift must fail: " + res.stdout
 
 
 def verify_files(app="shop", features=("cart", "checkout")):
@@ -507,11 +544,16 @@ def t_verify_status_and_doctor(work):
     assert "Verify skill: verify-shop (3 features)." in hooklib.knowledge_index(repo), "a map change resets it"
     bare = tree(work, "verify-none", {"src/app.py": "x = 1\n", ".ai/enabled": "tier: try\n"})
     run(["git", "init", "-q", bare])
-    assert "missing, run /create-verification-skill" in hooklib.knowledge_index(bare)
+    line = hooklib.knowledge_index(bare)
+    assert "Verify skill: missing. Agent task: build verify-<app> with create-verification-skill" in line \
+        and "at the first feature task, and prove it with one real run." in line, line
+    assert "run /create-verification-skill" not in line, "an agent task, not a typed owner step: " + line
     out = io.StringIO()
     with redirect_stdout(out):
         doctor.check_verify_skill(bare, hooklib, "long")
     assert out.getvalue().count("WARN verify skill") == 1, "no tiers (every project is long): warn: " + out.getvalue()
+    assert "agent task: build it with create-verification-skill" in out.getvalue() \
+        and "owner step" not in out.getvalue(), out.getvalue()
 
 
 # ---------------------------------------------------------------- T5: ai-doctor budget
@@ -1130,7 +1172,7 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
     return res
 
 
-TESTS_LIST = [t_verify_skills_copy, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_skills_none, t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_go_rust, t_detect_monorepo,
+TESTS_LIST = [t_verify_skills_copy, t_pstack_adapt_ours, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_skills_none, t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_go_rust, t_detect_monorepo,
               t_detect_probe_drops_missing_tool, t_adopt_failing_check_turns_stop_off, t_adopt_leaves_tree_clean, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
               t_adopt_branch_exists_main_clean, t_adopt_unborn_main, t_typed_only_skill_paths,
               t_plan_keeps_targets, t_plan_keeps_owner_flags, t_adopt_owner_text_survives_rerun, t_adopt_gitignore_makefile_owner_lines,
