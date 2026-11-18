@@ -235,6 +235,9 @@ def t_doctor_checks(work):
     assert line_of(out, "RTK hook").startswith("FAIL"), out
     auto = line_of(out, "autoMode.environment")
     assert auto.startswith("WARN") and ".claude/settings.local.json" in auto and "~/work/example-app" in auto, out
+    # Ticket 12: a WARN or FAIL title states the problem, not the pass condition.
+    assert "names one repo" in auto and "names no single repo" not in auto, auto
+    assert "has OMC's long block" in line_of(out, "CLAUDE.md"), out
     # The exact move steps: which key in which file, in order (owner 2026-11-16: the file is not rewritten).
     for step in ("1. in %s" % settings, "remove", "2. in the repo", "add", '"$defaults"', "3."):
         assert step in auto, (step, auto)
@@ -245,6 +248,8 @@ def t_doctor_checks(work):
     out = doctor_out(env)
     for what in ("CLAUDE.md", "RTK hook", "autoMode.environment"):
         assert line_of(out, what).startswith("PASS"), (what, out)
+    assert "names no single repo" in line_of(out, "autoMode.environment"), out
+    assert "is short (rules import" in line_of(out, "CLAUDE.md"), out
 
 
 def t_doctor_owner_text(work):
@@ -253,7 +258,8 @@ def t_doctor_owner_text(work):
     md = os.path.join(home, ".claude", "CLAUDE.md")
     short = "<!-- AI:core v1 START -->\n@~/.config/ai/AGENTS.md\n<!-- AI:core v1 END -->\n"
     m3.write(md, "## RTK (all projects)\nowner text\n" + short)
-    assert line_of(doctor_out(env), "CLAUDE.md").startswith("WARN")
+    warn = line_of(doctor_out(env), "CLAUDE.md")
+    assert warn.startswith("WARN") and "has text outside the managed blocks" in warn and "is short" not in warn, warn
     m3.write(md, "<!-- OMC:START -->\n<!-- OMC:VERSION:4.15.7 -->\nold\n<!-- OMC:END -->\n## RTK\nowner text\n" + short)
     assert line_of(doctor_out(env), "CLAUDE.md").startswith("FAIL")
 

@@ -1042,7 +1042,9 @@ def check_claude_cleanup():
         extra = [ln for ln in re.sub(r"<!-- AI:(\S+) v\d+ START -->.*?<!-- AI:\1 v\d+ END -->", "", md, flags=re.S)
                  .splitlines() if ln.strip()]
         level = "FAIL" if "<!-- OMC:START -->" in md else "WARN" if extra else "PASS"
-        say(level, "~/.claude/CLAUDE.md is short (rules import, machine line, OMC note)",
+        say(level, {"FAIL": "~/.claude/CLAUDE.md has OMC's long block",
+                    "WARN": "~/.claude/CLAUDE.md has text outside the managed blocks",
+                    "PASS": "~/.claude/CLAUDE.md is short (rules import, machine line, OMC note)"}[level],
             {"FAIL": "OMC's long block is back (an OMC setup or update wrote it): re-run install.sh",
              "WARN": "text outside the managed blocks: %r; move it into ai/agents-md/" % (extra[0][:80] if extra else ""),
              "PASS": ""}[level])
@@ -1065,7 +1067,8 @@ def check_claude_cleanup():
         # A local path or a single trusted repo is about one project ("repos under an org" is global).
         repo = [e for e in env if isinstance(e, str) and re.search(r"(~/|/Users/|/home/)\S|\brepo(sitory)?\b", e, re.I)]
         # Owner 2026-11-16: a WARN with the steps; this setup does not rewrite the owner's settings file.
-        say("WARN" if repo else "PASS", "global autoMode.environment names no single repo",
+        say("WARN" if repo else "PASS",
+            "global autoMode.environment names one repo" if repo else "global autoMode.environment names no single repo",
             ("%r belongs to one repo. Move it by hand: 1. in %s, key autoMode.environment, remove this entry; "
              "2. in the repo it names, add it to .claude/settings.local.json, key autoMode.environment (a list: "
              "\"$defaults\" first, then this entry); 3. restart Claude in that repo"
