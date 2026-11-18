@@ -1280,6 +1280,7 @@ MERGE_OK_RX = re.compile(
     r"^\W*(merge|approved?|lgtm|ship it)\W*$"
     r"|\bmerge\s+(it|this|them|that|the\s+prs?|prs?\b|pr\s*#?\d+|#\d+|now|please|all)\b"
     r"|\b(please|go\s+ahead\s+and|go\s+ahead,?|you\s+can|ok(ay)?,?|yes,?|now)\s+merge\b"
+    r"|^\W*merge\W+(go\s+ahead|do\s+it)\b"          # R-009: "merge go ahead", "merge, go ahead"
     r"|\b(approved?|lgtm|ship\s+it)\b"
     r"|\baprob\w*|\bmergeaz[aă]\b|\bf[aă] merge\b"
     r"|(?<!\w)(смерж\w*|мерж\w*|одобр\w*|сливай)",
