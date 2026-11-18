@@ -13,7 +13,11 @@ The adapted copy changes only what must change here (SPEC 26):
     ai-adopt links .claude/skills/verify-<app> to it for Claude);
   - one attribution and path note after the frontmatter;
   - Romanian and Russian trigger phrases at the end of the description (docs/EXTENDING.md section 1);
-  - U+2014 becomes " - ".
+  - U+2014 becomes " - ";
+  - verify-enforcement 01: the typed-only flag `disable-model-invocation: true` goes (the AI runs both skills),
+    "pick the primary one and note the rest" becomes "cover every surface" (an upstream without that sentence
+    fails here, so the installer keeps the repo copy), and ai/lib/pstack_additions/<name>.md is appended as the
+    last section, "## Our additions".
 The installer (tools.sh pstack_src) runs the same transform on a newer upstream commit, after its audit.
 """
 import os
@@ -24,13 +28,17 @@ import sys
 SKILLS = ("create-verification-skill", "maintain-verification-skill")
 EM = "—"
 TRIGGERS = {
-    "create-verification-skill": ' RO: "creeaza skill-ul de verificare pentru proiect". RU: "создай навык проверки для проекта".',
+    "create-verification-skill": ' Also at the first feature task in a project without a verify-<app> skill. RO: "creeaza skill-ul de verificare pentru proiect". RU: "создай навык проверки для проекта".',
     "maintain-verification-skill": ' RO: "actualizeaza skill-ul de verificare". RU: "обнови навык проверки".',
 }
 NOTE = ("> Adapted from pstack (MIT, Copyright (c) 2026 Lauren Tan; LICENSE in this folder), github.com/cursor/plugins "
         "commit %s. Change here: project skills live in `.agents/skills/verify-<app>/` (Codex reads them there); "
         "`ai-adopt` adds the committed link `.claude/skills/verify-<app>` -> `../../.agents/skills/verify-<app>` for "
-        "Claude.\n")
+        "Claude. Also changed: both skills are model-invocable, step 1 covers every surface, and the last section, "
+        "Our additions, is ours.\n")
+PRIMARY = "A repo can have several; pick the primary one and note the rest."
+EVERY = "A repo can have several; cover every surface the repo has, each with its own driver (see Our additions)."
+ADDITIONS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pstack_additions")
 
 
 def dash(text):
@@ -42,10 +50,17 @@ def adapt_skill(text, name, commit):
     m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
     if not m:
         raise SystemExit("pstack_adapt: %s has no frontmatter" % name)
-    front = m.group(1)
+    front = "\n".join(ln for ln in m.group(1).split("\n") if not re.match(r"disable-model-invocation\s*:", ln))
     front = re.sub(r'^(description: ".*?)("\s*)$', lambda d: d.group(1) + TRIGGERS[name].replace('"', '\\"') + d.group(2),
                    front, count=1, flags=re.M)
-    return "---\n%s\n---\n\n%s%s" % (front, NOTE % commit, text[m.end():])
+    body = text[m.end():]
+    if name == "create-verification-skill":
+        if PRIMARY not in body:
+            raise SystemExit("pstack_adapt: %s: the sentence %r is gone upstream; update the adapter" % (name, PRIMARY))
+        body = body.replace(PRIMARY, EVERY)
+    with open(os.path.join(ADDITIONS, name + ".md"), encoding="utf-8") as fh:
+        body = body.rstrip("\n") + "\n\n" + fh.read()
+    return "---\n%s\n---\n\n%s%s" % (front, NOTE % commit, body)
 
 
 def copy_tree(src, dst, fn):

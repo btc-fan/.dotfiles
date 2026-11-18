@@ -390,7 +390,7 @@ You type: "refunds are paid twice when the bank times out, fix it".
 
 ### Example F: a new feature (the feature flow)
 
-The repo is adopted with tier `mvp`. `.ai/enabled` has `skills: grill-with-docs, domain-modeling, to-spec, to-tickets, tdd`, so `ai-adopt` linked those mattpocock skills (and their callees) into `.claude/skills/` and `.agents/skills/`. The repo has a verification skill `.agents/skills/verify-shop/` (made once with `/create-verification-skill`, committed) with a feature map, and the session status says "Verify skill: verify-shop (6 features)."
+The repo is adopted with tier `mvp`. `.ai/enabled` has `skills: grill-with-docs, domain-modeling, to-spec, to-tickets, tdd`, so `ai-adopt` linked those mattpocock skills (and their callees) into `.claude/skills/` and `.agents/skills/`. The repo has a verification skill `.agents/skills/verify-shop/` (the agent made it once with `create-verification-skill`, committed) with a feature map, and the session status says "Verify skill: verify-shop (6 features)."
 
 You type: "implement a discount code option at checkout".
 

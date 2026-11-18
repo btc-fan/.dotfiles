@@ -627,7 +627,8 @@ restore where something existing is removed; dry-run safe.
   links: plain grilling. Tie-breaks: new app/kickoff -> grilling (grill-with-docs where linked); deep interview -> OMC.
 - Verification skills: pstack `create-verification-skill` and `maintain-verification-skill` (MIT, Lauren Tan),
   vendor copy in `ai/rules/vendor/pstack-verification/`, our copy in `ai/skills/` made by `ai/lib/pstack_adapt.py`
-  (only the project path `.cursor/skills` -> `.agents/skills`, an attribution note, RO/RU triggers, no em dash).
+  (the project path `.cursor/skills` -> `.agents/skills`, an attribution note, RO/RU triggers, no em dash; since
+  verify-enforcement 01 also: no typed-only flag, "cover every surface", the appended section Our additions).
   `PSTACK_SOURCE` follows the newest upstream commit (audited, same transform, `pstack_link` prefers it).
 - Project verify skill `.agents/skills/verify-<app>/` with a committed link `.claude/skills/verify-<app>`. Done order
   (tier mvp, long; optional in try): check-fast green, then verify-<app> on the changed feature (launch, doctor,

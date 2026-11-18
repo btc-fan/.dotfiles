@@ -9,6 +9,7 @@
 - Our skills: `ai/skills/<name>/SKILL.md`, linked into `~/.claude/skills` and `~/.agents/skills`.
 - Check: `bash ai/tests/run.sh` (everything; about 10 min).
 - Evals: `ai/bin/ai-eval` (fixture repos, install level, headless behaviour level); cases in `ai/evals/cases/*.json`.
+- Verify tool of this repo: `.agents/skills/verify-ai-setup/` (helper `verify`: launch, doctor, drive, cleanup on temp fixtures; evidence in `.verify/evidence/<run>/`). Run it before a PR that changes a gate, a stop rule, a CLI or the installer.
 - Work files: specs `docs/specs/`, tickets `docs/tickets/<slug>/` (finished ones in `done/`), eval reports `docs/reports/`.
 
 ## Project rules

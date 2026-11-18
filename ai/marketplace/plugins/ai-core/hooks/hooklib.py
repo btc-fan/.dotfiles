@@ -2242,12 +2242,12 @@ def verify_stale(stats):
 
 
 def verify_status_line(root, agent="claude"):
-    """One phrase for the session-start status."""
+    """One phrase for the session-start status. A missing tool is an agent task (verify-enforcement 01)."""
     info = verify_skill(root)
     if not info:
-        optional = " (optional in tier try)" if project_tier(root) == "try" else ""
-        return "Verify skill: missing, run /create-verification-skill%s%s." % (
-            optional, read_and_follow(root, "create-verification-skill", agent))
+        return ("Verify skill: missing. Agent task: build verify-<app> with create-verification-skill%s at the first "
+                "feature task, and prove it with one real run." % read_and_follow(root, "create-verification-skill",
+                                                                                   agent))
     stats = verify_staleness(root, info)
     line = "Verify skill: %s (%d features)" % (info["name"], info["features"])
     if verify_stale(stats):

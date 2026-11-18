@@ -13,3 +13,10 @@ ai/hooks/hermes/hooklib.py
 ai/AGENTS.md
 !ai/marketplace/plugins/ai-serena/.mcp.json
 !ai/marketplace/plugins/ai-playwright/.mcp.json
+# verify-ai-setup: run evidence stays local; the Claude link to the project verify skill is committed
+.verify/
+!.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/verify-*
