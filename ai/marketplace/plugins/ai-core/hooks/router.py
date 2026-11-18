@@ -547,19 +547,20 @@ class Ctx(object):
     def add_context(self, text):
         self.contexts.append(text)
 
-    def decide(self, decision, reason):
+    def decide(self, decision, reason, wall=None):
         order = {None: 0, "ask": 1, "deny": 2}
         if order[decision] > order[self.decision]:
             self.decision = decision
         self.reasons.append(reason)
         if decision == "deny":
-            self.wall(reason)
+            self.wall(reason, wall)
 
-    def wall(self, reason):
-        """The wall log (walls.jsonl): the id and the first line of a "[ai gate X]" or "[ai router: X]" reason."""
+    def wall(self, reason, wall=None):
+        """The wall log (walls.jsonl): the id (`wall`, else the X of a "[ai gate X]" or "[ai router: X]" reason) and
+        the first line of the reason."""
         try:
             m = WALL_RX.match(reason)
-            log_wall(m.group(1) if m else "router", reason[m.end() if m else 0:].split("\n")[0],
+            log_wall(wall or (m.group(1) if m else "router"), reason[m.end() if m else 0:].split("\n")[0],
                      self.root or self.cwd)
         except Exception as exc:
             log_error("wall log", exc)
@@ -1385,17 +1386,17 @@ def run_gate(rule, ctx, cmd):
     gate = GATES.get(rule["id"])
     if gate is None:
         return
-    verdict = gate(ctx, cmd, ctx.stages)        # None = pass, ("deny"|"ask", message)
+    verdict = gate(ctx, cmd, ctx.stages)        # None = pass, ("deny"|"ask", message[, wall id])
     if verdict is None or owner_skip(ctx, rule["id"], cmd):
         return
-    decision, msg = verdict
+    decision, msg, wall = (tuple(verdict) + (None,))[:3]
     # Decide first: logging below never raises, and a failure there must not lose the decision.
     how = ("by running sudo ai-gate-skip %s <minutes, max 60> <why>. It is logged" % rule["id"]
            if os.path.exists("/usr/local/sbin/ai-gate-skip") else "by running the command")
     if rule["id"] == "merge-approval":
         how = "by saying merge (or approve) in the next message, or by merging on GitHub"
     ctx.decide(decision, "[ai gate %s] %s\nOnly the owner can let it through, %s. Do not try to get around "
-               "the gate." % (rule["id"], msg, how))
+               "the gate." % (rule["id"], msg, how), wall=wall)
     log_line("gates.log", "%s %s %s session=%s cmd=%s" % (
         iso_now(), decision.upper(), rule["id"], ctx.session, redact(one_line(cmd))[:200]))
     ctx.fired(rule, "PreToolUse")

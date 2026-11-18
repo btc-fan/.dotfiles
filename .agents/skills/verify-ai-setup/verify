@@ -46,6 +46,9 @@ GUARDS = [os.path.join(HOME, p) for p in (".claude/settings.json", ".claude/plug
 INSTALLED = os.path.join(HOME, ".dotfiles-ai")
 # Live skill links: a dev worktree's ai-sync once repointed them at unmerged code (ticket 19).
 LIVE_LINKS = [os.path.join(HOME, p) for p in (".claude/skills", ".agents/skills")]
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(ROUTER))
+import hooklib  # noqa: E402  (one run.log parser for the hooks and this tool: hooklib.verify_runs)
 OWNER = "fixture-owner"     # remotes live in remotes/<OWNER>/: ai-adopt adopts only repos of AI_GITHUB_OWNERS
 # --allow Bash: a command with a variable (B=f; gh pr edit --body-file "$B") matches no Bash(prefix *) rule.
 
@@ -158,7 +161,8 @@ def doctor(agents):
         print("%s %-10s %s" % ("PASS" if ok else "FAIL", name, detail))
 
     check("checkout", state["root"] == ROOT, "%s (run started in %s)" % (ROOT, state["root"]))
-    check("commit", head() == log.split()[1], "HEAD %s, run.log %s" % (head()[:12], log.split()[1][:12]))
+    logged = this_run(folder).get("commit", "")
+    check("commit", head() == logged, "HEAD %s, run.log %s" % (head()[:12], logged[:12]))
     home_guess = probe_ai_home()
     check("plugin", home_guess == ROOT and os.path.isfile(os.path.join(PLUGIN, ".claude-plugin", "plugin.json")),
           "sessions load --plugin-dir %s; its router reads ai_home %s" % (PLUGIN, home_guess))
@@ -377,14 +381,22 @@ def home_listing(home):
 # ---------------------------------------------------------------- evidence, cleanup
 
 def evidence():
-    folder, _state = current()
+    """The current run, or after cleanup the newest one: its files and whether run.log is proof for the hooks."""
+    run = read(CURRENT).strip() or max(os.listdir(EVIDENCE) if os.path.isdir(EVIDENCE) else [""])
+    if not run:
+        sys.exit("verify evidence: no run yet. Start one: verify launch KIND")
+    folder = os.path.join(EVIDENCE, run)
     for name in sorted(os.listdir(folder)):
         print(os.path.join(folder, name))
-    lines = read(os.path.join(folder, "run.log")).splitlines()
-    ok = (len(lines) == 4 and re.fullmatch(r"commit: [0-9a-f]{40}", lines[0]) and lines[1] == "doctor: PASS"
-          and lines[2] == "db_writes: no" and re.fullmatch(r"finished: \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", lines[3]))
-    print("run.log: %s" % ("proof (4 lines, doctor PASS, db_writes no)" if ok else "NOT proof: %s" % lines))
-    return 0 if ok else 1
+    rec = this_run(folder)
+    print("run.log: %s" % ("proof (commit, doctor PASS, db_writes no, finished)" if rec.get("valid")
+                           else "NOT proof: %s" % (rec.get("why") or "no run.log")))
+    return 0 if rec.get("valid") else 1
+
+
+def this_run(folder):
+    """The run.log fields of the run folder, as the hooks read them (hooklib.verify_runs); {} without a log."""
+    return next((r for r in hooklib.verify_runs(ROOT) if r["run"] == os.path.basename(folder)), {})
 
 
 def cleanup():

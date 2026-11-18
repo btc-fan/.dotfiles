@@ -793,9 +793,10 @@ tools_osv_scanner() {
 }
 
 # gitleaks (profile dev-mac, owner 2026-11-18): the release archive from GitHub at the pinned version
-# (GITLEAKS_HOLD), checked against the release's checksums file. The secret-scan gate runs it when present.
+# (GITLEAKS_HOLD). Its sha256 must be the one pinned in ai/pins.env (GITLEAKS_SHA256_<OS>_<ARCH>, review S6) and the
+# one in the release's checksums file. The secret-scan gate runs it when present.
 tools_gitleaks() {
-    local have os arch asset want tmp dir
+    local have os arch asset want pin tmp dir
     resolve_tool gitleaks || return 0
     bin_foreign gitleaks && return 0
     have=$(tool_version gitleaks)
@@ -803,19 +804,25 @@ tools_gitleaks() {
     case "$AI_OS" in linux) os=linux ;; macos) os=darwin ;; esac
     case "$AI_ARCH" in x86_64|amd64) arch=x64 ;; arm64|aarch64) arch=arm64 ;; *) warn "gitleaks: no build for $AI_ARCH"; return 0 ;; esac
     asset="gitleaks_${R_VERSION}_${os}_${arch}.tar.gz"
-    if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] download $asset of gitleaks $R_REF, check it against the release's checksums, install to $(bin_dir)/gitleaks"; return 0; fi
+    case "${os}_$arch" in
+        darwin_arm64) pin=${GITLEAKS_SHA256_DARWIN_ARM64:-} ;; darwin_x64) pin=${GITLEAKS_SHA256_DARWIN_X64:-} ;;
+        linux_arm64) pin=${GITLEAKS_SHA256_LINUX_ARM64:-} ;; linux_x64) pin=${GITLEAKS_SHA256_LINUX_X64:-} ;;
+    esac
+    [ -n "$pin" ] || { warn "gitleaks $R_VERSION: no pinned sha256 for $asset in ai/pins.env: not installed${have:+, $have kept}"; return 0; }
+    if [ "$AI_DRY_RUN" = 1 ]; then info "[dry-run] download $asset of gitleaks $R_REF, check it against the pinned sha256 and the release's checksums, install to $(bin_dir)/gitleaks"; return 0; fi
     want=$(resolver checksum gitleaks "$R_VERSION" "$asset" 2>/dev/null) \
         || { warn "gitleaks $R_VERSION: no published checksum for $asset: not installed${have:+, $have kept}"; return 0; }
+    [ "$want" = "$pin" ] || { warn "gitleaks $R_VERSION: the release checksum of $asset differs from the pin in ai/pins.env: not installed${have:+, $have kept}"; return 0; }
     tmp=$(mktemp "${TMPDIR:-/tmp}/ai-gitleaks.XXXXXX")
-    download_checked "https://github.com/${R_SOURCE#github }/releases/download/$R_REF/$asset" "$want" "$tmp" \
+    download_checked "https://github.com/${R_SOURCE#github }/releases/download/$R_REF/$asset" "$pin" "$tmp" \
         || { rm -f "$tmp"; return 0; }
     dir=$(mktemp -d "${TMPDIR:-/tmp}/ai-gitleaks-x.XXXXXX")
     tar -xzf "$tmp" -C "$dir" gitleaks || { warn "gitleaks $R_VERSION: archive has no gitleaks binary"; rm -rf "$tmp" "$dir"; return 0; }
-    warn "unaudited binary update: gitleaks ${have:-none} -> $R_VERSION (sha256 from the same release only)"
+    warn "unaudited binary update: gitleaks ${have:-none} -> $R_VERSION (sha256 pinned in ai/pins.env)"
     install_bin "$dir/gitleaks" gitleaks; rm -rf "$tmp" "$dir"
     aiconf record-cmd bin:gitleaks -- $SUDO_UNDO rm -f "$(bin_dir)/gitleaks"
     r_record
-    ok "gitleaks ${have:+$have -> }$R_VERSION (release binary, pinned, not agent-audited; published sha256 checked)"
+    ok "gitleaks ${have:+$have -> }$R_VERSION (release binary, pinned, not agent-audited; pinned sha256 checked)"
 }
 
 # context7 MCP: one install per user and version (~/.local/share/ai/npm/context7-mcp-<version>), run by

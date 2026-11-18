@@ -410,6 +410,23 @@ def t_vh_loop_limit(work):
     assert sum(1 for o in outs if o) <= 4 and outs[0], outs
 
 
+def t_vh_symlink_does_not_hang(work):
+    """Review S7: a code file that is a symlink to /dev/zero cannot hang the Stop hook. The hook does not follow
+    links and reads at most 1 MB of a file; the new link still counts as a change."""
+    repo, env = vh_repo(work, "app")
+    prompt(env, repo)
+    os.symlink("/dev/zero", os.path.join(repo, "src", "app", "zero.py"))
+    payload = {"session_id": "vh", "cwd": repo, "stop_hook_active": False}
+    try:
+        res = subprocess.run([sys.executable, ROUTER, "--agent", "claude", "Stop"], env=env, cwd=repo,
+                             input=json.dumps(payload).encode(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             timeout=30)
+    except subprocess.TimeoutExpired:
+        raise AssertionError("the Stop hook ran over 30 s on a symlink to /dev/zero")
+    out = res.stdout.decode("utf-8", "replace")
+    assert "[ai router: verify-tool-" in out and "src/app/zero.py" in out, out
+
+
 def t_vh_codex_stop_block(work):
     repo, env = vh_repo(work, "app", verify=False)
     hook("UserPromptSubmit", {"session_id": "cx", "cwd": repo, "prompt": "change add", "turn_id": "t1"}, env,
@@ -444,12 +461,38 @@ def t_vh_commit_gate_python(work):
     run_log_ago(repo, "20261118T110000Z-bad", 60, doctor="FAIL")
     assert commit(repo, env, "tests/test_more.py", "def test_more():\n    assert 1\n").returncode != 0, \
         "an invalid run does not count"
+    run_log_ago(repo, "20261118T110050Z-sql", 45, db="yes")       # review P3: a direct database write
+    res = commit(repo, env, "tests/test_more.py", "def test_more():\n    assert 1\n")
+    assert res.returncode != 0 and "db_writes yes" in res.text, "a run with db_writes: yes does not count: " + res.text
     run_log_ago(repo, "20261118T110100Z-good", 30)
     res = commit(repo, env, "tests/test_more.py", "def test_more():\n    assert 1\n")
     assert res.returncode == 0, res.text
     # the next new test needs a run newer than this commit
     res = commit(repo, env, "tests/test_again.py", "async def test_again():\n    assert 1\n")
     assert res.returncode != 0, "a fresh run is per commit: %s" % res.text
+
+
+def t_vh_commit_gate_owner_skip(work):
+    """Review T2: the commit gate honours the owner skip (sudo ai-gate-skip verify-commit <minutes> <why>) and logs
+    it. The router's test-only skip file variables are not read here: an agent's command sets the env of git and
+    its hooks. The root-owned file is stood in for in-process (hooklib.gate_skip_path)."""
+    repo, env = vh_repo(work, "app", old_commit=True)
+    skip = os.path.join(work, "gate-skip")
+    write(skip, "verify-commit %d the owner drove it by hand\n" % (time.time() + 600))
+    write(os.path.join(repo, "tests", "test_more.py"), "def test_more():\n    assert 1\n")
+    git(repo, "add", "tests/test_more.py", env=env)
+    precommit = os.path.join(BIN, "ai-precommit")
+    res = run([sys.executable, precommit, "--dir", repo],
+              env=dict(env, AI_GATE_SKIP_FILE=skip, AI_GATE_SKIP_INSECURE_TEST="1"))
+    assert res.returncode != 0 and "verify-app" in res.text, "env variables opened the gate: " + res.text
+    stand_in = ("import runpy, sys; sys.path.insert(0, %r); import hooklib; "
+                "hooklib.gate_skip_path = lambda env_ok=True: (%r, True); "
+                "sys.argv = ['ai-precommit', '--dir', %r]; runpy.run_path(%r, run_name='__main__')"
+                % (HOOKS, skip, repo, precommit))
+    res = run([sys.executable, "-c", stand_in], env=env)
+    assert res.returncode == 0 and "skipped by the owner" in res.text, res.text
+    gates = read(os.path.join(env["AI_STATE_DIR"], "gates.log")) or ""
+    assert "SKIP verify-commit" in gates and "drove it by hand" in gates, gates
 
 
 def t_vh_commit_edits_and_no_skill_pass(work):
@@ -752,7 +795,7 @@ def t_pr_gate_verify_log(work):
         assert decision(out) == "deny" and "verify-app" in out and head[:7] in out \
             and "run.log" in out, "%s: %s" % (cmd, out)
     walls = read(os.path.join(env["AI_STATE_DIR"], "walls.jsonl")) or ""
-    assert walls.count('"wall": "pr-rules"') >= 3 and "verify-app" in walls, walls
+    assert walls.count('"wall": "verify-pr"') >= 3 and "verify-app" in walls, walls     # review P2: hook 4 alone
     for kw in ({"doctor": "FAIL"}, {"db": "yes"}, {"finished": "2001-01-01T00:00:00Z"}):
         shutil.rmtree(os.path.join(repo, ".verify"))
         run_log(repo, "r-bad", head, **kw)
@@ -808,6 +851,75 @@ def t_pr_gate_reads_worktree(work):
     run_log(wt, "r-wt", git(wt, "rev-parse", "HEAD", env=env).text.strip())
     out = pr_hook(env, repo, cmd)
     assert decision(out) == "allow", out
+
+
+def pr_feature(work, name):
+    """A verify-app repo with app code changed on the branch feat (no run log). Returns repo, env, body, feat head."""
+    repo, env = new_repo(work, name, dict(PY_APP, **VERIFY_APP))
+    body = os.path.join(work, "body.md")
+    write(body, PR_BODY)
+    git(repo, "switch", "-q", "-c", "feat", env=env)
+    write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return b + a\n")
+    git(repo, "commit", "-qam", "feat: add", env=env)
+    return repo, env, body, git(repo, "rev-parse", "HEAD", env=env).text.strip()
+
+
+def t_pr_gate_failed_cd_uses_session_root(work):
+    """Review S2: `cd <not a checkout>; gh pr create` gave no root and skipped the verify-log, test-file and size
+    checks. The gate falls back to the session root."""
+    repo, env, body, head = pr_feature(work, "prcd")
+    for cmd in ("cd /nonexistent-ai-gate-test; gh pr create --title 'feat: add' --body-file %s" % body,
+                "cd %s; gh pr create --title 'feat: add' --body-file %s" % (work, body)):
+        out = pr_hook(env, repo, cmd)
+        assert decision(out) == "deny" and "verify-app" in out and head[:7] in out, "%s: %s" % (cmd, out)
+
+
+def t_pr_gate_pr_number_head(work):
+    """Review P1: `gh pr edit N` and `gh pr ready N` (or a PR URL) judge the PR head that gh reports
+    (gh pr view N --json headRefOid), not the local HEAD. When gh cannot answer, or the head is not in this
+    checkout, the gate judges the local HEAD and says so."""
+    repo, env, body, head = pr_feature(work, "prnum")
+    git(repo, "switch", "-q", "main", env=env)
+    bindir, log = os.path.join(work, "bin"), os.path.join(work, "gh.log")
+    gh = os.path.join(bindir, "gh")
+    write(gh, '#!/bin/sh\necho "$*" >> %s\n[ "$1 $2" = "pr view" ] || exit 1\ncat %s\n'
+          % (log, os.path.join(work, "gh-answer")))
+    os.chmod(gh, 0o755)
+    env = dict(env, PATH=bindir + os.pathsep + env["PATH"])
+    write(os.path.join(work, "gh-answer"), head + "\n")
+    for cmd in ("gh pr edit 3 --body-file %s" % body, "gh pr ready https://github.com/o/r/pull/3"):
+        out = pr_hook(env, repo, cmd)
+        assert decision(out) == "deny" and "verify-app" in out and head[:7] in out, "%s: %s" % (cmd, out)
+    calls = read(log) or ""
+    assert "pr view 3 --json headRefOid -q .headRefOid" in calls, calls
+    assert "pr view https://github.com/o/r/pull/3 --json headRefOid" in calls, calls
+    run_log(repo, "r-head", head)
+    out = pr_hook(env, repo, "gh pr edit 3 --body-file %s" % body)
+    assert decision(out) == "allow", out
+    write(os.path.join(work, "gh-answer"), "f" * 40 + "\n")        # a head this checkout does not have
+    out = pr_hook(env, repo, "gh pr edit 3 --body-file %s" % body)
+    assert "judged the local HEAD" in out, out
+    os.unlink(os.path.join(work, "gh-answer"))                      # gh fails: no answer
+    out = pr_hook(env, repo, "gh pr ready 3")
+    assert "judged the local HEAD" in out, out
+
+
+def t_pr_gate_wall_id(work):
+    """Review P2: a deny caused by the verify proof is logged under the wall `verify-pr`, also when the body has
+    template problems too; a deny for the body alone stays `pr-rules`."""
+    repo, env, body, head = pr_feature(work, "prwall")
+    walls = os.path.join(env["AI_STATE_DIR"], "walls.jsonl")
+    out = pr_hook(env, repo, "gh pr create --title 'feat: add' --body-file %s" % body)
+    assert decision(out) == "deny" and "verify proof" in out, out
+    out = pr_hook(env, repo, "gh pr create --title 'feat: add' --body 'no template'")
+    assert decision(out) == "deny" and "verify proof" in out and "mermaid" in out, out
+    rows = [json.loads(ln) for ln in (read(walls) or "").splitlines() if ln.strip()]
+    assert [r["wall"] for r in rows] == ["verify-pr", "verify-pr"], rows
+    run_log(repo, "r-head", head)
+    out = pr_hook(env, repo, "gh pr create --title 'feat: add' --body 'no template'")
+    assert decision(out) == "deny" and "verify proof" not in out, out
+    rows = [json.loads(ln) for ln in (read(walls) or "").splitlines() if ln.strip()]
+    assert rows[-1]["wall"] == "pr-rules", rows
 
 
 def t_herdr_picked_on_mac(work):

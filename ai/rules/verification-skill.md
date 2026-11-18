@@ -76,9 +76,10 @@ the app changes."
 - L4 (git pre-commit, every writer): `ai-precommit` refuses a commit whose staged diff adds a test (Python
   `def test_...(`, `test(` or `it(` in a JS or TS spec file) in a project with a verify skill, when no valid log of
   this checkout finished after HEAD's commit time (ticket 04; wall `verify-commit`). Edits and deletions of tests
-  pass.
-- Planned (spec `docs/specs/verify-enforcement.md`): ticket 05, the PR gate on `gh pr create`, `edit` and `ready`
-  that needs a valid log at the PR head SHA. All hooks read the log contract above (`hooklib.verify_runs`).
+  pass. Owner skip: `sudo ai-gate-skip verify-commit <minutes> <why>`.
+- L4 (PreToolUse, pr-rules): the PR gate on `gh pr create`, `edit` and `ready` needs a valid log at the PR head SHA
+  (ticket 05; wall `verify-pr`). All hooks and the verify-ai-setup tool read the log contract above
+  (`hooklib.verify_runs`).
 - Text: Done item 1 in the repo AGENTS.md. The root AGENTS.md carries nothing extra (hooks over text).
 
 ## Proof

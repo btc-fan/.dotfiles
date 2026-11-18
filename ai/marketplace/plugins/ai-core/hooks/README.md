@@ -65,13 +65,17 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   or a commit pathspec it also scans unstaged changes and untracked files. `git push` scans commits not
   on any remote (last 300). Only added lines are scanned. During a merge (`MERGE_HEAD` set) only the lines
   that are new against the merged branch too are scanned, so content already on the default branch is not
-  scanned again. In a test fixture path (`tests/`, `test/`, `fixtures/`, `testdata/`, `mocks/`, `test_*`,
-  `*_test.*`, `*.test.*`, `*.spec.*`, `conftest.py`, `*.example`, `*.sample`) only a real key shape blocks: a
-  provider pattern with no test word (`test`, `fake`, `dummy`, `sample`, `example`, `mock`) and an entropy of
-  3.5 bits per character or more, or a private key header. An assigned word (`password = "x"`) does not block
-  there. gitleaks runs too when installed (profile dev-mac installs it, pinned in `ai/pins.env`); its findings
-  count only when the secret is in the scanned added lines, and in a test fixture path only a real key shape
-  (no `generic-*` rule) counts. Without gitleaks only the builtin patterns run. Allowlist: only the context7
+  scanned again. In test code (`tests/`, `test/`, `fixtures/`, `testdata/`, `mocks/`, `test_*`, `*_test.*`,
+  `*.test.*`, `*.spec.*`, `conftest.py`) only a real key shape blocks: a provider pattern with no test word
+  (`test`, `fake`, `dummy`, `sample`, `example`, `mock`) and an entropy of 3.5 bits per character or more, or a
+  private key header. An assigned word (`password = "x"`) does not block there. A config file (`.env*`,
+  `.properties`, `.yml`, `.yaml`, `.toml`, `.ini`, `.json`) is never test code (review S4). A sample file
+  (`*.example`, `*.sample`, `.env.example`) and a config file in a test folder keep every rule; there only a
+  value with a clear fake marker passes (`test`, `fake`, `dummy`, `example`, `sample`, `changeme`, `xxx`,
+  `placeholder`, `redacted`, or one repeated character). gitleaks runs too when installed (profile dev-mac
+  installs it, pinned with its archive sha256 in `ai/pins.env`); its findings count only when the secret is in
+  the scanned added lines; in test code only a real key shape (no `generic-*` rule) counts, and in a sample file
+  a value with a clear fake marker passes. Without gitleaks only the builtin patterns run. Allowlist: only the context7
   key, exact value, from committed (HEAD) MCP config of this repo or `CONTEXT7_API_KEY` in
   `~/.config/ai/secrets.env`.
 - no-sudo: `sudo`, `su`, `doas`, `pkexec`, `sudoedit`, `run0` at a command position (also inside `bash -c`, behind
@@ -82,9 +86,13 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   owner's own typed lines: pasted output (code fences, lines that start with `⏺`, `❯`, `>` or `│`) never sets it.
   Accepted OKs include "merge 18", "merge #18", "merge the branches", "merge everything", "lets merge this".
   Refused: a negation before the word ("don't merge", "not yet", "do not merge yet", "lets not merge"), "wait",
-  a question, and words without merge or approve ("ok go for it"). A push is checked in the checkout it acts on:
-  `cd <dir>` earlier in the command and `git -C <dir>`, not the session folder. A command that only names main
-  (`git diff main...HEAD`) is not a push to main.
+  a question, words without merge or approve ("ok go for it"), and a number or "let's merge" before another
+  word ("merge 2 files", "let's merge the docs"). A push is checked in the checkout it acts on: `cd <dir>`
+  earlier in the command and `git -C <dir>`, not the session folder. A cd can fail, so (review S1): a cd inside
+  `( )` does not move the stages after the `)`; a cd to a folder that is not a git checkout counts as the session
+  folder; after a cd joined by anything but `&&`, the push is checked in the old folder and the new one, and
+  either one on main or master denies. A command that only names main (`git diff main...HEAD`) is not a push to
+  main.
 - no-verify: `git commit` or `git push` with `--no-verify` (or `commit -n`) is denied.
 - writing-for-agents (gate, `require_skill`): Edit, Write, MultiEdit, `apply_patch` or a shell write of AGENTS.md,
   CLAUDE.md, CLAUDE.local.md or a SKILL.md, until the skill has a proof in the session.
@@ -103,16 +111,21 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   count. Valid run.log (`hooklib.verify_runs`, contract in `ai/rules/verification-skill.md`): all 4 lines, a 40-hex
   commit, `doctor: PASS`, `db_writes: no`, a UTC ISO 8601 `finished`. Loop limits as stop-check: 2 blocks per
   app-code state, 4 per chain of continuation stops, per agent (main or the subagent id). `ai-precommit` reads the
-  same logs for the commit gate (wall `verify-commit`).
+  same logs for the commit gate (wall `verify-commit`). The owner skips it with `sudo ai-gate-skip verify-commit
+  <minutes> <why>`; ai-precommit reads only the root-owned `/etc/ai/gate-skip` (the git env comes from the agent's
+  command, so the test-only skip file variables do not count there) and logs the skip in `gates.log`. The change
+  check reads at most 1 MB of a file plus its size and does not follow a symlink (review S7).
 - Stop rules (`strength: stop`, `require_skill`): none since 2026-11-18. diagnosing-bugs (a bug or performance
   prompt) and tdd (a tests-first prompt) are nudges: the prompt shows the hint, the turn end is not blocked. The
   separate `stop-check.py` runs `check-fast`.
 - pr-rules: `gh pr create` and `gh pr edit` with a body are denied without the core template: a mermaid block
   (Summary), Evidence, Door (one-way or two-way), Blast Radius and the author-sessions block (placeholders count
   as missing). `Docs:`, `Changed guards:` and `Ledger:` (fix PRs) only give a warning in the context. A fix PR
-  needs a test file in its diff; over 400 lines warns. The body file path may use a variable from a simple
-  `VAR=value` earlier in the same command (`$B`, `"$B"`, `${B}`); a `cd` earlier in the command sets the folder
-  for a relative path and for the diff. A body file that cannot be read gives one plain reason ("could not read
+  needs a test file in its diff; over 400 lines warns. The body file path may use a variable from one simple
+  `VAR=value` earlier in the same command (`$B`, `"$B"`, `${B}`). A variable set twice, set to a value that is not
+  a literal, or set as a prefix of the command (`B=x gh ...`) makes the body file unread (review S3). A `cd`
+  earlier in the command sets the folder for a relative path and for the diff; a cd to a folder that does not
+  exist counts as the session folder, and without a checkout there the session checkout is judged (review S2). A body file that cannot be read gives one plain reason ("could not read
   the body file <path>"), not a list of every field. A heredoc in the command counts as the body. The diff uses
   the base the command names (`--base ai`: `origin/ai`, else `ai`, else a 5 s `git fetch origin ai`), never main
   in its place.
@@ -120,6 +133,10 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   when the diff has app code, the repo has a `verify-<app>` skill, and no valid `.verify/evidence/<run>/run.log`
   has `commit:` equal to the PR head SHA and `finished:` after the last app-code commit (`valid_verify_logs`:
   all 4 lines, `doctor: PASS`, `db_writes: no`). Root and HEAD come from the checkout the command runs in.
+  `gh pr edit <N>` and `gh pr ready <N>` (a number, URL or branch) judge the PR head from `gh pr view <N> --json
+  headRefOid` (read only, 5 s) when that commit is in the checkout; else the local HEAD, and the context says
+  so (review P1). Such a deny is logged under the wall id `verify-pr`, also when the body has problems too
+  (review P2).
   A docs-only PR is not gated. `gh pr ready --undo` is not gated.
   `--fill` and `--web` are refused. A `main: unknown` line is refused when the hook payload has a session id:
   the router gives the real line (`main: <session id> dir: <cwd with ~>`) at session start and as context on
@@ -180,8 +197,8 @@ key, token, secret or password.
   approximated. The `-a` flag is read from the parsed arguments, not from message text.
 - Push scan reads at most 300 unpushed commits and only HEAD (not other pushed refs).
 - A gitleaks error other than a timeout (bad report, crash) is logged and only the builtin patterns count.
-- `gh pr create -F file`: a variable in the path is read only from a simple `VAR=value` in the same command
-  (not from `$(...)` or the shell environment); `--body-file -` (stdin) can only be checked when the heredoc is
+- `gh pr create -F file`: a variable in the path is read only from one simple `VAR=value` in the same command
+  (not from `$(...)`, a second assignment, a command prefix or the shell environment: the file counts as unread); `--body-file -` (stdin) can only be checked when the heredoc is
   in the command. A `cd` to a variable falls back to the hook cwd (pr-rules and the merge-approval push check).
 - Secret scan in a merge with more than one `MERGE_HEAD` (octopus) compares with the first one only.
 - Codex: file edits by `apply_patch` are not checked by no-em-dash or graph-update (Bash and Claude

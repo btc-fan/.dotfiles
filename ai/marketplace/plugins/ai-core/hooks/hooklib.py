@@ -331,21 +331,21 @@ GATE_SKIP_FILE = "/etc/ai/gate-skip"
 GATE_SKIP_MAX_S = 3600
 
 
-def gate_skip_path():
+def gate_skip_path(env_ok=True):
     """Tests only: AI_GATE_SKIP_FILE together with AI_GATE_SKIP_INSECURE_TEST=1 (the hook's own environment,
-    which an agent's command cannot set)."""
-    if os.environ.get("AI_GATE_SKIP_INSECURE_TEST") == "1" and os.environ.get("AI_GATE_SKIP_FILE"):
+    which an agent's command cannot set). env_ok=False for a caller whose environment the agent sets (a git hook)."""
+    if env_ok and os.environ.get("AI_GATE_SKIP_INSECURE_TEST") == "1" and os.environ.get("AI_GATE_SKIP_FILE"):
         return os.environ["AI_GATE_SKIP_FILE"], True
     return GATE_SKIP_FILE, False
 
 
-def gate_skips(stages=None):
+def gate_skips(stages=None, env_ok=True):
     """({gate: reason} valid now, [notes]). Only a root-owned file not writable by others counts."""
     skips, notes = {}, []
     if stages and any("AI_GATE_SKIP" in st.env for st in stages):
         notes.append("AI_GATE_SKIP in a command does nothing. Only the owner can skip a gate: "
                      "sudo ai-gate-skip <gate> <minutes> <why>.")
-    path, test = gate_skip_path()
+    path, test = gate_skip_path(env_ok)
     try:
         st = os.stat(path)
     except OSError:
@@ -770,11 +770,22 @@ SECRET_PATTERNS = [
 PLACEHOLDER = re.compile(r"(?i)(x{4,}|\*{3,}|\.{3,}|changeme|change[_-]?me|example\S*|your[\w-]*|dummy\S*|redacted|"
                          r"placeholder\S*|todo|none|null|true|false|password|pass|secret|pwd|test|fake\S*|"
                          r"<[^>]*>|\$\{[^}]*\}|\$\(.*\)|\{\{.*\}\})")
-# Test fixture paths (ticket 11): here only real key shapes block, never assigned words (password = "x").
+# Test fixture paths (ticket 11): in test code only real key shapes block, never assigned words (password = "x").
 FIXTURE_PATH = re.compile(r"(^|/)(tests?|__tests__|specs?|fixtures?|__fixtures__|testdata|test[_-]data|mocks?|"
-                          r"__mocks__)/|(^|/)(test_[^/]*|[^/]*_test\.\w+|[^/]*\.(test|spec)\.\w+|conftest\.py)$|"
-                          r"\.(example|sample)$", re.I)
+                          r"__mocks__)/|(^|/)(test_[^/]*|[^/]*_test\.\w+|[^/]*\.(test|spec)\.\w+|conftest\.py)$", re.I)
 FAKE_MARK = re.compile(r"(?i)test|fake|dummy|sample|example|mock|placeholder|x{4,}|0{6,}|123456")
+# Review S4: config and sample files hold real values too, so they are never fixture paths. A sample file
+# (.env.example, *.sample) and a config file in a test folder keep every rule; only a value with a clear fake
+# marker passes there.
+CONFIG_PATH = re.compile(r"(^|/)\.env[^/]*$|\.(properties|ya?ml|toml|ini|json|env|example|sample)$", re.I)
+CLEAR_FAKE = re.compile(r"(?i)test|fake|dummy|example|sample|change[_-]?me|x{3,}|placeholder|redacted|^(.)\1+$")
+
+
+def secret_path_kind(path):
+    """"fixture" (test code: ticket 11 rules), "sample" (CLEAR_FAKE values pass) or "" (every rule)."""
+    if CONFIG_PATH.search(path or ""):
+        return "sample" if FIXTURE_PATH.search(path) or re.search(r"\.(example|sample)$", path, re.I) else ""
+    return "fixture" if FIXTURE_PATH.search(path or "") else ""
 
 
 class ScanTimeout(Exception):
@@ -1016,10 +1027,10 @@ def untracked_text(repo, budget, max_files=300, max_bytes=512 * 1024):
 
 
 def builtin_scan(diff, allowed):
-    hits, fixture = [], False
+    hits, kind = [], ""
     for line in (diff or "").splitlines():
         if is_diff_header(line):
-            fixture = bool(FIXTURE_PATH.search(line[6:] if line.startswith("+++ b/") else ""))
+            kind = secret_path_kind(line[6:] if line.startswith("+++ b/") else "")
             continue
         if not line.startswith("+"):
             continue
@@ -1028,8 +1039,10 @@ def builtin_scan(diff, allowed):
                 value = mm.group(1) if rx.groups else mm.group(0)
                 if value in allowed:
                     continue
-                if fixture and (name.startswith(("assigned-secret", "url-with-password"))
-                                or (name != "private-key" and fake_value(value))):
+                if kind == "fixture" and (name.startswith(("assigned-secret", "url-with-password"))
+                                          or (name != "private-key" and fake_value(value))):
+                    continue
+                if kind == "sample" and name != "private-key" and CLEAR_FAKE.search(value):
                     continue
                 if name.startswith(("assigned-secret", "url-with-password")) and not looks_secret(value, name):
                     continue
@@ -1050,7 +1063,8 @@ def looks_secret(value, name):
 
 def gitleaks_scan(repo, mode, log_opts, allowed, budget, added=""):
     """gitleaks findings that are in the added lines the builtin scan read (a merge does not scan the default
-    branch again); in a test fixture path only a real key shape counts (no generic rule, no fake value)."""
+    branch again); in test code only a real key shape counts (no generic rule, no fake value); in a sample or
+    test config file a value with a clear fake marker passes (secret_path_kind)."""
     import shutil
     import subprocess
     import tempfile
@@ -1080,7 +1094,10 @@ def gitleaks_scan(repo, mode, log_opts, allowed, budget, added=""):
         secret, rule = f.get("Secret") or "", f.get("RuleID") or "?"
         if secret in allowed or (secret.splitlines() or [""])[0] not in added:
             continue
-        if FIXTURE_PATH.search(f.get("File") or "") and (rule.startswith("generic") or fake_value(secret)):
+        kind = secret_path_kind(f.get("File") or "")
+        if kind == "fixture" and (rule.startswith("generic") or fake_value(secret)):
+            continue
+        if kind == "sample" and CLEAR_FAKE.search(secret):
             continue
         out.append("gitleaks:%s" % rule)
     return out
@@ -1133,17 +1150,19 @@ def gate_pr(ctx, cmd, stages):
     problems, warnings, here, verify = [], [], ctx.cwd or ".", None
     for st in stages:
         if st.exe in ("cd", "pushd", "popd"):
-            here = cd_target(st, here) or ctx.cwd or "."     # the folder the gh command runs in
+            to = cd_target(st, here)       # the folder the gh command runs in; a failed cd leaves the shell where it was
+            here = to if to and os.path.isdir(to) else ctx.cwd or "."
             continue
         if st.exe != "gh" or st.args[:1] != ["pr"] or len(st.args) < 2 or st.args[1] not in PR_GATED:
             continue
         sub, args = st.args[1], st.args[2:]
         if sub == "ready" and "--undo" in args:
             continue
-        root = project_root(here)
-        diff = pr_diff(ctx, root, args) if root else None
+        root = project_root(here) or project_root(ctx.cwd or ".")     # review S2: never skip the checks below
         body_flag = any(a.split("=")[0] in ("--body", "-b", "--body-file", "-F") for a in args)
-        if sub != "edit" or body_flag:          # a title or label edit changes no PR content: no proof needed
+        content = sub != "edit" or body_flag    # a title or label edit changes no PR content: no proof needed
+        diff = pr_diff(ctx, root, args, sub) if root and content else None
+        if content:
             verify = verify or pr_verify_log(root, diff)
         if sub == "create" and any(a.split("=")[0] in PR_FILL for a in args):
             problems.append("--fill / --web hide the body from this check: write the body and pass it with --body "
@@ -1151,7 +1170,7 @@ def gate_pr(ctx, cmd, stages):
             continue
         if sub == "ready" or (sub == "edit" and not body_flag):
             continue
-        text, unread = pr_body_text(here, cmd, args)
+        text, unread = pr_body_text(here, cmd, args, stages)
         if unread:
             problems.append("could not read the body file %s (write it before the gh command, or pass the body "
                             "with --body)" % unread)
@@ -1178,13 +1197,14 @@ def gate_pr(ctx, cmd, stages):
         problems.extend(m for m in missing if m not in problems)
     if warnings:
         ctx.add_context("[ai gate pr-rules] warning, add to the PR body: %s." % "; ".join(warnings))
+    wall = "verify-pr" if verify else None      # review P2: hook 4 has its own wall id in walls.jsonl
     if not problems:
-        return ("deny", verify) if verify else None
+        return ("deny", verify, wall) if verify else None
     return ("deny", "PR not ready, missing: %s. Body follows the pr skill template: ## Summary (with a ```mermaid "
             "diagram), ## Evidence (Before and After: command and output tail), ## Merge Danger (**Door:** one-way "
             "or two-way and why; **Blast Radius:** what can break). Author-sessions block at the end. Also "
             "(a warning only): Docs, Changed guards, Ledger on fix PRs. Pass it with --body or --body-file.%s"
-            % ("; ".join(problems), "\n" + verify if verify else ""))
+            % ("; ".join(problems), "\n" + verify if verify else ""), wall)
 
 
 def session_line(ctx):
@@ -1198,8 +1218,8 @@ def session_line(ctx):
     return "main: %s dir: %s" % (ctx.session, cwd)
 
 
-def pr_body_text(here, cmd, args):
-    """(body text, unreadable body file path or None). A body file path may use a variable that a simple
+def pr_body_text(here, cmd, args, stages=()):
+    """(body text, unreadable body file path or None). A body file path may use a variable that one simple
     `VAR=value` earlier in the same command sets ($VAR, "$VAR", ${VAR}); a heredoc in the command counts as
     the body (the file it writes does not exist yet)."""
     text, unread = "\n".join(args), None    # one line per word: -b "Evidence: ..." keeps its field at a line start
@@ -1210,7 +1230,7 @@ def pr_body_text(here, cmd, args):
             path = val if eq else (args[i + 1] if i + 1 < len(args) else "-")
             if path == "-":
                 continue
-            path = expand_vars(path, cmd)
+            path = expand_vars(path, cmd, stages)
             body = None if "$" in path else read_text(os.path.join(here, os.path.expanduser(path)))
             if body is None and not heredoc:
                 unread = path
@@ -1223,12 +1243,20 @@ def pr_body_text(here, cmd, args):
 SHELL_ASSIGN = re.compile(r"(?:^|[\s;&|(])([A-Za-z_]\w*)=(\"[^\"$`]*\"|'[^']*'|[^\s;&|()\"'$`]+)(?=[\s;&|)]|$)")
 
 
-def expand_vars(path, cmd):
-    """$VAR / ${VAR} in a path, from the last simple VAR=value in the command (no $(...), no other variables)."""
+def expand_vars(path, cmd, stages=()):
+    """$VAR / ${VAR} in a path, from the one simple VAR=value in the command (no $(...), no other variables).
+    Review S3: a variable set twice, set to a value that is not a literal, or set as a prefix of a command
+    (`B=x gh ...`: the shell expands $B before that) stays unexpanded, so the body file counts as unread."""
     found = {}
     for m in SHELL_ASSIGN.finditer(cmd):
         found[m.group(1)] = m.group(2).strip("\"'")
-    return re.sub(r"\$\{(\w+)\}|\$(\w+)", lambda m: found.get(m.group(1) or m.group(2), m.group(0)), path)
+    prefix = {k for st in stages if st.exe for k in st.env}
+
+    def value(m):
+        name = m.group(1) or m.group(2)
+        sets = len(re.findall(r"(?:^|[\s;&|(])%s=" % re.escape(name), cmd))
+        return found[name] if name in found and sets == 1 and name not in prefix else m.group(0)
+    return re.sub(r"\$\{(\w+)\}|\$(\w+)", value, path)
 
 
 def flag_value(args, names):
@@ -1297,11 +1325,13 @@ def pr_field_problem(name, value):
     return None
 
 
-def pr_diff(ctx, root, args):
+def pr_diff(ctx, root, args, sub="create"):
     """(base ref, head ref, [(added, deleted, path)]) of the PR against its base branch, or None (no base found).
-    The base is the one the command names (--base), else origin/HEAD, main or master."""
+    The base is the one the command names (--base), else origin/HEAD, main or master. The head: --head of a create,
+    the PR head of `edit N` or `ready N` (pr_head), else the local HEAD."""
     base = flag_value(args, ("--base", "-B"))
-    head = flag_value(args, ("--head", "-H")) or "HEAD"
+    head = flag_value(args, ("--head", "-H")) if sub == "create" else pr_head(ctx, root, args)
+    head = head or "HEAD"
     if ":" in head:
         head = "HEAD"           # owner:branch of a fork: compare the local HEAD
     if base:     # the base the command names, never main instead (ticket 13: --base ai)
@@ -1321,6 +1351,41 @@ def pr_diff(ctx, root, args):
         return None
     rows = [tuple(row.split("\t", 2)) for row in numstat.splitlines() if row.count("\t") >= 2]
     return base_ref, head, rows
+
+
+PR_BOOL_FLAGS = {"--undo", "--remove-milestone"}       # gh pr edit / ready flags without a value
+
+
+def pr_head(ctx, root, args):
+    """Review P1: the head commit of the PR that `gh pr edit|ready <number|URL|branch>` names, from
+    `gh pr view <it> --json headRefOid` (read only, 5 s). None without a PR argument. When gh gives no commit,
+    or the commit is not in this checkout: None, and the context says the local HEAD was judged."""
+    import subprocess
+    ref, skip = None, False
+    for a in args:
+        if skip:
+            skip = False
+        elif a.startswith("-"):
+            skip = "=" not in a and a not in PR_BOOL_FLAGS
+        else:
+            ref = a
+            break
+    if not ref:
+        return None
+    argv = ["gh", "pr", "view", ref, "--json", "headRefOid", "-q", ".headRefOid"]
+    repo = flag_value(args, ("--repo", "-R"))
+    try:
+        res = subprocess.run(argv + (["--repo", repo] if repo else []), cwd=root, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, timeout=5)
+        oid = res.stdout.decode("utf-8", "replace").strip() if res.returncode == 0 else ""
+    except Exception:
+        oid = ""
+    if re.fullmatch(r"[0-9a-f]{40}", oid) and git_quick(root, ["cat-file", "-e", oid + "^{commit}"]) is not None:
+        return oid
+    ctx.add_context("[ai gate pr-rules] %s: judged the local HEAD, not the PR head." % (
+        "the head %s of PR %s is not in this checkout (git fetch it)" % (oid[:12], ref) if oid
+        else "gh pr view %s gave no head commit" % ref))
+    return None
 
 
 def pr_diff_checks(ctx, diff, fix):
@@ -1392,8 +1457,9 @@ def probe_pr_gate(stages, cmd=""):
 
 MERGE_OK_RX = re.compile(
     r"^\W*(merge|approved?|lgtm|ship it)\W*$"
-    r"|\bmerge\s+(it|this|them|that|the\s+prs?|prs?\b|pr\s*#?\d+|#?\d+|now|please|all|everything)\b"
-    r"|\bmerge\s+the\s+branch(es)?\b|\blet'?s\s+merge\b"     # ticket 12: "merge 18", "lets merge everything"
+    r"|\bmerge\s+(it|this|them|that|the\s+prs?|prs?\b|pr\s*#?\d+|#?\d+\b(?!\s+(?!(now|please|and|too|go|then)\b)[a-z])|now|please|all|everything)\b"
+    r"|\bmerge\s+the\s+branch(es)?\b|\blet'?s\s+merge\b(?!\s+[a-z])"   # ticket 12: "merge 18", "lets merge everything"
+    # review S8: a number or "let's merge" before a word ("merge 2 files", "let's merge the docs") is not an OK
     r"|\b(please|go\s+ahead\s+and|go\s+ahead,?|you\s+can|ok(ay)?,?|yes,?|now)\s+merge\b"
     r"|^\W*merge\W+(go\s+ahead|do\s+it)\b"          # R-009: "merge go ahead", "merge, go ahead"
     r"|\b(approved?|lgtm|ship\s+it)\b"
@@ -1418,22 +1484,32 @@ def owner_merge_ok(prompt):
 
 def merge_calls(stages, cwd):
     """What in this command merges into, or pushes to, main/master: ["gh pr merge", ...]. A push is read in the
-    checkout it acts on: `cd <dir>` earlier in the command and `git -C <dir>` (ticket 12), not the session folder."""
-    out, here = [], cwd
+    checkout it acts on: `cd <dir>` earlier in the command and `git -C <dir>` (ticket 12), not the session folder.
+    The shell may stay where it was, so (review S1): a cd inside ( ) does not move the stages after the `)`; a cd
+    to a folder that is not a git checkout counts as the session folder; after a cd that may fail (joined by
+    anything but &&) a push is read in the old folder and the new one, and either one on main/master counts."""
+    out, heres, saved = [], [cwd], []
     for st in stages:
         if st.exe in ("cd", "pushd", "popd"):
             # shortcut: a cd to a variable or `-` falls back to the session folder; upgrade if such pushes show up.
-            here = cd_target(st, here) or cwd
-            continue
-        if st.exe == "gh" and st.args[:2] == ["pr", "merge"]:
+            to = cd_target(st, heres[0])
+            to = to if to and os.path.isdir(to) and project_root(to) else cwd
+            heres = [to] if st.op == "&&" else list(dict.fromkeys([to] + heres))
+        elif st.exe == "gh" and st.args[:2] == ["pr", "merge"]:
             out.append("gh pr merge")
         elif st.exe == "gh" and st.args[:1] == ["api"] and any(re.search(r"/pulls/\d+/merge\b", a)
                                                                for a in st.args):
             out.append("gh api .../pulls/N/merge")
         elif st.exe == "git":
-            sub, rest, d = git_sub(st, here)
-            if sub == "push" and push_targets_main(rest, d):
-                out.append("git push to main/master")
+            for here in heres:
+                sub, rest, d = git_sub(st, here)
+                if sub == "push" and push_targets_main(rest, d):
+                    out.append("git push to main/master")
+                    break
+        if st.op == "(":
+            saved.append(heres)
+        elif st.op == ")" and saved:
+            heres = saved.pop()
     return out
 
 
@@ -2447,7 +2523,6 @@ def verify_steps(root, info):
 def app_code_state(root, base):
     """{repo-relative path: content sha1, or "deleted"} of the code files of the checkout `root` that differ from
     commit `base` (committed since, staged, unstaged or untracked). Tests count; the verify skill does not."""
-    import hashlib
     skill = verify_skill(root)
     skip = tuple(os.path.join(d, "verify-") for d in VERIFY_DIRS) + (".verify/",) + \
         ((skill["path"] + "/",) if skill else ())
@@ -2458,12 +2533,26 @@ def app_code_state(root, base):
     for rel in names.split("\0"):
         if not rel or not is_code_file(rel) or rel.startswith(skip):
             continue
-        try:
-            with open(os.path.join(root, rel), "rb") as fh:
-                out[rel] = hashlib.sha1(fh.read()).hexdigest()
-        except OSError:
-            out[rel] = "deleted"
+        out[rel] = file_digest(os.path.join(root, rel))
     return out
+
+
+def file_digest(path, cap=1 << 20):
+    """sha1 of a file for change checks, safe on any tree (review S7): a symlink is not followed (its target text
+    counts), a file that is not regular counts by its type, and only the first `cap` bytes plus the size are read.
+    "deleted" when it is gone."""
+    import hashlib
+    import stat
+    try:
+        st = os.lstat(path)
+        if stat.S_ISLNK(st.st_mode):
+            return hashlib.sha1(b"link:" + os.fsencode(os.readlink(path))).hexdigest()
+        if not stat.S_ISREG(st.st_mode):
+            return "special:%o" % stat.S_IFMT(st.st_mode)
+        with open(path, "rb") as fh:
+            return hashlib.sha1(fh.read(cap) + b"size:%d" % st.st_size).hexdigest()
+    except OSError:
+        return "deleted"
 
 
 def head_at(root, ts):

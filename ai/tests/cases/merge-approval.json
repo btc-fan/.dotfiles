@@ -1052,6 +1052,177 @@
     "worktree": "../wt"
    },
    "contains": "git push to main/master"
+  },
+  {
+   "name": "S1 failed cd to a missing folder, then a bare push from main: denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd /nonexistent-ai-gate-test; git push"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "a.py": "x = 1\n"
+    },
+    "commit": "init",
+    "worktree": "../wt"
+   },
+   "contains": "git push to main/master"
+  },
+  {
+   "name": "S1 cd inside a subshell, then a bare push from main: denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "(cd {{PROJ}}/../wt); git push"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "a.py": "x = 1\n"
+    },
+    "commit": "init",
+    "worktree": "../wt"
+   },
+   "contains": "git push to main/master"
+  },
+  {
+   "name": "S1 cd to a folder that is not a checkout || true, then push HEAD from main: denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd /tmp || true; git push origin HEAD"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "a.py": "x = 1\n"
+    },
+    "commit": "init",
+    "worktree": "../wt"
+   },
+   "contains": "git push to main/master"
+  },
+  {
+   "name": "S1 cd to a feature worktree with ; (the cd may fail), bare push from main: denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd {{PROJ}}/../wt; git push"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "a.py": "x = 1\n"
+    },
+    "commit": "init",
+    "worktree": "../wt"
+   },
+   "contains": "git push to main/master"
+  },
+  {
+   "name": "S1 cd and push inside one subshell from a feature worktree: allowed",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "(cd {{PROJ}}/../wt && git push)"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "a.py": "x = 1\n"
+    },
+    "commit": "init",
+    "worktree": "../wt"
+   }
+  },
+  {
+   "name": "S8 owner said 'merge 2 files': not a merge OK, denied",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "merge 2 files"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "S8 owner said \"let's merge the docs\": not a merge OK, denied",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "let's merge the docs"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "S8 owner said 'merge 3 commits into one': not a merge OK, denied",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "merge 3 commits into one"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
   }
  ]
 }

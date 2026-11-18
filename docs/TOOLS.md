@@ -251,7 +251,8 @@ Good tools that are not part of daily work live in `ai/TOOLBOX.md`. They are not
 - **What.** A secret scanner.
 - **Why.** The `secret-scan` gate runs it next to our own patterns, when it is installed.
 - **Pin.** 8.30.1 (`GITLEAKS_HOLD` in `ai/pins.env`). Profile dev-mac installs it (owner 2026-11-18): the release
-  archive, checked against the release's checksums file. It is a release binary, so agent-audit does not scan it.
+  archive. Its sha256 must match the pin in `ai/pins.env` (`GITLEAKS_SHA256_<OS>_<ARCH>`) and the release's checksums
+  file. A new `GITLEAKS_HOLD` needs new sha256 lines. It is a release binary, so agent-audit does not scan it.
 
 ### ai-doctor
 

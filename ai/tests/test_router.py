@@ -24,7 +24,7 @@ Each ai/tests/cases/<rule>.json holds {"rule": id, "cases": [...]}. A case:
   contains / not_contains   text that must (not) be in the hook output
 Placeholders: {{PROJ}} {{HOME}} {{NOW}} {{OLD}} {{TRANSCRIPT}} and fake secrets {{GH_TOKEN}} {{CTX7_KEY}}
 {{CTX7_OTHER}} {{PW}} {{ENVTOK}} {{NPM_TOKEN}} {{HF_TOKEN}} {{DBURL}} {{GH_REAL}} {{SK_LIVE_REAL}}
-{{SK_LIVE_SAMPLE}} {{ADMINPASS}} {{AIZA_TEST}} {{ZPS_FAKE}}
+{{SK_LIVE_SAMPLE}} {{ADMINPASS}} {{AIZA_TEST}} {{ZPS_FAKE}} {{JWT_REAL}} {{DBURL_TEST}}
 (fake secrets are built here at run time, so no secret-looking string is stored in the repo).
 Every run uses a throwaway HOME and state dir. Nothing touches the real home.
 """
@@ -58,6 +58,8 @@ FAKE = {
     "{{ADMINPASS}}": "admin" + "pass123",
     "{{AIZA_TEST}}": "AIza" + "SECRET-test-key",
     "{{ZPS_FAKE}}": "zps" + "_4f9a1c7e2b6d8e0f3a5c7b9d1e3f5a7c",
+    "{{JWT_REAL}}": "q8Zr2LmX9v" + "Tn4KpW7sYb1HcJ6dFg3QeA",       # review S4: high entropy, no fake marker
+    "{{DBURL_TEST}}": "postgres://app:" + "testpass123" + "@db/x",  # review S4: a fake-marked URL password
 }
 FIRE_KINDS = {"fire", "log", "deny", "ask", "miss", "block"}
 QUIET_KINDS = {"nofire", "allow", "nomiss"}

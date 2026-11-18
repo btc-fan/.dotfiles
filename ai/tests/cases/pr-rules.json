@@ -1004,6 +1004,60 @@
    },
    "contains": "none against origin/ai",
    "not_contains": "could not diff"
+  },
+  {
+   "name": "S3 a body-file variable set twice (the second by $(...)) is not read: denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "B={{PROJ}}/body.md; B=$(printf bad.md); gh pr create --title x --body-file \"$B\""
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "body.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **After:** make check -> 12 passed\n## Merge Danger\n**Door:** two-way\n**Blast Radius:** small\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-18\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   },
+   "contains": "could not read the body file"
+  },
+  {
+   "name": "S3 a body-file variable set as a prefix of gh is not read: denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "B={{PROJ}}/body.md gh pr create --title x -F \"$B\""
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "body.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **After:** make check -> 12 passed\n## Merge Danger\n**Door:** two-way\n**Blast Radius:** small\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-18\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   },
+   "contains": "could not read the body file"
+  },
+  {
+   "name": "S3 a body-file variable set by $(...) only is not read: denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "B=$(printf {{PROJ}}/body.md); gh pr create --title x -F \"$B\""
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "body.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **After:** make check -> 12 passed\n## Merge Danger\n**Door:** two-way\n**Blast Radius:** small\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-18\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   },
+   "contains": "could not read the body file"
   }
  ]
 }
