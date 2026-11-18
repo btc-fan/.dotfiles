@@ -29,6 +29,7 @@ owner says the fixes are merged or accepted.
 | API | compare the API surface with the last tag; a breaking change needs an ADR and a version bump |
 | Migrations | each migration since the last tag runs up and down on a copy; expand-then-contract for renames |
 | Tests | `make check` green; the ratchet did not get worse since the last tag |
+| Verify tool | the project has a `verify-<app>` skill: run `maintain-verification-skill` yourself (Skill tool, or read its SKILL.md). It drives every feature of the map; its corrections are one fix PR |
 
 ## 3. Report
 

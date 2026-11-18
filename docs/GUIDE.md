@@ -222,7 +222,7 @@ The design names each kind of help with a layer number. You see these names in t
 
 | Layer | Name | What it is | Example you will see |
 |---|---|---|---|
-| L0 | Routing table | The table at the end of the global rules. Always in context. | "pr-rules (gate) - before gh pr create or edit - PR body: ..." |
+| L0 | Routing table | The table at the end of the global rules. Always in context. | "pr-rules (gate) - before gh pr create, edit or ready - PR body: ..." |
 | L1 | Session start | Rules with `when: session_start`, plus the status line. | `[ai router: project-knowledge] Read the Map and Libraries ...` |
 | L2 | Forced evaluation | After a prompt rule matched: answer YES or NO per tool, then use every YES tool first. | `[ai router L2] Before you act, answer YES or NO ...` |
 | L3 | Regex nudge | A rule whose trigger matched (a prompt word, a command, a file). | `[ai router: no-em-dash] Remove the em dash ...` |
@@ -248,7 +248,7 @@ Global rules (every repo):
 | no-em-dash | nudge | after a write that contains U+2014 | Use "-", ":" or a new sentence. |
 | docs-lookup | nudge | a prompt about a library, SDK or API | context7 with the Libraries ID first. |
 | feature-grill | nudge | a feature request prompt (EN, RO, RU) | Grill first, then to-spec and to-tickets for 3+ files. |
-| verify-before-done | nudge | after a code edit, project with a `verify-<app>` skill | check-fast, then verify-<app> evidence, then e2e. |
+| verify-before-done | nudge | after the first code edit of each agent (main and each subagent), project with a `verify-<app>` skill | check-fast, then verify-<app> evidence, then e2e. |
 | seo-, blog-, browser-not-enabled | nudge | SEO, blog or browser prompt in a project without that tool | Suggest `ai-adopt --tools <id>`. Do not install it. |
 | merge-approval, no-verify | **gate** | `gh pr merge` or a push to main; `--no-verify` | Wait for your "merge"; fix what the git hook reports. |
 | writing-for-agents | **gate** | before an edit or shell write of AGENTS.md, CLAUDE.md, CLAUDE.local.md, a SKILL.md | Load the `writing-for-agents` skill first. |
@@ -1372,7 +1372,8 @@ You:    /implement docs/tickets/tripnotes-v1/02-sync-note-up.md
 - After a commit that adds, deletes or renames modules: the router asks the agent to update the Map.
 - After a dependency change: `ai-libs --sync`.
 - When a lesson repeats twice: add one line to Lessons (max 15). When a check covers it: delete the line.
-- Every month in an active project: `/maintain-verification-skill` (the status line says when it is stale).
+- Every month in an active project, and in every release: the agent runs `maintain-verification-skill` (the
+  status line says when it is stale; the `release` skill runs it).
 
 #### Upgrade a project after a setup change
 
@@ -1598,7 +1599,8 @@ Rules:
   (call tree, file tree, diff sketch) are optional extras.
 - Evidence: Before and After. Screenshots are best for visual changes. Test output is next best. Include the
   check-fast tail. With a `verify-<app>` skill and app code in the diff: the verify evidence path and the e2e
-  test path.
+  test path. The pr-rules gate checks the proof itself: a valid `.verify/evidence/<run>/run.log` at the PR head
+  SHA (on create, edit and ready).
 - Door: one-way (hard to reverse: migrations, deletions, public API) or two-way (a revert fixes it).
 - Blast Radius: what else can break.
 - Docs, Changed guards: every project. Ledger: on fix PRs.

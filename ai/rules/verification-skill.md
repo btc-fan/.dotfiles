@@ -54,14 +54,18 @@ the app changes."
   and the ship skill do.
 
 ## Enforcement
-- L1: the session-start status says "Verify skill: verify-<app> (N features)", "... stale ...: run
-  /maintain-verification-skill", or "missing. Agent task: build verify-<app> with create-verification-skill at
+- L1: the session-start status says "Verify skill: verify-<app> (N features)", "... stale (...). Agent task: run
+  maintain-verification-skill now", or "missing. Agent task: build verify-<app> with create-verification-skill at
   the first feature task, and prove it with one real run." A copy that is still typed-only on a machine adds
   "(typed-only; agent: read <path>/SKILL.md and follow it)".
-- L3: row `verify-before-done` after the first code edit of a session (only with a verify skill).
+- L3: row `verify-before-done` after the first code edit of each agent: the main agent and each subagent
+  (`once_per: agent`, keyed on the payload's `agent_id`; only with a verify skill).
+- L3: `ai-adopt` writes the Done order into every project. A project with its own Done section gets one managed
+  `AI:verify` line at the end of that section; the owner text stays byte for byte.
+- L3: the `release` skill runs `maintain-verification-skill` when the project has a verify skill.
 - L2: the feature flow (`feature-grill`) names the verify feature per slice and the Done order.
-- L4: pr-rules: with a verify skill and app code in the diff, Verify must name the verify run, an evidence path
-  and an e2e test path.
+- L4: pr-rules on `gh pr create`, `edit` and `ready`: with a verify skill and app code in the diff, a valid
+  run.log at the PR head SHA that finished after the last app-code commit.
 - L7: `ai-doctor --project`: WARN when missing (an agent task: build it with create-verification-skill), stale,
   or without the Claude link.
 - Planned, not built yet (spec `docs/specs/verify-enforcement.md`): ticket 02, a Stop and SubagentStop hook that
@@ -82,6 +86,7 @@ the app changes."
 - Signal: Skill or Read of `create-verification-skill` or `verify-<app>`, `.verify/evidence/<run>/run.log`,
   `[ai router: verify-before-done]`. Tests: `ai/tests/test_tier1.py` (`t_verify_*`, `t_pstack_adapt_ours`,
   `t_adopt_verify_link`, `t_typed_only_skill_paths`), `ai/tests/cases/verify-before-done.json`, `pr-rules.json`,
+  `test_flow.py` (`t_pr_gate_*`), `test_skills.py` (`t_release_runs_maintain`),
   `test_resolve.py` (`t_bash_pstack`).
 
 ## Setup checklist

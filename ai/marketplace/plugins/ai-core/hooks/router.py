@@ -331,7 +331,7 @@ def on_pre_tool(ctx):
         if not conditions_match(rule, tool, tin, cmd, ctx):
             continue
         text = render_action(rule, ctx)
-        if text and ctx.state.allow_nudge(rule, nudge_key(rule, tool, tin, cmd)):
+        if text and ctx.state.allow_nudge(rule, nudge_key(rule, tool, tin, cmd, ctx)):
             ctx.fired(rule, "PreToolUse")
             deny = graph_deny(rule, ctx)
             # once per session (the nudge key above), so the next search passes
@@ -428,7 +428,7 @@ def on_post_tool(ctx):
                     rule["id"], text, file_of(tin) or "edited text", hits))
             continue
         text = render_action(rule, ctx)
-        if text and ctx.state.allow_nudge(rule, nudge_key(rule, tool, tin, cmd)):
+        if text and ctx.state.allow_nudge(rule, nudge_key(rule, tool, tin, cmd, ctx)):
             ctx.fired(rule, "PostToolUse")
             ctx.add_context("[ai router: %s] %s" % (rule["id"], text))
 
@@ -850,10 +850,13 @@ def content_hits(needle, tin):
     return sum(1 for t in texts for line in t.splitlines() if needle in line)
 
 
-def nudge_key(rule, tool, tin, cmd):
-    """once_per: session = one nudge per session (until reset_on); default = once per file."""
+def nudge_key(rule, tool, tin, cmd, ctx):
+    """once_per: session = one nudge per session (until reset_on); agent = one per agent of the session (the main
+    agent, and each subagent by the payload's agent_id; ticket 06); default = once per file."""
     if rule.get("once_per") == "session":
         return rule["id"]
+    if rule.get("once_per") == "agent":
+        return "%s@%s" % (rule["id"], ctx.payload.get("agent_id") or "main")
     return file_of(tin) or rule["id"]
 
 

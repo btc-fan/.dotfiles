@@ -4,9 +4,9 @@
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Red: a PR head with app code and only older logs: denied on create, edit and ready.
-- [ ] Green: a valid log at the head SHA: allowed.
-- [ ] A docs-only PR is not gated.
-- [ ] `cd <worktree> && gh pr create` reads the worktree HEAD, not the main checkout.
+- [x] Red: a PR head with app code and only older logs: denied on create, edit and ready.
+- [x] Green: a valid log at the head SHA: allowed.
+- [x] A docs-only PR is not gated.
+- [x] `cd <worktree> && gh pr create` reads the worktree HEAD, not the main checkout.

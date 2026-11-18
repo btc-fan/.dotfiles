@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 TESTS = os.path.dirname(os.path.realpath(__file__))
 AI_DIR = os.path.dirname(TESTS)
@@ -452,6 +453,89 @@ def t_adopt_in_linked_worktree(work):
     assert ".venv/bin/python -m pytest" in read(os.path.join(wt, "Makefile")), read(os.path.join(wt, "Makefile"))
     assert "a - b  # open work" in read(os.path.join(repo, "src", "app", "core.py")), "open work in main touched"
     assert git(repo, "status", "--porcelain", env=env).text.strip() == "M src/app/core.py", "main checkout changed"
+
+
+# ---------------------------------------------------------------- ticket 05: the PR gate proves the final tree
+
+PR_BODY = ("## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **Before:** none\n  **After:** `make check`: "
+           "3 passed\n## Merge Danger\n**Door:** two-way, small change\n**Blast Radius:** the add function\n"
+           "Docs: none, because no docs change\nChanged guards: none\n<!-- author-sessions\nmain: pr1 dir: ~/w\n-->\n")
+VERIFY_APP = {".agents/skills/verify-app/SKILL.md": "---\nname: verify-app\n---\n", ".gitignore": ".verify/\n"}
+
+
+def run_log(root, name, sha, doctor="PASS", db="no", finished=None):
+    finished = finished or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 2))
+    write(os.path.join(root, ".verify", "evidence", name, "run.log"),
+          "commit: %s\ndoctor: %s\ndb_writes: %s\nfinished: %s\n" % (sha, doctor, db, finished))
+
+
+def pr_hook(env, cwd, cmd, session="pr1"):
+    return hook("PreToolUse", {"session_id": session, "cwd": cwd, "hook_event_name": "PreToolUse",
+                               "tool_name": "Bash", "tool_input": {"command": cmd}}, env)
+
+
+def t_pr_gate_verify_log(work):
+    """Red: app code on the PR head and only an older log: create, edit and ready are denied. Green: a valid log
+    at the head SHA. An invalid log (doctor FAIL, db_writes yes, finished before the code commit) does not count."""
+    files = dict(PY_APP, **VERIFY_APP)
+    repo, env = new_repo(work, "prgate", files)
+    body = os.path.join(work, "body.md")
+    write(body, PR_BODY)
+    git(repo, "switch", "-q", "-c", "feat", env=env)
+    write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return b + a\n")
+    git(repo, "commit", "-qam", "feat: add", env=env)
+    old = git(repo, "rev-parse", "main", env=env).text.strip()
+    head = git(repo, "rev-parse", "HEAD", env=env).text.strip()
+    run_log(repo, "r-old", old)
+    create = "gh pr create --title 'feat: add' --body-file %s" % body
+    for cmd in (create, "gh pr edit 3 --title y", "gh pr ready 3"):
+        out = pr_hook(env, repo, cmd)
+        assert decision(out) == "deny" and "verify-app" in out and head[:7] in out \
+            and "run.log" in out, "%s: %s" % (cmd, out)
+    walls = read(os.path.join(env["AI_STATE_DIR"], "walls.jsonl")) or ""
+    assert walls.count('"wall": "pr-rules"') >= 3 and "verify-app" in walls, walls
+    for kw in ({"doctor": "FAIL"}, {"db": "yes"}, {"finished": "2001-01-01T00:00:00Z"}):
+        shutil.rmtree(os.path.join(repo, ".verify"))
+        run_log(repo, "r-bad", head, **kw)
+        assert decision(pr_hook(env, repo, create)) == "deny", "invalid log %s counted" % kw
+    run_log(repo, "r-head", head)
+    for cmd in (create, "gh pr edit 3 --title y"):
+        out = pr_hook(env, repo, cmd)
+        assert decision(out) == "allow", "%s: %s" % (cmd, out)
+    hook("PostToolUse", {"session_id": "pr1", "cwd": repo, "tool_name": "Skill", "tool_input": {"skill": "ship"}}, env)
+    out = pr_hook(env, repo, "gh pr ready 3")
+    assert decision(out) == "allow", out
+
+
+def t_pr_gate_docs_only(work):
+    """A PR without app code is not gated (no log at all)."""
+    repo, env = new_repo(work, "prdocs", dict(PY_APP, **VERIFY_APP))
+    body = os.path.join(work, "body.md")
+    write(body, PR_BODY)
+    git(repo, "switch", "-q", "-c", "docs", env=env)
+    write(os.path.join(repo, "README.md"), "# app\n")
+    git(repo, "add", "README.md", env=env)
+    git(repo, "commit", "-qm", "docs: readme", env=env)
+    out = pr_hook(env, repo, "gh pr create --title 'docs: readme' --body-file %s" % body)
+    assert decision(out) == "allow", out
+
+
+def t_pr_gate_reads_worktree(work):
+    """`cd <worktree> && gh pr create`: root and HEAD come from the worktree, not the session's main checkout."""
+    repo, env = new_repo(work, "prwt", dict(PY_APP, **VERIFY_APP))
+    body = os.path.join(work, "body.md")
+    write(body, PR_BODY)
+    run_log(repo, "r-main", git(repo, "rev-parse", "HEAD", env=env).text.strip())
+    wt = os.path.join(work, "wt-feat")
+    git(repo, "worktree", "add", "-q", "-b", "feat", wt, env=env)
+    write(os.path.join(wt, "src", "app", "core.py"), "def add(a, b):\n    return b + a\n")
+    git(wt, "commit", "-qam", "feat: add", env=env)
+    cmd = "cd %s && gh pr create --title 'feat: add' --body-file %s" % (wt, body)
+    out = pr_hook(env, repo, cmd)
+    assert decision(out) == "deny" and "verify-app" in out, out
+    run_log(wt, "r-wt", git(wt, "rev-parse", "HEAD", env=env).text.strip())
+    out = pr_hook(env, repo, cmd)
+    assert decision(out) == "allow", out
 
 
 def t_herdr_picked_on_mac(work):

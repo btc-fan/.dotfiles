@@ -463,7 +463,7 @@
    "contains": "Evidence:"
   },
   {
-   "name": "verify skill project: Evidence without the verify run",
+   "name": "verify skill project: app code and no run.log at the PR head: denied (ticket 05)",
    "expect": "deny",
    "event": "PreToolUse",
    "project": {
@@ -487,11 +487,12 @@
      "command": "gh pr create --title 'feat: cart' --body-file pr.md --base HEAD~1"
     }
    },
-   "contains": "Evidence: the verify-shop run"
+   "contains": ["verify proof: the PR changes app code (src/cart.py)", "verify-shop", "doctor: PASS, db_writes: no"]
   },
   {
-   "name": "verify skill project: Evidence cites evidence and the e2e test",
-   "expect": "allow",
+   "name": "verify skill project: Evidence text alone is no proof without a run.log at the PR head (ticket 05; green: test_flow t_pr_gate_verify_log)",
+   "expect": "deny",
+   "contains": "verify proof:",
    "event": "PreToolUse",
    "project": {
     "git_init": true,

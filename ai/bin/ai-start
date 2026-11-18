@@ -24,7 +24,8 @@ What it writes (project root):
   Makefile/justfile  `check-fast` (lint + unit, under 60 s) and `check` (everything) from ai-check-detect, in one
                      marked block; targets that exist are never changed; monorepos are refused (by hand). Run
                      once and timed (--no-measure skips it); the commands go into the Map ("- Check:" line).
-  AGENTS.md          also "## Done" (6 lines, managed block; kept out when the file has its own Done section) and
+  AGENTS.md          also "## Done" (6 lines, managed block; a file with its own Done section keeps it and gets
+                     one managed AI:verify line at its end: verify first, then automate the tests) and
                      "## Lessons" (agents add lines; 15-line cap, ai-doctor counts)
   .claude/skills/<name>, .agents/skills/<name>   links to this machine's audited mattpocock opt-in copies for the
                      names on the `skills:` line (default: grill-with-docs, domain-modeling, to-spec, to-tickets,
@@ -945,6 +946,8 @@ CHECK_PATHS = [".ai/ratchet.json", ".ai/docs-allow", "AGENTS.md", ".ai/enabled"]
 CHECK_LINE_RX = re.compile(r"^- Check: .*$", re.M)
 DONE_RX = re.compile(r"^<!-- AI:done START[^>]*-->\n.*?^<!-- AI:done END -->\n?", re.M | re.S)
 OWN_DONE_RX = re.compile(r"^##\s+(Done|Definition of done)\b", re.M | re.I)
+VERIFY_RX = re.compile(r"^<!-- AI:verify START[^>]*-->\n.*?^<!-- AI:verify END -->\n?", re.M | re.S)
+SECTION_END_RX = re.compile(r"^(#{1,2}\s|<!-- AI:)", re.M)     # the next section or managed block
 LESSONS = ("## Lessons\n<!-- One line per repeated mistake that no check catches yet; name its ledger ID (R-NNN) "
            "when it has one. At most 15 lines: when a check covers a lesson, delete its line. -->\n")
 LEDGER_TEMPLATE = """# Regressions
@@ -1241,12 +1244,13 @@ def render_done(tier, checks, verify_name="verify-<app>"):
 
 def upsert_done(agents, tier, checks, root=None):
     """The managed Done block (6 lines) and an empty Lessons section. A hand-written Done section wins."""
+    vs = verify_links(root) if root else []
+    name = os.path.basename(vs[0]) if vs else "verify-<app>"
     outside = DONE_RX.sub("", agents)
     if OWN_DONE_RX.search(outside):
-        print("keep: AGENTS.md has its own Done section (no second one added)")
-        return agents
-    vs = verify_links(root) if root else []
-    block = render_done(tier, checks, os.path.basename(vs[0]) if vs else "verify-<app>")
+        print("keep: AGENTS.md has its own Done section (no second one added; the AI:verify line goes under it)")
+        return upsert_verify(agents, render_verify(name))
+    block = render_done(tier, checks, name)
     if DONE_RX.search(agents):
         agents = DONE_RX.sub(lambda m: merged(m.group(0), block), agents, count=1)
     else:
@@ -1254,6 +1258,29 @@ def upsert_done(agents, tier, checks, root=None):
     if not re.search(r"^##\s+Lessons\b", agents, re.M):
         agents = agents.rstrip("\n") + "\n\n" + LESSONS
     return agents
+
+
+def render_verify(verify_name):
+    """Ticket 06: the Done order (verify first, then automate) for a project that keeps its own Done section."""
+    return ("<!-- AI:verify START (ai-adopt; 1 line, a rerun replaces it) -->\n"
+            "- Verify: each changed feature is first driven with %s (log in `.verify/evidence/`), then its tests are "
+            "automated.\n<!-- AI:verify END -->\n" % verify_name)
+
+
+def upsert_verify(agents, block):
+    """The AI:verify block at the end of the owner's own Done section. Only an insert: the owner text around it
+    stays byte for byte. A rerun replaces the block in place."""
+    if VERIFY_RX.search(agents):
+        return VERIFY_RX.sub(lambda m: merged(m.group(0), block), agents, count=1)
+    managed = [(d.start(), d.end()) for d in DONE_RX.finditer(agents)]
+    own = next((m for m in OWN_DONE_RX.finditer(agents) if not any(s <= m.start() < e for s, e in managed)), None)
+    if own is None:
+        return agents
+    nxt = SECTION_END_RX.search(agents, own.end())
+    end = len(agents[:nxt.start() if nxt else len(agents)].rstrip("\n"))
+    if end < len(agents):
+        return agents[:end + 1] + block + agents[end + 1:]
+    return agents + "\n" + block
 
 
 def check_steps(root, opts, tier, checks, plan):

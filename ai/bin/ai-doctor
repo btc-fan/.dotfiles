@@ -1569,7 +1569,7 @@ def check_verify_skill(root, hl, tier):
     stale = hl.verify_stale(stats)
     say("WARN" if stale else "PASS", "verify skill %s (%d features)%s" % (
         info["name"], info["features"], ", map stale: %d code commits, %d days" % stats if stale else ""),
-        "/maintain-verification-skill" if stale else "")
+        "agent task: run maintain-verification-skill" if stale else "")
     if info["path"].startswith(os.path.join(".agents", "skills")):
         link = os.path.join(root, ".claude", "skills", info["name"])
         ok = os.path.islink(link) and os.path.realpath(link) == os.path.realpath(os.path.join(root, info["path"]))
