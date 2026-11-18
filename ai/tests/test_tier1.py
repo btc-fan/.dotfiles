@@ -52,6 +52,20 @@ def t_detect_python_uv(work):
     assert info["full"] == ["uv run ruff check .", "uv run pytest -q"] and info["runner"] == "make", info
 
 
+def t_detect_python_no_manifest(work):
+    """Ticket 16 (milu: 110 unittest tests left out): a tests/ folder of test_*.py files and no manifest is a
+    Python repo. unittest files get the standard library runner, pytest files get pytest; the probe still runs."""
+    unit = "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_a(self):\n        self.assertTrue(True)\n"
+    repo = tree(work, "py-unittest", {"tests/test_a.py": unit, "tool.py": "x = 1\n"})
+    res = run([sys.executable, os.path.join(BIN, "ai-check-detect"), "--dir", repo, "--json"])
+    info = json.loads(res.stdout)
+    assert info["ok"] and info["fast"] == ["python3 -m unittest discover -s tests"], info
+    assert run(["python3", "-m", "unittest", "discover", "-s", "tests"], cwd=repo).returncode == 0
+    repo = tree(work, "py-pytest-bare", {"tests/test_b.py": "import pytest\n\n\ndef test_b():\n    pass\n"})
+    info = detect(repo)
+    assert info["ok"] and info["fast"] == ["python3 -m pytest -x -q"], info
+
+
 def t_detect_python_pip(work):
     repo = tree(work, "py-pip", {"requirements.txt": "flask==3.0\npytest==8.0\n", "app.py": "x = 1\n"})
     info = detect(repo)
@@ -300,6 +314,54 @@ def t_adopt_branch_exists_main_clean(work):
     assert status == "", "main is not clean: " + status
     assert run(["git", "-C", repo, "rev-parse", "main"]).stdout == head, "main moved"
     assert run(["git", "-C", repo, "branch", "--show-current"]).stdout.strip() == "main", "the branch changed"
+
+
+def t_adopt_old_branch(work):
+    """Ticket 16 (ScripTube: remote ai-adopt 31a87c00 of merged PR #22): on main with an ai-adopt branch left,
+    a merged PR means delete it (local and remote) and start fresh; an open PR means add the commit to it; an
+    unknown state (gh fails, no PR) means stop before any write and name the commands. gh is a fake on PATH."""
+    def setup(name, state, local):
+        repo, env = adopt_repo(work, name, {".ai/enabled": "no-serena\nno-graph\n"})
+        run(["git", "-C", repo, "branch", "-M", "main"])
+        origin = os.path.join(work, "someone", name + ".git")      # owner "someone" (AI_GITHUB_OWNERS)
+        run(["git", "init", "-q", "--bare", "-b", "main", origin])
+        run(["git", "-C", repo, "remote", "add", "origin", origin])
+        run(["git", "-C", repo, "push", "-q", "origin", "main"], env=env)
+        run(["git", "-C", repo, "switch", "-q", "-c", "ai-adopt"])
+        write(os.path.join(repo, "old.txt"), "old adopt\n")
+        run(["git", "-C", repo, "add", "old.txt"], env=env)
+        run(["git", "-C", repo, "commit", "-q", "-m", "old adopt"], env=env)
+        run(["git", "-C", repo, "push", "-q", "origin", "ai-adopt"], env=env)
+        old = run(["git", "-C", repo, "rev-parse", "HEAD"]).stdout.strip()
+        run(["git", "-C", repo, "switch", "-q", "main"])
+        if not local:
+            run(["git", "-C", repo, "branch", "-q", "-D", "ai-adopt"])
+        fake = env["PATH"].split(os.pathsep)[0]
+        write(os.path.join(fake, "gh"), '#!/bin/sh\n[ "$*" = "pr view ai-adopt --json state -q .state" ] || exit 1\n'
+              + ('echo %s\n' % state if state else 'echo "no pull requests found" >&2; exit 1\n'))
+        os.chmod(os.path.join(fake, "gh"), 0o755)
+        return repo, env, origin, old
+
+    def rev(d, ref):
+        return run(["git", "-C", d, "rev-parse", "-q", "--verify", ref]).stdout.strip()
+
+    repo, env, origin, old = setup("old-merged", "MERGED", local=True)
+    main_head = rev(repo, "main")
+    res = adopt(repo, env)
+    assert res.returncode == 0, res.stdout
+    assert rev(repo, "ai-adopt~1") == main_head and rev(origin, "ai-adopt") == rev(repo, "ai-adopt"), res.stdout
+    assert not os.path.exists(os.path.join(repo, "old.txt")) and rev(repo, "main") == main_head, res.stdout
+
+    repo, env, origin, old = setup("old-open", "OPEN", local=False)
+    res = adopt(repo, env)
+    assert res.returncode == 0, res.stdout
+    assert rev(repo, "ai-adopt~1") == old and rev(origin, "ai-adopt") == rev(repo, "ai-adopt"), res.stdout
+
+    repo, env, origin, old = setup("old-unknown", None, local=False)
+    res = adopt(repo, env)
+    assert res.returncode == 1 and "gh pr view ai-adopt" in res.stdout, res.stdout
+    assert "git push origin --delete ai-adopt" in res.stdout and "write " not in res.stdout, res.stdout
+    assert run(["git", "-C", repo, "status", "--porcelain"]).stdout == "" and rev(origin, "ai-adopt") == old
 
 
 def t_adopt_unborn_main(work):
@@ -1172,9 +1234,9 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
     return res
 
 
-TESTS_LIST = [t_verify_skills_copy, t_pstack_adapt_ours, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_skills_none, t_detect_python_uv, t_detect_python_pip, t_detect_node, t_detect_go_rust, t_detect_monorepo,
+TESTS_LIST = [t_verify_skills_copy, t_pstack_adapt_ours, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_skills_none, t_detect_python_uv, t_detect_python_pip, t_detect_python_no_manifest, t_detect_node, t_detect_go_rust, t_detect_monorepo,
               t_detect_probe_drops_missing_tool, t_adopt_failing_check_turns_stop_off, t_adopt_leaves_tree_clean, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
-              t_adopt_branch_exists_main_clean, t_adopt_unborn_main, t_typed_only_skill_paths,
+              t_adopt_branch_exists_main_clean, t_adopt_old_branch, t_adopt_unborn_main, t_typed_only_skill_paths,
               t_plan_keeps_targets, t_plan_keeps_owner_flags, t_adopt_owner_text_survives_rerun, t_adopt_gitignore_makefile_owner_lines,
               t_adopt_conflict_writes_nothing, t_doctor_owner_text, t_adopt_own_done, t_adopt_long_tier, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused,
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_continuation_checks_the_fix, t_stop_chain_cap, t_stop_no_baseline_uses_head,

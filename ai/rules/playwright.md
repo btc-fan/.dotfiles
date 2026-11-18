@@ -26,7 +26,7 @@ No rule text. README: "coding agents increasingly favor CLI-based workflows expo
 - Signal: tool_use `mcp__playwright__*` in an enabled project. The nudge text in a project without it.
 
 ## Setup checklist
-1. Per machine: nothing global. Browser download happens at first use per project: pre-install with the installed package and note the size (UNVERIFIED). `ai-start` installs the newest stable `@playwright/mcp` (SPEC 23) in `~/.local/share/ai/npm/playwright-mcp-<version>/`.
+1. Per machine: nothing global. Browser download happens at first use per project: pre-install with the installed package and note the size (UNVERIFIED). `ai-start` installs the newest stable `@playwright/mcp` (SPEC 23) in `~/.local/share/ai/npm/playwright-mcp-<version>/`. Profile server installs it only after an agent-audit PASS in the last 24 h. Profile dev-mac audits no npm installs (owner decision 2026-11-14): it installs the pinned version and prints "audit skipped: profile dev-mac".
 2. Per project: `ai-adopt --tools browser` (plugin key for Claude, `.codex/config.toml` entry for Codex).
 3. Telemetry: not checked in the intake (0 threat hits, no install scripts). Keep it per project and read its README flags at install.
 4. Verify: `claude mcp list` in the project shows it. In another project it is absent.

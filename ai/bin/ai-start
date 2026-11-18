@@ -10,7 +10,9 @@
                --skills a,b|none (mattpocock skills linked into this project; replaces the default list),
                --init (a folder without git: git init first; never in $HOME or /).
   On main or master the commit goes on a new branch ai-adopt for the owner to merge (also on an unborn main). On main
-  with an ai-adopt branch that exists: exit 1 before any write. No remote: a warning, no push.
+  with an ai-adopt branch that exists (local or on origin), `gh pr view ai-adopt` decides: PR merged, the old branch
+  is deleted (local and remote) and a new one starts; PR open, the commit goes on that branch; else (no gh, no PR,
+  no remote) exit 1 before any write. No remote: a warning, no push.
   No tiers (owner 2026-11-15): every project gets the full setup (`tier: long`). An old --tier flag is ignored.
 ai-adopt is a link to this file; the mode comes from the command name. Rerun = upgrade (blocks are
 replaced by marker, project text outside the blocks is never touched).
@@ -75,6 +77,7 @@ AI_DIR = os.path.dirname(BIN)
 AI_HOME = os.path.dirname(AI_DIR)
 sys.path.insert(0, os.path.join(AI_DIR, "lib"))
 sys.dont_write_bytecode = True
+import ai_profile  # noqa: E402
 import ownertext  # noqa: E402
 
 
@@ -110,10 +113,10 @@ def main(argv):
     # Never on main or master (owner 2026-11-16): the commit goes on a branch ai-adopt, the owner merges it.
     # An unborn main (no commit yet) counts too. Check before any write, so main stays clean.
     on_main = (git(root, "branch", "--show-current") or "") in ("main", "master")
-    if on_main and git(root, "rev-parse", "-q", "--verify", "refs/heads/" + ADOPT_BRANCH):
-        print("ai-%s: nothing written: you are on main and the branch %s exists. Merge or delete it, or switch "
-              "to it (git switch %s), then run again." % (mode, ADOPT_BRANCH, ADOPT_BRANCH))
-        return 1
+    if on_main:
+        if not old_adopt_branch(root, mode, opts["dry_run"]):
+            return 1
+        on_main = (git(root, "branch", "--show-current") or "") in ("main", "master")   # an open PR: on its branch
     routing = load_routing()
     version = str(routing.get("version") or 1)
     link_worktree_venv(root, opts["dry_run"])
@@ -261,6 +264,45 @@ def main(argv):
 
 ADOPT_BRANCH = "ai-adopt"
 ENABLED_GENERATED = ownertext.GENERATED[".ai/enabled"]
+
+
+def old_adopt_branch(root, mode, dry_run):
+    """On main with an ai-adopt branch left from an earlier run (local or on origin; ticket 16, ScripTube: the
+    remote branch of merged PR #22). Its PR merged: delete the branch (local and remote), start fresh. Its PR open:
+    switch to it, the commit goes there. Else (no gh, no PR, closed): stop before any write. False = stop."""
+    local = git(root, "rev-parse", "-q", "--verify", "refs/heads/" + ADOPT_BRANCH)
+    remote = has_remote(root) and git(root, "ls-remote", "--heads", "origin", ADOPT_BRANCH)
+    if not (local or remote):
+        return True
+    state = has_remote(root) and (cmd_out(["gh", "pr", "view", ADOPT_BRANCH, "--json", "state", "-q", ".state"],
+                                          cwd=root) or "").strip()
+    if state == "MERGED":
+        print("ai-%s: the PR of the branch %s is merged: the old branch is deleted, a new one starts from main"
+              % (mode, ADOPT_BRANCH))
+        steps = ([["branch", "-q", "-D", ADOPT_BRANCH]] if local else []) + \
+            ([["push", "-q", "origin", "--delete", ADOPT_BRANCH]] if remote else [])
+    elif state == "OPEN":
+        print("ai-%s: the PR of the branch %s is open: the commit goes on that branch" % (mode, ADOPT_BRANCH))
+        track = "origin/" + ADOPT_BRANCH
+        fetch = ["fetch", "-q", "origin", "+refs/heads/%s:refs/remotes/%s" % (ADOPT_BRANCH, track)]
+        switch = ["switch", "-q", ADOPT_BRANCH] if local else ["switch", "-q", "-c", ADOPT_BRANCH, "--track", track]
+        steps = ([fetch] if remote else []) + [switch] + \
+            ([["merge", "-q", "--ff-only", track]] if local and remote else [])
+    else:
+        print("ai-%s: nothing written: you are on main and the branch %s exists (%s), but the state of its PR is "
+              "unknown (`gh pr view %s --json state`: %s). If the PR is merged, delete the branch:\n"
+              "  git branch -D %s; git push origin --delete %s\n"
+              "If the PR is open, switch to it (git switch %s). Then run again."
+              % (mode, ADOPT_BRANCH, " and ".join(w for w, ok in (("local", local), ("on origin", remote)) if ok),
+                 ADOPT_BRANCH, state or "no answer", ADOPT_BRANCH, ADOPT_BRANCH, ADOPT_BRANCH))
+        return False
+    for step in steps:
+        if dry_run:
+            print("would run git %s" % " ".join(step))
+        elif subprocess.call(["git", "-C", root] + step) != 0:
+            print("ai-%s: nothing written: git %s failed (see the git message above)" % (mode, " ".join(step)))
+            return False
+    return True
 
 
 def owner_text_refusals(root, plan):
@@ -1421,8 +1463,9 @@ def playwright_keep_only(ver):
 
 def ensure_playwright(dry_run=False):
     """Install the newest stable @playwright/mcp (owner decision 2026-11-14; PLAYWRIGHT_MCP_HOLD in ai/pins.env
-    holds it) into ~/.local/share/ai/npm/playwright-mcp-<ver>: registry integrity, agent-audit PASS in 24 h,
-    --ignore-scripts, then version and integrity checked. Offline: the installed version stays.
+    holds it) into ~/.local/share/ai/npm/playwright-mcp-<ver>: registry integrity, agent-audit PASS in 24 h
+    (profile dev-mac audits no npm installs, owner 2026-11-14: "audit skipped"), --ignore-scripts, then version
+    and integrity checked. Offline: the installed version stays.
     False = nothing usable installed (reason printed)."""
     res = resolver()
     have = playwright_installed()
@@ -1457,7 +1500,10 @@ def ensure_playwright(dry_run=False):
         print("skip Playwright MCP %s: npm sees integrity %s, the registry answer was %s%s"
               % (ver, got or "none", want or "none", ("; %s kept" % have) if have else ""))
         return bool(have)
-    if not audit_passed("npm", "@playwright/mcp", ver):
+    audit_off, profile = package_audit_off()
+    if audit_off:
+        print("audit skipped: profile %s (npm @playwright/mcp %s)" % (profile, ver))
+    elif not audit_passed("npm", "@playwright/mcp", ver):
         print("skip Playwright MCP %s: no agent-audit PASS in 24 h. Run: agent-audit npm @playwright/mcp %s%s"
               % (ver, ver, ("; %s kept" % have) if have else ""))
         return bool(have)
@@ -1477,6 +1523,16 @@ def ensure_playwright(dry_run=False):
     return True
 
 
+def package_audit_off():
+    """(off, profile): the profile of this machine audits no npm or PyPI installs (PROFILE_PACKAGE_AUDIT=0, profile
+    dev-mac; install.sh audit_ok does the same). An unknown profile audits."""
+    name = ai_profile.resolve()[0]
+    try:
+        return ai_profile.load(name).get("PROFILE_PACKAGE_AUDIT", "1") == "0", name
+    except ValueError:
+        return False, name
+
+
 def audit_passed(eco, name, ver):
     sys.dont_write_bytecode = True
     sys.path.insert(0, os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks"))
@@ -1484,9 +1540,9 @@ def audit_passed(eco, name, ver):
     return audit_status(eco, name, ver) == "PASS"
 
 
-def cmd_out(argv):
+def cmd_out(argv, cwd=None):
     try:
-        return subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode()
+        return subprocess.run(argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode()
     except OSError:
         return None
 
