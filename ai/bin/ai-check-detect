@@ -12,17 +12,20 @@ check-fast: lint + unit tests, no network, no services, target under 60 s (the S
 check:      everything (full tests, type check where configured; long tier: ledger and ratchet too).
 
 Detection (stack from lockfiles and manifests, the nixpacks ladder; the test and lint part is ours):
-  Python  pyproject.toml / requirements*.txt / setup.py / Pipfile; runner uv.lock > poetry.lock > pdm.lock >
-          plain python3 -m; pytest only with a tests folder, conftest.py or pytest config; ruff only when
-          configured or listed; mypy (check only) when configured.
+  Python  pyproject.toml / requirements*.txt / setup.py / Pipfile, or no manifest and a tests/ (or test/) folder
+          with test_*.py files; runner uv.lock > poetry.lock > pdm.lock > plain python3 -m; pytest only with a
+          tests folder, conftest.py or pytest config; with no manifest, `unittest discover -s tests` unless the
+          test files name pytest; ruff only when configured or listed; mypy (check only) when configured.
   Node    package.json; package manager pnpm-lock.yaml > yarn.lock > bun.lock(b) > npm; scripts lint,
           typecheck (or type-check), test (the npm placeholder test script does not count).
   Go      go.mod: go vet + go test -short (check: go test, golangci-lint when configured).
   Rust    Cargo.toml: cargo clippy -D warnings + cargo test.
   None    (docs-only or empty repo) ai-docs-check --md: Markdown placement, no em dash, relative links resolve.
 Probe: each lint, type and test tool must really run here (`uv run ruff --version`, `.venv/bin/python -m pytest
---version`, `golangci-lint --version`, `cargo clippy --version`). A tool that fails its probe is left out of the
-commands and printed as a suggestion (install it, then run ai-adopt again). Node scripts are not probed.
+--version`, `python3 -m unittest --help`, `golangci-lint --version`, `cargo clippy --version`). A tool that fails
+its probe is left out of the commands and printed as a suggestion (install it, then run ai-adopt again). Node
+scripts are not probed.
+Exit 2 when --dir is not a folder.
 Refused (exit 2, nothing written): monorepos (pnpm/npm/yarn workspaces, lerna, nx, turbo, rush, go.work, or
 two or more package manifests below the root): write one target per package by hand.
 Exit 1 when a stack has no test or lint command.
@@ -52,6 +55,9 @@ MD_LINE = ('@if command -v ai-docs-check >/dev/null 2>&1; then ai-docs-check --m
 
 def main(argv):
     root = os.path.abspath(arg(argv, "--dir") or ".")
+    if not os.path.isdir(root):
+        print("ai-check-detect: not a folder: %s" % root, file=sys.stderr)
+        return 2
     tier = arg(argv, "--tier") or "long"      # no tiers since 2026-11-15: every project is long
     if tier not in ("try", "mvp", "long"):
         sys.exit("ai-check-detect: --tier must be try, mvp or long")
@@ -147,7 +153,9 @@ def python(root):
     pyproject = read(os.path.join(root, "pyproject.toml")) or ""
     reqs = "".join(read(os.path.join(root, f)) or "" for f in sorted(os.listdir(root))
                    if re.match(r"^requirements.*\.txt$", f))
-    if not (pyproject or reqs or exists(root, "setup.py") or exists(root, "Pipfile")):
+    manifest = bool(pyproject or reqs or exists(root, "setup.py") or exists(root, "Pipfile"))
+    tests_dir = py_tests_dir(root)
+    if not (manifest or tests_dir):
         return None
     deps = pyproject + reqs + (read(os.path.join(root, "Pipfile")) or "")
     if exists(root, "uv.lock"):
@@ -172,7 +180,12 @@ def python(root):
         full.append(run + "mypy .")
     pytest = any(os.path.isdir(os.path.join(root, d)) for d in ("tests", "test")) or exists(root, "conftest.py") \
         or exists(root, "pytest.ini") or "[tool.pytest" in pyproject or "pytest" in deps
-    if pytest:
+    if not manifest and not uses_pytest(os.path.join(root, tests_dir)):
+        # No manifest, plain unittest files (milu, ticket 16): the standard library runner.
+        tools.append("unittest")
+        fast.append(run + "unittest discover -s " + tests_dir)
+        full.append(run + "unittest discover -s " + tests_dir)
+    elif pytest:
         tools.append("pytest")
         fast.append(run + "pytest -x -q")
         full.append(run + "pytest -q")
@@ -181,6 +194,27 @@ def python(root):
     if not ruff:
         notes.append("python: no ruff config, so no lint command")
     return "python (%s)" % ", ".join(tools), fast, full, notes
+
+
+def py_tests_dir(root):
+    """tests or test, when it holds a test_*.py file (any depth); else None."""
+    for name in ("tests", "test"):
+        for _, dirnames, files in os.walk(os.path.join(root, name)):
+            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+            if any(f.startswith("test_") and f.endswith(".py") for f in files):
+                return name
+    return None
+
+
+def uses_pytest(tests):
+    """A conftest.py, or a test file that names pytest."""
+    for dirpath, dirnames, files in os.walk(tests):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        for f in files:
+            if f == "conftest.py" or (f.startswith("test_") and f.endswith(".py")
+                                      and "pytest" in (read(os.path.join(dirpath, f)) or "")):
+                return True
+    return False
 
 
 def node(root):
@@ -236,6 +270,7 @@ def rust(root):
 
 PROBES = [   # (regex on a command, the tool name, how to make the probe command from the regex match)
     (re.compile(r"^(.*?\b)(ruff|pytest|mypy)\b"), lambda m: m.group(1) + m.group(2) + " --version"),
+    (re.compile(r"^(.*?\b)unittest\b"), lambda m: m.group(1) + "unittest --help"),
     (re.compile(r"^golangci-lint\b"), lambda m: "golangci-lint --version"),
     (re.compile(r"^cargo clippy\b"), lambda m: "cargo clippy --version"),
 ]

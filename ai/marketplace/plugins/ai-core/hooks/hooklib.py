@@ -11,6 +11,7 @@ Shell parsing (parse_command): a small tokenizer that knows quotes, escapes, her
 Quoted words are never read as commands, so a commit message or echo text cannot trigger a gate.
 """
 import json
+import math
 import os
 import re
 import time
@@ -330,21 +331,21 @@ GATE_SKIP_FILE = "/etc/ai/gate-skip"
 GATE_SKIP_MAX_S = 3600
 
 
-def gate_skip_path():
+def gate_skip_path(env_ok=True):
     """Tests only: AI_GATE_SKIP_FILE together with AI_GATE_SKIP_INSECURE_TEST=1 (the hook's own environment,
-    which an agent's command cannot set)."""
-    if os.environ.get("AI_GATE_SKIP_INSECURE_TEST") == "1" and os.environ.get("AI_GATE_SKIP_FILE"):
+    which an agent's command cannot set). env_ok=False for a caller whose environment the agent sets (a git hook)."""
+    if env_ok and os.environ.get("AI_GATE_SKIP_INSECURE_TEST") == "1" and os.environ.get("AI_GATE_SKIP_FILE"):
         return os.environ["AI_GATE_SKIP_FILE"], True
     return GATE_SKIP_FILE, False
 
 
-def gate_skips(stages=None):
+def gate_skips(stages=None, env_ok=True):
     """({gate: reason} valid now, [notes]). Only a root-owned file not writable by others counts."""
     skips, notes = {}, []
     if stages and any("AI_GATE_SKIP" in st.env for st in stages):
         notes.append("AI_GATE_SKIP in a command does nothing. Only the owner can skip a gate: "
                      "sudo ai-gate-skip <gate> <minutes> <why>.")
-    path, test = gate_skip_path()
+    path, test = gate_skip_path(env_ok)
     try:
         st = os.stat(path)
     except OSError:
@@ -769,6 +770,22 @@ SECRET_PATTERNS = [
 PLACEHOLDER = re.compile(r"(?i)(x{4,}|\*{3,}|\.{3,}|changeme|change[_-]?me|example\S*|your[\w-]*|dummy\S*|redacted|"
                          r"placeholder\S*|todo|none|null|true|false|password|pass|secret|pwd|test|fake\S*|"
                          r"<[^>]*>|\$\{[^}]*\}|\$\(.*\)|\{\{.*\}\})")
+# Test fixture paths (ticket 11): in test code only real key shapes block, never assigned words (password = "x").
+FIXTURE_PATH = re.compile(r"(^|/)(tests?|__tests__|specs?|fixtures?|__fixtures__|testdata|test[_-]data|mocks?|"
+                          r"__mocks__)/|(^|/)(test_[^/]*|[^/]*_test\.\w+|[^/]*\.(test|spec)\.\w+|conftest\.py)$", re.I)
+FAKE_MARK = re.compile(r"(?i)test|fake|dummy|sample|example|mock|placeholder|x{4,}|0{6,}|123456")
+# Review S4: config and sample files hold real values too, so they are never fixture paths. A sample file
+# (.env.example, *.sample) and a config file in a test folder keep every rule; only a value with a clear fake
+# marker passes there.
+CONFIG_PATH = re.compile(r"(^|/)\.env[^/]*$|\.(properties|ya?ml|toml|ini|json|env|example|sample)$", re.I)
+CLEAR_FAKE = re.compile(r"(?i)test|fake|dummy|example|sample|change[_-]?me|x{3,}|placeholder|redacted|^(.)\1+$")
+
+
+def secret_path_kind(path):
+    """"fixture" (test code: ticket 11 rules), "sample" (CLEAR_FAKE values pass) or "" (every rule)."""
+    if CONFIG_PATH.search(path or ""):
+        return "sample" if FIXTURE_PATH.search(path) or re.search(r"\.(example|sample)$", path, re.I) else ""
+    return "fixture" if FIXTURE_PATH.search(path or "") else ""
 
 
 class ScanTimeout(Exception):
@@ -811,11 +828,11 @@ def scan_actions(actions, budget):
         if repo is None:
             continue
         if act["sub"] == "commit":
-            text = scan_git(repo, ["diff", "--cached", "--no-color", "-U0"], budget)
+            text = merge_new_lines(repo, scan_git(repo, ["diff", "--cached", "--no-color", "-U0"], budget), budget)
             if act["worktree"]:
                 text += scan_git(repo, ["diff", "--no-color", "-U0"], budget) + untracked_text(repo, budget)
             what.add("files to commit")
-            hits.extend(gitleaks_scan(repo, "commit", None, allowed, budget))
+            hits.extend(gitleaks_scan(repo, "commit", None, allowed, budget, text))
             msg = message_text(act, repo)
             if msg:
                 msg_hits = builtin_scan(as_added(msg), allowed)
@@ -825,7 +842,7 @@ def scan_actions(actions, budget):
         else:
             text = scan_git(repo, ["log", "-p", "--no-color", "-U0", "-n", "300", "HEAD", "--not", "--remotes"], budget)
             what.add("unpushed commits")
-            hits.extend(gitleaks_scan(repo, "push", "-n 300 HEAD --not --remotes", allowed, budget))
+            hits.extend(gitleaks_scan(repo, "push", "-n 300 HEAD --not --remotes", allowed, budget, text))
         hits.extend(builtin_scan(text, allowed))
     return hits, what
 
@@ -833,8 +850,10 @@ def scan_actions(actions, budget):
 def scan_git(repo, args, budget):
     """git output for the scan; a timeout raises ScanTimeout (deny), other errors give "" (not a repo)."""
     import subprocess
+    # The path rules read "+++ b/<path>": force the a/ b/ prefixes over the owner's diff config.
+    fixed = ["-c", "diff.mnemonicPrefix=false", "-c", "diff.noprefix=false"]
     try:
-        res = subprocess.run(["git", "-C", repo] + args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        res = subprocess.run(["git", "-C", repo] + fixed + args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                              timeout=budget.take(5))
     except subprocess.TimeoutExpired:
         raise ScanTimeout()
@@ -842,6 +861,33 @@ def scan_git(repo, args, budget):
         log_error("git", exc)
         return ""
     return res.stdout.decode("utf-8", "replace") if res.returncode == 0 else ""
+
+
+def is_diff_header(line):
+    return bool(re.match(r"^\+\+\+ (a/|b/|/dev/null)", line))
+
+
+def merge_new_lines(repo, diff, budget):
+    """During a merge (MERGE_HEAD set), keep only the added lines that are new against the merged branch too:
+    content already on the default branch (or on the other branch) is not scanned again."""
+    head = scan_git(repo, ["rev-parse", "-q", "--verify", "MERGE_HEAD"], budget).strip()
+    if not head:
+        return diff
+    # shortcut: an octopus merge is compared with its first MERGE_HEAD only; upgrade if octopus merges show up.
+    other = scan_git(repo, ["diff", "--cached", "--no-color", "-U0", head], budget)
+    new = {ln for ln in other.splitlines() if ln.startswith("+") and not is_diff_header(ln)}
+    return "\n".join(ln for ln in diff.splitlines() if not ln.startswith("+") or is_diff_header(ln) or ln in new)
+
+
+def fake_value(value):
+    """A provider-shaped value that is not a real key: a test word in it, or too little entropy."""
+    if FAKE_MARK.search(value):
+        return True
+    counts = {}
+    for ch in value:
+        counts[ch] = counts.get(ch, 0) + 1
+    entropy = -sum(c / float(len(value)) * math.log(c / float(len(value)), 2) for c in counts.values())
+    return entropy < 3.5
 
 
 def probe_secrets(stages, cmd=""):
@@ -983,14 +1029,22 @@ def untracked_text(repo, budget, max_files=300, max_bytes=512 * 1024):
 
 
 def builtin_scan(diff, allowed):
-    hits = []
+    hits, kind = [], ""
     for line in (diff or "").splitlines():
-        if not line.startswith("+") or re.match(r"^\+\+\+ (a/|b/|/dev/null)", line):
+        if is_diff_header(line):
+            kind = secret_path_kind(line[6:] if line.startswith("+++ b/") else "")
+            continue
+        if not line.startswith("+"):
             continue
         for name, rx in SECRET_PATTERNS:
             for mm in rx.finditer(line):
                 value = mm.group(1) if rx.groups else mm.group(0)
                 if value in allowed:
+                    continue
+                if kind == "fixture" and (name.startswith(("assigned-secret", "url-with-password"))
+                                          or (name != "private-key" and fake_value(value))):
+                    continue
+                if kind == "sample" and name != "private-key" and CLEAR_FAKE.search(value):
                     continue
                 if name.startswith(("assigned-secret", "url-with-password")) and not looks_secret(value, name):
                     continue
@@ -1009,7 +1063,10 @@ def looks_secret(value, name):
     return not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.]+|[A-Z_][A-Z0-9_]*", value)
 
 
-def gitleaks_scan(repo, mode, log_opts, allowed, budget):
+def gitleaks_scan(repo, mode, log_opts, allowed, budget, added=""):
+    """gitleaks findings that are in the added lines the builtin scan read (a merge does not scan the default
+    branch again); in test code only a real key shape counts (no generic rule, no fake value); in a sample or
+    test config file a value with a clear fake marker passes (secret_path_kind)."""
     import shutil
     import subprocess
     import tempfile
@@ -1034,7 +1091,18 @@ def gitleaks_scan(repo, mode, log_opts, allowed, budget):
             os.unlink(report)
         except OSError:
             pass
-    return ["gitleaks:%s" % f.get("RuleID", "?") for f in data if f.get("Secret") not in allowed]
+    out = []
+    for f in data:
+        secret, rule = f.get("Secret") or "", f.get("RuleID") or "?"
+        if secret in allowed or (secret.splitlines() or [""])[0] not in added:
+            continue
+        kind = secret_path_kind(f.get("File") or "")
+        if kind == "fixture" and (rule.startswith("generic") or fake_value(secret)):
+            continue
+        if kind == "sample" and CLEAR_FAKE.search(secret):
+            continue
+        out.append("gitleaks:%s" % rule)
+    return out
 
 
 def allowed_secrets():
@@ -1059,7 +1127,8 @@ def allowed_secrets():
 # (removed 2026-11-15, every project is long). A fix: PR needs a test file in its diff; over 400 changed
 # lines (lockfiles and generated files left out) is a warning, never a block.
 PR_FILL = {"--fill", "--fill-first", "--fill-verbose", "--web", "-f", "-w"}
-PR_FIELDS = ("Evidence", "Door", "Blast Radius", "Docs", "Changed guards")
+PR_FIELDS = ("Evidence", "Door", "Blast Radius")              # these block (ticket 13: the core template)
+PR_WARN_FIELDS = ("Docs", "Changed guards")                    # these warn only (and Ledger on fix PRs)
 PR_FIELD_HELP = {"Evidence": "Before and After: the check command and the tail of its output",
                  "Door": "one-way or two-way, with a reason", "Blast Radius": "what can break",
                  "Docs": "the docs changed, or \"none, because ...\"",
@@ -1076,22 +1145,38 @@ PR_GENERATED = re.compile(r"(^|/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|
                           r"go\.sum|bun\.lockb?|composer\.lock|Gemfile\.lock)$|\.(lock|min\.js|min\.css|snap)$|"
                           r"(^|/)(dist|vendor|generated|__generated__)/")
 PR_SIZE_WARN = 400
+PR_GATED = ("create", "edit", "ready")      # ticket 05: the verify log on all 3
 
 
 def gate_pr(ctx, cmd, stages):
-    problems = []
+    problems, warnings, here, verify = [], [], ctx.cwd or ".", None
     for st in stages:
-        if st.exe != "gh" or st.args[:1] != ["pr"] or len(st.args) < 2 or st.args[1] not in ("create", "edit"):
+        if st.exe in ("cd", "pushd", "popd"):
+            to = cd_target(st, here)       # the folder the gh command runs in; a failed cd leaves the shell where it was
+            here = to if to and os.path.isdir(to) else ctx.cwd or "."
+            continue
+        if st.exe != "gh" or st.args[:1] != ["pr"] or len(st.args) < 2 or st.args[1] not in PR_GATED:
             continue
         sub, args = st.args[1], st.args[2:]
+        if sub == "ready" and "--undo" in args:
+            continue
+        root = project_root(here) or project_root(ctx.cwd or ".")     # review S2: never skip the checks below
+        body_flag = any(a.split("=")[0] in ("--body", "-b", "--body-file", "-F") for a in args)
+        content = sub != "edit" or body_flag    # a title or label edit changes no PR content: no proof needed
+        diff = pr_diff(ctx, root, args, sub) if root and content else None
+        if content:
+            verify = verify or pr_verify_log(root, diff)
         if sub == "create" and any(a.split("=")[0] in PR_FILL for a in args):
             problems.append("--fill / --web hide the body from this check: write the body and pass it with --body "
                             "or --body-file")
             continue
-        body_flag = any(a.split("=")[0] in ("--body", "-b", "--body-file", "-F") for a in args)
-        if sub == "edit" and not body_flag:
+        if sub == "ready" or (sub == "edit" and not body_flag):
             continue
-        text = pr_body_text(ctx, cmd, args)
+        text, unread = pr_body_text(here, cmd, args, stages)
+        if unread:
+            problems.append("could not read the body file %s (write it before the gh command, or pass the body "
+                            "with --body)" % unread)
+            continue
         missing = []
         if "```mermaid" not in text:
             missing.append("a ```mermaid diagram")
@@ -1100,29 +1185,28 @@ def gate_pr(ctx, cmd, stages):
         line = session_line(ctx)
         if line and re.search(r"(?im)^\s*main:\s*unknown\b", text):
             missing.append("a real main: line in the author-sessions block (this session: %s)" % line)
-        root = project_root(ctx.cwd)
-        fields = list(PR_FIELDS)
         fix = bool(PR_FIX_TITLE.match(flag_value(args, ("--title", "-t")) or ""))
-        if fix:
-            fields.append("Ledger")
-        for name in fields:
+        for name in PR_FIELDS:
             why = pr_field_problem(name, pr_field(text, name))
             if why:
                 missing.append(why)
-        if sub == "create" and root:
-            diff_problems, files = pr_diff_checks(ctx, root, args, fix)
-            missing.extend(diff_problems)
-            why = pr_verify_evidence(root, pr_field(text, "Evidence"), files)
-            if why:
-                missing.append(why)
+        for name in PR_WARN_FIELDS + (("Ledger",) if fix else ()):
+            why = pr_field_problem(name, pr_field(text, name))
+            if why and why not in warnings:
+                warnings.append(why)
+        if sub == "create":
+            missing.extend(pr_diff_checks(ctx, diff, fix))
         problems.extend(m for m in missing if m not in problems)
+    if warnings:
+        ctx.add_context("[ai gate pr-rules] warning, add to the PR body: %s." % "; ".join(warnings))
+    wall = "verify-pr" if verify else None      # review P2: hook 4 has its own wall id in walls.jsonl
     if not problems:
-        return None
+        return ("deny", verify, wall) if verify else None
     return ("deny", "PR not ready, missing: %s. Body follows the pr skill template: ## Summary (with a ```mermaid "
             "diagram), ## Evidence (Before and After: command and output tail), ## Merge Danger (**Door:** one-way "
-            "or two-way and why; **Blast Radius:** what can break). Also: Docs, Changed guards, Ledger "
-            "on fix PRs. Author-sessions block at the end. Pass it with --body or --body-file."
-            % "; ".join(problems))
+            "or two-way and why; **Blast Radius:** what can break). Author-sessions block at the end. Also "
+            "(a warning only): Docs, Changed guards, Ledger on fix PRs. Pass it with --body or --body-file.%s"
+            % ("; ".join(problems), "\n" + verify if verify else ""), wall)
 
 
 def session_line(ctx):
@@ -1136,17 +1220,45 @@ def session_line(ctx):
     return "main: %s dir: %s" % (ctx.session, cwd)
 
 
-def pr_body_text(ctx, cmd, args):
-    text = "\n".join(args)     # one line per word: -b "Verify: ..." keeps its field at a line start
+def pr_body_text(here, cmd, args, stages=()):
+    """(body text, unreadable body file path or None). A body file path may use a variable that one simple
+    `VAR=value` earlier in the same command sets ($VAR, "$VAR", ${VAR}); a heredoc in the command counts as
+    the body (the file it writes does not exist yet)."""
+    text, unread = "\n".join(args), None    # one line per word: -b "Evidence: ..." keeps its field at a line start
+    heredoc = "<<" in cmd and "--body" in cmd
     for i, a in enumerate(args):
         opt, eq, val = a.partition("=")
         if opt in ("--body-file", "-F"):
             path = val if eq else (args[i + 1] if i + 1 < len(args) else "-")
-            if path != "-":
-                text += "\n" + (read_text(os.path.join(ctx.cwd, os.path.expanduser(path))) or "")
-    if "<<" in cmd and "--body" in cmd:
-        text += "\n" + cmd       # heredoc body inside $(cat <<EOF ...)
-    return text
+            if path == "-":
+                continue
+            path = expand_vars(path, cmd, stages)
+            body = None if "$" in path else read_text(os.path.join(here, os.path.expanduser(path)))
+            if body is None and not heredoc:
+                unread = path
+            text += "\n" + (body or "")
+    if heredoc:
+        text += "\n" + cmd       # heredoc body inside $(cat <<EOF ...) or cat > file <<EOF
+    return text, unread
+
+
+SHELL_ASSIGN = re.compile(r"(?:^|[\s;&|(])([A-Za-z_]\w*)=(\"[^\"$`]*\"|'[^']*'|[^\s;&|()\"'$`]+)(?=[\s;&|)]|$)")
+
+
+def expand_vars(path, cmd, stages=()):
+    """$VAR / ${VAR} in a path, from the one simple VAR=value in the command (no $(...), no other variables).
+    Review S3: a variable set twice, set to a value that is not a literal, or set as a prefix of a command
+    (`B=x gh ...`: the shell expands $B before that) stays unexpanded, so the body file counts as unread."""
+    found = {}
+    for m in SHELL_ASSIGN.finditer(cmd):
+        found[m.group(1)] = m.group(2).strip("\"'")
+    prefix = {k for st in stages if st.exe for k in st.env}
+
+    def value(m):
+        name = m.group(1) or m.group(2)
+        sets = len(re.findall(r"(?:^|[\s;&|(])%s=" % re.escape(name), cmd))
+        return found[name] if name in found and sets == 1 and name not in prefix else m.group(0)
+    return re.sub(r"\$\{(\w+)\}|\$(\w+)", value, path)
 
 
 def flag_value(args, names):
@@ -1215,29 +1327,76 @@ def pr_field_problem(name, value):
     return None
 
 
-def pr_diff_checks(ctx, root, args, fix):
-    """A fix: PR without a test file -> problem; size over PR_SIZE_WARN -> a warning in the context only."""
+def pr_diff(ctx, root, args, sub="create"):
+    """(base ref, head ref, [(added, deleted, path)]) of the PR against its base branch, or None (no base found).
+    The base is the one the command names (--base), else origin/HEAD, main or master. The head: --head of a create,
+    the PR head of `edit N` or `ready N` (pr_head), else the local HEAD."""
     base = flag_value(args, ("--base", "-B"))
-    head = flag_value(args, ("--head", "-H")) or "HEAD"
+    head = flag_value(args, ("--head", "-H")) if sub == "create" else pr_head(ctx, root, args)
+    head = head or "HEAD"
     if ":" in head:
         head = "HEAD"           # owner:branch of a fork: compare the local HEAD
-    candidates = ["origin/" + base, base] if base else []
-    ref = (git_quick(root, ["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"]) or "").strip()
-    candidates += ([ref] if ref else []) + ["origin/main", "origin/master", "main", "master"]
+    if base:     # the base the command names, never main instead (ticket 13: --base ai)
+        candidates = ["origin/" + base, base]
+    else:
+        ref = (git_quick(root, ["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"]) or "").strip()
+        candidates = ([ref] if ref else []) + ["origin/main", "origin/master", "main", "master"]
     base_ref = next((c for c in candidates if git_quick(root, ["rev-parse", "-q", "--verify", c + "^{commit}"])), None)
+    if base_ref is None and base and re.match(r"^[\w./-]+$", base):
+        git_quick(root, ["fetch", "-q", "origin", "+refs/heads/%s:refs/remotes/origin/%s" % (base, base)], timeout=5)
+        if git_quick(root, ["rev-parse", "-q", "--verify", "origin/%s^{commit}" % base]):
+            base_ref = "origin/" + base
     numstat = git_quick(root, ["diff", "--numstat", "%s...%s" % (base_ref, head)]) if base_ref else None
     if numstat is None:
         ctx.add_context("[ai gate pr-rules] could not diff against the base branch: the test-file, size and "
-                        "verify-evidence checks did not run.")
-        return [], None
-    files, lines = [], 0
-    for row in numstat.splitlines():
-        parts = row.split("\t")
-        if len(parts) < 3:
-            continue
-        files.append(parts[2])
-        if not PR_GENERATED.search(parts[2]):
-            lines += sum(int(x) for x in parts[:2] if x.isdigit())
+                        "verify-log checks did not run.")
+        return None
+    rows = [tuple(row.split("\t", 2)) for row in numstat.splitlines() if row.count("\t") >= 2]
+    return base_ref, head, rows
+
+
+PR_BOOL_FLAGS = {"--undo", "--remove-milestone"}       # gh pr edit / ready flags without a value
+
+
+def pr_head(ctx, root, args):
+    """Review P1: the head commit of the PR that `gh pr edit|ready <number|URL|branch>` names, from
+    `gh pr view <it> --json headRefOid` (read only, 5 s). None without a PR argument. When gh gives no commit,
+    or the commit is not in this checkout: None, and the context says the local HEAD was judged."""
+    import subprocess
+    ref, skip = None, False
+    for a in args:
+        if skip:
+            skip = False
+        elif a.startswith("-"):
+            skip = "=" not in a and a not in PR_BOOL_FLAGS
+        else:
+            ref = a
+            break
+    if not ref:
+        return None
+    argv = ["gh", "pr", "view", ref, "--json", "headRefOid", "-q", ".headRefOid"]
+    repo = flag_value(args, ("--repo", "-R"))
+    try:
+        res = subprocess.run(argv + (["--repo", repo] if repo else []), cwd=root, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, timeout=5)
+        oid = res.stdout.decode("utf-8", "replace").strip() if res.returncode == 0 else ""
+    except Exception:
+        oid = ""
+    if re.fullmatch(r"[0-9a-f]{40}", oid) and git_quick(root, ["cat-file", "-e", oid + "^{commit}"]) is not None:
+        return oid
+    ctx.add_context("[ai gate pr-rules] %s: judged the local HEAD, not the PR head." % (
+        "the head %s of PR %s is not in this checkout (git fetch it)" % (oid[:12], ref) if oid
+        else "gh pr view %s gave no head commit" % ref))
+    return None
+
+
+def pr_diff_checks(ctx, diff, fix):
+    """A fix: PR without a test file -> problem; size over PR_SIZE_WARN -> a warning in the context only."""
+    if diff is None:
+        return []
+    base_ref, _head, rows = diff
+    files = [r[2] for r in rows]
+    lines = sum(int(x) for r in rows if not PR_GENERATED.search(r[2]) for x in r[:2] if x.isdigit())
     out = []
     if fix and not any(PR_TEST_PATH.search(f) for f in files):
         out.append("a test file in the diff of a fix: PR (tests/..., test_*.py, *_test.go, *.test.ts); none against %s"
@@ -1245,29 +1404,51 @@ def pr_diff_checks(ctx, root, args, fix):
     if lines > PR_SIZE_WARN:
         ctx.add_context("[ai gate pr-rules] warning: %d changed lines against %s (generated files left out), over %d. "
                         "Split the PR or say in the body why it must stay one." % (lines, base_ref, PR_SIZE_WARN))
-    return out, files
+    return out
 
 
-def pr_verify_evidence(root, evidence, files):
-    """A project with a verify-<app> skill and a PR that changes app code: Evidence names the skill
-    run, its evidence path and the e2e test (the Done order: check-fast, verify evidence, then e2e)."""
-    if evidence is None or files is None:
+def pr_verify_log(root, diff):
+    """Ticket 05 (hook 4): a PR that changes app code in a project with a verify-<app> skill needs a valid run log
+    (valid_verify_logs) at the PR head SHA that finished after the last app-code commit. None = pass."""
+    info = verify_skill(root) if diff else None
+    if not info:
         return None
-    info = verify_skill(root)
-    if not info or not any(is_code_file(f) and not PR_TEST_PATH.search(f) and not f.startswith(info["path"] + "/")
-                           for f in files):
+    base_ref, head, rows = diff
+    code = [r[2] for r in rows if is_code_file(r[2]) and not PR_TEST_PATH.search(r[2])
+            and not r[2].startswith(info["path"] + "/")]
+    if not code:
         return None
-    tokens = re.findall(r"[\w.@~-]*/[\w./@~-]+", evidence)
-    has_test = any(PR_TEST_PATH.search(t) for t in tokens)
-    has_evidence = any(not PR_TEST_PATH.search(t) for t in tokens)
-    if info["name"] in evidence and has_test and has_evidence:
+    sha = (git_quick(root, ["rev-parse", "-q", "--verify", head + "^{commit}"]) or "").strip()
+    # shortcut: the newest commit that touched the first 500 app-code paths; enough for one PR.
+    last = (git_quick(root, ["--literal-pathspecs", "log", "-1", "--format=%H %ct", "%s..%s" % (base_ref, head),
+                             "--"] + code[:500]) or "").split()
+    last_ct = int(last[1]) if len(last) == 2 else 0
+    logs = valid_verify_logs(root)
+    if any(c == sha and fin > last_ct for c, fin in logs):
         return None
-    return ("Evidence: the %s run (its evidence path, e.g. artifacts/<feature>/...) and the e2e test it led to "
-            "(a tests/... path): app code changed and this project has a verify skill" % info["name"])
+    newest = max(logs, key=lambda x: x[1]) if logs else None
+    when = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(last_ct)) if last_ct else "?"
+    return ("verify proof: the PR changes app code (%s) and this project has %s, but no valid run log is at the PR "
+            "head %s with a finish after the last app-code commit %s (%s). %s Run %s on this checkout (launch, "
+            "doctor, drive the changed features, cleanup), then retry. Valid .verify/evidence/<run>/run.log: "
+            "commit: %s, doctor: PASS, db_writes: no, finished: after %s."
+            % (", ".join(code[:3]) + (" ..." if len(code) > 3 else ""), info["name"], sha[:12],
+               last[0][:12] if last else "?", when,
+               "Newest valid log: commit %s." % newest[0][:12] if newest else "No valid log in this checkout.",
+               info["name"], sha, when))
+
+
+def valid_verify_logs(root):
+    """[(commit, finished epoch)] of the valid runs of `root` (one parser for the log contract: verify_runs)."""
+    return [(r["commit"], r["ts"]) for r in verify_runs(root) if r["valid"]]
 
 
 def probe_pr(stages, cmd=""):
     return any(st.exe == "gh" and st.args[:1] == ["pr"] and st.args[1:2] in (["create"], ["edit"]) for st in stages)
+
+
+def probe_pr_gate(stages, cmd=""):
+    return any(st.exe == "gh" and st.args[:1] == ["pr"] and st.args[1:2] in [[s] for s in PR_GATED] for st in stages)
 
 
 # ---------------------------------------------------------------- merge-approval (owner 2026-11-16)
@@ -1278,7 +1459,9 @@ def probe_pr(stages, cmd=""):
 
 MERGE_OK_RX = re.compile(
     r"^\W*(merge|approved?|lgtm|ship it)\W*$"
-    r"|\bmerge\s+(it|this|them|that|the\s+prs?|prs?\b|pr\s*#?\d+|#\d+|now|please|all)\b"
+    r"|\bmerge\s+(it|this|them|that|the\s+prs?|prs?\b|pr\s*#?\d+|#?\d+\b(?!\s+(?!(now|please|and|too|go|then)\b)[a-z])|now|please|all|everything)\b"
+    r"|\bmerge\s+the\s+branch(es)?\b|\blet'?s\s+merge\b(?!\s+[a-z])"   # ticket 12: "merge 18", "lets merge everything"
+    # review S8: a number or "let's merge" before a word ("merge 2 files", "let's merge the docs") is not an OK
     r"|\b(please|go\s+ahead\s+and|go\s+ahead,?|you\s+can|ok(ay)?,?|yes,?|now)\s+merge\b"
     r"|^\W*merge\W+(go\s+ahead|do\s+it)\b"          # R-009: "merge go ahead", "merge, go ahead"
     r"|\b(approved?|lgtm|ship\s+it)\b"
@@ -1286,7 +1469,7 @@ MERGE_OK_RX = re.compile(
     r"|(?<!\w)(смерж\w*|мерж\w*|одобр\w*|сливай)",
     re.I)
 NO_MERGE_RX = re.compile(
-    r"\b(don'?t|do\s+not|never|not\s+yet|no|without|before|stop|wait|nu|не)\b\W+(\w+\W+){0,3}?"
+    r"\b(don'?t|do\s+not|never|not|no|without|before|stop|wait|nu|не)\b\W+(\w+\W+){0,3}?"
     r"(merge|approv|aprob|мерж|смерж|одобр|слив)", re.I)
 
 
@@ -1302,18 +1485,33 @@ def owner_merge_ok(prompt):
 
 
 def merge_calls(stages, cwd):
-    """What in this command merges into, or pushes to, main/master: ["gh pr merge", ...]."""
-    out = []
+    """What in this command merges into, or pushes to, main/master: ["gh pr merge", ...]. A push is read in the
+    checkout it acts on: `cd <dir>` earlier in the command and `git -C <dir>` (ticket 12), not the session folder.
+    The shell may stay where it was, so (review S1): a cd inside ( ) does not move the stages after the `)`; a cd
+    to a folder that is not a git checkout counts as the session folder; after a cd that may fail (joined by
+    anything but &&) a push is read in the old folder and the new one, and either one on main/master counts."""
+    out, heres, saved = [], [cwd], []
     for st in stages:
-        if st.exe == "gh" and st.args[:2] == ["pr", "merge"]:
+        if st.exe in ("cd", "pushd", "popd"):
+            # shortcut: a cd to a variable or `-` falls back to the session folder; upgrade if such pushes show up.
+            to = cd_target(st, heres[0])
+            to = to if to and os.path.isdir(to) and project_root(to) else cwd
+            heres = [to] if st.op == "&&" else list(dict.fromkeys([to] + heres))
+        elif st.exe == "gh" and st.args[:2] == ["pr", "merge"]:
             out.append("gh pr merge")
         elif st.exe == "gh" and st.args[:1] == ["api"] and any(re.search(r"/pulls/\d+/merge\b", a)
                                                                for a in st.args):
             out.append("gh api .../pulls/N/merge")
         elif st.exe == "git":
-            sub, rest, d = git_sub(st, cwd)
-            if sub == "push" and push_targets_main(rest, d):
-                out.append("git push to main/master")
+            for here in heres:
+                sub, rest, d = git_sub(st, here)
+                if sub == "push" and push_targets_main(rest, d):
+                    out.append("git push to main/master")
+                    break
+        if st.op == "(":
+            saved.append(heres)
+        elif st.op == ")" and saved:
+            heres = saved.pop()
     return out
 
 
@@ -1923,7 +2121,7 @@ def repo_cmd_rule(st, prefixes):
 
 GATES = {"audit-before-install": gate_audit, "secret-scan": gate_secrets, "pr-rules": gate_pr, "no-sudo": gate_sudo,
          "no-destroy": gate_destroy, "merge-approval": gate_merge, "no-verify": gate_no_verify, "gh-write": gate_gh}
-GATE_PROBES = {"audit-before-install": probe_audit, "secret-scan": probe_secrets, "pr-rules": probe_pr,
+GATE_PROBES = {"audit-before-install": probe_audit, "secret-scan": probe_secrets, "pr-rules": probe_pr_gate,
                "no-sudo": probe_sudo, "no-destroy": probe_destroy, "merge-approval": probe_merge,
                "no-verify": probe_no_verify, "gh-write": probe_gh}
 
@@ -2216,7 +2414,7 @@ def verify_skill(root):
 
 def verify_staleness(root, info):
     """(code commits since the feature map last changed, days since that change) or None (no git history).
-    Stale (time for /maintain-verification-skill): >= VERIFY_STALE_COMMITS such commits, or >= VERIFY_STALE_DAYS
+    Stale (time for maintain-verification-skill): >= VERIFY_STALE_COMMITS such commits, or >= VERIFY_STALE_DAYS
     days with at least one."""
     rel = info.get("features_dir") or info["path"]
     last = (git_quick(root, ["log", "-1", "--format=%H %ct", "--", rel]) or "").split()
@@ -2242,19 +2440,132 @@ def verify_stale(stats):
 
 
 def verify_status_line(root, agent="claude"):
-    """One phrase for the session-start status."""
+    """One phrase for the session-start status. A missing tool is an agent task (verify-enforcement 01)."""
     info = verify_skill(root)
     if not info:
-        optional = " (optional in tier try)" if project_tier(root) == "try" else ""
-        return "Verify skill: missing, run /create-verification-skill%s%s." % (
-            optional, read_and_follow(root, "create-verification-skill", agent))
+        return ("Verify skill: missing. Agent task: build verify-<app> with create-verification-skill%s at the first "
+                "feature task, and prove it with one real run." % read_and_follow(root, "create-verification-skill",
+                                                                                   agent))
     stats = verify_staleness(root, info)
     line = "Verify skill: %s (%d features)" % (info["name"], info["features"])
     if verify_stale(stats):
-        line += ", stale (%d code commits, %d days since the feature map changed): run /maintain-verification-skill" \
-            % stats
+        line += (", stale (%d code commits, %d days since the feature map changed). Agent task: run "
+                 "maintain-verification-skill now" % stats)
         line += read_and_follow(root, "maintain-verification-skill", agent)
     return line + "."
+
+
+# ---------------------------------------------------------------- verify evidence (verify-enforcement 02, 03, 04)
+# The log contract (ai/rules/verification-skill.md): .verify/evidence/<run>/run.log in the root of the checkout
+# that ran it, with `commit: <40 hex>`, `doctor: PASS|FAIL`, `db_writes: yes|no`, `finished: <UTC ISO 8601>`.
+
+EVIDENCE_REL = os.path.join(".verify", "evidence")
+RUN_LOG_KEYS = ("commit", "doctor", "db_writes", "finished")
+
+
+def verify_runs(root):
+    """Every run.log of the checkout `root`, newest `finished` first (unfinished last): dicts with the 4 fields,
+    "run" (folder name), "ts" (finished, epoch; 0 when missing or bad), "valid" and "why" (why it does not count)."""
+    base = os.path.join(root or "", EVIDENCE_REL)
+    try:
+        names = os.listdir(base)
+    except OSError:
+        return []
+    out = []
+    for name in names:
+        text = read_text(os.path.join(base, name, "run.log"))
+        if text is None:
+            continue
+        f = {}
+        for ln in text.splitlines():
+            key, sep, value = ln.partition(":")
+            if sep and key.strip() in RUN_LOG_KEYS and key.strip() not in f:
+                f[key.strip()] = value.strip()
+        ts = parse_iso(f["finished"]) if f.get("finished") else 0.0
+        missing = [k for k in RUN_LOG_KEYS if k not in f]
+        why = ("missing %s" % ", ".join(missing) if missing
+               else "commit is not a 40-hex sha" if not re.fullmatch(r"[0-9a-f]{40}", f["commit"])
+               else "doctor %s" % f["doctor"] if f["doctor"] != "PASS"
+               else "db_writes %s (a direct database write)" % f["db_writes"] if f["db_writes"] != "no"
+               else "finished is not a UTC ISO 8601 time" if not ts else "")
+        out.append(dict(f, run=name, ts=ts, valid=not why, why=why))
+    return sorted(out, key=lambda r: r["ts"], reverse=True)
+
+
+def verify_proof(root, since=0.0):
+    """(True, "") when a valid run of `root` finished at or after `since` (epoch); else (False, a note on the runs
+    that do not count, or "")."""
+    runs = verify_runs(root)
+    if any(r["valid"] and r["ts"] >= since for r in runs):
+        return True, ""
+    bad = [r for r in runs if not r["valid"] and (r["ts"] >= since or not r["ts"])][:3]
+    return False, "; ".join("run %s does not count: %s" % (r["run"], r["why"]) for r in bad)
+
+
+VERIFY_STEP_NAMES = ("launch", "doctor", "drive", "cleanup")
+
+
+def verify_steps(root, info):
+    """What to run, for a block message: the skill's SKILL.md and the first command of its Launch, Doctor, Drive
+    and Cleanup sections (a code block line, else an inline `command`)."""
+    path = os.path.join(root, info["path"], "SKILL.md")
+    parts = []
+    for sec in re.split(r"^##[ \t]+", read_text(path) or "", flags=re.M)[1:]:
+        title, _nl, body = sec.partition("\n")
+        name = title.strip().split(" ")[0].lower()
+        m = re.search(r"```[^\n]*\n\s*([^\n]+)", body) or re.search(r"`([^`\n]+)`", body)
+        if name in VERIFY_STEP_NAMES and m and name not in [p[0] for p in parts]:
+            parts.append((name, m.group(1).strip()))
+    steps = "; ".join("%s: %s" % p for p in parts) or "launch, doctor, drive the changed feature, cleanup"
+    return ("In %s, run %s on the changed feature (read %s and follow it). %s. Its helper writes "
+            ".verify/evidence/<run>/run.log; a run counts with doctor: PASS and db_writes: no."
+            % (root, info["name"], path, steps))
+
+
+def app_code_state(root, base):
+    """{repo-relative path: content sha1, or "deleted"} of the code files of the checkout `root` that differ from
+    commit `base` (committed since, staged, unstaged or untracked). Tests count; the verify skill does not."""
+    skill = verify_skill(root)
+    skip = tuple(os.path.join(d, "verify-") for d in VERIFY_DIRS) + (".verify/",) + \
+        ((skill["path"] + "/",) if skill else ())
+    names = (git_quick(root, ["diff", "--name-only", "-z", base, "--"], timeout=5) if base
+             else git_quick(root, ["ls-files", "-z"], timeout=5)) or ""
+    names += git_quick(root, ["ls-files", "-o", "--exclude-standard", "-z"], timeout=5) or ""
+    out = {}
+    for rel in names.split("\0"):
+        if not rel or not is_code_file(rel) or rel.startswith(skip):
+            continue
+        out[rel] = file_digest(os.path.join(root, rel))
+    return out
+
+
+def file_digest(path, cap=1 << 20):
+    """sha1 of a file for change checks, safe on any tree (review S7): a symlink is not followed (its target text
+    counts), a file that is not regular counts by its type, and only the first `cap` bytes plus the size are read.
+    "deleted" when it is gone."""
+    import hashlib
+    import stat
+    try:
+        st = os.lstat(path)
+        if stat.S_ISLNK(st.st_mode):
+            return hashlib.sha1(b"link:" + os.fsencode(os.readlink(path))).hexdigest()
+        if not stat.S_ISREG(st.st_mode):
+            return "special:%o" % stat.S_IFMT(st.st_mode)
+        with open(path, "rb") as fh:
+            return hashlib.sha1(fh.read(cap) + b"size:%d" % st.st_size).hexdigest()
+    except OSError:
+        return "deleted"
+
+
+def head_at(root, ts):
+    """HEAD of the checkout `root` at time `ts` (epoch), from its reflog: a worktree made later gives its first
+    HEAD. Without ts or reflog: HEAD now. None without commits."""
+    if ts:
+        iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts - 1))    # 1 s back: a commit in the same second
+        sha = (git_quick(root, ["rev-parse", "-q", "--verify", "HEAD@{%s}" % iso]) or "").strip()
+        if sha:
+            return sha
+    return (git_quick(root, ["rev-parse", "-q", "--verify", "HEAD"]) or "").strip() or None
 
 
 def read_and_follow(root, name, agent="claude"):
@@ -2799,6 +3110,18 @@ REDACT_ASSIGN = re.compile(r"(?i)\b(" + NAME + r")(\s*[=:]\s*)(?:\"[^\"]*\"|'[^'
 
 def append_jsonl(rel, row):
     log_line(rel, json.dumps(row, ensure_ascii=False))
+
+
+def log_wall(wall, reason, repo=""):
+    """One line per wall fire (a gate deny, a stop block, an ai-adopt or agent-audit refusal) in walls.jsonl.
+    ai-doctor shows 7 days per wall (ticket 17). Never raises."""
+    import socket
+    try:
+        host = socket.gethostname().split(".")[0]
+    except OSError:
+        host = "?"
+    append_jsonl("walls.jsonl", {"ts": iso_now(), "host": host, "repo": repo or "", "wall": wall,
+                                 "reason": redact(one_line(reason))[:160]})
 
 
 def log_error(where, exc):

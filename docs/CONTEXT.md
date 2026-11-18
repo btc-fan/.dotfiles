@@ -76,10 +76,10 @@ The versions and commits above are the intake audits. Installed today: the newes
 | Event | What | Layer |
 |---|---|---|
 | SessionStart | rules with `when: session_start` (status lines); the skill card (every start, again after compact and clear); the author-sessions line (`main: <session id> dir: <cwd>`); the L0 table after compaction or /clear (startup and resume get only the status lines; the table is in the root rules) | L1 |
-| UserPromptSubmit | regex rules, then forced-eval text when a rule matched; arms the stop rules (`diagnosing-bugs`, `tdd`). A harness notification (task-notification) fires no rule and never sets or clears the merge-approval OK | L2, L3 |
+| UserPromptSubmit | regex rules, then forced-eval text when a rule matched; shows the `diagnosing-bugs` and `tdd` hints (no stop since 2026-11-18). A harness notification (task-notification) fires no rule and never sets or clears the merge-approval OK | L2, L3 |
 | PreToolUse | gates: audit, secret scan, no sudo, no destroy, PR rules, merge approval, no verify, writing-for-agents (Edit, Write, shell writes), ship (`gh pr ready`), gh-write, winner gate (Skill tool), graph-first (first broad search); Claude Bash only: the `rtk-hook` wrapper | L4 |
 | PostToolUse | knowledge-check after a commit, no-em-dash lint, docs ID log, skill proof (kept in the session state, logged to `fired.jsonl`), graphify and Serena use (ends graph-first) | L3, L7 |
-| Stop | stop rules (`diagnosing-bugs`, `tdd`: block once per session), `stop-check` (`check-fast`), miss log, then `claude-notify` | L4, L7 |
+| Stop | stop rules (none since 2026-11-18), `stop-check` (`check-fast`), miss log, then `claude-notify` | L4, L7 |
 | Notification | `claude-notify` | owner hook |
 | SessionStart (startup, resume) | caffeinate | owner hook |
 | Vendor hooks | RTK rewrite, Ponytail, i-have-adhd, OMC, herdr status | per tool |
@@ -114,7 +114,7 @@ To read the full table: `ai/routing.yaml`. Do not copy it here.
 | `ai-gate-skip` | owner only: `sudo ai-gate-skip <gate> <minutes max 60> <why>` |
 | `ai-docs-check` | Markdown checks of a repo: placement, no U+2014, relative links (`--md`) |
 | `ai-render` | builds routing.json, L0 table and the root file |
-| `ai-sync` | after a pull: runs `ai-render`, refreshes this user's copied rule blocks (Codex; Hermes and `/etc` only through the admin `install.sh --update`) and links new `ai/skills` into `~/.claude/skills` and `~/.agents/skills`. `--check` compares, `--install-hook` makes `git pull` run it |
+| `ai-sync` | after a pull: runs `ai-render`, refreshes this user's copied rule blocks (Codex; Hermes and `/etc` only through the admin `install.sh --update`) and links new `ai/skills` into `~/.claude/skills` and `~/.agents/skills`. `--check` compares, `--install-hook` makes `git pull` run it. Only the installed copy `~/.dotfiles-ai` (or a root-owned admin copy) syncs; another checkout prints one line and changes nothing |
 | `agent-audit npm\|pypi\|dir\|skill <target>` | audit before install |
 | `ai-start` | new project: grilling, propose tools, write project config |
 | `ai-adopt` | existing repo: project layer, the Map and Libraries sections of AGENTS.md, opt-in tools (`--tools omc,seo,blog,browser,...`), Serena index and graph build with git hooks |

@@ -20,7 +20,8 @@ Tests: `bash ai/tests/run.sh` (should-fire and should-not-fire stdin samples for
 Pasted text: before the prompt rules match, the router removes code fences and lines that start with `⏺`, `❯`, `>` or `│` (output pasted from another session). For the ui and diagnosing-bugs rules a match does not count when a hyphen joins it to a word (`ui-ux-pro-max`) or when it is capitalised next to another capitalised word (a product name such as `Acme Performance Suite`).
 
 Skill card: at every SessionStart (startup, resume, clear, compact) the router sends the `skills` block of
-`routing.yaml`: the must-use skills with one trigger line each, and the folder of each installed typed-only skill
+`routing.yaml`: the must-use skills (a gate checks them) and the hint skills (`hints`: no block), with one trigger
+line each, and the folder of each installed typed-only skill
 (read `<dir>/<name>/SKILL.md` and follow it). ai-render fails when the worst case passes 1500 characters. Skill
 use is logged to `fired.jsonl` (kind `skill`) for a Skill call, a typed `/name` and a read of a SKILL.md (Claude
 Read, or cat, head, sed and the like in a shell command); `ai-doctor` counts it over 30 days (`fired.jsonl` and
@@ -33,14 +34,15 @@ Skill gates (`require_skill: <name>` in `routing.yaml`): the rule passes only wh
 session (a Skill call, a typed `/name`, or a read of its SKILL.md). With `strength: gate` a PreToolUse deny
 (writing-for-agents before Edit, Write, MultiEdit, Codex `apply_patch` or a shell write (`>`, `>>`, `tee`, `sed -i`,
 `cp`, `mv`) of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md; ship before `gh pr ready`). With `strength: stop` the prompt arms the rule and the next Stop gets
-`{"decision": "block"}` when the skill was not used (diagnosing-bugs, tdd), once per session per rule. Each block is a
+`{"decision": "block"}` when the skill was not used, once per session per rule. No rule uses `strength: stop` since
+2026-11-18: diagnosing-bugs and tdd are nudges (ticket 14; as stops 7 of 7 blocks were false). Each block is a
 row in `misses.jsonl`; `ai-doctor` shows these misses over 30 days. The owner skip below works for these rules
 too (gate name = rule id), and for `winner-gate` and `nav-first`.
 
 ## Gates
 
 Every deny path asks `owner_skip` first, so the owner escape hatch works for every gate and stop rule. Gate names
-are the rule ids, plus `winner-gate` and `nav-first`.
+are the rule ids, plus `winner-gate`, `nav-first`, `verify-tool-exists` and `verify-tool-used`.
 
 Gates catch honest mistakes. They are not a sandbox against an adversary: an agent that wants to bypass a
 gate can (for example, write a script file and run it). Escape hatch for a real exception, owner only:
@@ -61,23 +63,81 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   (Codex has no ask: deny with a message).
 - secret-scan: `git commit` scans the staged diff; with `git add` earlier in the same command, `commit -a`
   or a commit pathspec it also scans unstaged changes and untracked files. `git push` scans commits not
-  on any remote (last 300). gitleaks runs too when installed. Allowlist: only the context7 key, exact
-  value, from committed (HEAD) MCP config of this repo or `CONTEXT7_API_KEY` in `~/.config/ai/secrets.env`.
+  on any remote (last 300). Only added lines are scanned. During a merge (`MERGE_HEAD` set) only the lines
+  that are new against the merged branch too are scanned, so content already on the default branch is not
+  scanned again. In test code (`tests/`, `test/`, `fixtures/`, `testdata/`, `mocks/`, `test_*`, `*_test.*`,
+  `*.test.*`, `*.spec.*`, `conftest.py`) only a real key shape blocks: a provider pattern with no test word
+  (`test`, `fake`, `dummy`, `sample`, `example`, `mock`) and an entropy of 3.5 bits per character or more, or a
+  private key header. An assigned word (`password = "x"`) does not block there. A config file (`.env*`,
+  `.properties`, `.yml`, `.yaml`, `.toml`, `.ini`, `.json`) is never test code (review S4). A sample file
+  (`*.example`, `*.sample`, `.env.example`) and a config file in a test folder keep every rule; there only a
+  value with a clear fake marker passes (`test`, `fake`, `dummy`, `example`, `sample`, `changeme`, `xxx`,
+  `placeholder`, `redacted`, or one repeated character). gitleaks runs too when installed (profile dev-mac
+  installs it, pinned with its archive sha256 in `ai/pins.env`); its findings count only when the secret is in
+  the scanned added lines; in test code only a real key shape (no `generic-*` rule) counts, and in a sample file
+  a value with a clear fake marker passes. Without gitleaks only the builtin patterns run. Allowlist: only the context7
+  key, exact value, from committed (HEAD) MCP config of this repo or `CONTEXT7_API_KEY` in
+  `~/.config/ai/secrets.env`.
 - no-sudo: `sudo`, `su`, `doas`, `pkexec`, `sudoedit`, `run0` at a command position (also inside `bash -c`, behind
   `env`, `nice`, `timeout`). Profile `server` only (`dev-mac` does not render this row, nor audit-before-install and
   no-destroy).
 - merge-approval: `gh pr merge` and a `git push` to main or master are denied until the owner's latest message says
   merge or approve. A harness notification (task-notification, "[SYSTEM NOTIFICATION") never sets or clears that OK. An `<agent-message>` hand-back counts as a notification too. The OK comes only from the
   owner's own typed lines: pasted output (code fences, lines that start with `⏺`, `❯`, `>` or `│`) never sets it.
+  Accepted OKs include "merge 18", "merge #18", "merge the branches", "merge everything", "lets merge this".
+  Refused: a negation before the word ("don't merge", "not yet", "do not merge yet", "lets not merge"), "wait",
+  a question, words without merge or approve ("ok go for it"), and a number or "let's merge" before another
+  word ("merge 2 files", "let's merge the docs"). A push is checked in the checkout it acts on: `cd <dir>`
+  earlier in the command and `git -C <dir>`, not the session folder. A cd can fail, so (review S1): a cd inside
+  `( )` does not move the stages after the `)`; a cd to a folder that is not a git checkout counts as the session
+  folder; after a cd joined by anything but `&&`, the push is checked in the old folder and the new one, and
+  either one on main or master denies. A command that only names main (`git diff main...HEAD`) is not a push to
+  main.
 - no-verify: `git commit` or `git push` with `--no-verify` (or `commit -n`) is denied.
 - writing-for-agents (gate, `require_skill`): Edit, Write, MultiEdit, `apply_patch` or a shell write of AGENTS.md,
   CLAUDE.md, CLAUDE.local.md or a SKILL.md, until the skill has a proof in the session.
 - ship (gate, `require_skill`): `gh pr ready` (not `--undo`), until the ship skill ran.
-- Stop rules (`strength: stop`, `require_skill`): diagnosing-bugs (a bug or performance prompt) and tdd (a tests-first
-  prompt). The next Stop is blocked once per session per rule. The separate `stop-check.py` runs `check-fast`.
-- pr-rules: `gh pr create` and `gh pr edit` with a body need a mermaid block and the author-sessions block,
-  plus the fields of the project tier (mvp: `Verify:`, `Risk:`; long: also `Docs:`, `Changed guards:`, `Ledger:`
-  on fix PRs; placeholders count as missing). A fix PR needs a test file in its diff; over 400 lines warns.
+- verify-tool-exists, verify-tool-used (verify-enforcement 02, 03; router `verify_stop` on Stop and SubagentStop;
+  no routing.yaml rows, as winner-gate: two rows would push the L0 table past the cut): in an adopted repo (`.ai/enabled`), the end of a turn of the main agent or a subagent is blocked
+  when app code changed in the turn and the proof is missing. The checkout is the git top level of the payload
+  cwd (a linked worktree is its own checkout). The change comes from git, not from tool calls, so shell writes and
+  commits count: the code files (tests too; not the verify skill, not `.verify/`) that differ from the turn start.
+  UserPromptSubmit records the turn start (time, HEAD and the dirty code files of the session checkout); another
+  checkout uses HEAD at the turn start from its reflog and counts all its uncommitted code. verify-tool-exists:
+  no `verify-<app>` skill, or one without a valid run in this checkout or the main checkout; the message says to
+  build it with create-verification-skill and prove it once. verify-tool-used: no valid run.log in this checkout
+  finished at or after the first change (the oldest file time of the changed files); the message names the skill,
+  its SKILL.md and the first command of its Launch, Doctor, Drive and Cleanup sections, and the runs that do not
+  count. Valid run.log (`hooklib.verify_runs`, contract in `ai/rules/verification-skill.md`): all 4 lines, a 40-hex
+  commit, `doctor: PASS`, `db_writes: no`, a UTC ISO 8601 `finished`. Loop limits as stop-check: 2 blocks per
+  app-code state, 4 per chain of continuation stops, per agent (main or the subagent id). `ai-precommit` reads the
+  same logs for the commit gate (wall `verify-commit`). The owner skips it with `sudo ai-gate-skip verify-commit
+  <minutes> <why>`; ai-precommit reads only the root-owned `/etc/ai/gate-skip` (the git env comes from the agent's
+  command, so the test-only skip file variables do not count there) and logs the skip in `gates.log`. The change
+  check reads at most 1 MB of a file plus its size and does not follow a symlink (review S7).
+- Stop rules (`strength: stop`, `require_skill`): none since 2026-11-18. diagnosing-bugs (a bug or performance
+  prompt) and tdd (a tests-first prompt) are nudges: the prompt shows the hint, the turn end is not blocked. The
+  separate `stop-check.py` runs `check-fast`.
+- pr-rules: `gh pr create` and `gh pr edit` with a body are denied without the core template: a mermaid block
+  (Summary), Evidence, Door (one-way or two-way), Blast Radius and the author-sessions block (placeholders count
+  as missing). `Docs:`, `Changed guards:` and `Ledger:` (fix PRs) only give a warning in the context. A fix PR
+  needs a test file in its diff; over 400 lines warns. The body file path may use a variable from one simple
+  `VAR=value` earlier in the same command (`$B`, `"$B"`, `${B}`). A variable set twice, set to a value that is not
+  a literal, or set as a prefix of the command (`B=x gh ...`) makes the body file unread (review S3). A `cd`
+  earlier in the command sets the folder for a relative path and for the diff; a cd to a folder that does not
+  exist counts as the session folder, and without a checkout there the session checkout is judged (review S2). A body file that cannot be read gives one plain reason ("could not read
+  the body file <path>"), not a list of every field. A heredoc in the command counts as the body. The diff uses
+  the base the command names (`--base ai`: `origin/ai`, else `ai`, else a 5 s `git fetch origin ai`), never main
+  in its place.
+  Verify log (ticket 05, hook 4): `gh pr create`, `gh pr edit` (also without a body) and `gh pr ready` are denied
+  when the diff has app code, the repo has a `verify-<app>` skill, and no valid `.verify/evidence/<run>/run.log`
+  has `commit:` equal to the PR head SHA and `finished:` after the last app-code commit (`valid_verify_logs`:
+  all 4 lines, `doctor: PASS`, `db_writes: no`). Root and HEAD come from the checkout the command runs in.
+  `gh pr edit <N>` and `gh pr ready <N>` (a number, URL or branch) judge the PR head from `gh pr view <N> --json
+  headRefOid` (read only, 5 s) when that commit is in the checkout; else the local HEAD, and the context says
+  so (review P1). Such a deny is logged under the wall id `verify-pr`, also when the body has problems too
+  (review P2).
+  A docs-only PR is not gated. `gh pr ready --undo` is not gated.
   `--fill` and `--web` are refused. A `main: unknown` line is refused when the hook payload has a session id:
   the router gives the real line (`main: <session id> dir: <cwd with ~>`) at session start and as context on
   `gh pr create|edit`, so the block gets a real id also without herdr. The command is never rewritten.
@@ -107,7 +167,14 @@ A gate decision is sent even when the state dir cannot be written; an internal e
 fails open and is logged to `~/.local/state/ai/router-errors.log` (ai-doctor shows it).
 The secret scan has a time budget under 20 s (git 5 s and gitleaks 10 s per call). On a timeout it
 denies ("scan timed out, nothing was checked"); it never passes unscanned.
-State files (`gates.log`, `fired.jsonl`, `misses.jsonl`, ...) are created with mode 0600. Commands in
+Wall log (ticket 17): every wall fire writes one line to `~/.local/state/ai/walls.jsonl`: a router deny
+(`ctx.decide("deny", ...)`: every gate, the winner gate, nav-first, home-folder, abs-path), a stop block, a
+`stop-check.py` block (check-fast failed), an
+`ai-adopt` refusal (`--init` in `$HOME` or `/`, origin not an owner repo, the `ai-adopt` branch exists, owner text
+would change, a secret in AGENTS.md) and an `agent-audit` refusal (FAIL, ERROR, REJECT). One format for all:
+`{"ts", "host", "repo", "wall", "reason"}` (`hooklib.log_wall`; the reason is one redacted line, at most 160
+characters). `ai-doctor` prints a 7-day table: per wall the fires and the last 3 reasons. The log rotates at 5 MB.
+State files (`gates.log`, `fired.jsonl`, `misses.jsonl`, `walls.jsonl`, ...) are created with mode 0600. Commands in
 `gates.log` are redacted with the secret patterns plus any `NAME=value` where NAME looks like a
 key, token, secret or password.
 
@@ -130,8 +197,10 @@ key, token, secret or password.
   approximated. The `-a` flag is read from the parsed arguments, not from message text.
 - Push scan reads at most 300 unpushed commits and only HEAD (not other pushed refs).
 - A gitleaks error other than a timeout (bad report, crash) is logged and only the builtin patterns count.
-- `gh pr create -F file`: a relative path is read from the hook cwd (a `cd` earlier in the command is
-  not applied); `--body-file -` (stdin) can only be checked when the heredoc is in the command.
+- `gh pr create -F file`: a variable in the path is read only from one simple `VAR=value` in the same command
+  (not from `$(...)`, a second assignment, a command prefix or the shell environment: the file counts as unread); `--body-file -` (stdin) can only be checked when the heredoc is
+  in the command. A `cd` to a variable falls back to the hook cwd (pr-rules and the merge-approval push check).
+- Secret scan in a merge with more than one `MERGE_HEAD` (octopus) compares with the first one only.
 - Codex: file edits by `apply_patch` are not checked by no-em-dash or graph-update (Bash and Claude
   Edit/Write only); re-inject after compaction uses SessionStart source `compact`.
 - The writing-for-agents gate does not see a write by a script or an interpreter (`python -c`, `perl -i`, `dd`).

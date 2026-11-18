@@ -14,12 +14,26 @@ It checks only staged files, with the tools the repo already has (nothing is ins
   Dart          dart format --set-exit-if-changed
   Shell         shellcheck                        (when installed)
 A tool that is not there is skipped and named once. It never changes a file: the message says how to fix.
-Agents never skip it (git commit --no-verify is blocked for agents by the no-verify gate).
+
+Verify gate (verify-enforcement 04): in a project with a verify-<app> skill, a commit whose staged diff adds a test
+(Python `def test_...(`; `test(` or `it(` in a JS or TS spec file) needs a valid run.log in .verify/evidence/ of
+this checkout (a linked worktree: its own) that finished after HEAD's commit time. A refusal names the verify
+skill and its steps, and writes a line to walls.jsonl (wall verify-commit). Edits and deletions of tests pass.
+Agents never skip it (git commit --no-verify is blocked for agents by the no-verify gate). The owner can:
+sudo ai-gate-skip verify-commit <minutes> <why> (only the root-owned /etc/ai/gate-skip counts; logged in gates.log).
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
+import time
+
+BIN = os.path.dirname(os.path.realpath(__file__))
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(BIN), "marketplace", "plugins", "ai-core", "hooks"))
+from hooklib import (gate_skips, iso_now, log_line, log_wall, redact, verify_proof, verify_skill,  # noqa: E402
+                     verify_steps)
 
 GROUPS = [
     # (extensions, [(label, argv builder, fix hint)])
@@ -41,6 +55,12 @@ def main(argv):
     files = staged(root)
     if not files:
         return 0
+    refusal = verify_gate(root)
+    skip = gate_skips(env_ok=False)[0].get("verify-commit") if refusal else None
+    if skip is not None:        # the git env comes from the agent's command: only the root-owned file counts
+        log_line("gates.log", "%s SKIP verify-commit dir=%s reason=%s" % (iso_now(), root, redact(skip)))
+        print("ai-precommit: the verify gate was skipped by the owner (/etc/ai/gate-skip, logged): %s" % skip)
+        refusal = ""
     failed, skipped = [], []
     for exts, kind in GROUPS:
         group = [f for f in files if f.lower().endswith(exts)]
@@ -54,10 +74,75 @@ def main(argv):
                 failed.append("%s (fix: %s)" % (label, hint))
     if skipped:
         print("ai-precommit: not installed here, skipped: %s" % ", ".join(sorted(set(skipped))))
+    if refusal:
+        print(refusal)
+        log_wall("verify-commit", refusal.split(": ", 1)[-1], root)
     if failed:
         print("ai-precommit: blocked the commit: %s. Fix the files, git add them, commit again." % "; ".join(failed))
-        return 1
-    return 0
+    return 1 if failed or refusal else 0
+
+
+# ---------------------------------------------------------------- verify gate (hook 3)
+
+PY_TEST = re.compile(r"^\s*(?:async\s+)?def\s+(test_\w*)\s*\(")
+JS_TEST = re.compile(r"""^\s*(?:test|it)(?:\.\w+)?\s*\(\s*(['"`])(.*?)\1""")
+JS_SPEC = re.compile(r"\.(?:test|spec)\.[cm]?[jt]sx?$|(?:^|/)(?:__tests__|tests?)/.*\.[cm]?[jt]sx?$")
+
+
+def verify_gate(root):
+    """The refusal text when the staged diff adds a test and no valid run is newer than HEAD; else ""."""
+    info = verify_skill(root)
+    tests = new_tests(root) if info else []
+    if not tests:
+        return ""
+    head_ts = git_text(root, "log", "-1", "--format=%ct", "HEAD").strip()
+    since = int(head_ts) + 1 if head_ts.isdigit() else 0
+    ok, note = verify_proof(root, since)
+    if ok:
+        return ""
+    after = "after the last commit (%s)" % time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since - 1)) \
+        if since else "yet"
+    return ("ai-precommit: blocked the commit: it adds tests (%s) and no valid verify run in %s finished %s. "
+            "Drive each new test case through the real app first. %s%s Then commit again."
+            % (", ".join(tests[:5]), os.path.join(root, ".verify", "evidence"), after,
+               "%s. " % note if note else "", verify_steps(root, info)))
+
+
+def new_tests(root):
+    """["path: name", ...] for test names on added lines that are not on removed lines of the same file."""
+    added, removed, path = {}, {}, None
+    # explicit prefixes: a diff.mnemonicPrefix or diff.noprefix config changes the b/ of "+++ b/<path>"
+    diff = git_text(root, "diff", "--cached", "-U0", "--no-color", "--no-ext-diff", "--src-prefix=a/",
+                    "--dst-prefix=b/")
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            path = None
+        elif line.startswith("+++ "):
+            path = line[6:] if line.startswith("+++ b/") else None
+        elif path and line[:1] in "+-" and not line.startswith("--- "):
+            name = test_name(path, line[1:])
+            if name:
+                (added if line[0] == "+" else removed).setdefault(path, set()).add(name)
+    return ["%s: %s" % (p, n) for p in sorted(added) for n in sorted(added[p] - removed.get(p, set()))]
+
+
+def test_name(path, text):
+    if path.endswith(".py"):
+        m = PY_TEST.match(text)
+        return m and m.group(1)
+    if JS_SPEC.search(path):
+        m = JS_TEST.match(text)
+        return m and m.group(2)
+    return None
+
+
+def git_text(root, *args):
+    try:
+        res = subprocess.run(["git", "-C", root] + list(args), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                             timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return res.stdout.decode("utf-8", "replace") if res.returncode == 0 else ""
 
 
 def checks(root, kind, files):

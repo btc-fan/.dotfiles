@@ -546,6 +546,683 @@
    "project": {
     "git": true
    }
+  },
+  {
+   "name": "ticket 12 owner said 'merge 18': allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "merge 18"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ticket 12 owner said 'merge 21': allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "merge 21"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ticket 12 owner said 'merge 28': allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "merge 28"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ticket 12 owner said 'merge #18': allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "merge #18"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ticket 12 owner said 'merge the branches': allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "merge the branches"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ticket 12 owner said 'merge everything': allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "merge everything"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ticket 12 owner said 'lets merge everything': allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "lets merge everything"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ticket 12 owner said 'lets merge this': allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "lets merge this"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ticket 12 owner said 'lets merge everything, lets do a cleanup if needed, letd def': allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "lets merge everything, lets do a cleanup if needed, letd define the supreme scope and final realisasiton and only then we can /improve-codebase-architecture"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ticket 12 owner said 'ok go on you have full rights and gh sntalled so do what you': allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "ok go on you have full rights and gh sntalled so do what you need to do there to ahve the ai setup installed and merge the branches etc etc"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ticket 12 owner said 'ok lets merge this its fine we can revert it if needed, so I': allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "ok lets merge this its fine we can revert it if needed, so I can start a new session"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ticket 12 owner said \"don't merge\": denied",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "don't merge"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ticket 12 owner said 'not yet': denied",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "not yet"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ticket 12 owner said 'wait': denied",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "wait"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ticket 12 owner said 'do not merge yet': denied",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "do not merge yet"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ticket 12 owner said 'ok go for it': denied",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "ok go for it"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ticket 12 owner said 'lets not merge 18': denied",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "lets not merge 18"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "ticket 12 push from a feature worktree (cd) while the session folder is on main: allowed",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd {{PROJ}}/../wt && git push -u origin"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "a.py": "x = 1\n"
+    },
+    "commit": "init",
+    "worktree": "../wt"
+   }
+  },
+  {
+   "name": "ticket 12 push from a feature worktree (git -C) while the session folder is on main: allowed",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git -C {{PROJ}}/../wt push"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "a.py": "x = 1\n"
+    },
+    "commit": "init",
+    "worktree": "../wt"
+   }
+  },
+  {
+   "name": "ticket 12 git diff main...HEAD in a chain with a feature push: allowed",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd {{PROJ}}/../wt && git diff main...HEAD --stat && git log main..HEAD --oneline && git push origin wt"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "a.py": "x = 1\n"
+    },
+    "commit": "init",
+    "worktree": "../wt"
+   }
+  },
+  {
+   "name": "ticket 12 cd from a feature worktree into the main checkout, bare push: denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd {{PROJ}} && git push"
+    },
+    "cwd": "{{PROJ}}/../wt"
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "a.py": "x = 1\n"
+    },
+    "commit": "init",
+    "worktree": "../wt"
+   },
+   "contains": "git push to main/master"
+  },
+  {
+   "name": "ticket 12 push HEAD from the main checkout after cd: denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd {{PROJ}}/../wt && cd {{PROJ}} && git push origin HEAD"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "a.py": "x = 1\n"
+    },
+    "commit": "init",
+    "worktree": "../wt"
+   },
+   "contains": "git push to main/master"
+  },
+  {
+   "name": "S1 failed cd to a missing folder, then a bare push from main: denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd /nonexistent-ai-gate-test; git push"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "a.py": "x = 1\n"
+    },
+    "commit": "init",
+    "worktree": "../wt"
+   },
+   "contains": "git push to main/master"
+  },
+  {
+   "name": "S1 cd inside a subshell, then a bare push from main: denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "(cd {{PROJ}}/../wt); git push"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "a.py": "x = 1\n"
+    },
+    "commit": "init",
+    "worktree": "../wt"
+   },
+   "contains": "git push to main/master"
+  },
+  {
+   "name": "S1 cd to a folder that is not a checkout || true, then push HEAD from main: denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd /tmp || true; git push origin HEAD"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "a.py": "x = 1\n"
+    },
+    "commit": "init",
+    "worktree": "../wt"
+   },
+   "contains": "git push to main/master"
+  },
+  {
+   "name": "S1 cd to a feature worktree with ; (the cd may fail), bare push from main: denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd {{PROJ}}/../wt; git push"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "a.py": "x = 1\n"
+    },
+    "commit": "init",
+    "worktree": "../wt"
+   },
+   "contains": "git push to main/master"
+  },
+  {
+   "name": "S1 cd and push inside one subshell from a feature worktree: allowed",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "(cd {{PROJ}}/../wt && git push)"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "a.py": "x = 1\n"
+    },
+    "commit": "init",
+    "worktree": "../wt"
+   }
+  },
+  {
+   "name": "S8 owner said 'merge 2 files': not a merge OK, denied",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "merge 2 files"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "S8 owner said \"let's merge the docs\": not a merge OK, denied",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "let's merge the docs"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
+  },
+  {
+   "name": "S8 owner said 'merge 3 commits into one': not a merge OK, denied",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "merge 3 commits into one"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr merge 18 --squash --delete-branch"
+      }
+     }
+    }
+   ],
+   "project": {
+    "git": true
+   }
   }
  ]
 }

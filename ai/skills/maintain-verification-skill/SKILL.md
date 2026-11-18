@@ -1,10 +1,9 @@
 ---
 name: maintain-verification-skill
 description: "Periodic pass that keeps a project's verification skill and feature map honest: parallel source readers per feature, one live session driving every feature, at most one PR of proven corrections. Use for /maintain-verification-skill or \"audit the verify skill\". RO: \"actualizeaza skill-ul de verificare\". RU: \"обнови навык проверки\"."
-disable-model-invocation: true
 ---
 
-> Adapted from pstack (MIT, Copyright (c) 2026 Lauren Tan; LICENSE in this folder), github.com/cursor/plugins commit 3dbd22ff12742fb28c9700b9760baa29ed41dc13. Change here: project skills live in `.agents/skills/verify-<app>/` (Codex reads them there); `ai-adopt` adds the committed link `.claude/skills/verify-<app>` -> `../../.agents/skills/verify-<app>` for Claude.
+> Adapted from pstack (MIT, Copyright (c) 2026 Lauren Tan; LICENSE in this folder), github.com/cursor/plugins commit 3dbd22ff12742fb28c9700b9760baa29ed41dc13. Change here: project skills live in `.agents/skills/verify-<app>/` (Codex reads them there); `ai-adopt` adds the committed link `.claude/skills/verify-<app>` -> `../../.agents/skills/verify-<app>` for Claude. Also changed: both skills are model-invocable, step 1 covers every surface, and the last section, Our additions, is ours.
 
 # Maintain a verification skill
 
@@ -39,3 +38,12 @@ Only edit the verification skill's own directory (its SKILL.md, features/, and a
 6. **Ship or stop.** For changed: one PR of proven corrections, re-read every changed file first. For clean or blocked: no PR, report the outcome and the coverage honestly.
 
 Keep concise run notes (features covered, unreachable prerequisites, confirmed drift, outcome) in a scratch location; don't commit them.
+
+## Our additions
+
+These rules come from our AI setup, not from pstack. Where they differ from the steps above, these rules win. The full contract is the section `Our additions` of the `create-verification-skill` skill.
+
+- Index hygiene also checks: each feature file has the `Proof paths` H2 (success, cancel, error, empty, persistence, and unreachable paths with their blockers); `features/README.md` keeps a full sweep order; `multi-surface-journeys.md` matches the flows that cross surfaces.
+- A surface the repo has but the skill does not drive is drift. Add its driver.
+- The live pass drives the features in the sweep order of `features/README.md`, then each journey. The doctor checks this checkout's own instance (its own port and data folder).
+- The live pass is a run. The project helper writes `.verify/evidence/<run>/run.log` with the `commit`, `doctor`, `db_writes` and `finished` lines.

@@ -186,8 +186,8 @@ def validate(data):
                     re.compile(r[key])
                 except re.error as exc:
                     errors.append("%s: bad %s regex: %s" % (rid, key, exc))
-        if r.get("once_per") not in (None, "session"):
-            errors.append("%s: once_per must be session (or absent)" % rid)
+        if r.get("once_per") not in (None, "session", "agent"):
+            errors.append("%s: once_per must be session or agent (or absent)" % rid)
         if r.get("deny_once_when") not in (None, "graph"):
             errors.append("%s: deny_once_when must be graph (or absent)" % rid)
         if trig.get("paths") == "code" or r.get("log_only") or r.get("reset_on"):
@@ -279,8 +279,8 @@ def card_budget(skills):
         cap, render = router.CARD_CAP, router.render_card
     except (ImportError, AttributeError):
         return ""
-    if any(not s.get("name") or not s.get("when") for s in skills.get("must_use") or []):
-        return "skills.must_use: every entry needs a name and a when line"
+    if any(not s.get("name") or not s.get("when") for s in (skills.get("must_use") or []) + (skills.get("hints") or [])):
+        return "skills.must_use and skills.hints: every entry needs a name and a when line"
     names = list(skills.get("typed_only") or [])
     dirs = {("/%d" % i).ljust(CARD_DIR_WORST, "x"): names[i::4] for i in range(4) if names[i::4]}
     size = len(render(skills, dirs))
@@ -303,6 +303,8 @@ def render_l0(routing):
         "| Rule | When | Do |",
         "|---|---|---|",
     ]
+    if not any(r.get("strength") == "stop" for r in routing["rules"]):
+        lines.remove(lines[3])      # no stop rule: no stop legend
     for r in routing["rules"]:
         kinds = [k for k in (r.get("strength", "nudge"), r.get("scope")) if k in ("gate", "stop", "opt-in")]
         name = "%s (%s)" % (r["id"], ", ".join(kinds)) if kinds else r["id"]    # nudge is the default: no label

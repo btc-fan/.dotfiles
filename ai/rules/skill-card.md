@@ -8,14 +8,15 @@ NOT FOUND (our own context).
 
 ## When / when not
 - At every SessionStart: startup, resume, clear and compact. Under 1500 characters; `ai-render` fails above that.
-- Must-use skills with one trigger line: `writing-for-agents`, `diagnosing-bugs`, `ship`, `tdd`.
+- Must-use skills (a gate checks them) with one trigger line: `writing-for-agents`, `ship`.
+- Hint skills (`skills.hints`, no block; ticket 14) with one trigger line: `diagnosing-bugs`, `tdd`.
 - Typed-only skills: `grill-with-docs`, `to-spec`, `to-tickets`, `implement`, `handoff`, `wayfinder`,
-  `improve-codebase-architecture`, `retro`, `create-verification-skill`, `maintain-verification-skill`. For these the card says:
+  `improve-codebase-architecture`, `retro`. For these the card says:
   read `<SKILL.md>` and follow it, and tell the owner the typed form.
 - Only typed-only skills that are installed get a folder in the card.
 
 ## Enforcement
-- L1 context. No deny. The gates and stop rules of the must-use skills are the L4 part.
+- L1 context. No deny. The gates of the must-use skills are the L4 part. The hint skills have no L4 part.
 - Skill use is logged to `fired.jsonl` (kind `skill`): a Skill call, a typed `/name`, a read of a `SKILL.md`.
   `ai-doctor` counts it over 30 days. A read counts only from a skill install folder.
 

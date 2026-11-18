@@ -417,15 +417,105 @@ def t_scenario_dry(work):
     assert any(sc["id"] == "evolution" for sc in scs), scs
     for sc in scs:
         assert all(len(st) == 1 or "expect" in st for st in sc["steps"]), sc["id"]
-        assert all(next(iter(st)) in ("git", "session", "check") for st in sc["steps"]), sc["id"]
+        assert all(next(iter(st)) in ("git", "session", "check", "write") for st in sc["steps"]), sc["id"]
+        assert set(sc.get("agents", ["claude", "codex"])) <= {"claude", "codex"}, sc["id"]
     lines = [ln for ln in res.stdout.splitlines() if ln.startswith(("claude ", "codex "))]
-    assert len(lines) == len(scs) * 2 * 3, res.stdout
+    assert len(lines) == sum(len(sc.get("agents", ["claude", "codex"])) for sc in scs) * 3, res.stdout
+    assert all(ln.split()[0] in sc.get("agents", ["claude", "codex"]) for sc in scs for ln in lines
+               if ln.split()[1] == sc["id"]), "a scenario runs only for its agents"
     assert "none started (--dry)" in res.stdout and not os.path.exists(mark), "no agent may start"
+    res = run([sys.executable, EVAL, "scenario", "--dry", "--only", "evolution", "--runs", "1"], env)
+    assert [ln.split()[1] for ln in res.stdout.splitlines() if ln.startswith(("claude ", "codex "))] == \
+        ["evolution", "evolution"], res.stdout
+    assert run([sys.executable, EVAL, "scenario", "--dry", "--only", "no-such"], env).returncode != 0
+
+
+# Fake claude for the checkout scenario test: logs its argv and AI_HOME, acts on the prompt.
+FAKE_CHECKOUT_AGENT = r"""#!/bin/sh
+mkdir -p "$AI_STATE_DIR"
+printf '%s\n' "$@" > "$AI_STATE_DIR/argv"
+echo "$AI_HOME" > "$AI_STATE_DIR/ai_home"
+echo '{"type": "system", "subtype": "init", "session_id": "fake-sess-1"}'
+case "$2" in
+  *change*)
+    printf 'def add(a, b):\n    return b + a\n' > app/calc.py
+    echo '{"type": "user", "message": {"content": [{"type": "tool_result", "content": "[ai router: verify-tool-exists] no tool"}]}}' ;;
+  *prove*)
+    sleep 1
+    mkdir -p .agents/skills/verify-app .verify/evidence/r1
+    printf -- '---\nname: verify-app\n---\n' > .agents/skills/verify-app/SKILL.md
+    printf 'commit: %s\ndoctor: PASS\ndb_writes: no\nfinished: %s\n' "$(git rev-parse HEAD)" \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .verify/evidence/r1/run.log
+    gh pr create --title t ;;
+esac
+"""
+
+
+def t_scenario_checkout(work):
+    """A scenario with "plugin": "checkout" drives this checkout's code, not the installed setup: the session
+    loads this checkout's ai-core (--plugin-dir, AI_HOME), the pre-commit hook runs this checkout's ai-precommit,
+    the stand-in skills are this checkout's copies, gh is a fake that logs. Write steps add files; a hook check
+    replays the router on the end state of the last session (Stop: block, then allow after a valid run)."""
+    ev = load()
+    fake = os.path.join(work, "fakebin-checkout")
+    write(os.path.join(fake, "claude"), FAKE_CHECKOUT_AGENT)
+    os.chmod(os.path.join(fake, "claude"), 0o755)
+    old = os.environ["PATH"]
+    os.environ["PATH"] = fake + os.pathsep + old
+    src = os.path.join(work, "checkout-src")
+    write(os.path.join(src, "app", "calc.py"), "def add(a, b):\n    return a + b\n")
+    write(os.path.join(src, ".ai", "enabled"), "serena graph\n")
+    ev.git(src, "init", "-q", "-b", "main")
+    ev.git(src, "add", "-A")
+    ev.git(src, "commit", "-q", "-m", "init")
+    write(os.path.join(src, ".git", "hooks", "pre-commit"), "#!/bin/sh\nexec ai-precommit\n")
+    out = os.path.join(work, "checkout-out")
+    ev.copy_fixture(src, os.path.join(out, "fixtures", "app"))
+    sc = {"id": "co", "fixture": "app", "plugin": "checkout", "skills": ["create-verification-skill"],
+          "agents": ["claude"], "steps": [
+              {"write": {"pr-body.md": "body\n"}},
+              {"session": "change the code", "expect": {"says": ["verify-tool-exists"]}},
+              {"check": {"hook": {"event": "Stop", "decision": "block"}}},
+              {"session": "prove it", "max_turns": 60, "expect": {"not_rules": ["x"]}},
+              {"check": {"hook": {"event": "Stop", "decision": "allow"}, "gh_log": "pr create --title t",
+                         "git_out": {"args": ["status", "--short"], "match": "app/calc.py"}}}]}
+    try:
+        res = ev.run_scenario(out, {"app": None}, "claude", sc, 1)
+    finally:
+        os.environ["PATH"] = old
+    assert res["pass"] is True, json.dumps(res, indent=1)[:2500]
+    assert [st["kind"] for st in res["steps"]] == ["write", "session", "check", "session", "check"], res
+    base = os.path.join(out, "scenarios", "claude", "co-1")
+    repo = os.path.join(base, "repo")
+    argv = read(os.path.join(base, "state-2", "argv")).splitlines()
+    plugin = os.path.join(AI_DIR, "marketplace", "plugins", "ai-core")
+    assert argv[argv.index("--plugin-dir") + 1] == plugin, argv
+    assert '"ai-core@ai": false' in argv[argv.index("--settings") + 1] and "--strict-mcp-config" in argv, argv
+    assert argv[argv.index("--max-turns") + 1] == "40", argv
+    assert read(os.path.join(base, "state-2", "ai_home")).strip() == os.path.dirname(AI_DIR)
+    assert os.path.join(AI_DIR, "bin", "ai-precommit") in read(os.path.join(repo, ".git", "hooks", "pre-commit"))
+    argv4 = read(os.path.join(base, "state-4", "argv")).splitlines()
+    assert argv4[argv4.index("--max-turns") + 1] == "60", argv4
+    assert read(os.path.join(repo, ".claude", "skills", "create-verification-skill", "SKILL.md")) == \
+        read(os.path.join(AI_DIR, "skills", "create-verification-skill", "SKILL.md"))
+    assert ".claude/skills/create-verification-skill" in read(os.path.join(repo, ".git", "info", "exclude"))
+    assert read(os.path.join(repo, "pr-body.md")) == "body\n"
+
+    sc["steps"][-1] = {"check": {"hook": {"event": "Stop", "decision": "block"}}}
+    os.environ["PATH"] = fake + os.pathsep + old
+    try:
+        res = ev.run_scenario(out, {"app": None}, "claude", sc, 2)
+    finally:
+        os.environ["PATH"] = old
+    assert res["pass"] is False and res["steps"][-1]["got"]["hook"] == "allow", res["steps"][-1]
+    sc["steps"][0] = {"write": {"../outside.txt": "x"}}
+    res = ev.run_scenario(out, {"app": None}, "claude", sc, 3)
+    assert res["steps"][0]["ok"] is False and not os.path.exists(os.path.join(base, "outside.txt")), res["steps"]
 
 
 TESTS_LIST = [t_fixtures, t_app_libraries, t_fixture_project_copy, t_copy_fixture_skips_socket, t_snapshot_skips_ignored, t_score_stream, t_router_seen,
               t_child_env, t_cases_valid, t_behaviour_dry, t_install_fake_bins, t_failed_run_is_error,
-              t_scenario_fake_agent, t_scenario_dry]
+              t_scenario_fake_agent, t_scenario_checkout, t_scenario_dry]
 
 if __name__ == "__main__":
     sys.exit(main())

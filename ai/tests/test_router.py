@@ -12,7 +12,8 @@ Each ai/tests/cases/<rule>.json holds {"rule": id, "cases": [...]}. A case:
   agent    claude (default) | codex
   project  {git: true, git_init: true, files: {rel: text}, stage: {rel: text}, commit: "<message>",
            dirty: {rel: text} (written after the commit), worktree: "../wt" (git worktree add), extra_commits: [{rel: text}, ...] (after the commit),
-           age_days: {rel: days} (file mtime set back, e.g. a stale graph)}
+           age_days: {rel: days} (file mtime set back, e.g. a stale graph),
+           setup_sh: "<bash script>" (run last in the project, e.g. branches and a merge in progress)}
   audit_log  lines for ~/.local/state/ai/audit.log
   ai_mcp   text for $AI_HOME/ai/mcp/context7.json, committed (secret-scan allowlist reads HEAD);
            ai_mcp_commit: false keeps it uncommitted
@@ -22,7 +23,8 @@ Each ai/tests/cases/<rule>.json holds {"rule": id, "cases": [...]}. A case:
   gate_skip  a line for the owner skip file (/etc/ai/gate-skip); {{SOON}} / {{PAST}} = expiry times
   contains / not_contains   text that must (not) be in the hook output
 Placeholders: {{PROJ}} {{HOME}} {{NOW}} {{OLD}} {{TRANSCRIPT}} and fake secrets {{GH_TOKEN}} {{CTX7_KEY}}
-{{CTX7_OTHER}} {{PW}} {{ENVTOK}} {{NPM_TOKEN}} {{HF_TOKEN}} {{DBURL}}
+{{CTX7_OTHER}} {{PW}} {{ENVTOK}} {{NPM_TOKEN}} {{HF_TOKEN}} {{DBURL}} {{GH_REAL}} {{SK_LIVE_REAL}}
+{{SK_LIVE_SAMPLE}} {{ADMINPASS}} {{AIZA_TEST}} {{ZPS_FAKE}} {{JWT_REAL}} {{DBURL_TEST}}
 (fake secrets are built here at run time, so no secret-looking string is stored in the repo).
 Every run uses a throwaway HOME and state dir. Nothing touches the real home.
 """
@@ -49,6 +51,15 @@ FAKE = {
     "{{NPM_TOKEN}}": "npm" + "_" + "A1" * 18,
     "{{HF_TOKEN}}": "hf" + "_" + "kQ" * 17,
     "{{DBURL}}": "postgres://app:" + "Hunter2" * 2 + "@db:5432/x",
+    # Real key shapes (provider prefix, real length, high entropy) and the fake test values of the 7-day audit.
+    "{{GH_REAL}}": "ghp" + "_" + "aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC2eF4hJ6",
+    "{{SK_LIVE_REAL}}": "sk" + "_live_" + "51HqZt8kLmP2vQ9xR4wN7yB3cD6f",
+    "{{SK_LIVE_SAMPLE}}": "sk" + "_live_" + "TESTsample" + "0" * 14,
+    "{{ADMINPASS}}": "admin" + "pass123",
+    "{{AIZA_TEST}}": "AIza" + "SECRET-test-key",
+    "{{ZPS_FAKE}}": "zps" + "_4f9a1c7e2b6d8e0f3a5c7b9d1e3f5a7c",
+    "{{JWT_REAL}}": "q8Zr2LmX9v" + "Tn4KpW7sYb1HcJ6dFg3QeA",       # review S4: high entropy, no fake marker
+    "{{DBURL_TEST}}": "postgres://app:" + "testpass123" + "@db/x",  # review S4: a fake-marked URL password
 }
 FIRE_KINDS = {"fire", "log", "deny", "ask", "miss", "block"}
 QUIET_KINDS = {"nofire", "allow", "nomiss"}
@@ -316,6 +327,11 @@ def setup_project(proj, spec):
     for rel, days in spec.get("age_days", {}).items():
         old = time.time() - float(days) * 86400
         os.utime(os.path.join(proj, rel), (old, old))
+    if spec.get("setup_sh"):
+        git_env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t.invalid", GIT_COMMITTER_NAME="t",
+                       GIT_COMMITTER_EMAIL="t@t.invalid", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        subprocess.check_call(["bash", "-ec", spec["setup_sh"]], cwd=proj, env=git_env,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def sub(obj, subs):

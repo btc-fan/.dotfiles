@@ -15,7 +15,7 @@ Summary must hold a Mermaid diagram of the change.
 Evidence is the check-fast command and the tail of its output as After. Add Before when a test went red first. A project with a verify-<app> skill also names the skill run, its evidence path and the e2e test.
 Door must say one-way or two-way. Blast Radius must say what can break.
 Also required: Docs (files, or "none, because ..."), Changed guards (each edited or removed test and why, or "none"), and on a fix PR Ledger: R-NNN. A fix PR has a test file in its diff.
-The author-sessions block goes at the end (next section). The pr-rules gate blocks a PR without these parts (placeholder text counts as missing).
+The author-sessions block goes at the end (next section). The pr-rules gate blocks a PR without the Mermaid diagram, Evidence, Door, Blast Radius or the author-sessions block, and a fix PR without a test file (placeholder text counts as missing). Docs, Changed guards and Ledger get a warning only.
 
 PR author-sessions note
 When you create a PR, or push changes to an open PR, keep this hidden block at the end of the PR body, before the generated-with footer:

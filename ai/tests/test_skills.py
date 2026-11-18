@@ -46,7 +46,9 @@ def main():
 def t_card_fits_worst_case(work):
     render = load(os.path.join(BIN, "ai-render"), "airender_card")
     skills = rendered(work)["skills"]
-    assert len(skills["typed_only"]) == 10, "all 10 typed-only skills: %s" % skills["typed_only"]
+    assert len(skills["typed_only"]) == 8, "all 8 typed-only skills: %s" % skills["typed_only"]
+    assert not {"create-verification-skill", "maintain-verification-skill"} & set(skills["typed_only"]), \
+        "the verification skills are model-invocable (verify-enforcement 01)"
     assert render.card_budget(skills) == "", render.card_budget(skills)
     long_when = dict(skills, must_use=skills["must_use"] + [{"name": "x", "when": "y" * 1500}])
     assert "skill card worst case" in render.card_budget(long_when), "an oversized card must fail ai-render"
@@ -103,8 +105,13 @@ def t_render_checks_skill_rules(work):
     assert any("strength" in e for e in errors(dict(gate, strength="loud"))), "unknown strength"
     routing = rendered(work)
     gated = {r["id"]: (r["strength"], r["require_skill"]) for r in routing["rules"] if r.get("require_skill")}
-    assert gated == {"writing-for-agents": ("gate", "writing-for-agents"), "diagnosing-bugs": ("stop", "diagnosing-bugs"),
-                     "tdd": ("stop", "tdd"), "ship": ("gate", "ship")}, gated
+    assert gated == {"writing-for-agents": ("gate", "writing-for-agents"), "ship": ("gate", "ship")}, gated
+    hints = {r["id"]: r["strength"] for r in routing["rules"] if r["id"] in ("diagnosing-bugs", "tdd")}
+    assert hints == {"diagnosing-bugs": "nudge", "tdd": "nudge"}, "ticket 14: hints, no stop: %s" % hints
+    assert [s["name"] for s in routing["skills"]["hints"]] == ["diagnosing-bugs", "tdd"], routing["skills"]
+    l0 = open(os.path.join(work, sorted(d for d in os.listdir(work) if d.startswith("render-"))[-1], "L0.md")).read()
+    assert "stop = the turn cannot end" not in l0, "no stop rule left: the L0 legend must not name stop"
+    assert "| diagnosing-bugs |" in l0 and "| diagnosing-bugs (stop) |" not in l0, l0
 
 
 def t_eval_turns_let_stop_fire(work):
@@ -112,6 +119,78 @@ def t_eval_turns_let_stop_fire(work):
     cmd = ev.agent_cmd("claude", "x")
     turns = int(cmd[cmd.index("--max-turns") + 1])
     assert turns >= 12, "a Stop block needs turns after the first stop: --max-turns %d" % turns
+
+
+# ---------------------------------------------------------------- ticket 18: verify-ai-setup helper
+
+def t_verify_ai_setup_run(work):
+    """The repo's own verify tool: launch, doctor (no agent sessions), one hook drive, cleanup. run.log holds
+    exactly the 4 contract lines, the fixtures are gone and the evidence stays."""
+    root = os.path.dirname(AI_DIR)
+    helper = os.path.join(root, ".agents", "skills", "verify-ai-setup", "verify")
+    assert os.access(helper, os.X_OK), "helper missing or not executable: %s" % helper
+
+    def run(*args):
+        res = subprocess.run([helper] + list(args), cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             timeout=600)
+        return res.returncode, res.stdout.decode()
+
+    code, out = run("launch", "--label", "selftest", "empty")
+    assert code == 0, out
+    evidence = out.split("evidence: ", 1)[1].split()[0]
+    try:
+        fixtures = json.load(open(os.path.join(evidence, "state.json")))["tmp"]
+        code, out = run("doctor", "--no-agents")
+        assert code == 0 and "doctor: PASS" in out, out
+        code, out = run("drive", "hook", "PreToolUse",
+                        '{"tool_name": "Bash", "tool_input": {"command": "git push origin main"}}')
+        assert code == 0 and "decision: deny" in out and "merge-approval" in out, out
+        code, out = run("cleanup")
+        assert code == 0, out
+
+        head = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], stdout=subprocess.PIPE).stdout.decode().strip()
+        lines = open(os.path.join(evidence, "run.log")).read().splitlines()
+        assert len(lines) == 4 and lines[:3] == ["commit: " + head, "doctor: PASS", "db_writes: no"], lines
+        assert lines[3].startswith("finished: ") and lines[3].endswith("Z") and "T" in lines[3], lines
+        assert not os.path.exists(fixtures), "cleanup left the fixtures: " + fixtures
+        assert any(n.endswith("-hook.txt") for n in os.listdir(evidence)), os.listdir(evidence)
+    finally:
+        shutil.rmtree(evidence, ignore_errors=True)       # the test's own run; real runs keep their evidence
+
+
+# ---------------------------------------------------------------- ticket 17: wall log, 7-day table
+
+def t_doctor_wall_table(work):
+    """Two real fires (a router gate deny, an ai-adopt refusal) and an old row: ai-doctor shows a 7-day table
+    per wall with the fires and the last 3 short reasons."""
+    state = os.path.join(work, "walls-state")
+    home = os.path.join(work, "walls-home")
+    proj = os.path.join(home, "proj")
+    os.makedirs(proj)
+    subprocess.check_call(["git", "init", "-q", proj])
+    env = dict(os.environ, AI_STATE_DIR=state, HOME=home, AI_NOTIFY_DRY="1")
+    payload = {"hook_event_name": "PreToolUse", "session_id": "w1", "cwd": proj, "tool_name": "Bash",
+               "tool_input": {"command": "git commit --no-verify -m wip"}}
+    res = subprocess.run([sys.executable, os.path.join(HOOKS, "router.py"), "--agent", "claude", "PreToolUse"],
+                         input=json.dumps(payload).encode(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    assert b'"deny"' in res.stdout, res.stdout
+    res = subprocess.run([sys.executable, os.path.join(BIN, "ai-start"), "--dir", home, "--init"],
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    assert res.returncode == 1 and b"refused" in res.stdout, res.stdout
+    old = {"ts": iso(time.time() - 8 * 86400), "host": "m", "repo": "", "wall": "secret-scan", "reason": "old"}
+    with open(os.path.join(state, "walls.jsonl"), "a") as fh:
+        fh.write(json.dumps(old) + "\n")
+    doctor = load(os.path.join(BIN, "ai-doctor"), "aidoc_walls")
+    doctor.STATE = state
+    out = io.StringIO()
+    with redirect_stdout(out):
+        doctor.report_walls()
+    text = out.getvalue()
+    assert "walls, last 7 days" in text, text
+    rows = {ln.split()[0]: ln for ln in text.splitlines()[1:] if ln.strip()}
+    assert set(rows) == {"no-verify", "ai-adopt"}, "8 days old: not counted: " + text
+    assert rows["no-verify"].split()[1] == "1" and "--no-verify" in rows["no-verify"], text
+    assert rows["ai-adopt"].split()[1] == "1" and "--init" in rows["ai-adopt"], text
 
 
 # ---------------------------------------------------------------- helpers
@@ -145,7 +224,19 @@ def write(path, text):
         fh.write(text)
 
 
-TESTS_LIST = [t_card_fits_worst_case, t_doctor_skill_stats, t_render_checks_skill_rules, t_eval_turns_let_stop_fire]
+def t_release_runs_maintain(work):
+    """Ticket 06: the release skill runs maintain-verification-skill itself (model-invocable since ticket 01)."""
+    def text(name):
+        with open(os.path.join(AI_DIR, "skills", name, "SKILL.md"), encoding="utf-8") as fh:
+            return fh.read()
+    release = text("release")
+    assert "maintain-verification-skill" in release and "verify-<app>" in release, "release skill: no maintain pass"
+    head = text("maintain-verification-skill").split("\n---", 1)[0]
+    assert "disable-model-invocation" not in head, "maintain-verification-skill must stay model-invocable"
+
+
+TESTS_LIST = [t_release_runs_maintain, t_card_fits_worst_case, t_doctor_skill_stats, t_render_checks_skill_rules, t_eval_turns_let_stop_fire,
+              t_verify_ai_setup_run, t_doctor_wall_table]
 
 if __name__ == "__main__":
     sys.exit(main())

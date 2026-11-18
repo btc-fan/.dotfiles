@@ -54,8 +54,9 @@ Five ideas carry the whole design:
 4. **Few hard stops, and mechanisms for the rest.** On `dev-mac` the agent is autonomous except for the gates:
    `secret-scan` (no key, token or password in a commit or push), `pr-rules` (a PR body must have the agreed
    parts), `merge-approval` (no merge and no push to main without your OK), `no-verify` (no skipped git hooks),
-   and since 2026-11-16 the skill gates, `gh-write`, the winner gate and the graph-first deny. Two stop rules
-   make the agent use a skill before it ends a turn. Section 3.5 lists them all.
+   and since 2026-11-16 the skill gates, `gh-write`, the winner gate and the graph-first deny. No stop rule
+   blocks the end of a turn: `diagnosing-bugs` and `tdd` are hints since 2026-11-18 (ticket 14). Section 3.5
+   lists them all.
 5. **Skills do the method.** Matt Pocock's skills give the engineering flow (grill, spec, tickets, tdd,
    review, PR, retro). Our own skills add verification (`verify-<app>`), prompting other agents and the
    `skills-guide`.
@@ -209,7 +210,8 @@ exits 0. A deny decided before the error still counts.
 | `UserPromptExpansion` | typed `/skill` | Logs that a typed skill fired (proof). |
 | `PreToolUse` | Bash, Read, Edit, Write, MultiEdit, Grep, Glob, Skill, Agent, Task | The gates (section 3.5) and some nudges (ledger areas). Claude Bash also runs the `rtk-hook` wrapper. |
 | `PostToolUse` | Bash, Edit, Write, Skill, context7 tools | Nudges after the fact: after `git commit` (update the Map), after a write with an em dash, after a docs lookup. |
-| `Stop` | every stop | The stop rules (`diagnosing-bugs`, `tdd`: block once per session when the skill was not used). The miss log: a rule fired but the agent never called the tool it named. Then `claude-notify`. The `stop-check` (runs check-fast before "done") is off on `dev-mac`. |
+| `Stop` | every stop | The stop rules (none since 2026-11-18: `diagnosing-bugs` and `tdd` are hints). The verify walls `verify-tool-exists` and `verify-tool-used` (section 3.5). The miss log: a rule fired but the agent never called the tool it named. Then `claude-notify`. The `stop-check` (runs check-fast before "done") is off on `dev-mac`. |
+| `SubagentStop` | every subagent stop | The verify hooks, for each subagent in its own checkout. |
 | `SessionEnd` | every end | Drops the session state file, cleans Serena. |
 | `Notification` | permission or idle prompt | `claude-notify` (a desktop or phone note). |
 
@@ -221,7 +223,7 @@ The design names each kind of help with a layer number. You see these names in t
 
 | Layer | Name | What it is | Example you will see |
 |---|---|---|---|
-| L0 | Routing table | The table at the end of the global rules. Always in context. | "pr-rules (gate) - before gh pr create or edit - PR body: ..." |
+| L0 | Routing table | The table at the end of the global rules. Always in context. | "pr-rules (gate) - before gh pr create, edit or ready - PR body: ..." |
 | L1 | Session start | Rules with `when: session_start`, plus the status line. | `[ai router: project-knowledge] Read the Map and Libraries ...` |
 | L2 | Forced evaluation | After a prompt rule matched: answer YES or NO per tool, then use every YES tool first. | `[ai router L2] Before you act, answer YES or NO ...` |
 | L3 | Regex nudge | A rule whose trigger matched (a prompt word, a command, a file). | `[ai router: no-em-dash] Remove the em dash ...` |
@@ -247,14 +249,14 @@ Global rules (every repo):
 | no-em-dash | nudge | after a write that contains U+2014 | Use "-", ":" or a new sentence. |
 | docs-lookup | nudge | a prompt about a library, SDK or API | context7 with the Libraries ID first. |
 | feature-grill | nudge | a feature request prompt (EN, RO, RU) | Grill first, then to-spec and to-tickets for 3+ files. |
-| verify-before-done | nudge | after a code edit, project with a `verify-<app>` skill | check-fast, then verify-<app> evidence, then e2e. |
+| verify-before-done | nudge | after the first code edit of each agent (main and each subagent), project with a `verify-<app>` skill | check-fast, then verify-<app> evidence, then e2e. |
 | seo-, blog-, browser-not-enabled | nudge | SEO, blog or browser prompt in a project without that tool | Suggest `ai-adopt --tools <id>`. Do not install it. |
 | merge-approval, no-verify | **gate** | `gh pr merge` or a push to main; `--no-verify` | Wait for your "merge"; fix what the git hook reports. |
 | writing-for-agents | **gate** | before an edit or shell write of AGENTS.md, CLAUDE.md, CLAUDE.local.md, a SKILL.md | Load the `writing-for-agents` skill first. |
 | ship | **gate** | before `gh pr ready` | Run the `ship` skill first. |
 | gh-write | **gate** | a `gh` write other than the PR commands | Ask the owner. |
-| diagnosing-bugs | **stop** | a bug or performance prompt | Use the `diagnosing-bugs` skill before the turn ends. |
-| tdd | **stop** | a tests-first prompt | Use Matt's `tdd` skill before the turn ends. |
+| diagnosing-bugs | nudge | a bug or performance prompt | Use the `diagnosing-bugs` skill. A hint: the turn end is not blocked. |
+| tdd | nudge | a tests-first prompt | Use Matt's `tdd` skill. A hint: the turn end is not blocked. |
 
 Opt-in rows (only where the project turned the tool on): serena, graph (both on by default), omc, seo, blog,
 browser, ui, tracker-flow, domain-docs, knowledge-wiki.
@@ -279,9 +281,11 @@ that matters is a mechanism that runs at the moment of the action, for Claude Co
 | Mechanism | Event | What it does |
 |---|---|---|
 | Gate | PreToolUse | Denies the tool call with the reason and the next step |
-| Stop rule | Stop | A prompt arms it. The next Stop gets `{"decision": "block"}` once per session when the skill was not used |
-| Skill card | SessionStart | A short text (under 1500 characters) with the must-use skills and the typed-only skills |
+| Stop rule | Stop | A prompt arms it. The next Stop gets `{"decision": "block"}` once per session when the skill was not used. No rule uses it since 2026-11-18 |
+| Skill card | SessionStart | A short text (under 1500 characters) with the must-use skills, the hint skills and the typed-only skills |
 | Winner table | PreToolUse on the Skill tool | Denies a skill that loses in an overlap, and names the winner |
+| Verify walls | Stop, SubagentStop | `verify-tool-exists` and `verify-tool-used`: block the end of a turn that changed app code without a proven `verify-<app>` or a fresh valid run (below) |
+| Verify commit gate | git pre-commit (`ai-precommit`) | Refuses a commit that adds a test without a valid verify run newer than HEAD |
 | Measurement | `ai-doctor`, `ai-eval` | Skill use over 30 days, misses of the skill rules, hit rate per case |
 
 **Proof of a skill.** A skill counts as used when the session has one of these: a Skill tool call, a typed `/name`,
@@ -295,19 +299,29 @@ cache, the machine copy). The proof lives in the session state, not in the share
 |---|---|---|---|
 | `writing-for-agents` | gate | the skill before an Edit, Write, MultiEdit or `apply_patch` of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md, and before a shell write (`>`, `>>`, `tee`, `sed -i`, `cp`, `mv`) onto them | Not seen: `python -c`, `perl -i`, a script file |
 | `ship` | gate | the skill before `gh pr ready` | `gh pr ready --undo` passes |
-| `diagnosing-bugs` | stop | the skill before the turn ends, after a bug or performance prompt (slow, performance, broken, debug, crash, regression; Romanian and Russian forms) | Once per session |
-| `tdd` | stop | Matt's `tdd` before the turn ends, after a tests-first, tdd or red-green prompt | Once per session |
 | `gh-write` | gate | the owner says yes (Codex: denied with a message) | `gh` reads pass. `pr create`, `edit`, `ready`, `merge` keep their own gates |
 | graph-first (`nav-first`) | gate, once | `graphify query` before the first broad search (`rg`, `grep -r`, `find -name`, the Grep tool) in a repo with a graph | The next search passes. A stale graph: "graphify update, then query". A session that used graphify or a Serena tool passes. Serena symbol tools are the right answer for "where is X used" |
 
 Each block is a row in `~/.local/state/ai/misses.jsonl`. `ai-doctor` shows the misses and the use of each skill over
 30 days.
 
+**Hints, not stops (2026-11-18, ticket 14).** `diagnosing-bugs` (a bug or performance prompt: slow, performance,
+broken, debug, crash, regression; Romanian and Russian forms) and `tdd` (a tests-first, tdd or red-green prompt) were
+stop rules. As stops they blocked 7 of 7 turns falsely: research and setup prompts that only mention debug, broken
+or crash. Now they are nudges. The prompt still shows the hint. The end of the turn is never blocked.
+
+**OMC walls (2026-11-18, ticket 15).** OMC's magic keywords are off: install.sh puts `OMC_SKIP_HOOKS=keyword-detector`
+(OMC's own switch) into the Claude settings env on every machine. The word "autopilot" in a normal prompt starts
+nothing. A typed `/oh-my-claudecode:autopilot` still runs the skill. `ai-doctor` checks the switch. The OMC
+context-guard Stop hook stays on: OMC 5.8.5 has no switch for it. install.sh sets its own knob
+`OMC_CONTEXT_GUARD_THRESHOLD=94` (default 75, range 1 to 94), so it blocks the turn end only near a full context
+(ticket 20). `ai-doctor` shows the threshold.
+
 **The skill card.** At every SessionStart (startup, resume, clear, compact) the agent gets one card. It names the
-4 must-use skills (`writing-for-agents`, `diagnosing-bugs`, `ship`, `tdd`) with one trigger line each. It also lists
-the 10 typed-only skills (`grill-with-docs`, `to-spec`, `to-tickets`, `implement`, `handoff`, `wayfinder`,
-`improve-codebase-architecture`, `retro`, `create-verification-skill`, `maintain-verification-skill`). The model
-cannot call a typed-only skill (`disable-model-invocation`). So the card says: read the `SKILL.md`, follow it, and
+2 must-use skills that a gate checks (`writing-for-agents`, `ship`) and 2 hint skills (`diagnosing-bugs`, `tdd`), with
+one trigger line each. It also lists
+the 8 typed-only skills (`grill-with-docs`, `to-spec`, `to-tickets`, `implement`, `handoff`, `wayfinder`,
+`improve-codebase-architecture`, `retro`). The model cannot call a typed-only skill (`disable-model-invocation`). So the card says: read the `SKILL.md`, follow it, and
 tell the owner the typed form. The data is the `skills:` block of `ai/routing.yaml`. `ai-render` fails when the
 worst case is over 1500 characters.
 
@@ -323,8 +337,24 @@ of `oh-my-claudecode:tdd` is denied, and the agent uses Matt's `tdd`.
 - Codex has no Skill tool. There, a shell read of a losing skill file is denied the same way.
 - A test keeps the skills guide table and the data in step.
 
+**Verify walls (2026-11-18, verify-enforcement 02 to 04).** They read `.verify/evidence/<run>/run.log` of the
+agent's own checkout (a linked worktree is its own checkout). A run counts when its log has all 4 lines, `doctor:
+PASS` and `db_writes: no` (contract: `ai/rules/verification-skill.md`).
+- `verify-tool-exists` (Stop, SubagentStop, adopted repos): app code changed in the turn, and the project has no
+  `verify-<app>` skill, or one without a valid run. The message says: build it with `create-verification-skill`,
+  prove it with one real run.
+- `verify-tool-used` (Stop, SubagentStop, adopted repos): app code changed in the turn, and no valid run finished
+  after the first change. The message names the skill and its launch, doctor, drive and cleanup commands.
+- The change comes from git (the code files that differ from the turn start, tests too), so a shell write and a
+  commit count. Loop limits: 2 blocks per app-code state, 4 per chain of stops.
+- Commit gate (`ai-precommit`, every writer: Claude, Codex, subagents, the shell, you): in a project with a verify
+  skill, a staged `def test_...(` (Python) or `test(` / `it(` in a JS or TS spec file needs a valid run that finished
+  after HEAD's commit time. Edits and deletions of tests pass. Each refusal is a `verify-commit` line in the wall log.
+- PR gate (`pr-rules`, hook 4): a PR with app code needs a valid run at the PR head. `gh pr edit <N>` and `gh pr
+  ready <N>` read that head from `gh pr view <N>`. Each verify refusal is a `verify-pr` line in the wall log.
+
 **The escape hatch.** Every deny path honours it: `sudo ai-gate-skip <gate> <minutes max 60> <why>`. The gate name is
-the rule id, `winner-gate` or `nav-first`. The agent has no sudo, so it cannot skip a gate itself.
+the rule id, `winner-gate`, `nav-first`, `verify-tool-exists`, `verify-tool-used` or `verify-commit` (the commit gate). The agent has no sudo, so it cannot skip a gate itself.
 
 **Known limits.**
 - The winner gate on the Skill tool is Claude only. Codex gets the file-read form.
@@ -333,19 +363,21 @@ the rule id, `winner-gate` or `nav-first`. The agent has no sudo, so it cannot s
   there. It stays complete in the root rules.
 - Codex must trust the changed `router.py`, `hooklib.py` and `stop-check.py` again after an install (`ai-sync`
   writes the trust hashes).
-- A git hook in the dotfiles checkout (post-merge, post-rewrite) runs `ai-sync` and so puts the checkout live in
-  `~/.codex`. While a feature branch of this repo is merged in a dev checkout, merge with
-  `git -c core.hooksPath=/dev/null merge ...`, so unreviewed code does not go live.
+- The git hooks of the dotfiles repo (post-merge, post-rewrite) are shared by every worktree. Since hook v2
+  (ticket 19) they run `ai-sync` only in the installed copy `~/.dotfiles-ai`. `ai-sync` itself also stops in any
+  other checkout: it prints one line and changes no link and no cache. So a merge in a dev worktree stays off
+  the live machine. A machine with a v1 hook gets v2 from `~/.dotfiles-ai/ai/bin/ai-sync --install-hook`.
 
 ### 3.6 Testing the setup with ai-eval
 
-`ai/bin/ai-eval` tests the setup in three levels. Reports go outside the repo.
+`ai/bin/ai-eval` tests the setup in four levels. Reports go outside the repo.
 
 | Level | Command | What it does |
 |---|---|---|
 | Fixtures | `ai-eval fixtures DIR` | Makes the fixture repos in DIR: `empty-git`, `docs-only`, `no-git`, `app` (a Python package with a test, a Makefile with `check` and a `verify-app` skill) and `project-copy` (a clone of the repo in `$AI_EVAL_PROJECT`, without its remotes) |
 | Install | `ai-eval install [--keep] [--out DIR]` | Runs `ai-adopt` twice on each fixture in a throwaway HOME, then `ai-doctor --project-only` and the uninstall. A pass: both runs exit 0, the second run changes no tracked file, doctor and uninstall exit 0. `no-git` must be refused first, then pass with `--init` |
 | Behaviour | `ai-eval behaviour [--agent claude\|codex\|both] [--runs N] [--dry] [--out DIR]` | Starts a fresh headless `claude -p` or `codex exec` per case and run, on a fresh copy of the adopted fixture. `--dry` only lists the runs |
+| Scenario | `ai-eval scenario [--agent claude\|codex\|both] [--runs N] [--only ID] [--dry] [--out DIR]` | Runs the steps of `ai/evals/scenarios/<id>.json` on one repo copy: sessions, harness git and write steps, state checks. With `"plugin": "checkout"` the sessions use this checkout's hooks, not the installed ones. Format: `ai/evals/HOWTO.md` |
 
 How a behaviour run is made safe and scored:
 - `AI_STATE_DIR` points to a folder of the run, so your own stats stay clean. The herdr variables are unset.
@@ -555,6 +587,7 @@ Profile `dev-mac` switches (file `ai/profiles/dev-mac.env`):
 | PROFILE_ROOT_LAYER | 0 | Linux: everything in the home folder, no sudo, no /etc files |
 | PROFILE_GUARDS | 0 | No ask/deny permission rules, no Stop check, no-sudo and no-destroy rows off |
 | PROFILE_OPENCODE, PROFILE_BOX, PROFILE_LAST30DAYS | 0 | Those tools are not installed |
+| PROFILE_GITLEAKS | 1 | gitleaks is installed at the pinned version (`GITLEAKS_HOLD` in `ai/pins.env`) for the secret-scan gate |
 
 Useful flags:
 - `--skip-scan <tool,...|all>`: skip the scanner for these tools (only matters on a profile with scanners).
@@ -571,6 +604,10 @@ ai-sync --dry-run             print what would change
 ```
 
 Use it after you edit a rule, or after a `git pull` when you do not want a full install.
+
+Only the installed copy changes the machine: `~/.dotfiles-ai`, or a root-owned admin copy such as
+`/opt/ai-setup`. Run from another checkout (a dev worktree), `ai-sync` prints one line, changes nothing and
+exits 0. Use `--dry-run` there to see the plan (ticket 19, R-010).
 
 It also links each skill in `ai/skills` into `~/.claude/skills` and `~/.agents/skills` (only folders that
 install.sh made; a real folder that is not ours stays). So a new skill arrives with `git pull`: no install.sh run.
@@ -689,9 +726,8 @@ When you start Claude in a repo, the router sends this (real, demo repo before `
 ```
 [ai router: project-knowledge] Read the Map and Libraries sections of this repo's AGENTS.md first, then search
 narrowly. tier: none (not adopted; ai-adopt sets it). Map: missing (ai-adopt writes it). Libraries: no lockfile.
-Serena on. Graph: missing, run GRAPHIFY_BACKEND=none graphify extract . --code-only. Verify skill: missing, run
-/create-verification-skill (typed-only; agent: read ~/.claude/skills/create-verification-skill/SKILL.md and
-follow it).
+Serena on. Graph: missing, run GRAPHIFY_BACKEND=none graphify extract . --code-only. Verify skill: missing. Agent
+task: build verify-<app> with create-verification-skill at the first feature task, and prove it with one real run.
 
 [ai router: no-ai-base] No AI base or Map here. Suggest the owner runs ai-adopt.
 
@@ -710,7 +746,7 @@ Read each field:
 | Libraries | current, stale, no lockfile | stale: `ai-libs --sync` |
 | Serena | on or off (`no-serena`) | nothing |
 | Graph | present or missing | missing: the command it prints |
-| Verify skill | `verify-<app> (N features)`, stale, missing | missing: type `/create-verification-skill` once |
+| Verify skill | `verify-<app> (N features)`, stale, missing | missing: nothing. The agent builds it with `create-verification-skill` at the first feature task |
 
 Note: the word "tier" in the status line is from the version installed today. Tiers are removed in the next
 rollout (every project is the full set). Not verified at the time of writing.
@@ -747,7 +783,15 @@ you commit or push.
 Only the owner can let it through, by running the command himself. Do not try to get around the gate.
 ```
 
-The agent must stop and tell you. If the hit is a false alarm (a test fixture), you run the commit yourself.
+The agent must stop and tell you. If the hit is a false alarm, you run the commit yourself.
+
+Since ticket 11 (2026-11-18) fewer false alarms reach you. In test code (`tests/`, `fixtures/`, `conftest.py`)
+only a real key shape blocks, for example a `ghp_` token with real length and entropy. A fake test password such
+as `adminpass123` passes there. Config and sample files (`.env.example`, `*.sample`, a `.yml` or `.properties`
+file in a test folder) keep every rule: there only a value with a clear fake marker (`test`, `fake`, `changeme`,
+`xxx`, ...) passes. A merge commit does not scan content
+that is already on the default branch again. The same key shapes in app code still block. Profile dev-mac
+installs gitleaks (pinned version), and the gate runs it next to its own patterns.
 
 ### 7.5 Gate: pr-rules (L4)
 
@@ -758,9 +802,9 @@ The agent runs `gh pr create --title x --body 'just a summary'`. Today's install
 check command and the tail of its output); Risk: (one line: what can break). ...
 ```
 
-After the rollout the gate checks the new template (section 11): Summary with Mermaid, Evidence, Door, Blast
-Radius, Docs, Changed guards, Ledger on fix PRs, author-sessions block. The exact new message is not verified at
-the time of writing.
+After the rollout the gate checks the new template (section 11). It blocks without: Summary with Mermaid,
+Evidence, Door, Blast Radius, author-sessions block. Docs, Changed guards and Ledger (fix PRs) only give a
+warning (ticket 13, 2026-11-18). The exact new message is not verified at the time of writing.
 
 ### 7.6 ai-adopt plan and diff
 
@@ -1275,18 +1319,18 @@ Keep this in one session (no compact between to-spec and to-tickets).
 
 #### Step B5: the verify skill for a mobile app
 
-Do this once the app launches. It is the proof tool for every later ticket.
+The agent does this at the first feature task, once the app launches. It is the proof tool for every later ticket.
 
 ```
-You:    /create-verification-skill
-Agent:  [reads ~/.claude/skills/create-verification-skill/SKILL.md]
+Agent:  [first feature task (step B6); status: "Verify skill: missing. Agent task: build verify-<app> ..."]
+        [Skill: create-verification-skill]
         [writes .agents/skills/verify-tripnotes/SKILL.md: Launch, Doctor, Drive, Evidence, Cleanup, Helpers]
         Launch:   npx expo run:ios / npx expo run:android (simulator and emulator)
         Doctor:   xcrun simctl list devices booted; adb devices
         Drive:    Maestro flows per feature (features/create-note.md -> flows/create-note.yaml)
-        Evidence: xcrun simctl io booted screenshot artifacts/create-note/ios.png;
-                  adb exec-out screencap -p > artifacts/create-note/android.png; app logs
-        [runs it once end to end; a skill that never ran is a draft]
+        Evidence: xcrun simctl io booted screenshot .verify/evidence/<run>/ios.png;
+                  adb exec-out screencap -p > .verify/evidence/<run>/android.png; app logs; run.log
+        [runs it once end to end; a skill that never ran is a draft; then the ticket starts]
 ```
 
 Then rerun `ai-adopt` to add the committed link `.claude/skills/verify-tripnotes`.
@@ -1306,7 +1350,7 @@ Agent:  Ticket: "Create a note offline".
         [Skill: code-review]  Standards: 1 finding (naming). Spec: matches the ticket.
         [fixes the finding] [commit: feat(notes): create a note offline]
         [verify-before-done nudge] check-fast green; verify-tripnotes create-note: evidence in
-        artifacts/create-note/; then e2e: flows/create-note.yaml added.
+        .verify/evidence/<run>/; then e2e: flows/create-note.yaml added.
         [moves the ticket to docs/tickets/tripnotes-v1/done/]
 You:    /clear
 You:    /implement docs/tickets/tripnotes-v1/02-sync-note-up.md
@@ -1352,7 +1396,8 @@ You:    /implement docs/tickets/tripnotes-v1/02-sync-note-up.md
 - After a commit that adds, deletes or renames modules: the router asks the agent to update the Map.
 - After a dependency change: `ai-libs --sync`.
 - When a lesson repeats twice: add one line to Lessons (max 15). When a check covers it: delete the line.
-- Every month in an active project: `/maintain-verification-skill` (the status line says when it is stale).
+- Every month in an active project, and in every release: the agent runs `maintain-verification-skill` (the
+  status line says when it is stale; the `release` skill runs it).
 
 #### Upgrade a project after a setup change
 
@@ -1578,7 +1623,8 @@ Rules:
   (call tree, file tree, diff sketch) are optional extras.
 - Evidence: Before and After. Screenshots are best for visual changes. Test output is next best. Include the
   check-fast tail. With a `verify-<app>` skill and app code in the diff: the verify evidence path and the e2e
-  test path.
+  test path. The pr-rules gate checks the proof itself: a valid `.verify/evidence/<run>/run.log` at the PR head
+  SHA (on create, edit and ready).
 - Door: one-way (hard to reverse: migrations, deletions, public API) or two-way (a revert fixes it).
 - Blast Radius: what else can break.
 - Docs, Changed guards: every project. Ledger: on fix PRs.
@@ -1588,9 +1634,14 @@ Rules:
 
 ### 11.2 What the gate checks
 
-`pr-rules` runs before `gh pr create` and before `gh pr edit` with a body. It denies when a part is missing or
-is placeholder text (`TODO`, `TBD`, `<...>`, `n/a`). It refuses `--fill` and `--web` (they hide the body). Over
-400 changed lines (lockfiles and generated files left out) is a warning, not a block.
+`pr-rules` runs before `gh pr create` and before `gh pr edit` with a body. It denies when a core part is missing
+or is placeholder text (`TODO`, `TBD`, `<...>`, `n/a`): the Mermaid diagram, Evidence, Door, Blast Radius, the
+author-sessions block. Docs, Changed guards and Ledger give a warning only. It refuses `--fill` and `--web` (they
+hide the body). Over 400 changed lines (lockfiles and generated files left out) is a warning, not a block.
+
+The gate reads `--body-file "$B"` when `B=<path>` is set earlier in the same command. When it cannot read the
+body file, it says "could not read the body file <path>". With `--base ai` it compares with `origin/ai` (it
+fetches that branch when it is missing), never with main.
 
 Verified on all 3 machines after the rollout (2026-11-15): a body in the template above is allowed; an old body
 with `Verify:` and `Risk:` instead of Evidence and Merge Danger is denied. `**Door:**` must say one-way or
@@ -1643,7 +1694,7 @@ Never: a commit on `main` or `master`, `git add -A` without `git status` first, 
 | Build one ticket | `/implement <ticket path>` | code, tests, commit |
 | Build a whole spec in parallel | `/implement-spec <spec>` (opt-in) | integration branch |
 | Hard bug | "diagnose <symptom>" | regression test, fix, ledger row |
-| Prove a feature | verify-<app> (make it once: `/create-verification-skill`) | `artifacts/<feature>/` |
+| Prove a feature | verify-<app> (the agent makes it with `create-verification-skill`) | `.verify/evidence/<run>/` |
 | Review a diff | "Matt code-review skill since main" | Standards + Spec report |
 | Open a PR | ask the agent; the pr skill shapes the body | PR that passes the gate |
 | Session must travel | `/handoff <next focus>` | file in `$TMPDIR` |
@@ -1671,8 +1722,9 @@ Never: a commit on `main` or `master`, `git add -A` without `git status` first, 
    in a test fixture), run the commit yourself in your terminal. The agent must not try to get around the gate
    (no other command, no other agent).
 3. pr-rules: fill the missing parts of the body (section 11) and pass it with `--body-file`.
-4. merge-approval: say "merge" (or "approve") in your next message, or merge on GitHub yourself. A question
-   ("is it approved?") and a "don't merge yet" do not count. Your next message without the word clears it.
+4. merge-approval: say "merge" (or "approve") in your next message, or merge on GitHub yourself. "merge 18",
+   "merge #18", "merge the branches" and "lets merge everything" also count. A question ("is it approved?"),
+   "don't merge yet", "wait" and "ok go for it" do not count. Your next message without the word clears it.
 5. no-verify: the agent fixes what the pre-commit hook reports and commits again.
 
 ### Claude says "You've hit your weekly limit"
@@ -1720,14 +1772,17 @@ A hook rewrites shell commands to `rtk <cmd>` to cut output. That is normal. On 
 
 Run `ai-sync`. Check with `ai-sync --check`.
 
-### A gate or a stop rule blocked the agent
+### A gate blocked the agent
 
 1. Read the reason. It names the skill or the step: "load the writing-for-agents skill first", "run the ship skill",
    "run graphify query first", "use X, not Y" (winner gate).
 2. The agent fixes it: it calls the skill, or reads its `SKILL.md`. A typed-only skill: it reads the file.
 3. A real exception (owner only): `sudo ai-gate-skip <gate> <minutes max 60> <why>`. Gate names: the rule id,
    `winner-gate`, `nav-first`. Each skip is a line in `~/.local/state/ai/gates.log`.
-4. Count the blocks: `ai-doctor` (misses of the skill rules, 30 days) or `~/.local/state/ai/misses.jsonl`.
+4. Count the blocks: `ai-doctor` prints the table "walls, last 7 days": per wall the fires and the last 3 short
+   reasons (gate denies, stop blocks, `ai-adopt` and `agent-audit` refusals). The raw log is
+   `~/.local/state/ai/walls.jsonl`, one line per fire: time, machine, repo, wall id, short reason. A wall with many
+   false fires is a candidate for a hint (owner decision 2026-11-18: more than 1 in 3 false after 7 days).
 
 ### Something is broken after an upgrade
 
@@ -1790,7 +1845,7 @@ flowchart TD
 
 | Event | What runs | How it starts |
 |---|---|---|
-| `git commit` | lint and format check on the staged files (`ai-precommit`) | `.git/hooks/pre-commit` (ai-adopt; a repo with its own hooks keeps them) |
+| `git commit` | lint and format check on the staged files (`ai-precommit`); with a `verify-<app>` skill, a commit that adds a test needs a valid verify run newer than HEAD | `.git/hooks/pre-commit` (ai-adopt; a repo with its own hooks keeps them) |
 | Feature done | `ship` skill | you say "ship it", or the feature flow nudge |
 | Before a merge | your word: "merge" or "approve" | `merge-approval` gate |
 | main moved | `/improve-codebase-architecture` and `/retro` on the changed area | `merge-review` rule at session start (`.ai/last-review` holds main at the last review) |
@@ -1806,7 +1861,7 @@ flowchart TD
 |---|---|---|
 | secret-scan | a commit or push with a key, token or password | removing the secret |
 | pr-rules | a PR body without the template parts | a complete body |
-| merge-approval | `gh pr merge`, `gh api .../pulls/N/merge`, a push to main or master (also `--all`, `--mirror`, `HEAD:main`, inside `bash -c`) | your latest message says merge or approve; a question or "don't merge yet" does not count; your next message without the word clears it |
+| merge-approval | `gh pr merge`, `gh api .../pulls/N/merge`, a push to main or master (also `--all`, `--mirror`, `HEAD:main`, inside `bash -c`; the branch of the checkout that `cd <dir>` or `git -C <dir>` names) | your latest message says merge or approve; a question or "don't merge yet" does not count; your next message without the word clears it |
 | no-verify | `git commit --no-verify`, `git commit -n`, `git push --no-verify` | a commit that passes the hook |
 
 ### 15.4 UI from day one
@@ -1861,7 +1916,7 @@ adopted repo gets `.ai/docs-allow` with the files that were already there. A res
 
 Adopt an existing repo yourself, the same way:
 1. `git switch -c ai-setup-<date> origin/main` (or a worktree when you have open work: `git worktree add ../x-ai-setup -b ai-setup-<date> origin/main`).
-2. `ai-adopt`. It commits on that branch and pushes it with an upstream. In a worktree it uses the main checkout's name and its `.venv`. On main or master it never commits there: it makes the branch `ai-adopt` and tells you to merge it. Without a remote it does not push and says "no remote". A folder without git: `ai-adopt --init` runs `git init` first (never in your home folder or in `/`). A docs-only or empty repo gets a `make check` with the Markdown checks (placement, no em dash, relative links).
+2. `ai-adopt`. It commits on that branch and pushes it with an upstream. In a worktree it uses the main checkout's name and its `.venv`. On main or master it never commits there: it makes the branch `ai-adopt` and tells you to merge it. If an `ai-adopt` branch is left from an earlier run, `gh pr view ai-adopt` decides. Its PR is merged: ai-adopt deletes the old branch (local and remote) and starts a new one. Its PR is open: the commit goes on that branch. No gh, no PR or no remote: ai-adopt stops before it writes a file and prints the commands. Without a remote it does not push and says "no remote". A folder without git: `ai-adopt --init` runs `git init` first (never in your home folder or in `/`). A repo with no `pyproject.toml` or `requirements*.txt` but a `tests/` folder of `test_*.py` files is a Python repo: check-fast runs `python3 -m unittest discover -s tests` (pytest when the test files use it). A docs-only or empty repo gets a `make check` with the Markdown checks (placement, no em dash, relative links).
 3. Ask the agent to open the PR, or open it on GitHub. Merge it yourself, or say "merge".
 
 ### 15.9 Where to run a session
@@ -1915,7 +1970,7 @@ Result on 2026-11-17 (after the enforcement round): 14 suites, all 0 failed; the
 | `test_commands.py` | 16 | ai-start, ai-sync (rules copies, skill links), hooks files, no em dash, router speed |
 | `test_profiles.py` | 7 | dev-mac and server render and install plans (fixtures) |
 | `test_info.py` | 6 | ai-info output |
-| `test_eval.py` | 11 | `ai-eval`: fixtures, the install level on fake binaries, the stream scorer, `behaviour --dry`, the case files |
+| `test_eval.py` | 15 | `ai-eval`: fixtures, the install level on fake binaries, the stream scorer, `behaviour --dry`, the case files, scenarios (fake agents, the checkout plugin, `--dry`) |
 | `test_box.py` | 30 checks | the box MCP server (servers only) |
 
 New router rules of 2026-11-16 and their cases: merge-approval 16, no-verify 7, nav-first 7, merge-review 4,

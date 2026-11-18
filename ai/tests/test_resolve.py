@@ -39,7 +39,8 @@ def main():
                      t_claude_dir_same_version, t_claude_fresh_install_checked, t_claude_own_replace_rollback,
                      t_claude_plugin_rejected_newest,
                      t_codex_plugin_refresh, t_bash_mattpocock_optin, t_bash_pstack, t_audit_accept_by_commit, t_uv_tool_normalized, t_scanners,
-                     t_osv_scanner, t_herdr, t_src_swap_and_dry_sha, t_playwright_keep_only):
+                     t_osv_scanner, t_gitleaks_pin, t_herdr, t_src_swap_and_dry_sha, t_playwright_keep_only,
+                     t_playwright_profile_audit):
             for k in ENV_KEYS:
                 os.environ.pop(k, None)
             resolve._FIXTURES = None
@@ -366,6 +367,8 @@ def t_pins_file(work):
         assert t in specs and specs[t]["channel"] == "stable" and not specs[t]["hold"], t
     keys = [ln.split("=", 1)[0] for ln in text.splitlines() if "=" in ln and not ln.startswith("#")]
     for k in keys:
+        if k.startswith("GITLEAKS_SHA256_") and "GITLEAKS_HOLD" in keys:
+            continue        # review S6: the archive sha256 of the held gitleaks release, checked by tools_gitleaks
         assert not k.endswith(("_INTEGRITY", "_SHA", "_REF", "_TAG", "_COMMIT", "_COOLDOWN_DAYS", "_NOT_BEFORE")) \
             and "_SHA256" not in k, "exact pin left in pins.env: " + k
         assert not k.endswith("_VERSION") or k in ("SKILL_SCANNER_MACOS_LEGACY_VERSION", "PYYAML_VERSION"), k
@@ -597,7 +600,8 @@ def t_bash_pstack(work):
     for n in ("create-verification-skill", "maintain-verification-skill"):
         write(os.path.join(up, "pstack", "skills", n, "SKILL.md"),
               '---\nname: %s\ndescription: "Write .cursor/skills/verify-<app>/ files."\n---\n\n# %s\n'
-              'Use `.cursor/skills/verify-<app>/SKILL.md`.\n' % (n, n))
+              'Use `.cursor/skills/verify-<app>/SKILL.md`.\n'      # the sentence the adapter replaces (ticket 01)
+              'A repo can have several; pick the primary one and note the rest.\n' % (n, n))
     git("add", "-A", cwd=up)
     git("commit", "-q", "-m", "one", cwd=up)
     sha = git("rev-parse", "HEAD", cwd=up)
@@ -783,6 +787,42 @@ def t_osv_scanner(work):
     assert "sha256 differs" in out and not os.path.exists(inst), out
 
 
+def t_gitleaks_pin(work):
+    """Review S6: gitleaks installs only when the archive's sha256 is the one pinned in ai/pins.env
+    (GITLEAKS_SHA256_<OS>_<ARCH>, for GITLEAKS_HOLD), not only the one in the release's own checksums file."""
+    import io
+    import tarfile
+    asset = "gitleaks_8.30.1_darwin_%s.tar.gz" % ("x64" if os.uname().machine in ("x86_64", "amd64") else "arm64")
+    pin_var = "GITLEAKS_SHA256_DARWIN_%s" % ("X64" if "x64" in asset else "ARM64")
+    binary = b"#!/bin/sh\necho gitleaks version 8.30.1\n"
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        info = tarfile.TarInfo("gitleaks")
+        info.size, info.mode = len(binary), 0o755
+        tf.addfile(info, io.BytesIO(binary))
+    import hashlib
+    digest = hashlib.sha256(buf.getvalue()).hexdigest()
+    base = "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/"
+    sums = "gitleaks_8.30.1_checksums.txt"
+    rel = {"tag_name": "v8.30.1", "prerelease": False, "draft": False,
+           "assets": [{"name": sums, "browser_download_url": base + sums}]}
+    http = {"https://api.github.com/repos/gitleaks/gitleaks/releases?per_page=100": [rel],
+            "https://api.github.com/repos/gitleaks/gitleaks/releases/tags/v8.30.1": rel,
+            base + sums: "%s  %s\n" % (digest, asset)}
+    env, home, bindir = web_env(work, 'GITLEAKS_SOURCE="github gitleaks/gitleaks stable"\nGITLEAKS_HOLD=8.30.1\n',
+                                {}, http)
+    os.makedirs(os.path.join(work, "web"), exist_ok=True)
+    with open(os.path.join(work, "web", (base + asset).replace("/", "_")), "wb") as fh:
+        fh.write(buf.getvalue())
+    inst = os.path.join(home, ".local", "bin", "gitleaks")
+    code, out = bash(LIBS + '%s=%s; tools_gitleaks' % (pin_var, "0" * 64), env)
+    assert "differs from the pin" in out and not os.path.exists(inst), out
+    code, out = bash(LIBS + '%s=""; tools_gitleaks' % pin_var, env)
+    assert "no pinned sha256" in out and not os.path.exists(inst), out
+    code, out = bash(LIBS + '%s=%s; tools_gitleaks' % (pin_var, digest), env)
+    assert os.path.exists(inst) and "pinned sha256 checked" in out, out
+
+
 def t_herdr(work):
     """herdr: sha256 from herdr's release manifest; a GitHub attestation is checked only with a logged-in gh;
     otherwise "unaudited binary update"; a mismatch stops the install."""
@@ -850,6 +890,29 @@ def t_playwright_keep_only(work):
     res = subprocess.run(["bash", os.path.join(AI_DIR, "bin", "ai-playwright-mcp")], stdout=subprocess.PIPE,
                          env={"HOME": home, "PATH": os.environ["PATH"]})
     assert res.stdout.decode().strip() == "pw-0.0.85", res.stdout
+
+
+def t_playwright_profile_audit(work):
+    """ai-adopt --tools browser (ticket 16): profile dev-mac audits no npm installs (owner 2026-11-14), so the
+    pinned @playwright/mcp installs with "audit skipped: profile dev-mac"; profile server still needs a PASS."""
+    pins = 'PLAYWRIGHT_MCP_SOURCE="npm @playwright/mcp stable"\n'
+    latest = {NPM + "@playwright%2Fmcp/latest": {"version": "0.0.90", "dist": {"integrity": "sha512-pw"}}}
+    for profile in ("dev-mac", "server"):
+        env, home = npm_env(os.path.join(work, profile), pins, latest, {"@playwright/mcp@0.0.90": "sha512-pw"},
+                            {"AI_PROFILE": profile, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t.invalid",
+                             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t.invalid"})
+        proj = os.path.join(work, profile, "proj")
+        git("init", "-q", proj)
+        res = subprocess.run([sys.executable, os.path.join(AI_DIR, "bin", "ai-start"), "--dir", proj, "--tools",
+                              "browser", "--yes", "--no-onboard", "--no-knowledge", "--no-measure"],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, timeout=120)
+        out = res.stdout.decode()
+        pkg = os.path.join(home, ".local", "share", "ai", "npm", "playwright-mcp-0.0.90", "node_modules",
+                           "@playwright", "mcp", "package.json")
+        if profile == "dev-mac":
+            assert "audit skipped: profile dev-mac" in out and os.path.isfile(pkg), out
+        else:
+            assert "no agent-audit PASS" in out and not os.path.exists(pkg), out
 
 
 FAKE_CLAUDE = r'''#!/usr/bin/env python3

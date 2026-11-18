@@ -6,7 +6,8 @@
    "expect": "deny",
    "event": "PreToolUse",
    "payload": {"tool_name": "Bash", "tool_input": {"command": "git commit --no-verify -m 'wip'"}},
-   "project": {"git": true}
+   "project": {"git": true},
+   "state_contains": {"walls.jsonl": "\"wall\": \"no-verify\""}
   },
   {
    "name": "commit -n (short form)",

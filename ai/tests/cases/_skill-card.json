@@ -10,7 +10,9 @@
     ".claude/skills/to-spec/SKILL.md": "---\nname: to-spec\ndisable-model-invocation: true\n---\nbody\n",
     ".claude/skills/handoff/SKILL.md": "---\nname: handoff\ndisable-model-invocation: true\n---\nbody\n"}},
    "contains": ["[ai router: skill-card]", "writing-for-agents: before an edit of AGENTS.md",
-                "diagnosing-bugs: a bug, crash", "ship: the branch is done",
+                "ship: the branch is done",
+                "Use these skills when the prompt fits (a hint, the router does not block):",
+                "- diagnosing-bugs: a bug, crash", "- tdd: a tests-first",
                 "read <dir>/<name>/SKILL.md and follow it; tell the owner the typed form /name",
                 "{{PROJ}}/.claude/skills: handoff, to-spec"],
    "not_contains": "/wayfinder"

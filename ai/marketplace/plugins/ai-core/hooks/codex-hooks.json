@@ -73,6 +73,17 @@
         ]
       }
     ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex SubagentStop",
+            "timeout": 25
+          }
+        ]
+      }
+    ],
     "SessionEnd": [
       {
         "hooks": [

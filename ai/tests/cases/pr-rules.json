@@ -233,8 +233,8 @@
    "contains": "placeholder, in Evidence"
   },
   {
-   "name": "Docs and Changed guards missing",
-   "expect": "deny",
+   "name": "Docs and Changed guards missing (ticket 13: a warning, not a deny)",
+   "expect": "allow",
    "event": "PreToolUse",
    "payload": {
     "tool_name": "Bash",
@@ -249,13 +249,14 @@
     }
    },
    "contains": [
+    "warning",
     "Docs: (",
     "Changed guards: ("
    ]
   },
   {
-   "name": "Docs: none without a reason",
-   "expect": "deny",
+   "name": "Docs: none without a reason (ticket 13: a warning, not a deny)",
+   "expect": "allow",
    "event": "PreToolUse",
    "payload": {
     "tool_name": "Bash",
@@ -269,7 +270,10 @@
      "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check -> 12 passed\nDocs: none\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     }
    },
-   "contains": "a reason after Docs: none"
+   "contains": [
+    "warning",
+    "a reason after Docs: none"
+   ]
   },
   {
    "name": "complete body",
@@ -289,8 +293,8 @@
    }
   },
   {
-   "name": "fix PR without Ledger",
-   "expect": "deny",
+   "name": "fix PR without Ledger (ticket 13: a warning, not a deny)",
+   "expect": "allow",
    "event": "PreToolUse",
    "payload": {
     "tool_name": "Bash",
@@ -304,7 +308,10 @@
      "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check -> 12 passed\nDocs: README\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
     }
    },
-   "contains": "R-NNN"
+   "contains": [
+    "warning",
+    "R-NNN"
+   ]
   },
   {
    "name": "fix PR without a test file in the diff",
@@ -456,7 +463,7 @@
    "contains": "Evidence:"
   },
   {
-   "name": "verify skill project: Evidence without the verify run",
+   "name": "verify skill project: app code and no run.log at the PR head: denied (ticket 05)",
    "expect": "deny",
    "event": "PreToolUse",
    "project": {
@@ -480,11 +487,12 @@
      "command": "gh pr create --title 'feat: cart' --body-file pr.md --base HEAD~1"
     }
    },
-   "contains": "Evidence: the verify-shop run"
+   "contains": ["verify proof: the PR changes app code (src/cart.py)", "verify-shop", "doctor: PASS, db_writes: no"]
   },
   {
-   "name": "verify skill project: Evidence cites evidence and the e2e test",
-   "expect": "allow",
+   "name": "verify skill project: Evidence text alone is no proof without a run.log at the PR head (ticket 05; green: test_flow t_pr_gate_verify_log)",
+   "expect": "deny",
+   "contains": "verify proof:",
    "event": "PreToolUse",
    "project": {
     "git_init": true,
@@ -828,6 +836,228 @@
      "pr.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n<!-- author-sessions\nupdated: 2026-11-15\nmain: s1 dir: ~/x # pr\n-->\n"
     }
    }
+  },
+  {
+   "name": "ticket 13 --body-file \"$B\" with B=path earlier in the command is read",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "B={{PROJ}}/body.md; gh pr edit 1 --body-file \"$B\""
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "body.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **After:** make check -> 12 passed\n## Merge Danger\n**Door:** two-way\n**Blast Radius:** small\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-18\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   },
+   "not_contains": "missing"
+  },
+  {
+   "name": "ticket 13 --body-file \"${B}\" after B=\"path\" && is read",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "B=\"{{PROJ}}/body.md\" && cat \"$B\" | head -3 && gh pr create --title x --body-file \"${B}\""
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "body.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **After:** make check -> 12 passed\n## Merge Danger\n**Door:** two-way\n**Blast Radius:** small\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-18\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   },
+   "not_contains": "missing"
+  },
+  {
+   "name": "ticket 13 an unreadable body file is named plainly, not every field",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr edit 1 --body-file \"$NOPE\""
+    }
+   },
+   "project": {
+    "git": true
+   },
+   "contains": "could not read the body file $NOPE",
+   "not_contains": "Evidence:"
+  },
+  {
+   "name": "ticket 13 a missing body file is named plainly",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr edit 1 --body-file /nonexistent/pr.md"
+    }
+   },
+   "project": {
+    "git": true
+   },
+   "contains": "could not read the body file /nonexistent/pr.md",
+   "not_contains": "missing: a ```mermaid"
+  },
+  {
+   "name": "ticket 13 a body file written by a heredoc in the same command is read",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cat > /tmp/ai-t13-never-there.md <<'EOF'\n## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **After:** make check -> 12 passed\n## Merge Danger\n**Door:** two-way\n**Blast Radius:** small\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-18\nmain: s1 dir: ~/x # pr\n-->\nEOF\ngh pr edit 1 --body-file /tmp/ai-t13-never-there.md"
+    }
+   },
+   "project": {
+    "git": true
+   },
+   "not_contains": "could not read"
+  },
+  {
+   "name": "ticket 13 core template only: Docs and Changed guards are a warning",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr edit 1 --body-file body.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "body.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **After:** make check -> 12 passed\n## Merge Danger\n**Door:** two-way\n**Blast Radius:** small\n<!-- author-sessions\nupdated: 2026-11-18\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   },
+   "contains": [
+    "warning",
+    "Docs: (",
+    "Changed guards: ("
+   ]
+  },
+  {
+   "name": "ticket 13 missing Evidence still blocks",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr edit 1 --body-file body.md"
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "body.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Merge Danger\n**Door:** two-way\n**Blast Radius:** small\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-18\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   },
+   "contains": "Evidence: ("
+  },
+  {
+   "name": "ticket 13 cd into the repo and --base ai: diffed against ai (session folder is another repo)",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd {{PROJ}} && gh pr create --base ai --head feat --title 'fix: y' --body-file pr.md"
+    },
+    "cwd": "{{PROJ}}/../other"
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "pr.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **After:** make check -> 12 passed\n## Merge Danger\n**Door:** two-way\n**Blast Radius:** small\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-18\nmain: s1 dir: ~/x # pr\n-->\n",
+     "src/a.py": "y = 1\n"
+    },
+    "commit": "init",
+    "setup_sh": "git init -q ../other\ngit -C ../other commit -q --allow-empty -m other\ngit branch ai\ngit checkout -q -b feat\nmkdir -p src\necho 'y = 2' > src/a.py\ngit add src\ngit commit -q -m feat\n"
+   },
+   "contains": "none against ai",
+   "not_contains": "could not diff"
+  },
+  {
+   "name": "ticket 13 --base ai only on origin: fetched as origin/ai",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "gh pr create --base ai --head feat --title 'fix: y' --body-file pr.md"
+    }
+   },
+   "project": {
+    "git_init": true,
+    "files": {
+     "pr.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **After:** make check -> 12 passed\n## Merge Danger\n**Door:** two-way\n**Blast Radius:** small\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-18\nmain: s1 dir: ~/x # pr\n-->\n",
+     "src/a.py": "y = 1\n"
+    },
+    "commit": "init",
+    "setup_sh": "git init -q --bare ../remote.git\ngit push -q ../remote.git HEAD:refs/heads/ai\ngit remote add origin ../remote.git\ngit checkout -q -b feat\nmkdir -p src\necho 'y = 2' > src/a.py\ngit add src\ngit commit -q -m feat\n"
+   },
+   "contains": "none against origin/ai",
+   "not_contains": "could not diff"
+  },
+  {
+   "name": "S3 a body-file variable set twice (the second by $(...)) is not read: denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "B={{PROJ}}/body.md; B=$(printf bad.md); gh pr create --title x --body-file \"$B\""
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "body.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **After:** make check -> 12 passed\n## Merge Danger\n**Door:** two-way\n**Blast Radius:** small\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-18\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   },
+   "contains": "could not read the body file"
+  },
+  {
+   "name": "S3 a body-file variable set as a prefix of gh is not read: denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "B={{PROJ}}/body.md gh pr create --title x -F \"$B\""
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "body.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **After:** make check -> 12 passed\n## Merge Danger\n**Door:** two-way\n**Blast Radius:** small\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-18\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   },
+   "contains": "could not read the body file"
+  },
+  {
+   "name": "S3 a body-file variable set by $(...) only is not read: denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "B=$(printf {{PROJ}}/body.md); gh pr create --title x -F \"$B\""
+    }
+   },
+   "project": {
+    "git": true,
+    "files": {
+     "body.md": "## Summary\n```mermaid\ngraph TD; a-->b\n```\n## Evidence\n- **After:** make check -> 12 passed\n## Merge Danger\n**Door:** two-way\n**Blast Radius:** small\nDocs: none, because only tests changed\nChanged guards: none\n<!-- author-sessions\nupdated: 2026-11-18\nmain: s1 dir: ~/x # pr\n-->\n"
+    }
+   },
+   "contains": "could not read the body file"
   }
  ]
 }

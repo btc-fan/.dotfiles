@@ -1,0 +1,583 @@
+#!/usr/bin/env python3
+"""verify: drive the AI setup of this checkout on throwaway fixtures and keep evidence (verify-ai-setup).
+
+  verify launch [--label L] KIND [KIND ...]   new run: evidence folder, fixture repos in a temp folder
+  verify doctor [--no-agents]                  checks; writes the doctor line of run.log (once per run)
+  verify drive hook [--fixture K] [--agent claude|codex] EVENT 'PAYLOAD JSON'
+  verify drive session claude|codex [--fixture K] [--max-turns N] [--plugin-dir P] [--allow RULE] 'PROMPT'
+  verify drive cli [--fixture K] [--timeout S] [KEY=VALUE ...] NAME [ARG ...]   NAME: a file in ai/bin here
+  verify drive install dev-mac|server
+  verify drive merge dev|installed               a git merge in a worktree of the dotfiles-worktrees fixture
+  verify evidence                              list the run folder and check run.log
+  verify cleanup                               remove the fixtures, finish run.log, keep the evidence
+
+KIND: empty, docs-only, python-with-tests, web-app, existing-project-with-own-Done, dotfiles-worktrees.
+Evidence: <checkout>/.verify/evidence/<run>/ (run.log, state.json, one NN-<surface>.txt per drive).
+"""
+import fcntl
+import hashlib
+import importlib.machinery
+import importlib.util
+import json
+import os
+import re
+import select
+import shlex
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+
+SKILL = os.path.dirname(os.path.realpath(__file__))
+ROOT = subprocess.run(["git", "-C", SKILL, "rev-parse", "--show-toplevel"], stdout=subprocess.PIPE,
+                      text=True).stdout.strip()
+AI = os.path.join(ROOT, "ai")
+PLUGIN = os.path.join(AI, "marketplace", "plugins", "ai-core")
+ROUTER = os.path.join(PLUGIN, "hooks", "router.py")
+EVIDENCE = os.path.join(ROOT, ".verify", "evidence")
+CURRENT = os.path.join(ROOT, ".verify", "current")
+KINDS = ("empty", "docs-only", "python-with-tests", "web-app", "existing-project-with-own-Done", "dotfiles-worktrees")
+HOME = os.path.expanduser("~")
+# Real files a run must never change: Claude and Codex settings, the installed setup.
+GUARDS = [os.path.join(HOME, p) for p in (".claude/settings.json", ".claude/plugins/installed_plugins.json",
+                                          ".codex/config.toml", ".codex/hooks.json")]
+INSTALLED = os.path.join(HOME, ".dotfiles-ai")
+# Live skill links: a dev worktree's ai-sync once repointed them at unmerged code (ticket 19).
+LIVE_LINKS = [os.path.join(HOME, p) for p in (".claude/skills", ".agents/skills")]
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(ROUTER))
+import hooklib  # noqa: E402  (one run.log parser for the hooks and this tool: hooklib.verify_runs)
+OWNER = "fixture-owner"     # remotes live in remotes/<OWNER>/: ai-adopt adopts only repos of AI_GITHUB_OWNERS
+# --allow Bash: a command with a variable (B=f; gh pr edit --body-file "$B") matches no Bash(prefix *) rule.
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__)
+        return 0 if argv else 2
+    cmd, args = argv[0], argv[1:]
+    if cmd == "launch":
+        return launch(args)
+    if cmd == "doctor":
+        return doctor("--no-agents" not in args)
+    if cmd == "drive" and args:
+        return drive(args[0], args[1:])
+    if cmd == "evidence":
+        return evidence()
+    if cmd == "cleanup":
+        return cleanup()
+    print(__doc__)
+    return 2
+
+
+# ---------------------------------------------------------------- launch
+
+def launch(args):
+    label = "run"
+    if args[:1] == ["--label"] and len(args) > 1:
+        label, args = args[1], args[2:]
+    bad = [k for k in args if k not in KINDS]
+    if not args or bad:
+        sys.exit("verify launch: name one or more kinds of %s (got %s)" % (", ".join(KINDS), bad or "none"))
+
+    run = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + label
+    folder = os.path.join(EVIDENCE, run)
+    os.makedirs(folder)
+    write(os.path.join(folder, "run.log"), "commit: %s\n" % head())
+    tmp = os.path.realpath(tempfile.mkdtemp(prefix="verify-ai-setup-"))
+    write(os.path.join(tmp, "bin", "gh"), EVAL.FAKE_GH % os.path.join(tmp, "gh.log"))
+    os.chmod(os.path.join(tmp, "bin", "gh"), 0o755)
+    for kind in args:
+        make_fixture(kind, os.path.join(tmp, kind), os.path.join(tmp, "remotes", OWNER, kind + ".git"))
+
+    state = {"run": run, "root": ROOT, "tmp": tmp, "fixtures": list(args), "guards": guards(), "drives": 0}
+    save(folder, state)
+    write(CURRENT, run + "\n")
+    print("run: %s\nevidence: %s\nfixtures: %s" % (run, folder, tmp))
+    for kind in args:
+        print("  %-32s %s" % (kind, os.path.join(tmp, kind)))
+    return 0
+
+
+def make_fixture(kind, repo, remote):
+    if kind == "dotfiles-worktrees":
+        return make_dotfiles(repo, remote)
+    files = dict(FILES.get(kind, {}))
+    if kind in ("python-with-tests", "existing-project-with-own-Done"):
+        files = dict({k: v for k, v in EVAL.APP_FILES.items() if not k.startswith(".claude/")}, **files)
+    for rel, text in files.items():
+        write(os.path.join(repo, rel), text)
+    os.makedirs(repo, exist_ok=True)
+    EVAL.git(repo, "init", "-q", "-b", "main")
+    EVAL.git(repo, "add", "-A")
+    EVAL.git(repo, "commit", "-q", "--allow-empty", "-m", "init")
+    os.makedirs(remote)
+    EVAL.git(remote, "init", "-q", "--bare")
+    EVAL.git(repo, "remote", "add", "origin", remote)
+    EVAL.git(repo, "push", "-q", "-u", "origin", "main")
+
+
+def make_dotfiles(repo, remote):
+    """Ticket 19: the installed copy <tmp>/home-sync/.dotfiles-ai (branch ai, a copy of this checkout's ai/) and
+    the dev worktree <repo> (branch main) share the git hooks. home-sync is the temp HOME of `drive merge`."""
+    home = os.path.join(os.path.dirname(repo), "home-sync")
+    installed = os.path.join(home, ".dotfiles-ai")
+    for d in (".claude/skills", ".agents/skills", ".codex"):
+        os.makedirs(os.path.join(home, d))
+    shutil.copytree(AI, os.path.join(installed, "ai"),
+                    ignore=shutil.ignore_patterns("tests", "__pycache__", "*.pyc", "build"))
+    EVAL.git(installed, "init", "-q", "-b", "ai")
+    EVAL.git(installed, "add", "-A")
+    EVAL.git(installed, "commit", "-q", "-m", "setup")
+    EVAL.git(installed, "worktree", "add", "-q", "-b", "main", repo)
+    os.makedirs(remote)
+    EVAL.git(remote, "init", "-q", "--bare")
+    EVAL.git(repo, "remote", "add", "origin", remote)
+    EVAL.git(repo, "push", "-q", "-u", "origin", "main")
+    for tree, branch in ((repo, "feat"), (installed, "feat-installed")):    # one branch to merge per worktree
+        EVAL.git(tree, "branch", branch)
+        EVAL.git(tree, "checkout", "-q", branch)
+        write(os.path.join(tree, branch + ".txt"), branch + "\n")
+        EVAL.git(tree, "add", branch + ".txt")
+        EVAL.git(tree, "commit", "-q", "-m", branch)
+        EVAL.git(tree, "checkout", "-q", "-")
+    call([os.path.join(installed, "ai", "bin", "ai-sync"), "--install-hook", installed], dict(os.environ, HOME=home),
+         installed, 60)
+
+
+# ---------------------------------------------------------------- doctor
+
+def doctor(agents):
+    folder, state = current()
+    log = read(os.path.join(folder, "run.log"))
+    if "\ndoctor: " in "\n" + log:
+        sys.exit("verify doctor: this run already has a doctor line. Start a new run: verify launch ...")
+    checks = []
+
+    def check(name, ok, detail):
+        checks.append(ok)
+        print("%s %-10s %s" % ("PASS" if ok else "FAIL", name, detail))
+
+    check("checkout", state["root"] == ROOT, "%s (run started in %s)" % (ROOT, state["root"]))
+    logged = this_run(folder).get("commit", "")
+    check("commit", head() == logged, "HEAD %s, run.log %s" % (head()[:12], logged[:12]))
+    home_guess = probe_ai_home()
+    check("plugin", home_guess == ROOT and os.path.isfile(os.path.join(PLUGIN, ".claude-plugin", "plugin.json")),
+          "sessions load --plugin-dir %s; its router reads ai_home %s" % (PLUGIN, home_guess))
+    build = os.path.join(state["tmp"], "build")
+    rc, out = call([sys.executable, os.path.join(AI, "bin", "ai-render"), "--profile", "dev-mac", "--out", build],
+                   dict(os.environ), ROOT, 120)
+    check("routing", rc == 0 and os.path.isfile(os.path.join(build, "routing.json")),
+          "ai-render -> %s/routing.json (rc %s)" % (build, rc))
+    for kind in state["fixtures"]:
+        repo = os.path.join(state["tmp"], kind)
+        branch = call(["git", "-C", repo, "branch", "--show-current"], None, repo, 30)[1].strip()
+        origin = call(["git", "-C", repo, "remote", "get-url", "origin"], None, repo, 30)[1].strip()
+        check("fixture", branch == "main" and origin.startswith(state["tmp"]), "%s: branch %s, origin %s"
+              % (kind, branch, origin))
+    gh = shutil.which("gh", path=fixture_env(state)["PATH"])
+    check("fake-gh", gh == os.path.join(state["tmp"], "bin", "gh"), "gh on the drive PATH: %s" % gh)
+    unsafe = [p for p in (os.path.join(HOME, ".claude"), os.path.join(HOME, ".codex"), INSTALLED, ROOT)
+              if (state["tmp"] + os.sep).startswith(os.path.realpath(p) + os.sep)]
+    check("isolation", not unsafe, "fixtures, state and CODEX_HOME under %s; guards: %s, git of %s"
+          % (state["tmp"], ", ".join(os.path.basename(g) for g in GUARDS), INSTALLED))
+    if agents:
+        rc, out = call(["claude", "auth", "status"], None, ROOT, 60)
+        check("claude", rc == 0 and '"loggedIn": true' in out, "%s, claude auth status rc %s"
+              % (shutil.which("claude"), rc))
+        rc, out = call(["codex", "login", "status"], None, ROOT, 60)
+        check("codex", rc == 0 and "Logged in" in out, "%s, %s" % (shutil.which("codex"), out.strip()[:60]))
+    state["agents"] = agents
+    save(folder, state)
+
+    result = "PASS" if all(checks) else "FAIL"
+    append(os.path.join(folder, "run.log"), "doctor: %s\n" % result)
+    print("doctor: %s" % result)
+    return 0 if all(checks) else 1
+
+
+def probe_ai_home():
+    code = "import sys; sys.path.insert(0, sys.argv[1]); import hooklib; print(hooklib.ai_home())"
+    env = {k: v for k, v in os.environ.items() if k != "AI_HOME"}
+    return call([sys.executable, "-c", code, os.path.dirname(ROUTER)], env, ROOT, 30)[1].strip()
+
+
+# ---------------------------------------------------------------- drive
+
+def drive(surface, args):
+    folder, state = current()
+    if "doctor: PASS" not in read(os.path.join(folder, "run.log")):
+        sys.exit("verify drive: run.log has no 'doctor: PASS'. Run verify doctor (or launch a new run).")
+    fixture = state["fixtures"][0]
+    if "--fixture" in args[:-1]:
+        i = args.index("--fixture")
+        fixture, args = args[i + 1], args[:i] + args[i + 2:]
+    if fixture not in state["fixtures"]:
+        sys.exit("verify drive: no fixture %s in this run (%s)" % (fixture, ", ".join(state["fixtures"])))
+    repo = os.path.join(state["tmp"], fixture)
+    with open(os.path.join(folder, "state.lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)    # parallel drives: each gets its own NN
+        _folder, state = current()
+        state["drives"] += 1
+        save(folder, state)
+    out = os.path.join(folder, "%02d-%s" % (state["drives"], surface))
+    if surface == "hook":
+        return drive_hook(state, repo, out, args)
+    if surface == "session" and args and args[0] in ("claude", "codex"):
+        opts = dict(zip(args[1:-1:2], args[2:-1:2]))
+        if len(args) % 2 or set(opts) - {"--max-turns", "--plugin-dir", "--allow"} or (opts and args[0] != "claude"):
+            sys.exit(__doc__)
+        if not state.get("agents"):
+            sys.exit("verify drive session: doctor ran with --no-agents. Launch a new run and run verify doctor.")
+        return drive_session(state, repo, out, args[0], args[-1], opts)
+    if surface == "cli" and args:
+        return drive_cli(state, repo, out, args)
+    if surface == "install" and args in (["dev-mac"], ["server"]):
+        return drive_install(state, out, args[0])
+    if surface == "merge" and args in (["dev"], ["installed"]) and "dotfiles-worktrees" in state["fixtures"]:
+        return drive_merge(state, out, args[0])
+    sys.exit(__doc__)
+
+
+def drive_hook(state, repo, out, args):
+    agent = "claude"
+    if args[:1] == ["--agent"] and len(args) > 1:
+        agent, args = args[1], args[2:]
+    event, payload = args[0], json.loads(args[1])
+    payload.setdefault("session_id", "verify-" + state["run"])
+    payload.setdefault("cwd", repo)
+    payload.setdefault("hook_event_name", event)
+    hstate = os.path.join(state["tmp"], "state-hook")
+    env = dict(fixture_env(state), HOME=os.path.join(state["tmp"], "home"), AI_STATE_DIR=hstate,
+               AI_CLAUDE_MANAGED_SETTINGS=os.path.join(state["tmp"], "no-managed-settings.json"),
+               AI_GRAPHIFY_BIN=os.path.join(state["tmp"], "no-graphify"))
+    before = len(rows(os.path.join(hstate, "fired.jsonl")))
+    res = subprocess.run([sys.executable, ROUTER, "--agent", agent, event], input=json.dumps(payload).encode(),
+                         env=env, cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+    text = res.stdout.decode() + res.stderr.decode()
+    fired = sorted({r.get("rule") for r in rows(os.path.join(hstate, "fired.jsonl"))[before:] if r.get("rule")})
+    errors = read(os.path.join(hstate, "router-errors.log")).strip().splitlines()
+    summary = "decision: %s\nrules fired: %s\nrouter errors: %s\nrc: %s\n" % (
+        decision(text), ", ".join(fired) or "none", errors[-1] if errors else "none", res.returncode)
+    write(out + ".txt", "router.py --agent %s %s\ncwd: %s\npayload: %s\n%s\n--- output\n%s"
+          % (agent, event, repo, json.dumps(payload), summary, text))
+    print(summary + "evidence: %s.txt" % out)
+    return 0
+
+
+def drive_session(state, repo, out, agent, prompt, opts):
+    sstate = out + "-state"
+    # a long session (a skill that builds a tool) needs more turns and time
+    cmd = EVAL.agent_cmd(agent, prompt, repo, opts.get("--max-turns"))
+    remote = os.path.join(state["tmp"], "remotes")
+    timeout = max(EVAL.RUN_TIMEOUT, 20 * int(opts.get("--max-turns", 0)))
+    if "--plugin-dir" in opts:      # a stand-in plugin, e.g. a skill under test that is not installed
+        cmd += ["--plugin-dir", opts["--plugin-dir"]]
+    # this checkout's ai-core, env.list and the fake gh, as ai-eval's scenarios with "plugin": "checkout"
+    checkout = {"base": state["tmp"], "env": fixture_env(state), "allow": [opts["--allow"]] if "--allow" in opts else []}
+    cmd, env = EVAL.checkout_session(agent, cmd, EVAL.child_env(sstate), repo, checkout)
+    if agent == "codex":
+        i = cmd.index("-c") + 1
+        cmd[i] = 'sandbox_workspace_write.writable_roots=["%s", "%s"]' % (os.path.join(repo, ".git"), remote)
+    before = remote_heads(repo)
+    t0 = time.time()
+    rc, text = EVAL.call(cmd, env, repo, timeout)
+    write(out + "-stream.jsonl", text)
+
+    seen = EVAL.score_stream(text)
+    fired = EVAL.router_seen(sstate)["rules"]
+    gates = sorted(set(re.findall(r"\[ai gate ([\w-]+)\]", text)))
+    plugins = [p.get("path") for e in EVAL.json_lines(text) if e.get("subtype") == "init"
+               for p in e.get("plugins") or [] if p.get("name") == "ai-core"]
+    summary = ("agent: %s\nrc: %s\nseconds: %d\nai-core loaded from: %s\nrules fired: %s\ngates in output: %s\n"
+               "remote heads changed: %s\ntool calls:\n%s\n"
+               % (agent, rc, time.time() - t0, ", ".join(plugins) or ("CODEX_HOME hooks.json -> " + PLUGIN
+                  if agent == "codex" else "none"), ", ".join(fired) or "none", ", ".join(gates) or "none",
+                  "yes" if remote_heads(repo) != before else "no", "\n".join("  " + t[:300] for t in seen["tools"])))
+    write(out + ".txt", "%s\ncwd: %s\n%s" % (shlex.join(cmd), repo, summary))
+    print(summary + "evidence: %s.txt, %s-stream.jsonl, %s-state/" % (out, out, out))
+    return 0
+
+
+def drive_cli(state, repo, out, args):
+    timeout = 1800
+    if args[:1] == ["--timeout"] and len(args) > 1:
+        timeout, args = int(args[1]), args[2:]
+    extra = {}
+    while args and re.fullmatch(r"[A-Z_]+=.*", args[0]):      # KEY=VALUE before NAME, e.g. AI_PROFILE=server
+        key, _eq, value = args.pop(0).partition("=")
+        extra[key] = value
+    tool = os.path.join(AI, "bin", args[0])
+    if not os.path.isfile(tool):
+        sys.exit("verify drive cli: no %s in %s" % (args[0], os.path.join(AI, "bin")))
+    env = EVAL.adopt_env(os.path.join(state["tmp"], "home"))
+    env.update(fixture_env(state))
+    env.update(extra)
+    rc, text = pty_run([tool] + args[1:], env, repo, timeout)
+    status = call(["git", "-C", repo, "status", "--short"], None, repo, 30)[1]
+    write(out + ".txt", "%s\ncwd: %s\nrc: %s\n--- transcript\n%s\n--- git status --short after\n%s"
+          % (" ".join([tool] + args[1:]), repo, rc, text, status))
+    print(text[-3000:] + "\nrc: %s\nevidence: %s.txt" % (rc, out))
+    return 0
+
+
+def drive_install(state, out, profile):
+    home = os.path.join(state["tmp"], "home-install-" + profile)
+    os.makedirs(home, exist_ok=True)
+    env = dict(EVAL.child_env(os.path.join(home, ".local", "state", "ai")), HOME=home,
+               XDG_CONFIG_HOME=os.path.join(home, ".config"), CLAUDE_CONFIG_DIR=os.path.join(home, ".claude"),
+               CODEX_HOME=os.path.join(home, ".codex"))
+    before = guards()
+    rc, text = EVAL.call(["bash", os.path.join(ROOT, "install.sh"), "--dry-run", "--yes", "--profile", profile,
+                          "--user"], env, home, 1800)
+    changed = [g for g in GUARDS + [INSTALLED] if guards().get(g) != before.get(g)]
+    written = sorted(os.path.relpath(os.path.join(d, f), home) for d, _s, fs in os.walk(home) for f in fs)
+    summary = ("profile: %s\nrc: %s\nreal files changed: %s\nfiles in the temp HOME after: %s\n"
+               % (profile, rc, ", ".join(changed) or "none", ", ".join(written) or "none"))
+    write(out + "-%s.txt" % profile, "install.sh --dry-run --yes --profile %s --user (HOME=%s)\n%s--- output\n%s"
+          % (profile, home, summary, text))
+    print(summary + "playwright lines:\n" + "\n".join(l for l in text.splitlines() if "laywright" in l)
+          + "\nevidence: %s-%s.txt" % (out, profile))
+    return 0
+
+
+def drive_merge(state, out, where):
+    """A real git merge (post-merge hook, then ai-sync) with HOME=<tmp>/home-sync. Dev: HOME must stay the same."""
+    home = os.path.join(state["tmp"], "home-sync")
+    tree, branch = ((os.path.join(state["tmp"], "dotfiles-worktrees"), "feat") if where == "dev"
+                    else (os.path.join(home, ".dotfiles-ai"), "feat-installed"))
+    env = {k: v for k, v in os.environ.items() if k not in ("AI_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR")}
+    env["HOME"] = home
+    before = home_listing(home)
+    rc, text = call(["git", "-c", "user.name=verify", "-c", "user.email=verify@example.invalid", "-C", tree, "merge",
+                     "--no-ff", "-m", "merge " + branch, branch], env, tree, 300)
+    after = home_listing(home)
+    changed = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+    hook = read(os.path.join(home, ".dotfiles-ai", ".git", "hooks", "post-merge")).splitlines()[1:2]
+    summary = ("worktree: %s (%s)\nhook: %s\nrc: %s\nHOME changed: %s\n%s"
+               % (where, tree, " ".join(hook), rc, "yes" if changed else "no",
+                  "".join("  %s: %s\n" % (k, after.get(k, "removed")) for k in changed)))
+    write(out + ".txt", "git merge --no-ff %s (HOME=%s)\n%s--- output\n%s" % (branch, home, summary, text))
+    print(summary + "evidence: %s.txt" % out)
+    return 0
+
+
+def home_listing(home):
+    """Each path under HOME except the dotfiles trees: a link's target or a file's hash."""
+    seen = {}
+    for root, dirs, files in os.walk(home):
+        dirs[:] = [d for d in dirs if not (root == home and d == ".dotfiles-ai")]
+        for name in dirs + files:
+            path = os.path.join(root, name)
+            if os.path.islink(path):
+                seen[os.path.relpath(path, home)] = "-> " + os.readlink(path)
+            elif os.path.isfile(path):
+                seen[os.path.relpath(path, home)] = hashlib.sha1(open(path, "rb").read()).hexdigest()[:12]
+    return seen
+
+
+# ---------------------------------------------------------------- evidence, cleanup
+
+def evidence():
+    """The current run, or after cleanup the newest one: its files and whether run.log is proof for the hooks."""
+    run = read(CURRENT).strip() or max(os.listdir(EVIDENCE) if os.path.isdir(EVIDENCE) else [""])
+    if not run:
+        sys.exit("verify evidence: no run yet. Start one: verify launch KIND")
+    folder = os.path.join(EVIDENCE, run)
+    for name in sorted(os.listdir(folder)):
+        print(os.path.join(folder, name))
+    rec = this_run(folder)
+    print("run.log: %s" % ("proof (commit, doctor PASS, db_writes no, finished)" if rec.get("valid")
+                           else "NOT proof: %s" % (rec.get("why") or "no run.log")))
+    return 0 if rec.get("valid") else 1
+
+
+def this_run(folder):
+    """The run.log fields of the run folder, as the hooks read them (hooklib.verify_runs); {} without a log."""
+    return next((r for r in hooklib.verify_runs(ROOT) if r["run"] == os.path.basename(folder)), {})
+
+
+def cleanup():
+    folder, state = current()
+    log = read(os.path.join(folder, "run.log"))
+    if "\nfinished: " in "\n" + log:
+        sys.exit("verify cleanup: this run already finished")
+    # Processes this run started and that outlive their session (OMC session-end workers, the graphify rebuild):
+    # their command line names the run's temp folder.
+    for pid in call(["pgrep", "-f", state["tmp"]], None, ROOT, 30)[1].split():
+        try:
+            os.kill(int(pid), signal.SIGTERM)
+        except (ValueError, OSError):
+            pass
+    shutil.rmtree(state["tmp"], ignore_errors=True)
+    changed = [g for g in GUARDS + [INSTALLED] + LIVE_LINKS if guards().get(g) != state["guards"].get(g)]
+    write(os.path.join(folder, "guard.txt"), "real files changed during the run: %s\n" % (", ".join(changed) or "none"))
+    end = ("" if "\ndoctor: " in "\n" + log else "doctor: FAIL\n") + "db_writes: no\nfinished: %s\n" % (
+        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    append(os.path.join(folder, "run.log"), end)
+    os.remove(CURRENT)
+    print("removed %s\nreal files changed: %s\nevidence kept: %s" % (state["tmp"], ", ".join(changed) or "none",
+                                                                     folder))
+    return 1 if changed else 0
+
+
+# ---------------------------------------------------------------- helpers
+
+def current():
+    run = read(CURRENT).strip()
+    if not run:
+        sys.exit("verify: no current run. Start one: verify launch KIND")
+    folder = os.path.join(EVIDENCE, run)
+    with open(os.path.join(folder, "state.json"), encoding="utf-8") as fh:
+        return folder, json.load(fh)
+
+
+def fixture_env(state):
+    """PATH with the fake gh first and this checkout's ai/bin next; routing and AI_HOME from this checkout."""
+    path = os.pathsep.join([os.path.join(state["tmp"], "bin"), os.path.join(AI, "bin"), os.environ.get("PATH", "")])
+    return {"PATH": path, "AI_HOME": ROOT, "AI_ROUTING_JSON": os.path.join(state["tmp"], "build", "routing.json"),
+            "AI_NOTIFY_DRY": "1", "AI_GITHUB_OWNERS": OWNER}
+
+
+def remote_heads(repo):
+    """The refs of the remotes this fixture names. A parallel session in another fixture never counts."""
+    urls = set(call(["git", "-C", repo, "remote", "-v"], None, repo, 30)[1].split()[1::3])
+    return {u: call(["git", "-C", u, "show-ref"], None, repo, 30)[1] for u in sorted(urls) if os.path.isdir(u)}
+
+
+def guards():
+    out = {g: hashlib.sha1(open(g, "rb").read()).hexdigest() if os.path.isfile(g) else "absent" for g in GUARDS}
+    if os.path.isdir(INSTALLED):
+        out[INSTALLED] = call(["git", "-C", INSTALLED, "rev-parse", "HEAD"], None, INSTALLED, 30)[1].strip() + \
+            hashlib.sha1(call(["git", "-C", INSTALLED, "status", "--porcelain"], None, INSTALLED, 60)[1]
+                         .encode()).hexdigest()
+    for folder in LIVE_LINKS:       # the link targets only: a skill's own files may change
+        names = sorted(os.listdir(folder)) if os.path.isdir(folder) else []
+        out[folder] = hashlib.sha1("".join(n + os.readlink(os.path.join(folder, n)) for n in names
+                                           if os.path.islink(os.path.join(folder, n))).encode()).hexdigest()
+    return out
+
+
+def decision(text):
+    for line in text.splitlines():
+        try:
+            data = json.loads(line)
+        except ValueError:
+            continue
+        if data.get("decision") == "block":
+            return "block" if "hookSpecificOutput" not in data else "deny"
+        d = (data.get("hookSpecificOutput") or {}).get("permissionDecision")
+        if d in ("deny", "ask"):
+            return d
+    return "allow"
+
+
+def pty_run(cmd, env, cwd, timeout):
+    """One PTY per drive: the CLI sees a terminal, as with the owner. (exit code, transcript)."""
+    import pty
+    master, slave = pty.openpty()
+    proc = subprocess.Popen(cmd, env=env, cwd=cwd, stdin=slave, stdout=slave, stderr=slave, close_fds=True)
+    os.close(slave)
+    chunks, end = [], time.time() + timeout
+    while time.time() < end:
+        ready, _w, _x = select.select([master], [], [], 1)
+        if ready:
+            try:
+                chunk = os.read(master, 65536)
+            except OSError:
+                chunk = b""
+            if not chunk:
+                break
+            chunks.append(chunk)
+        elif proc.poll() is not None:
+            break
+    if proc.poll() is None:
+        proc.kill()
+    proc.wait()
+    os.close(master)
+    return proc.returncode, b"".join(chunks).decode("utf-8", "replace").replace("\r\n", "\n")
+
+
+def head():
+    return subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], stdout=subprocess.PIPE, text=True).stdout.strip()
+
+
+def call(cmd, env, cwd, timeout):
+    return EVAL.call(cmd, env, cwd, timeout)
+
+
+def rows(path):
+    return EVAL.json_lines(read(path))
+
+
+def save(folder, state):
+    """Atomic: a parallel drive never reads a half-written state.json."""
+    write(os.path.join(folder, "state.json.tmp"), json.dumps(state, indent=1) + "\n")
+    os.replace(os.path.join(folder, "state.json.tmp"), os.path.join(folder, "state.json"))
+
+
+def read(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except OSError:
+        return ""
+
+
+def write(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def append(path, text):
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def load_eval():
+    """ai-eval of this checkout: its fixtures, session command, scorer and env are the harness."""
+    path = os.path.join(AI, "bin", "ai-eval")
+    loader = importlib.machinery.SourceFileLoader("aieval", path)
+    mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("aieval", loader))
+    sys.dont_write_bytecode = True
+    loader.exec_module(mod)
+    return mod
+
+
+EVAL = load_eval()
+
+WEB_PAGE = "<!doctype html><title>%s</title><nav><a href=/>Home</a> <a href=/about>About</a> " \
+           "<a href=/contact>Contact</a></nav><h1>%s</h1>\n"
+FILES = {
+    "docs-only": {"README.md": "# docs-only\n\nA repo with Markdown only.\n",
+                  "docs/guide.md": "# Guide\n\nStep 1. Read the README.\n"},
+    "web-app": {
+        "README.md": "# web-app\n\nA small Node site with 3 pages. Run `npm start`.\n",
+        "package.json": json.dumps({"name": "web-app", "version": "0.1.0", "private": True, "scripts": {
+            "start": "node src/server.js", "test": "node --test"}}, indent=2) + "\n",
+        "src/server.js": "const http = require('http');\nconst fs = require('fs');\nconst path = require('path');\n"
+                         "const pages = { '/': 'index.html', '/about': 'about.html', '/contact': 'contact.html' };\n"
+                         "function handler(req, res) {\n  const file = pages[req.url];\n"
+                         "  if (!file) { res.writeHead(404); return res.end('not found'); }\n"
+                         "  res.writeHead(200, { 'content-type': 'text/html' });\n"
+                         "  res.end(fs.readFileSync(path.join(__dirname, '..', 'public', file)));\n}\n"
+                         "if (require.main === module) http.createServer(handler).listen(process.env.PORT || 3000);\n"
+                         "module.exports = { handler, pages };\n",
+        "public/index.html": WEB_PAGE % ("Home", "Home"),
+        "public/about.html": WEB_PAGE % ("About", "About"),
+        "public/contact.html": WEB_PAGE % ("Contact", "Contact"),
+        "test/server.test.js": "const test = require('node:test');\nconst assert = require('node:assert');\n"
+                               "const { pages } = require('../src/server.js');\n"
+                               "test('three pages', () => assert.strictEqual(Object.keys(pages).length, 3));\n",
+    },
+    "existing-project-with-own-Done": {
+        "AGENTS.md": "# existing project\n\n## Done\n- The owner saw it on staging.\n- The changelog has a line.\n"
+                     "\n## Rules\n- Never edit the migrations folder by hand.\n",
+    },
+}
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

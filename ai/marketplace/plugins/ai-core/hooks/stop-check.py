@@ -38,8 +38,8 @@ import time
 sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
-from hooklib import (ai_home, iso_now, ledger_hits, ledger_note, log_line, project_root, project_tier,  # noqa: E402
-                     read_text, state_path)
+from hooklib import (ai_home, iso_now, ledger_hits, ledger_note, log_line, log_wall, project_root,  # noqa: E402
+                     project_tier, read_text, state_path)
 
 CHECK_TIMEOUT = float(os.environ.get("AI_STOP_CHECK_TIMEOUT") or 55)   # env: tests only (the hook's own env)
 MAX_TRIES = 2
@@ -175,6 +175,7 @@ def on_stop(payload, agent):
     reason = ("[ai stop-check] %s. Last %d lines:\n%s\n\nFix the cause, then finish. Do not delete, skip or weaken a "
               "test to get green. If it cannot pass, say why and stop (block %d of %d for these files)."
               % (problem, TAIL_LINES, tail, tries[fp], MAX_TRIES))
+    log_wall("stop-check", problem, root)
     return {"decision": "block", "reason": reason}
 
 

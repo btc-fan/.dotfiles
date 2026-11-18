@@ -235,6 +235,13 @@ record() {
     dir="${AI_STATE_DIR:-$HOME/.local/state/ai}"
     mkdir -p "$dir"
     printf '%s %s %s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$eco" "${name// /_}" "${ver:--}" "$result" >> "$dir/audit.log"
+    # A refusal is a wall fire (ticket 17): one line in walls.jsonl, the format of the router (hooklib.log_wall).
+    case "$result" in
+        FAIL|ERROR|REJECT)
+            python3 -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import hooklib; hooklib.log_wall("agent-audit", sys.argv[2], sys.argv[3])' \
+                "$AA_AI_DIR/marketplace/plugins/ai-core/hooks" "$eco ${name// /_} ${ver:--} $result" \
+                "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || true ;;
+    esac
 }
 
 main "$@"

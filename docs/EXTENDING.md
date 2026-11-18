@@ -51,7 +51,7 @@ Note: plugin skills cannot be hidden one by one. Think about the context cost.
 ## 4. Add a routing rule
 
 1. First ask: would one line in the root AGENTS.md or the project Map do? Passive context beats nudges, and v4 removed the nudges the logs showed ignored. A new nudge must show in `fired.jsonl` and `misses.jsonl` that it is followed. Then edit `ai/routing.yaml`. Fields: `id`, `scope` (global or opt-in), `trigger` (prompt regex, tool, command, paths, state), `action` (one short sentence), `strength` (nudge, gate or stop).
-2. Use a gate only for a rule with no exception. Its escape hatch is the owner-only `sudo ai-gate-skip <gate> <minutes> <why>`; never an in-command variable an agent could type. Every new deny path must honour that escape hatch: in `router.py`, ask `owner_skip(ctx, <gate name>, <what>)` (it reads `ctx.skips`) just before the deny, and deny only when it returns false. A deny path without it cannot be skipped by the owner, and a test case should prove the skip works.
+2. Use a gate only for a rule with no exception. Its escape hatch is the owner-only `sudo ai-gate-skip <gate> <minutes> <why>`; never an in-command variable an agent could type. Every new deny path must honour that escape hatch: in `router.py`, ask `owner_skip(ctx, <gate name>, <what>)` (it reads `ctx.skips`) just before the deny, and deny only when it returns false. A deny path outside the router whose environment the agent's command sets (a git hook such as `ai-precommit`) calls `hooklib.gate_skips(env_ok=False)`, so only the root-owned file counts. A deny path without it cannot be skipped by the owner, and a test case should prove the skip works.
 3. A rule that overlaps another: add a row to `tiebreaks`.
 4. Keep regexes strict. A loose prompt regex fires on unrelated prompts.
 5. Run `ai-render`. It rebuilds `routing.json` and the L0 table. Check the root file size (under 30 KB). On other machines, `git pull` plus `ai-sync` delivers it (see [AGENTS-MD.md](AGENTS-MD.md)).
@@ -159,8 +159,9 @@ tests in `ai/tests/test_tier1.py` (and router cases for gates and rows). Common 
    AGENTS.md text for something a hook or a check can do.
 6. The Stop hook keeps a 60 s timeout (SPEC 25): `check-fast` must stay under 60 s; the router hooks stay well
    under 30 s.
-7. A project verification skill is made in the project (`/create-verification-skill`), never in this repo. Change
-   our copy of the pstack skills only through `ai/lib/pstack_adapt.py` or a refreshed vendor copy
-   (`ai/rules/vendor/pstack-verification/`); `t_verify_skills_copy` fails on a hand edit.
+7. A project verification skill is made in the project (the agent runs `create-verification-skill`), never in
+   this repo. Change our copy of the pstack skills only through `ai/lib/pstack_adapt.py`, its appended sections in
+   `ai/lib/pstack_additions/`, or a refreshed vendor copy (`ai/rules/vendor/pstack-verification/`);
+   `t_verify_skills_copy` fails on a hand edit.
 8. A new mattpocock opt-in skill: add its name to `MATTPOCOCK_OPTIN_PICKS` (tools.sh) and `OPTIN_SKILLS` (ai-start),
    its callees to `SKILL_CALLEES`, audit it, and update `ai/rules/mattpocock-skills.md`. Global picks stay five.

@@ -8,14 +8,23 @@
    "payload": {"prompt": "The app is slow when I run the report. Find out why."}
   },
   {
-   "name": "EN bug prompt, no skill, Stop: block",
-   "expect": "block",
+   "name": "EN bug prompt, no skill, Stop: no block (a hint since ticket 14)",
+   "expect": "allow",
    "steps": [
     {"event": "UserPromptSubmit", "payload": {"prompt": "the export crashed again, please debug it"}},
     {"event": "Stop", "payload": {"stop_hook_active": false}}
    ],
-   "contains": ["[ai router: diagnosing-bugs]", "diagnosing-bugs"],
-   "state_contains": {"misses.jsonl": "\"rule\": \"diagnosing-bugs\""}
+   "state_not_contains": {"misses.jsonl": "diagnosing-bugs"}
+  },
+  {
+   "name": "research turn that mentions debug and broken: hint, then Stop with no block",
+   "expect": "allow",
+   "steps": [
+    {"event": "UserPromptSubmit", "payload": {"prompt": "research how other setups debug hooks; list which ones were broken by the last update"}},
+    {"event": "Stop", "payload": {}}
+   ],
+   "state_contains": {"fired.jsonl": "\"rule\": \"diagnosing-bugs\""},
+   "state_not_contains": {"misses.jsonl": "diagnosing-bugs"}
   },
   {
    "name": "skill used in the turn: Stop passes",
@@ -53,8 +62,8 @@
    "payload": {"prompt": "add a docstring to the calc module"}
   },
   {
-   "name": "RO: aplicatia e lenta: block",
-   "expect": "block",
+   "name": "RO: aplicatia e lenta: no block",
+   "expect": "allow",
    "steps": [
     {"event": "UserPromptSubmit", "payload": {"prompt": "aplicatia e foarte lenta la export"}},
     {"event": "Stop", "payload": {}}
@@ -67,8 +76,8 @@
    "payload": {"prompt": "pagina de login s-a stricat dupa update"}
   },
   {
-   "name": "RU: тормозит: block",
-   "expect": "block",
+   "name": "RU: тормозит: no block",
+   "expect": "allow",
    "steps": [
     {"event": "UserPromptSubmit", "payload": {"prompt": "приложение тормозит при запуске"}},
     {"event": "Stop", "payload": {}}
@@ -81,8 +90,8 @@
    "payload": {"prompt": "сервис падает после деплоя"}
   },
   {
-   "name": "Codex: bug prompt, no skill, Stop: block",
-   "expect": "block",
+   "name": "Codex: bug prompt, no skill, Stop: no block",
+   "expect": "allow",
    "agent": "codex",
    "steps": [
     {"event": "UserPromptSubmit", "payload": {"prompt": "the app is slow", "turn_id": "t1"}},
@@ -101,15 +110,11 @@
    ]
   },
   {
-   "name": "owner skip (sudo ai-gate-skip diagnosing-bugs): Stop passes, logged",
-   "expect": "allow",
-   "steps": [
-    {"event": "UserPromptSubmit", "payload": {"prompt": "the export crashed again, please debug it"}},
-    {"event": "Stop", "payload": {}}
-   ],
-   "gate_skip": "diagnosing-bugs {{SOON}} known flaky export",
-   "state_contains": {"gates.log": "SKIP diagnosing-bugs"},
-   "state_not_contains": {"misses.jsonl": "diagnosing-bugs"}
+   "name": "Codex: bug prompt: the hint is in the prompt context",
+   "expect": "fire",
+   "agent": "codex",
+   "event": "UserPromptSubmit",
+   "payload": {"prompt": "the app is slow", "turn_id": "t1"}
   },
   {
    "name": "pasted session lines (⏺ ❯ > │) do not count",
