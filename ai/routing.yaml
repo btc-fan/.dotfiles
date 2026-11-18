@@ -37,7 +37,7 @@ rules:
     trigger: {state: 'git repo with code'}
     when: session_start
     summary: 'session start in a code repo'
-    action: "Read the Map and Libraries sections of this repo's AGENTS.md first, then search narrowly. {knowledge_index}"
+    action: "Read the Map and Libraries of this repo's AGENTS.md first, then search narrowly. {knowledge_index}"
     strength: nudge   # {knowledge_index}: one status line (Map, Libraries, opt-in tools), never file content
 
   - id: no-ai-base
@@ -53,7 +53,7 @@ rules:
     scope: global
     trigger: {state: 'git repo with code'}
     when: session_start
-    summary: 'session start: main moved since the last architecture review'
+    summary: 'session start: main moved since the last review'
     action: "{merge_review}"   # .ai/last-review holds main at the last review; empty when unchanged or not adopted
     proof: 'improve-codebase-architecture|retro|last-review'
     strength: nudge
@@ -62,7 +62,7 @@ rules:
     scope: global
     trigger: {state: 'git repo with code'}
     when: session_start
-    summary: 'session start: old Claude memory files for this repo'
+    summary: 'session start: old Claude memory files exist'
     action: "{legacy_memory}"   # ~/.claude/projects/<repo key>/memory; auto memory is off since 2026-11-16
     proof: 'docs/agents/notes.md|Project rules'
     strength: nudge
@@ -71,14 +71,14 @@ rules:
     scope: global
     trigger: {state: 'any session'}
     when: session_start
-    summary: 'session start: AI tools changed version since the last review'
+    summary: 'session start: AI tools upgraded since the last review'
     action: "{upgrade_pending}"   # from ~/.local/state/ai/upgrades.json (ai-versions --record in install.sh)
     proof: 'upgrade-review'
     strength: nudge
 
   - id: nav-first
     scope: global
-    summary: 'first broad code search (Grep, rg, grep -r, find); denied once in a code repo with a graph'
+    summary: 'first broad code search (Grep, rg, grep -r, find); denied once where a graph exists'
     trigger: {tool_before: 'Grep|Bash|shell|exec_command|local_shell', command: '(^|[;&|(]\s*)(rg|ag|ack|git grep|grep\s+(-\w*[rR]\w*|--recursive)|find\s+\S+\s+(-i?name|-path|-type))\b'}
     action: "{nav_hint}"   # empty when the repo has no graph and Serena is off
     once_per: 'session'
@@ -116,36 +116,36 @@ rules:
     profiles: [server]    # dev-mac (all 3 machines): off, agents do what the task needs (owner 2026-11-15)
     trigger: {tool_before: 'Bash|shell|exec_command|local_shell', command: '\b(sudo|doas|pkexec|sudoedit|su|run0)\b'}
     summary: 'any sudo, su, doas, pkexec'
-    action: "No sudo for agents: give the owner the exact command. Box work on a server: the box tool (MCP server box); outside a sandbox also plain proj-agent <subcommand>; never sudo."
+    action: "No sudo for agents: give the owner the exact command. Server box work: the box MCP tools, or outside a sandbox plain proj-agent <subcommand>."
     strength: gate    # blocks at a command position (also inside bash -c, behind env/nice/timeout); quoted text never counts
 
   - id: no-destroy
     scope: global
     profiles: [server]    # dev-mac: off (owner 2026-11-15: keep only secret-scan and pr-rules)
     trigger: {tool_before: 'Bash|shell|exec_command|local_shell', command: '\b(rm|git|docker|docker-compose|podman|podman-compose|dropdb|pg_restore|psql|mysql|mariadb|sqlite3|duckdb)\b'}
-    summary: 'rm -r of data, home or repo root; force push or delete of main; reset --hard with changes; clean -x at the root; compose down -v; DROP/TRUNCATE on a protected DB'
-    action: "Destructive command: give the owner the exact command and the reason. Rebuildable folders (node_modules, .venv, dist, build) are fine."
+    summary: 'rm -r of data, home or repo root; force push or delete of main; reset --hard with changes; root clean -x; compose down -v; DROP/TRUNCATE of a protected DB'
+    action: "Give the owner the exact command and why. Rebuildable folders (node_modules, .venv, dist, build) are fine."
     strength: gate    # target-based; protected DB names and extra commands per repo in .ai/destructive.txt
 
   - id: pr-rules
     scope: global
     summary: 'before gh pr create or edit'
     trigger: {tool_before: 'Bash', command: '\bgh pr (create|edit)\b'}
-    action: "PR body (pr skill template): Summary with a Mermaid diagram, Evidence (Before and After), Merge Danger (Door: one-way or two-way; Blast Radius), Docs, Changed guards (Ledger on fix PRs), author-sessions block at the end."
+    action: "PR body (pr skill template): Summary with a Mermaid diagram, Evidence (Before, After), Merge Danger (Door: one-way or two-way; Blast Radius), Docs, Changed guards (Ledger on fix PRs), author-sessions block last."
     strength: gate    # blocks without ```mermaid, <!-- author-sessions, the fields Evidence, Door (one-way or two-way), Blast Radius (placeholders refused), a test file in a fix: PR; --fill/--web refused
 
   - id: merge-approval
     scope: global
     summary: 'before gh pr merge, or a git push to main or master'
     trigger: {tool_before: 'Bash|shell|exec_command|local_shell', command: '\bgh\b.*\b(merge|api)\b|\bgit\b.*\bpush\b'}
-    action: "Merge only after the owner's latest message says merge or approve (after the ship skill). No push to main or master."
+    action: "Merge only after the ship skill and when the owner's latest message says merge or approve. No push to main or master."
     strength: gate    # the router stores the owner's OK per session (UserPromptSubmit); a later prompt without it clears it
 
   - id: no-verify
     scope: global
     summary: 'git commit or push with --no-verify (or commit -n)'
     trigger: {tool_before: 'Bash|shell|exec_command|local_shell', command: '\bgit\b.*(--no-verify|\s-\w*n)'}
-    action: "Never skip the git hooks: fix what the pre-commit check reports, then commit again."
+    action: "Never skip git hooks: fix what pre-commit reports, then commit again."
     strength: gate
 
   # ---------- skill gates (require_skill: proof = a Skill call, a typed /name or a read of its SKILL.md) ----------
@@ -154,7 +154,7 @@ rules:
     summary: 'before an edit of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md'
     trigger: {tool_before: 'Edit|Write|MultiEdit|apply_patch|Bash|shell|exec_command|local_shell', paths: '**/AGENTS.md|**/CLAUDE.md|**/CLAUDE.local.md|**/SKILL.md'}   # shell: the files it writes (> >> tee, sed -i, cp, mv)
     require_skill: writing-for-agents
-    action: "Agent docs: load the writing-for-agents skill first (Skill tool, or read its SKILL.md), then edit."
+    action: "Load the writing-for-agents skill first (Skill tool, or read its SKILL.md), then edit."
     strength: gate
 
   - id: diagnosing-bugs
@@ -162,7 +162,7 @@ rules:
     summary: 'bug or performance prompt (slow, perf, broken, debug, crash, regression; RO, RU)'
     trigger: {prompt: '\b(slow(er|ly|ness|s|ed|ing)?|performance|perf|broken|debug(s|ged|ging)?|crash(es|ed|ing)?|regressions?)\b|\b(lent[aăe]?|performan[tț][aăe]|stricat[aăe]?|s-a stricat|nu (mai )?merge|depaneaz[aă]|crap[aă]|se blocheaz[aă]|regresie)\b|(?<!\w)(медленн|тормоз|производительн|слома|отлад|дебаг|пада|упал|краш|регресси)\w*|(?<!\w)не работает'}
     require_skill: diagnosing-bugs
-    action: "Bug or performance work: use the diagnosing-bugs skill (Skill tool) and follow its loop before you end the turn."
+    action: "Use the diagnosing-bugs skill (Skill tool) and follow its loop before you end the turn."
     strength: stop
 
   - id: tdd
@@ -171,7 +171,7 @@ rules:
     # owner 2026-11-16: the baseline showed 0/3 tdd skill use (Claude works test-first by hand without the skill)
     trigger: {prompt: '\b(tests? first|test-first|tdd|red[- ]green|(write|add) (the |a )?(failing )?tests? (first|before)|failing tests? first)\b|\b(teste(le)? (mai )?[iî]nt[aâ]i|test(e|ul)? [iî]nainte|mai [iî]nt[aâ]i (un |testele|testul))\b|(?<!\w)(сначала тест|тесты сначала|тест сначала|красн\w* зел[её]н)\w*'}
     require_skill: tdd
-    action: "Test-first work: use the tdd skill (Skill tool) and follow its red-green slices before you end the turn."
+    action: "Use the tdd skill (Skill tool) and follow its red-green slices before you end the turn."
     strength: stop
 
   - id: ship
@@ -206,11 +206,11 @@ rules:
 
   - id: docs-lookup
     scope: global
-    summary: 'prompt names a library of the Libraries section, or before a dependency-file edit'
+    summary: 'prompt names a library listed in Libraries, or before a dependency-file edit'
     # Only a named library or a dependency change: the old "docs|sdk|library" words fired on every docs task
     # and were ignored 72 of 88 times (owner 2026-11-16).
     trigger: {prompt_libs: true, tool_before: 'Edit|Write|MultiEdit|apply_patch', paths: 'package.json|pyproject.toml|requirements*.txt|go.mod|Cargo.toml|Gemfile|composer.json'}
-    action: "Library code: context7 query-docs with the ID from the Libraries section (resolve only if missing), then the official docs site. {libs_hits}"
+    action: "context7 query-docs with the Libraries ID (resolve only if missing), then the official docs site. {libs_hits}"
     proof: 'tool:mcp__\S*context7'
     strength: nudge
 
@@ -224,7 +224,7 @@ rules:
 
   - id: verify-before-done
     scope: global
-    summary: 'after a code edit in a project with a verify-<app> skill'
+    summary: 'after a code edit where a verify-<app> skill exists'
     trigger: {tool_after: 'Edit|Write|MultiEdit|NotebookEdit'}
     action: "{verify_hint}"   # empty without a verify skill or for a non-code file
     once_per: 'session'
@@ -236,7 +236,7 @@ rules:
     scope: global
     summary: 'SEO prompt, project without claude-seo'
     trigger: {prompt: '\b(seo|serp|rank(ing|s)?|meta (title|description)|schema markup|structured data|sitemap|core web vitals|cwv|hreflang|backlinks?|ai overviews?|geo audit|search console)\b', state: 'project without claude-seo'}
-    action: "claude-seo is off in this project. Suggest: ai-adopt --tools seo. Do not enable it yourself."
+    action: "claude-seo is off here. Suggest: ai-adopt --tools seo. Do not enable it yourself."
     proof: 'ai-adopt'
     strength: nudge
 
@@ -244,7 +244,7 @@ rules:
     scope: global
     summary: 'blog prompt, project without claude-blog'
     trigger: {prompt: '\b(blog|blog post|article|write a post|rewrite (the|this) post|newsletter)\b', state: 'project without claude-blog'}
-    action: "claude-blog is off in this project. Suggest: ai-adopt --tools blog. Do not enable it yourself."
+    action: "claude-blog is off here. Suggest: ai-adopt --tools blog. Do not enable it yourself."
     proof: 'ai-adopt'
     strength: nudge
 
@@ -252,7 +252,7 @@ rules:
     scope: global
     summary: 'browser prompt, project without Playwright MCP'
     trigger: {prompt: '\b(screenshot|open the page|click|e2e|end to end|browser test|playwright)\b', state: 'project without Playwright MCP'}
-    action: "No Playwright MCP in this project. Suggest: ai-adopt --tools browser. Do not install a browser tool yourself."
+    action: "No Playwright MCP here. Suggest: ai-adopt --tools browser. Do not install a browser tool yourself."
     proof: 'ai-start'
     strength: nudge
 
@@ -265,7 +265,7 @@ rules:
     when: session_start
     trigger: {state: 'git repo with code'}
     summary: 'session start, Serena on (default)'
-    action: "Serena is on here (no memories, the Map is the knowledge place): get_symbols_overview / find_symbol for definitions, find_referencing_symbols for users, replace_symbol_body for edits."
+    action: "Serena is on here (no memories; the Map holds knowledge): get_symbols_overview / find_symbol for definitions, find_referencing_symbols for callers, replace_symbol_body to edit."
     strength: nudge
 
   - id: graph
@@ -274,7 +274,7 @@ rules:
     when: session_start
     trigger: {state: 'git repo with code'}
     summary: 'session start, graphify on (default)'
-    action: "graphify is on here: graphify query for structure before rg; the graph refreshes itself after commits, merges and checkouts."
+    action: "graphify is on here: graphify query for structure before rg (auto-refresh after commits, merges, checkouts)."
     strength: nudge
 
   - id: omc
@@ -283,7 +283,7 @@ rules:
     when: session_start
     trigger: {state: 'git repo with code'}
     summary: 'session start, oh-my-claudecode on here'
-    action: "oh-my-claudecode is on here: its skills and agents are available (/oh-my-claudecode:...). It writes .omc/ in this repo (keep it out of commits except .omc/skills/)."
+    action: "oh-my-claudecode is on here (/oh-my-claudecode:... skills and agents). Keep .omc/ out of commits, except .omc/skills/."
     strength: nudge
 
   - id: seo
@@ -291,7 +291,7 @@ rules:
     summary: 'SEO prompt'
     tool: claude-seo
     trigger: {prompt: '\b(seo|serp|rank(ing|s)?|meta (title|description)|schema markup|structured data|sitemap|core web vitals|cwv|hreflang|backlinks?|ai overviews?|geo audit|search console)\b'}
-    action: "SEO task: claude-seo first (/seo audit <url>, /seo page <url>). {claude_handoff}"
+    action: "claude-seo first (/seo audit <url>, /seo page <url>). {claude_handoff}"
     proof: 'skill:\S*seo|claude -p|claude-seo/skills'
     strength: nudge
 
@@ -300,7 +300,7 @@ rules:
     summary: 'blog prompt'
     tool: claude-blog
     trigger: {prompt: '\b(blog|blog post|article|write a post|rewrite (the|this) post|newsletter)\b'}
-    action: "Blog task: claude-blog first (claude-blog:blog routes). Post file: blog-*. Site: seo-*. {claude_handoff}"
+    action: "claude-blog first (claude-blog:blog routes). Post file: blog-*. Site: seo-*. {claude_handoff}"
     proof: 'skill:\S*blog|claude -p|claude-blog/skills'
     strength: nudge
 
@@ -309,7 +309,7 @@ rules:
     summary: 'browser prompt (screenshot, click, e2e)'
     tool: Playwright MCP
     trigger: {prompt: '\b(screenshot|open the page|click|e2e|end to end|browser test|playwright)\b'}
-    action: "Browser work: Playwright MCP (headless, isolated on servers)."
+    action: "Playwright MCP (headless, isolated on servers)."
     proof: 'tool:mcp__\S*playwright'
     strength: nudge
 
@@ -318,7 +318,7 @@ rules:
     summary: 'UI prompt or UI file'
     tool: ui-ux-pro-max
     trigger: {prompt: '\b(ui|ux|design|landing page|component|layout|color palette|typography|dark mode)\b', paths: '**/*.{tsx,jsx,vue,svelte,css,scss}'}
-    action: "UI work: use ui-ux-pro-max. Read design-system/<app>/MASTER.md (and the page override) first. No MASTER.md yet: make 3 to 5 directions (--design-system, different styles) as prototype variants (?variant=), the owner picks one, then --persist. Ask before paid image generation or any npx ...@latest."
+    action: "Use ui-ux-pro-max. Read design-system/<app>/MASTER.md (and the page override) first. None yet: 3 to 5 directions (--design-system, different styles) as prototype variants (?variant=); the owner picks one, then --persist. Ask before paid image generation or npx ...@latest."
     proof: 'skill:\S*ui-ux-pro-max'
     strength: nudge
 
@@ -327,7 +327,7 @@ rules:
     summary: 'tickets, spec, triage, backlog prompt'
     tool: mattpocock tracker skills
     trigger: {prompt: '\b(ticket|tickets|spec|triage|backlog|roadmap|wayfinder)\b'}
-    action: "to-spec, then to-tickets (on when the project's skills line lists them). Tickets go to docs/tickets/<feature>/ (docs/agents/issue-tracker.md); never GitHub issues or labels without the owner.{tracker_flow}"
+    action: "to-spec, then to-tickets (if the project's skills line lists them). Tickets go in docs/tickets/<feature>/ (docs/agents/issue-tracker.md); no GitHub issues or labels without the owner.{tracker_flow}"
     proof: 'skill:\S*(to-spec|to-tickets)|(to-spec|to-tickets)/SKILL\.md'
     strength: nudge
 
@@ -345,7 +345,7 @@ rules:
 tiebreaks:
   - {trigger: 'one post file, or a post to be written', winner: 'claude-blog:blog-*', loser: 'claude-seo:seo-*', match: '\b(this|the|a|one|new|my|next) (blog )?post\b|\bpost file\b|\b(write|draft|rewrite) (a |the |this )?(blog )?post\b'}
   - {trigger: 'URL, domain, whole site', winner: 'claude-seo:seo-*', loser: 'claude-blog:blog-*', match: 'https?://|\bwww\.|\b(whole|entire|full) (site|website)\b|\bdomain\b'}
-  - {trigger: 'new app or project (kickoff)', winner: 'grilling (grill-with-docs where the project links it; typed: /grill-me)', loser: 'OMC deep-interview (fallback)', match: '\bnew (app|project)\b|\bkick ?off\b'}
+  - {trigger: 'new app or project (kickoff)', winner: 'grilling (grill-with-docs where linked; typed: /grill-me)', loser: 'OMC deep-interview (fallback)', match: '\bnew (app|project)\b|\bkick ?off\b'}
   - {trigger: 'deep interview, ambiguity score', winner: 'OMC deep-interview', loser: 'matt grilling', match: '\bdeep interview\b|\bambiguity score\b'}
   - {trigger: 'library API docs', winner: 'context7 with the Libraries ID', loser: 'web search', match: '\b(api docs|library docs|docs for)\b'}
 
