@@ -2,7 +2,7 @@
 
 **What to build:** the AI builds `verify-milu` with the generator: the transcript lab API and the web app UI in Playwright mode (more than 3 pages). The existing Playwright specs map to feature files.
 
-**Blocked by:** 08
+**Blocked by:** 08, 16
 
 **Status:** ready-for-agent
 

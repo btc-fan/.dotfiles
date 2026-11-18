@@ -87,3 +87,15 @@ Keep the tools. Make the AI build the verify tool in every project, make it cove
 - Known limit: the hooks prove the scenario was driven before the commit, not before the test was written. This matches the owner rule.
 - Known limit: `git commit --no-verify` skips hook 3. The no-verify gate already blocks agents from it.
 - ScripTube note: proofs live in each ticket worktree and go away with it. The PR gate reads the final run on the PR head, so this is accepted.
+
+## Addendum: walls review (owner grilling 2026-11-18)
+
+The new hooks add walls, so every existing wall was measured first: 3 machines, 7 days, real sessions only. Decisions:
+
+- Keep and fix: secret-scan (ticket 11; about 25 blocks, 14 of 14 sampled were test values), merge-approval (ticket 12; 17 blocks, 14 false), pr-rules (ticket 13; about half false, `$VAR` body files).
+- Keep as is: nav-first (deny once per session, no deny after graphify or Serena was used), no-verify, gh-write, writing-for-agents, ship, stop-check.
+- Hints instead of stops: diagnosing-bugs and tdd (ticket 14; 7 of 7 false).
+- Off: OMC magic keywords and the OMC context-guard stop (ticket 15).
+- Bugs, not rules: Playwright refused on dev-mac against the owner decision of 2026-11-14, the ai-adopt branch collision, Python tests missed without pyproject.toml (ticket 16).
+- Measure: every wall logs its fires; `ai-doctor` shows 7 days; a verify hook with more than 1 in 3 false fires becomes a hint (ticket 17).
+- Every kept rule runs as a hook (PreToolUse, Stop, SubagentStop, git pre-commit), never as text only.
