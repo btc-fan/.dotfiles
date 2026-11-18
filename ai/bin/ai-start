@@ -97,7 +97,7 @@ def main(argv):
         folder = os.path.realpath(opts["dir"])
         if folder in (os.path.realpath(os.path.expanduser("~")), os.path.realpath(os.sep)):
             print("ai-%s: refused: --init never runs git init in $HOME or /" % mode, file=sys.stderr)
-            return 1
+            return wall(folder, "--init in $HOME or /")
         if subprocess.call(["git", "init", "-q", folder]) == 0:
             root = git_root(folder)
     if root is None:
@@ -106,14 +106,14 @@ def main(argv):
         return 1
     if not owner_repo(root):
         print("ai-%s: refused, the origin remote is not one of the owner's repos" % mode, file=sys.stderr)
-        return 1
+        return wall(root, "origin is not an owner repo")
     # Never on main or master (owner 2026-11-16): the commit goes on a branch ai-adopt, the owner merges it.
     # An unborn main (no commit yet) counts too. Check before any write, so main stays clean.
     on_main = (git(root, "branch", "--show-current") or "") in ("main", "master")
     if on_main and git(root, "rev-parse", "-q", "--verify", "refs/heads/" + ADOPT_BRANCH):
         print("ai-%s: nothing written: you are on main and the branch %s exists. Merge or delete it, or switch "
               "to it (git switch %s), then run again." % (mode, ADOPT_BRANCH, ADOPT_BRANCH))
-        return 1
+        return wall(root, "on main and the branch %s exists" % ADOPT_BRANCH)
     routing = load_routing()
     version = str(routing.get("version") or 1)
     link_worktree_venv(root, opts["dry_run"])
@@ -175,7 +175,7 @@ def main(argv):
     if refused:
         print("".join(refused).rstrip("\n"))
         print("ai-%s: owner text would change: nothing written" % mode)
-        return 1
+        return wall(root, "owner text would change")
     # The docs baseline before the timing run: stray Markdown it accepts must not fail the first check-fast.
     steps = knowledge_steps(root, opts, with_defaults(enabled)) + docs_baseline_steps(root) \
         + check_steps(root, opts, tier, checks, plan) + ratchet_steps(root) \
@@ -221,7 +221,7 @@ def main(argv):
         undo_intent_to_add(root, new_files)
         print("ai-%s: secret scan found %s in AGENTS.md. Remove it, then run again. "
               "Files written, not committed." % (mode, ", ".join(sorted(set(hits)))))
-        return 1
+        return wall(root, "secret in AGENTS.md: " + ", ".join(sorted(set(hits))))
     # git var fails exactly where git commit would (no name or email it may use): check before, not after.
     if not (git(root, "var", "GIT_AUTHOR_IDENT") and git(root, "var", "GIT_COMMITTER_IDENT")):
         undo_intent_to_add(root, new_files)
@@ -260,6 +260,18 @@ def main(argv):
 
 
 ADOPT_BRANCH = "ai-adopt"
+
+
+def wall(root, reason):
+    """An ai-adopt refusal is a wall fire: one line in walls.jsonl (ticket 17; ai-doctor shows 7 days). Exit 1."""
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks"))
+    try:
+        from hooklib import log_wall
+        log_wall("ai-adopt", reason, root)
+    except ImportError:
+        pass
+    return 1
 ENABLED_GENERATED = ownertext.GENERATED[".ai/enabled"]
 
 

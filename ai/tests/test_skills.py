@@ -119,6 +119,41 @@ def t_eval_turns_let_stop_fire(work):
     assert turns >= 12, "a Stop block needs turns after the first stop: --max-turns %d" % turns
 
 
+# ---------------------------------------------------------------- ticket 17: wall log, 7-day table
+
+def t_doctor_wall_table(work):
+    """Two real fires (a router gate deny, an ai-adopt refusal) and an old row: ai-doctor shows a 7-day table
+    per wall with the fires and the last 3 short reasons."""
+    state = os.path.join(work, "walls-state")
+    home = os.path.join(work, "walls-home")
+    proj = os.path.join(home, "proj")
+    os.makedirs(proj)
+    subprocess.check_call(["git", "init", "-q", proj])
+    env = dict(os.environ, AI_STATE_DIR=state, HOME=home, AI_NOTIFY_DRY="1")
+    payload = {"hook_event_name": "PreToolUse", "session_id": "w1", "cwd": proj, "tool_name": "Bash",
+               "tool_input": {"command": "git commit --no-verify -m wip"}}
+    res = subprocess.run([sys.executable, os.path.join(HOOKS, "router.py"), "--agent", "claude", "PreToolUse"],
+                         input=json.dumps(payload).encode(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    assert b'"deny"' in res.stdout, res.stdout
+    res = subprocess.run([sys.executable, os.path.join(BIN, "ai-start"), "--dir", home, "--init"],
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    assert res.returncode == 1 and b"refused" in res.stdout, res.stdout
+    old = {"ts": iso(time.time() - 8 * 86400), "host": "m", "repo": "", "wall": "secret-scan", "reason": "old"}
+    with open(os.path.join(state, "walls.jsonl"), "a") as fh:
+        fh.write(json.dumps(old) + "\n")
+    doctor = load(os.path.join(BIN, "ai-doctor"), "aidoc_walls")
+    doctor.STATE = state
+    out = io.StringIO()
+    with redirect_stdout(out):
+        doctor.report_walls()
+    text = out.getvalue()
+    assert "walls, last 7 days" in text, text
+    rows = {ln.split()[0]: ln for ln in text.splitlines()[1:] if ln.strip()}
+    assert set(rows) == {"no-verify", "ai-adopt"}, "8 days old: not counted: " + text
+    assert rows["no-verify"].split()[1] == "1" and "--no-verify" in rows["no-verify"], text
+    assert rows["ai-adopt"].split()[1] == "1" and "--init" in rows["ai-adopt"], text
+
+
 # ---------------------------------------------------------------- helpers
 
 def rendered(work):
@@ -150,7 +185,8 @@ def write(path, text):
         fh.write(text)
 
 
-TESTS_LIST = [t_card_fits_worst_case, t_doctor_skill_stats, t_render_checks_skill_rules, t_eval_turns_let_stop_fire]
+TESTS_LIST = [t_card_fits_worst_case, t_doctor_skill_stats, t_render_checks_skill_rules, t_eval_turns_let_stop_fire,
+              t_doctor_wall_table]
 
 if __name__ == "__main__":
     sys.exit(main())

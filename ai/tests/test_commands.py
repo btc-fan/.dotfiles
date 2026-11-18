@@ -182,6 +182,9 @@ def t_agent_audit(work):
     log = open(os.path.join(state, "audit.log")).read().splitlines()
     assert log[0].split()[1:] == ["npm", "left-pad", "1.3.0", "PASS"], log
     assert log[1].split()[1:] == ["npm", "evil-pkg", "-", "FAIL"], log
+    walls = [json.loads(ln) for ln in open(os.path.join(state, "walls.jsonl")).read().splitlines()]
+    assert [(w["wall"], w["reason"]) for w in walls] == [("agent-audit", "npm evil-pkg - FAIL")], walls
+    assert walls[0]["host"] and walls[0]["ts"] and "repo" in walls[0], walls
     res = run(["bash", os.path.join(BIN, "agent-audit")], env=env)
     assert res.returncode == 2
     # name==version (pypi) and name@version (npm, scoped too) are the same as two words.
@@ -197,6 +200,8 @@ def t_agent_audit(work):
     assert res.returncode == 3 and "ERROR" in res.stdout and "bad arguments" in res.stdout, res.stdout
     assert "FINDINGS" not in res.stdout, res.stdout
     assert open(os.path.join(state, "audit.log")).read().splitlines()[-1].split()[-1] == "ERROR"
+    walls = [json.loads(ln) for ln in open(os.path.join(state, "walls.jsonl")).read().splitlines()]
+    assert len(walls) == 2 and walls[-1]["reason"] == "pypi httpx 0.28.1 ERROR", "PASS runs log no wall: %s" % walls
 
 
 FAKE_SKILL_SCANNER = """#!/bin/sh

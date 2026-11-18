@@ -243,7 +243,7 @@ Good tools that are not part of daily work live in `ai/TOOLBOX.md`. They are not
 
 - **What.** Our wrapper: `agent-audit npm|pypi|dir|skill <target>`. It runs guarddog (malware rules), osv-scanner (known vulnerabilities) and a skill scanner.
 - **Why.** Every tool, package, MCP server, skill and plugin is checked before it runs.
-- **How it works here.** Each run appends `<time> <ecosystem> <name> <version> PASS|FAIL` to `~/.local/state/ai/audit.log`. The install gate reads that file. A missing scanner counts as a finding (fail closed). A FAIL means stop and show the owner.
+- **How it works here.** Each run appends `<time> <ecosystem> <name> <version> PASS|FAIL` to `~/.local/state/ai/audit.log`. The install gate reads that file. A missing scanner counts as a finding (fail closed). A FAIL means stop and show the owner. A FAIL, ERROR or REJECT also writes one line to `~/.local/state/ai/walls.jsonl` (ai-doctor shows 7 days).
 - **Example.** `agent-audit pypi graphifyy` before `uv tool install graphifyy==0.9.105`.
 
 ### gitleaks

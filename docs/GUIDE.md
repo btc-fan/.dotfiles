@@ -1737,7 +1737,10 @@ Run `ai-sync`. Check with `ai-sync --check`.
 2. The agent fixes it: it calls the skill, or reads its `SKILL.md`. A typed-only skill: it reads the file.
 3. A real exception (owner only): `sudo ai-gate-skip <gate> <minutes max 60> <why>`. Gate names: the rule id,
    `winner-gate`, `nav-first`. Each skip is a line in `~/.local/state/ai/gates.log`.
-4. Count the blocks: `ai-doctor` (misses of the skill rules, 30 days) or `~/.local/state/ai/misses.jsonl`.
+4. Count the blocks: `ai-doctor` prints the table "walls, last 7 days": per wall the fires and the last 3 short
+   reasons (gate denies, stop blocks, `ai-adopt` and `agent-audit` refusals). The raw log is
+   `~/.local/state/ai/walls.jsonl`, one line per fire: time, machine, repo, wall id, short reason. A wall with many
+   false fires is a candidate for a hint (owner decision 2026-11-18: more than 1 in 3 false after 7 days).
 
 ### Something is broken after an upgrade
 

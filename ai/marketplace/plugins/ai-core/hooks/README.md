@@ -110,7 +110,14 @@ A gate decision is sent even when the state dir cannot be written; an internal e
 fails open and is logged to `~/.local/state/ai/router-errors.log` (ai-doctor shows it).
 The secret scan has a time budget under 20 s (git 5 s and gitleaks 10 s per call). On a timeout it
 denies ("scan timed out, nothing was checked"); it never passes unscanned.
-State files (`gates.log`, `fired.jsonl`, `misses.jsonl`, ...) are created with mode 0600. Commands in
+Wall log (ticket 17): every wall fire writes one line to `~/.local/state/ai/walls.jsonl`: a router deny
+(`ctx.decide("deny", ...)`: every gate, the winner gate, nav-first, home-folder, abs-path), a stop block, a
+`stop-check.py` block (check-fast failed), an
+`ai-adopt` refusal (`--init` in `$HOME` or `/`, origin not an owner repo, the `ai-adopt` branch exists, owner text
+would change, a secret in AGENTS.md) and an `agent-audit` refusal (FAIL, ERROR, REJECT). One format for all:
+`{"ts", "host", "repo", "wall", "reason"}` (`hooklib.log_wall`; the reason is one redacted line, at most 160
+characters). `ai-doctor` prints a 7-day table: per wall the fires and the last 3 reasons. The log rotates at 5 MB.
+State files (`gates.log`, `fired.jsonl`, `misses.jsonl`, `walls.jsonl`, ...) are created with mode 0600. Commands in
 `gates.log` are redacted with the secret patterns plus any `NAME=value` where NAME looks like a
 key, token, secret or password.
 

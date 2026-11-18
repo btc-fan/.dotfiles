@@ -6,6 +6,11 @@
 
 **Status:** ready-for-agent
 
-- [ ] One log format for all walls: time, machine, repo, wall id, short reason.
+- [x] One log format for all walls: time, machine, repo, wall id, short reason.
 - [ ] `ai-doctor` prints the 7-day table; the wall review in this ticket uses it.
-- [ ] A test writes 2 fires and reads them back in the table.
+- [x] A test writes 2 fires and reads them back in the table.
+
+**Progress (2026-11-18):** log `walls.jsonl` (`hooklib.log_wall`): router denies and stop blocks, `stop-check.py`
+blocks, ai-adopt and agent-audit refusals. `ai-doctor` prints "walls, last 7 days" (test `t_doctor_wall_table` in `ai/tests/test_skills.py`).
+Open: the wall review needs 7 days of logs after the rollout. The verify hooks 1 to 4 (tickets 02 to 05) log
+through the router deny path when they deny.
