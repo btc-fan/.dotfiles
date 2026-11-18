@@ -212,7 +212,7 @@ Candidates, strongest first (details in the HTML report of the improve-codebase-
 
 Measured in `~/work/server-start`:
 
-- The folder holds research notes about cameras (`reports/`, `research_notes/`) and no code. These owner files
+- The folder holds research notes (`reports/`, `research_notes/`) and no code. These owner files
   are untracked. All 13 tracked files are setup files.
 - The layer is the full one: tier `long`, 15 skill links in `.claude/skills` and 15 in `.agents/skills`, a
   regression ledger, a test ratchet, `CODING_STANDARDS.md`, a UI rule, a Serena project file with no language, a
