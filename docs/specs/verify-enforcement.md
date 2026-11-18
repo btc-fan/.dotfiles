@@ -88,6 +88,10 @@ Keep the tools. Make the AI build the verify tool in every project, make it cove
 - Known limit: `git commit --no-verify` skips hook 3. The no-verify gate already blocks agents from it.
 - ScripTube note: proofs live in each ticket worktree and go away with it. The PR gate reads the final run on the PR head, so this is accepted.
 
+## Addendum: hook 2 timing (owner 2026-11-18)
+
+Hook 2 needs a valid run that finished after the LAST app-code change of the turn, not the first. A change made after a verify run needs a new run.
+
 ## Addendum: walls review (owner grilling 2026-11-18)
 
 The new hooks add walls, so every existing wall was measured first: 3 machines, 7 days, real sessions only. Decisions:

@@ -5,7 +5,7 @@ The verify hooks make an agent build and use the project's `verify-<app>` tool. 
 ## Sub-features
 
 - `vh-exists` (ticket 02, wall `verify-tool-exists`): a turn that changed app code ends only when the project has a verify skill with one valid run.
-- `vh-used` (ticket 03, wall `verify-tool-used`): a turn that changed app code ends only when a valid run finished after the first change.
+- `vh-used` (ticket 03, wall `verify-tool-used`): a turn that changed app code ends only when a valid run finished after the last change.
 - `vh-commit` (ticket 04, wall `verify-commit`): a commit that adds a test needs a valid run that finished after HEAD's commit time.
 - `vh-pr` (ticket 05, wall `verify-pr`): a PR that changes app code needs a valid run at the PR head that finished after the last app-code commit. A title or label edit and a docs-only PR are not gated.
 

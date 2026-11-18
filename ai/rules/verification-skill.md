@@ -53,6 +53,55 @@ the app changes."
 - A valid log has all 4 lines, `doctor: PASS` and `db_writes: no`. The hooks never judge proof quality; code review
   and the ship skill do.
 
+## Why a run log, and where the idea comes from (owner 2026-11-18)
+
+The owner rule: the AI validates each change on the real app with the project's verify tool, then automates the
+test. The owner does not check this by hand, so a hook must check it. A hook cannot see what the agent did in its
+session. It can only read files and git. So the verify tool leaves one small trace on disk: `run.log`. The 4 lines
+answer one question: "did the agent run the verify tool on this code, on a healthy app, without faked steps,
+after its last change?" The evidence itself (response bodies, screenshots, DB reads) stays next to the log for a
+reviewer. The log is gitignored and local; it never enters a commit.
+
+How the 4 hooks use it (the walls in `ai/marketplace/plugins/ai-core/hooks/README.md`):
+1. Hook 1, `verify-tool-exists` (Stop, SubagentStop): app code changed in the turn, and the project has no verify
+   skill with one valid run. The agent must build the tool and prove it once.
+2. Hook 2, `verify-tool-used` (Stop, SubagentStop): app code changed in the turn, and no valid run finished after
+   the last change (owner 2026-11-18: the last change, so a change after a run needs a new run). The change is read
+   from git in the agent's own checkout, so shell writes and worktrees count.
+3. Hook 3, `verify-commit` (`ai-precommit`, every writer): a commit that adds a test needs a valid run that
+   finished after HEAD's commit time.
+4. Hook 4, `verify-pr` (`gh pr create`, `gh pr edit` with a body, `gh pr ready`): a PR that changes app code needs
+   a valid run at the PR head commit.
+
+Example: an agent edits `src/billing.py` and writes `tests/test_billing.py`. Hook 2 blocks the end of its turn.
+The agent runs `verify launch`, `verify doctor`, `verify drive billing`, `verify cleanup`; the helper writes
+`run.log` with the HEAD sha, `doctor: PASS`, `db_writes: no` and the end time. The turn ends. `git commit` passes
+hook 3 because the run is newer than HEAD. `gh pr create` passes hook 4 when a run exists at the PR head.
+
+Sources and what we took from each:
+- pstack, the original generator (MIT): https://github.com/cursor/plugins/blob/main/pstack/skills/create-verification-skill/SKILL.md
+  and `maintain-verification-skill`. Took: launch, doctor, drive, evidence, cleanup; "a generated skill that was
+  never executed is a draft"; evidence survives cleanup; a feature map with 4 sections per feature. pstack has no
+  enforcement: its `principle-prove-it-works` skill is text ("apply after completing a task, before declaring done").
+- The worked example, verify-atlas: https://github.com/poteto/verification-skill-example (`.cursor/skills/verify-atlas/SKILL.md`).
+  Took: the proof bar (success, cancel, error, empty, persistence paths; unreachable paths named with the blocker),
+  a doctor that knows its checkout, a full sweep order and a journeys file. No enforcement: a reviewer reads the
+  evidence.
+- kody, a real project: https://github.com/kody-hq/kody/blob/main/.agents/skills/control-kody/SKILL.md, plus
+  `visual-recap` and `preview-manual-test` in the same folder. Took: one CLI per project, local verification first,
+  "CI green is not enough for a user-visible change", proof after deploy. kody enforces one thing in CI (every
+  route has a feature file) and leaves the proof itself to the agent and the reviewer.
+- Claude Code hooks: https://code.claude.com/docs/en/hooks. Hooks run for subagents; `cwd` follows a worktree;
+  a Stop or SubagentStop hook can block the end of a turn. "A prompt alone can't guarantee" a rule
+  (https://code.claude.com/docs/en/best-practices). Codex hooks: https://developers.openai.com/codex/hooks, "a
+  useful guardrail, not a complete enforcement boundary".
+- Anthropic, https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents: agents mark
+  features done "without proper testing"; the fix is to "do all testing as a human user would".
+
+What is ours, not in the sources: the run log and the 4 hooks. The references trust the agent and a reviewer.
+This setup has no human reviewer for each run, so a hook checks for the trace. Limits: a hand-written `run.log`
+passes the hooks, and the hooks never judge if the drive was good; code review and the ship skill do.
+
 ## Enforcement
 - L1: the session-start status says "Verify skill: verify-<app> (N features)", "... stale (...). Agent task: run
   maintain-verification-skill now", or "missing. Agent task: build verify-<app> with create-verification-skill at
@@ -70,7 +119,7 @@ the app changes."
   or without the Claude link.
 - L4 (Stop and SubagentStop, adopted repos): router walls `verify-tool-exists` (ticket 02: app code changed in the turn,
   no verify skill or one without a valid run) and `verify-tool-used` (ticket 03: app code changed, no valid log in
-  this checkout that finished after the first change). The change is read from git in the agent's checkout (a
+  this checkout that finished after the last change). The change is read from git in the agent's checkout (a
   linked worktree too), so shell writes count. Loop limits: 2 blocks per app-code state, 4 per chain. Details:
   `ai/marketplace/plugins/ai-core/hooks/README.md`.
 - L4 (git pre-commit, every writer): `ai-precommit` refuses a commit whose staged diff adds a test (Python

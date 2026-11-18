@@ -373,6 +373,21 @@ def t_vh_used_worktree_shell_write(work):
     assert why and "src/app/core.py" in why, "committed in the turn, no run after it: %s" % why
 
 
+def t_vh_used_needs_run_after_last_change(work):
+    """Owner 2026-11-18: proof after the LAST change. Change A, a valid run, then change B: the turn is blocked
+    until a new run finishes after B."""
+    repo, env = vh_repo(work, "app")
+    run_log_ago(repo, "20261117T100000Z-old", 7200)
+    prompt(env, repo)
+    shell_write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return b + a\n", ago_s=600)
+    run_log_ago(repo, "20261118T100000Z-after-a", 300)
+    shell_write(os.path.join(repo, "src", "app", "extra.py"), "def sub(a, b):\n    return a - b\n", ago_s=120)
+    why = stop(env, repo, session="vh")
+    assert why and "verify-tool-used" in why and "last change" in why, why
+    run_log_ago(repo, "20261118T100500Z-after-b", 30)
+    assert stop(env, repo, session="vh", stop_hook_active=True) is None, "a valid run after the last change: ends"
+
+
 def t_vh_used_invalid_logs(work):
     repo, env = vh_repo(work, "app")
     run_log_ago(repo, "20261117T100000Z-old", 7200)

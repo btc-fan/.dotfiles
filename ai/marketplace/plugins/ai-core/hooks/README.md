@@ -106,7 +106,7 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   checkout uses HEAD at the turn start from its reflog and counts all its uncommitted code. verify-tool-exists:
   no `verify-<app>` skill, or one without a valid run in this checkout or the main checkout; the message says to
   build it with create-verification-skill and prove it once. verify-tool-used: no valid run.log in this checkout
-  finished at or after the first change (the oldest file time of the changed files); the message names the skill,
+  finished at or after the last change (the newest file time of the changed files; owner 2026-11-18); the message names the skill,
   its SKILL.md and the first command of its Launch, Doctor, Drive and Cleanup sections, and the runs that do not
   count. Valid run.log (`hooklib.verify_runs`, contract in `ai/rules/verification-skill.md`): all 4 lines, a 40-hex
   commit, `doctor: PASS`, `db_writes: no`, a UTC ISO 8601 `finished`. Loop limits as stop-check: 2 blocks per
