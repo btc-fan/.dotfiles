@@ -776,6 +776,18 @@ def pr_hook(env, cwd, cmd, session="pr1"):
                                "tool_name": "Bash", "tool_input": {"command": cmd}}, env)
 
 
+def t_secret_scan_mnemonic_prefix(work):
+    """The secret scan reads file paths from `+++ b/<path>`. With git config diff.mnemonicPrefix (c/, i/, w/) the
+    path rules were lost: a fake test value under tests/ was judged as app code. The scan fixes the prefixes."""
+    repo, env = new_repo(work, "mnemonic", dict(PY_APP))
+    git(repo, "config", "diff.mnemonicPrefix", "true", env=env)
+    fake = "pass" + "word = " + '"' + "admin" + "pass123" + '"'      # built at run time: the commit gate scans this file
+    write(os.path.join(repo, "tests", "test_login.py"), fake + "\n\ndef test_login():\n    assert True\n")
+    git(repo, "add", "tests/test_login.py", env=env)
+    out = pr_hook(env, repo, "git commit -qm 'test: login'")
+    assert decision(out) != "deny" or "secret" not in out, out
+
+
 def t_pr_gate_verify_log(work):
     """Red: app code on the PR head and only an older log: create, edit and ready are denied. Green: a valid log
     at the head SHA. An invalid log (doctor FAIL, db_writes yes, finished before the code commit) does not count."""

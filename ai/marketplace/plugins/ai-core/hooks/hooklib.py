@@ -850,8 +850,10 @@ def scan_actions(actions, budget):
 def scan_git(repo, args, budget):
     """git output for the scan; a timeout raises ScanTimeout (deny), other errors give "" (not a repo)."""
     import subprocess
+    # The path rules read "+++ b/<path>": force the a/ b/ prefixes over the owner's diff config.
+    fixed = ["-c", "diff.mnemonicPrefix=false", "-c", "diff.noprefix=false"]
     try:
-        res = subprocess.run(["git", "-C", repo] + args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        res = subprocess.run(["git", "-C", repo] + fixed + args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                              timeout=budget.take(5))
     except subprocess.TimeoutExpired:
         raise ScanTimeout()
