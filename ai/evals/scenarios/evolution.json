@@ -1,0 +1,15 @@
+{
+  "id": "evolution",
+  "fixture": "empty-git",
+  "steps": [
+    {"git": [["checkout", "-q", "-B", "main"]]},
+    {"session": "Start this project: build a small Python package calc with a function add(a, b) in calc/core.py and a pytest test in tests/test_core.py. Work on a new branch feat-calc, make the test pass, and commit.",
+     "expect": {"rules": ["knowledge-check"]}},
+    {"check": {"branch": "feat-calc", "map_contains": "calc", "graph": "fresh"}},
+    {"git": [["add", "-A"], ["commit", "-q", "--allow-empty", "-m", "harness: leftovers"], ["checkout", "-q", "main"],
+             ["merge", "-q", "--squash", "feat-calc"], ["commit", "-q", "-m", "feat: calc (#1)"]]},
+    {"session": "Where is add defined in this repo, and what calls it? Answer in two lines.",
+     "expect": {"rules": ["merge-review"], "tools": ["graphify (query|affected|explain|path)|find_symbol|find_referencing_symbols|get_symbols_overview"]}},
+    {"check": {"map_contains": "calc", "graph": "fresh"}}
+  ]
+}

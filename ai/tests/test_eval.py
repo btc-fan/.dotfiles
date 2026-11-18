@@ -314,8 +314,85 @@ def t_failed_run_is_error(work):
     assert res["error"] == "You have hit your usage limit.", res
 
 
+FAKE_AGENT = r"""#!/bin/sh
+# Fake claude for the scenario test: acts on the prompt like a real session would, logs router rules.
+mkdir -p "$AI_STATE_DIR"
+case "$2" in
+  *build*)
+    git checkout -q -b feat-calc
+    mkdir -p calc && printf 'def add(a, b):\n    return a + b\n' > calc/core.py
+    sed -i.bak 's/^## Map$/## Map\n- calc\/core.py: add()/' AGENTS.md && rm -f AGENTS.md.bak
+    git add -A && git -c user.name=t -c user.email=t@t commit -q -m "feat: calc"
+    echo '{"kind": "rule", "rule": "knowledge-check"}' >> "$AI_STATE_DIR/fired.jsonl"
+    echo '{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "git commit"}}]}}' ;;
+  *where*)
+    echo '{"kind": "rule", "rule": "merge-review"}' >> "$AI_STATE_DIR/fired.jsonl"
+    echo '{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "graphify query where is add"}}]}}' ;;
+esac
+"""
+
+
+def scenario_fixture(work, name):
+    repo = os.path.join(work, name)
+    os.makedirs(repo)
+    write(os.path.join(repo, "AGENTS.md"), "# x\n\n## Map\n- What: nothing yet.\n")
+    ev = load()                 # its git() turns off the owner's global ignore, which may hide AGENTS.md
+    ev.git(repo, "init", "-q", "-b", "ai-adopt")
+    ev.git(repo, "add", "-A")
+    ev.git(repo, "commit", "-q", "-m", "adopt")
+    return repo
+
+
+def t_scenario_fake_agent(work):
+    """A scenario runs its steps in order on one repo copy: sessions (scored like a case), harness git steps and
+    state checks. The step results and the run pass come back; a failed check fails the run."""
+    ev = load()
+    fake = os.path.join(work, "fakebin-scenario")
+    write(os.path.join(fake, "claude"), FAKE_AGENT)
+    os.chmod(os.path.join(fake, "claude"), 0o755)
+    os.environ["PATH"] = fake + os.pathsep + os.environ["PATH"]
+    out = os.path.join(work, "scenario-out")
+    os.makedirs(os.path.join(out, "fixtures"))
+    ev.copy_fixture(scenario_fixture(work, "scen-src"), os.path.join(out, "fixtures", "empty-git"))
+    sc = {"id": "evo", "fixture": "empty-git", "steps": [
+        {"git": [["checkout", "-q", "-B", "main"]]},
+        {"session": "build calc", "expect": {"rules": ["knowledge-check"]}},
+        {"check": {"map_contains": "calc/core.py", "branch": "feat-calc"}},
+        {"git": [["checkout", "-q", "main"], ["merge", "-q", "--squash", "feat-calc"],
+                 ["commit", "-q", "-m", "feat: calc (#1)"]]},
+        {"session": "where is add?", "expect": {"rules": ["merge-review"], "tools": ["graphify (query|affected)"]}},
+        {"check": {"map_contains": "calc/core.py", "branch": "main"}}]}
+    res = ev.run_scenario(out, {"empty-git": ""}, "claude", sc, 1)
+    assert res["pass"] is True, json.dumps(res, indent=1)[:1500]
+    assert [st["kind"] for st in res["steps"]] == ["git", "session", "check", "git", "session", "check"], res
+    sc["steps"][-1] = {"check": {"map_contains": "no-such-module"}}
+    res = ev.run_scenario(out, {"empty-git": ""}, "claude", sc, 2)
+    assert res["pass"] is False and res["steps"][-1]["ok"] is False, res["steps"][-1]
+
+
+def t_scenario_dry(work):
+    """scenario --dry lists the runs and starts no agent; every scenario file has steps of a known kind."""
+    fake = os.path.join(work, "fakebin-scen-dry")
+    mark = os.path.join(work, "scen-agent-started")
+    for name in ("claude", "codex"):
+        write(os.path.join(fake, name), "#!/bin/sh\ntouch %s\n" % mark)
+        os.chmod(os.path.join(fake, name), 0o755)
+    env = {"PATH": fake + os.pathsep + "/usr/bin:/bin", "HOME": os.path.join(work, "home-scen"), "LANG": "C.UTF-8"}
+    res = run([sys.executable, EVAL, "scenario", "--dry", "--runs", "3"], env)
+    assert res.returncode == 0, res.stdout
+    scs = load().load_scenarios()
+    assert any(sc["id"] == "evolution" for sc in scs), scs
+    for sc in scs:
+        assert all(len(st) == 1 or "expect" in st for st in sc["steps"]), sc["id"]
+        assert all(next(iter(st)) in ("git", "session", "check") for st in sc["steps"]), sc["id"]
+    lines = [ln for ln in res.stdout.splitlines() if ln.startswith(("claude ", "codex "))]
+    assert len(lines) == len(scs) * 2 * 3, res.stdout
+    assert "none started (--dry)" in res.stdout and not os.path.exists(mark), "no agent may start"
+
+
 TESTS_LIST = [t_fixtures, t_fixture_project_copy, t_copy_fixture_skips_socket, t_snapshot_skips_ignored, t_score_stream, t_router_seen,
-              t_child_env, t_cases_valid, t_behaviour_dry, t_install_fake_bins, t_failed_run_is_error]
+              t_child_env, t_cases_valid, t_behaviour_dry, t_install_fake_bins, t_failed_run_is_error,
+              t_scenario_fake_agent, t_scenario_dry]
 
 if __name__ == "__main__":
     sys.exit(main())
