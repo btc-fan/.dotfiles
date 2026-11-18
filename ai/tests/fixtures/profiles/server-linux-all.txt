@@ -282,6 +282,7 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
   [dry-run] set     ~/.claude/settings.json env/GRAPHIFY_HOOK_STRICT = "0"
   [dry-run] set     ~/.claude/settings.json env/OMC_UPDATE_REGISTRY_BASE = "http://127.0.0.1:9"
   [dry-run] set     ~/.claude/settings.json env/OMC_SKIP_HOOKS = "keyword-detector"
+  [dry-run] set     ~/.claude/settings.json env/OMC_CONTEXT_GUARD_THRESHOLD = "94"
   [dry-run] set     ~/.claude/settings.json env/OMX_AUTO_UPDATE = "0"
   [dry-run] set     ~/.claude/settings.json env/OMX_NATIVE_AUTO_FETCH = "0"
   [dry-run] set     ~/.claude/settings.json env/UV_LINK_MODE = "copy"
@@ -307,6 +308,7 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] GRAPHIFY_HOOK_STRICT = "0"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OMC_UPDATE_REGISTRY_BASE = "http://127.0.0.1:9"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OMC_SKIP_HOOKS = "keyword-detector"
+  [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OMC_CONTEXT_GUARD_THRESHOLD = "94"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OMX_AUTO_UPDATE = "0"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] OMX_NATIVE_AUTO_FETCH = "0"
   [dry-run] set     ~/.codex/config.toml [shell_environment_policy.set] UV_LINK_MODE = "copy"
@@ -338,6 +340,7 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
   [dry-run] add     /etc/environment line 'GRAPHIFY_HOOK_STRICT=0'
   [dry-run] add     /etc/environment line 'OMC_UPDATE_REGISTRY_BASE=http://127.0.0.1:9'
   [dry-run] add     /etc/environment line 'OMC_SKIP_HOOKS=keyword-detector'
+  [dry-run] add     /etc/environment line 'OMC_CONTEXT_GUARD_THRESHOLD=94'
   [dry-run] add     /etc/environment line 'OMX_AUTO_UPDATE=0'
   [dry-run] add     /etc/environment line 'OMX_NATIVE_AUTO_FETCH=0'
   [dry-run] add     /etc/environment line 'UV_LINK_MODE=copy'
@@ -355,6 +358,7 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
   [dry-run] set     /etc/claude-code/managed-settings.json env/GRAPHIFY_HOOK_STRICT = "0"
   [dry-run] set     /etc/claude-code/managed-settings.json env/OMC_UPDATE_REGISTRY_BASE = "http://127.0.0.1:9"
   [dry-run] set     /etc/claude-code/managed-settings.json env/OMC_SKIP_HOOKS = "keyword-detector"
+  [dry-run] set     /etc/claude-code/managed-settings.json env/OMC_CONTEXT_GUARD_THRESHOLD = "94"
   [dry-run] set     /etc/claude-code/managed-settings.json env/OMX_AUTO_UPDATE = "0"
   [dry-run] set     /etc/claude-code/managed-settings.json env/OMX_NATIVE_AUTO_FETCH = "0"
   [dry-run] set     /etc/claude-code/managed-settings.json env/UV_LINK_MODE = "copy"

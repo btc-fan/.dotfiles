@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The env value is set on every machine by install.sh, like `OMC_SKIP_HOOKS`.
-- [ ] ai-doctor shows the threshold.
+- [x] The env value is set on every machine by install.sh, like `OMC_SKIP_HOOKS`.
+- [x] ai-doctor shows the threshold.

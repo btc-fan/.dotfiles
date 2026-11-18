@@ -1054,7 +1054,8 @@ def check_omc():
 
 
 def check_omc_walls():
-    """Ticket 15: OMC magic keywords off through OMC's own switch in the Claude settings env (env.list)."""
+    """Tickets 15 and 20: OMC magic keywords off and the context-guard threshold at 94, both through OMC's own
+    env knobs in the Claude settings env (env.list)."""
     env = dict(claude_settings().get("env") or {})
     if LINUX:
         env.update((load_json_file(MANAGED) or {}).get("env") or {})
@@ -1062,6 +1063,12 @@ def check_omc_walls():
     off = "keyword-detector" in [s.strip() for s in skip.split(",")]
     say("PASS" if off else "FAIL", "OMC magic keywords off (OMC_SKIP_HOOKS=keyword-detector)",
         "" if off else "a normal prompt can start an OMC mode; re-run install.sh")
+    # Ticket 20: the context-guard Stop hook has no switch; OMC reads 1 to 94 and falls back to 75 otherwise.
+    raw = str(env.get("OMC_CONTEXT_GUARD_THRESHOLD") or "").strip()
+    pct = int(raw) if raw.isdigit() and 1 <= int(raw) <= 94 else None
+    say("PASS" if pct == 94 else "FAIL",
+        "OMC context-guard threshold %s" % (pct if pct else "75 (OMC default)" if not raw else raw + " is out of range"),
+        "" if pct == 94 else "the guard should block only near a full context (94); re-run install.sh")
 
 
 def check_claude_cleanup():

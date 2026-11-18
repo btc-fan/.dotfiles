@@ -4,7 +4,7 @@
   verify launch [--label L] KIND [KIND ...]   new run: evidence folder, fixture repos in a temp folder
   verify doctor [--no-agents]                  checks; writes the doctor line of run.log (once per run)
   verify drive hook [--fixture K] [--agent claude|codex] EVENT 'PAYLOAD JSON'
-  verify drive session claude|codex [--fixture K] 'PROMPT'
+  verify drive session claude|codex [--fixture K] [--max-turns N] [--plugin-dir P] [--allow RULE] 'PROMPT'
   verify drive cli [--fixture K] [--timeout S] [KEY=VALUE ...] NAME [ARG ...]   NAME: a file in ai/bin here
   verify drive install dev-mac|server
   verify drive merge dev|installed               a git merge in a worktree of the dotfiles-worktrees fixture
@@ -14,6 +14,7 @@
 KIND: empty, docs-only, python-with-tests, web-app, existing-project-with-own-Done, dotfiles-worktrees.
 Evidence: <checkout>/.verify/evidence/<run>/ (run.log, state.json, one NN-<surface>.txt per drive).
 """
+import fcntl
 import hashlib
 import importlib.machinery
 import importlib.util
@@ -46,7 +47,9 @@ INSTALLED = os.path.join(HOME, ".dotfiles-ai")
 # Live skill links: a dev worktree's ai-sync once repointed them at unmerged code (ticket 19).
 LIVE_LINKS = [os.path.join(HOME, p) for p in (".claude/skills", ".agents/skills")]
 OWNER = "fixture-owner"     # remotes live in remotes/<OWNER>/: ai-adopt adopts only repos of AI_GITHUB_OWNERS
-NO_INSTALLED_CORE = '{"enabledPlugins": {"ai-core@ai": false}}'     # the installed copy stays off in a session
+NO_INSTALLED_CORE = {"ai-core@ai": False}     # the installed copy stays off in a session
+SESSION_TOOLS = ["Bash(gh *)"]      # on top of ai-eval's WRITE_TOOLS: gh reaches the fake gh, not a permission prompt
+# --allow Bash: a command with a variable (B=f; gh pr edit --body-file "$B") matches no Bash(prefix *) rule.
 
 
 def main(argv):
@@ -212,15 +215,21 @@ def drive(surface, args):
     if fixture not in state["fixtures"]:
         sys.exit("verify drive: no fixture %s in this run (%s)" % (fixture, ", ".join(state["fixtures"])))
     repo = os.path.join(state["tmp"], fixture)
-    state["drives"] += 1
-    save(folder, state)
+    with open(os.path.join(folder, "state.lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)    # parallel drives: each gets its own NN
+        _folder, state = current()
+        state["drives"] += 1
+        save(folder, state)
     out = os.path.join(folder, "%02d-%s" % (state["drives"], surface))
     if surface == "hook":
         return drive_hook(state, repo, out, args)
-    if surface == "session" and args and args[0] in ("claude", "codex") and len(args) == 2:
+    if surface == "session" and args and args[0] in ("claude", "codex"):
+        opts = dict(zip(args[1:-1:2], args[2:-1:2]))
+        if len(args) % 2 or set(opts) - {"--max-turns", "--plugin-dir", "--allow"} or (opts and args[0] != "claude"):
+            sys.exit(__doc__)
         if not state.get("agents"):
             sys.exit("verify drive session: doctor ran with --no-agents. Launch a new run and run verify doctor.")
-        return drive_session(state, repo, out, args[0], args[1])
+        return drive_session(state, repo, out, args[0], args[-1], opts)
     if surface == "cli" and args:
         return drive_cli(state, repo, out, args)
     if surface == "install" and args in (["dev-mac"], ["server"]):
@@ -256,20 +265,31 @@ def drive_hook(state, repo, out, args):
     return 0
 
 
-def drive_session(state, repo, out, agent, prompt):
+def drive_session(state, repo, out, agent, prompt, opts):
     sstate = out + "-state"
     env = dict(EVAL.child_env(sstate), **fixture_env(state))
     cmd = EVAL.agent_cmd(agent, prompt, repo)
     remote = os.path.join(state["tmp"], "remotes")
+    timeout = EVAL.RUN_TIMEOUT
     if agent == "claude":
-        cmd += ["--plugin-dir", PLUGIN, "--settings", NO_INSTALLED_CORE, "--strict-mcp-config"]
+        i = cmd.index("--allowedTools") + 1
+        cmd[i:i] = SESSION_TOOLS + ([opts["--allow"]] if "--allow" in opts else [])
+        if "--max-turns" in opts:       # a long session (a skill that builds a tool) needs more turns and time
+            cmd[cmd.index("--max-turns") + 1] = opts["--max-turns"]
+            timeout = max(timeout, 20 * int(opts["--max-turns"]))
+        if "--plugin-dir" in opts:      # a stand-in plugin, e.g. a skill under test that is not installed
+            cmd += ["--plugin-dir", opts["--plugin-dir"]]
+        # env.list as install.sh writes it into the Claude settings env; --settings wins over ~/.claude
+        settings = {"enabledPlugins": NO_INSTALLED_CORE, "env": env_list()}
+        cmd += ["--plugin-dir", PLUGIN, "--settings", json.dumps(settings), "--strict-mcp-config"]
     else:
+        env.update(env_list())
         env["CODEX_HOME"] = codex_home(state)
         i = cmd.index("-c") + 1
         cmd[i] = 'sandbox_workspace_write.writable_roots=["%s", "%s"]' % (os.path.join(repo, ".git"), remote)
-    before = remote_heads(state)
+    before = remote_heads(repo)
     t0 = time.time()
-    rc, text = EVAL.call(cmd, env, repo, EVAL.RUN_TIMEOUT)
+    rc, text = EVAL.call(cmd, env, repo, timeout)
     write(out + "-stream.jsonl", text)
 
     seen = EVAL.score_stream(text)
@@ -281,7 +301,7 @@ def drive_session(state, repo, out, agent, prompt):
                "remote heads changed: %s\ntool calls:\n%s\n"
                % (agent, rc, time.time() - t0, ", ".join(plugins) or ("CODEX_HOME hooks.json -> " + PLUGIN
                   if agent == "codex" else "none"), ", ".join(fired) or "none", ", ".join(gates) or "none",
-                  "yes" if remote_heads(state) != before else "no", "\n".join("  " + t[:300] for t in seen["tools"])))
+                  "yes" if remote_heads(repo) != before else "no", "\n".join("  " + t[:300] for t in seen["tools"])))
     write(out + ".txt", "%s\ncwd: %s\n%s" % (shlex.join(cmd), repo, summary))
     print(summary + "evidence: %s.txt, %s-stream.jsonl, %s-state/" % (out, out, out))
     return 0
@@ -434,9 +454,17 @@ def codex_home(state):
     return home
 
 
-def remote_heads(state):
-    base = os.path.join(state["tmp"], "remotes", OWNER)
-    return {r: call(["git", "-C", os.path.join(base, r), "show-ref"], None, base, 30)[1] for r in os.listdir(base)}
+def remote_heads(repo):
+    """The refs of the remotes this fixture names. A parallel session in another fixture never counts."""
+    urls = set(call(["git", "-C", repo, "remote", "-v"], None, repo, 30)[1].split()[1::3])
+    return {u: call(["git", "-C", u, "show-ref"], None, repo, 30)[1] for u in sorted(urls) if os.path.isdir(u)}
+
+
+def env_list():
+    """This checkout's ai/adapters/env.list (KEY=VALUE lines), the env install.sh gives every agent."""
+    pairs = (line.partition("=") for line in read(os.path.join(AI, "adapters", "env.list")).splitlines()
+             if re.match(r"[A-Z0-9_]+=", line))
+    return {k: v for k, _eq, v in pairs}
 
 
 def guards():
@@ -505,7 +533,9 @@ def rows(path):
 
 
 def save(folder, state):
-    write(os.path.join(folder, "state.json"), json.dumps(state, indent=1) + "\n")
+    """Atomic: a parallel drive never reads a half-written state.json."""
+    write(os.path.join(folder, "state.json.tmp"), json.dumps(state, indent=1) + "\n")
+    os.replace(os.path.join(folder, "state.json.tmp"), os.path.join(folder, "state.json"))
 
 
 def read(path):

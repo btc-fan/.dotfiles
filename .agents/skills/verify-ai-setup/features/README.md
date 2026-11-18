@@ -16,7 +16,7 @@ This folder is the maintained source for verifying the AI setup of this checkout
 
 ## Proof and skip reporting
 
-- Hook proof: the `decision:` line and the rules fired. Session proof: the `[ai gate <id>]` line in the stream, the tool call, and `remote heads changed: no` for a deny.
+- Hook proof: the `decision:` line and the rules fired. Session proof: the `[ai gate <id>]` line in the stream, the tool call, and `remote heads changed: no` for a deny. That line compares only the remotes of the session's own fixture, so sessions in other fixtures can run in parallel. Run parallel sessions in different fixtures.
 - CLI proof: the transcript, the exit code and `git status --short` after. Installer proof: the planned lines and `real files changed: none`.
 - Report an unreachable path with the command you ran and what blocks it.
 
@@ -34,7 +34,7 @@ Each feature file has an H1, one paragraph, then `Sub-features`, `How to get to 
 6. [ai-precommit](./ai-precommit.md): the pre-commit lint on staged files.
 7. [agent-audit](./agent-audit.md): the audit of a folder before use.
 8. [Skill card](./skill-card.md): the session start text.
-9. [Router gates](./router-gates.md): deny and pass, by payload and in a real session.
+9. [Router gates](./router-gates.md): deny and pass, by payload and in a real session (merge-approval, gh, secret-scan, pr-rules).
 10. [Stop rules](./stop-rules.md): the turn end of a bug prompt.
 11. [Verify hooks](./verify-hooks.md): planned, tickets 02 to 05.
 12. [Dev worktree never syncs the live machine](./dev-worktree-no-sync.md): a git merge in a dotfiles dev worktree changes no live link.
