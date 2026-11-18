@@ -1142,12 +1142,13 @@ def gate_pr(ctx, cmd, stages):
             continue
         root = project_root(here)
         diff = pr_diff(ctx, root, args) if root else None
-        verify = verify or pr_verify_log(root, diff)
+        body_flag = any(a.split("=")[0] in ("--body", "-b", "--body-file", "-F") for a in args)
+        if sub != "edit" or body_flag:          # a title or label edit changes no PR content: no proof needed
+            verify = verify or pr_verify_log(root, diff)
         if sub == "create" and any(a.split("=")[0] in PR_FILL for a in args):
             problems.append("--fill / --web hide the body from this check: write the body and pass it with --body "
                             "or --body-file")
             continue
-        body_flag = any(a.split("=")[0] in ("--body", "-b", "--body-file", "-F") for a in args)
         if sub == "ready" or (sub == "edit" and not body_flag):
             continue
         text, unread = pr_body_text(here, cmd, args)

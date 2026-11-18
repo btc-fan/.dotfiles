@@ -488,7 +488,7 @@ def t_pr_gate_verify_log(work):
     head = git(repo, "rev-parse", "HEAD", env=env).text.strip()
     run_log(repo, "r-old", old)
     create = "gh pr create --title 'feat: add' --body-file %s" % body
-    for cmd in (create, "gh pr edit 3 --title y", "gh pr ready 3"):
+    for cmd in (create, "gh pr edit 3 --body-file %s" % body, "gh pr ready 3"):
         out = pr_hook(env, repo, cmd)
         assert decision(out) == "deny" and "verify-app" in out and head[:7] in out \
             and "run.log" in out, "%s: %s" % (cmd, out)
@@ -499,12 +499,25 @@ def t_pr_gate_verify_log(work):
         run_log(repo, "r-bad", head, **kw)
         assert decision(pr_hook(env, repo, create)) == "deny", "invalid log %s counted" % kw
     run_log(repo, "r-head", head)
-    for cmd in (create, "gh pr edit 3 --title y"):
+    for cmd in (create, "gh pr edit 3 --body-file %s" % body):
         out = pr_hook(env, repo, cmd)
         assert decision(out) == "allow", "%s: %s" % (cmd, out)
     hook("PostToolUse", {"session_id": "pr1", "cwd": repo, "tool_name": "Skill", "tool_input": {"skill": "ship"}}, env)
     out = pr_hook(env, repo, "gh pr ready 3")
     assert decision(out) == "allow", out
+
+
+def t_pr_gate_edit_without_body(work):
+    """Hook 4 judges PR content: `gh pr edit` without --body or --body-file (a title or a label) is not gated, even
+    with only an old log. An edit with a body is gated (t_pr_gate_verify_log)."""
+    repo, env = new_repo(work, "predit", dict(PY_APP, **VERIFY_APP))
+    git(repo, "switch", "-q", "-c", "feat", env=env)
+    write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return b + a\n")
+    git(repo, "commit", "-qam", "feat: add", env=env)
+    run_log(repo, "r-old", git(repo, "rev-parse", "main", env=env).text.strip())
+    for cmd in ("gh pr edit 3 --title y", "gh pr edit 3 --add-label wip", "gh pr edit 3 --remove-label wip"):
+        out = pr_hook(env, repo, cmd)
+        assert decision(out) == "allow", "%s: %s" % (cmd, out)
 
 
 def t_pr_gate_docs_only(work):
