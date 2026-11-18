@@ -28,7 +28,7 @@
           {
             "type": "command",
             "command": "/usr/bin/python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex UserPromptSubmit",
-            "timeout": 5
+            "timeout": 30
           }
         ]
       }
@@ -40,7 +40,7 @@
           {
             "type": "command",
             "command": "/usr/bin/python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex PreToolUse",
-            "timeout": 25
+            "timeout": 90
           }
         ]
       }
@@ -63,7 +63,7 @@
           {
             "type": "command",
             "command": "/usr/bin/python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex Stop",
-            "timeout": 25
+            "timeout": 60
           },
           {
             "type": "command",
@@ -79,7 +79,7 @@
           {
             "type": "command",
             "command": "/usr/bin/python3 \"${PLUGIN_ROOT}/hooks/router.py\" --agent codex SubagentStop",
-            "timeout": 25
+            "timeout": 60
           }
         ]
       }

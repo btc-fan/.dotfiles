@@ -165,7 +165,7 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
 
 A gate decision is sent even when the state dir cannot be written; an internal error before a decision
 fails open and is logged to `~/.local/state/ai/router-errors.log` (ai-doctor shows it).
-The secret scan has a time budget under 20 s (git 5 s and gitleaks 10 s per call). On a timeout it
+The secret scan has a time budget under 80 s (git 30 s and gitleaks 60 s per call; PreToolUse timeout 90 s). On a timeout it
 denies ("scan timed out, nothing was checked"); it never passes unscanned.
 Wall log (ticket 17): every wall fire writes one line to `~/.local/state/ai/walls.jsonl`: a router deny
 (`ctx.decide("deny", ...)`: every gate, the winner gate, nav-first, home-folder, abs-path), a stop block, a
