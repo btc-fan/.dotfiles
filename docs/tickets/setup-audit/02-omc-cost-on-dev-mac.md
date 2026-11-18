@@ -10,6 +10,18 @@ Measured in a real session on 2026-11-18 (OMC 5.8.5):
 - OMC project memory told the agent that a docs-only repo is "C/C++" (it saw a Makefile). The owner rule is: knowledge lives in the repo only.
 - The winner gate already refuses the main OMC skills (plan, execute, review, tdd, research, pr, release, wiki).
 
+Added by the deep audit (report `docs/reports/setup-deep-audit-2026-11-18.md`, section 6):
+
+- OMC starts 4 of the 7 hook processes of a Bash call, 5 of 7 at a Stop and 5 of 12 at a session start.
+- It has 3 walls of its own: a Read deny for files over 1,500 lines or 45 KB after one warning, a Stop block
+  when the final answer asks an option question, and a Stop block at 94 percent context.
+- It appends each Bash command of the agent to `~/.bash_history`.
+- It injects the nearest `AGENTS.md` again after a Read or an Edit.
+- Switches that exist: `OMC_SKIP_HOOKS` (tokens `pre-tool-use`, `post-tool-use`, `post-tool-use-failure`,
+  `skill-injector`, `project-memory-posttool`, `workflow-drift-guard`), `OMC_QUIET=2`, `OMC_READ_BUDGET=off`,
+  `OMC_GIT_GUARDRAILS=0`, `bashHistory: false`. No switch stops the process starts or the memory injection.
+- The decision itself is the map ticket `docs/maps/setup-shape/issues/02-plugins-on-dev-mac.md`.
+
 **Blocked by:** None (can start immediately)
 
 **Status:** needs-triage (the owner decided "OMC on everywhere on macOS"; this ticket asks to look at that decision again)

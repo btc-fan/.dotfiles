@@ -10,6 +10,11 @@ Conflicts seen or possible today:
 - `make check-fast` is red on old lint findings. Then the Stop hook blocks turns until the owner sets `no-stop-check`.
 - The pr-rules gate has `scope: global`. It asks for our PR template in every repo, also in a team repo with its own template and in a repo that is not adopted.
 
+Confirmed by the fixture experiment of 2026-11-18 (report section 12): the adopt printed no message for 2 project
+rules that contradict the global rules, for a project hook, for an MCP server, for Cursor rules and for Copilot
+instructions. It printed one "keep" line for husky and for an own pre-commit hook, and did not name
+`.pre-commit-config.yaml`.
+
 **Blocked by:** None (can start immediately)
 
 **Status:** ready-for-agent
