@@ -1,13 +1,13 @@
 # Verify hooks
 
-The verify hooks make an agent build and use the project's `verify-<app>` tool. They read `.verify/evidence/<run>/run.log` of the agent's own checkout. A run counts when its log has all 4 lines (`commit`, `doctor`, `db_writes`, `finished`), `doctor: PASS` and `db_writes: no`. Hooks 1 and 2 are router walls on Stop and SubagentStop in an adopted repo. Hook 3 is a step of `ai-precommit`. Hook 4 (the PR gate, ticket 05) is planned.
+The verify hooks make an agent build and use the project's `verify-<app>` tool. They read `.verify/evidence/<run>/run.log` of the agent's own checkout. A run counts when its log has all 4 lines (`commit`, `doctor`, `db_writes`, `finished`), `doctor: PASS` and `db_writes: no`. Hooks 1 and 2 are router walls on Stop and SubagentStop in an adopted repo. Hook 3 is a step of `ai-precommit`. Hook 4 (the PR gate, ticket 05) checks `gh pr create`, `gh pr edit` with a body, and `gh pr ready`.
 
 ## Sub-features
 
 - `vh-exists` (ticket 02, wall `verify-tool-exists`): a turn that changed app code ends only when the project has a verify skill with one valid run.
 - `vh-used` (ticket 03, wall `verify-tool-used`): a turn that changed app code ends only when a valid run finished after the first change.
 - `vh-commit` (ticket 04, wall `verify-commit`): a commit that adds a test needs a valid run that finished after HEAD's commit time.
-- `vh-pr` (ticket 05): planned.
+- `vh-pr` (ticket 05, wall `pr-rules`): a PR that changes app code needs a valid run at the PR head that finished after the last app-code commit. A title or label edit and a docs-only PR are not gated.
 
 ## How to get to it (user POV)
 
