@@ -17,3 +17,4 @@
 - A gap in the setup is fixed in install.sh or an adapter, with a test, never as a manual step on one machine. Manual steps only for what a script cannot do (logins, trust dialogs).
 - The owner gave full rights for this repo and its rollout: commit, push to origin/ai, install on the 3 machines, verify, without a stop for an OK.
 - Never put the scanners, the install gate or root-layer steps back on a machine unless the owner asks (profile dev-mac everywhere).
+- This repo is generic: it is installed into any project. New code, tests and docs name no local project, machine or user. A test against a local project runs from a scratch folder and is deleted after (owner 2026-11-18).
