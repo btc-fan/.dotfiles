@@ -116,6 +116,43 @@ def t_eval_turns_let_stop_fire(work):
     assert turns >= 12, "a Stop block needs turns after the first stop: --max-turns %d" % turns
 
 
+# ---------------------------------------------------------------- ticket 18: verify-ai-setup helper
+
+def t_verify_ai_setup_run(work):
+    """The repo's own verify tool: launch, doctor (no agent sessions), one hook drive, cleanup. run.log holds
+    exactly the 4 contract lines, the fixtures are gone and the evidence stays."""
+    root = os.path.dirname(AI_DIR)
+    helper = os.path.join(root, ".agents", "skills", "verify-ai-setup", "verify")
+    assert os.access(helper, os.X_OK), "helper missing or not executable: %s" % helper
+
+    def run(*args):
+        res = subprocess.run([helper] + list(args), cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             timeout=600)
+        return res.returncode, res.stdout.decode()
+
+    code, out = run("launch", "--label", "selftest", "empty")
+    assert code == 0, out
+    evidence = out.split("evidence: ", 1)[1].split()[0]
+    try:
+        fixtures = json.load(open(os.path.join(evidence, "state.json")))["tmp"]
+        code, out = run("doctor", "--no-agents")
+        assert code == 0 and "doctor: PASS" in out, out
+        code, out = run("drive", "hook", "PreToolUse",
+                        '{"tool_name": "Bash", "tool_input": {"command": "git push origin main"}}')
+        assert code == 0 and "decision: deny" in out and "merge-approval" in out, out
+        code, out = run("cleanup")
+        assert code == 0, out
+
+        head = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], stdout=subprocess.PIPE).stdout.decode().strip()
+        lines = open(os.path.join(evidence, "run.log")).read().splitlines()
+        assert len(lines) == 4 and lines[:3] == ["commit: " + head, "doctor: PASS", "db_writes: no"], lines
+        assert lines[3].startswith("finished: ") and lines[3].endswith("Z") and "T" in lines[3], lines
+        assert not os.path.exists(fixtures), "cleanup left the fixtures: " + fixtures
+        assert any(n.endswith("-hook.txt") for n in os.listdir(evidence)), os.listdir(evidence)
+    finally:
+        shutil.rmtree(evidence, ignore_errors=True)       # the test's own run; real runs keep their evidence
+
+
 # ---------------------------------------------------------------- helpers
 
 def rendered(work):
@@ -147,7 +184,8 @@ def write(path, text):
         fh.write(text)
 
 
-TESTS_LIST = [t_card_fits_worst_case, t_doctor_skill_stats, t_render_checks_skill_rules, t_eval_turns_let_stop_fire]
+TESTS_LIST = [t_card_fits_worst_case, t_doctor_skill_stats, t_render_checks_skill_rules, t_eval_turns_let_stop_fire,
+              t_verify_ai_setup_run]
 
 if __name__ == "__main__":
     sys.exit(main())
