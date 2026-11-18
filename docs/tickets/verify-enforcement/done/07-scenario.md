@@ -4,8 +4,8 @@
 
 **Blocked by:** 02, 03, 04, 05
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The scenario runs headless for Claude; Codex runs the commit-gate part.
-- [ ] Each hook goes red once and green once in the report.
-- [ ] Report under docs/reports with the date.
+- [x] The scenario runs headless for Claude; Codex runs the commit-gate part.
+- [x] Each hook goes red once and green once in the report.
+- [x] Report under docs/reports with the date.

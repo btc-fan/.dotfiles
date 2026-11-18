@@ -34,6 +34,16 @@ One case is one JSON file. The file name is `<id>.json`.
 5. Install level (no agent session): `ai/bin/ai-eval install`.
 6. Other method for a plugin pack: `claude plugin eval` (runs with and without the plugin, grader `tool_used: Skill`).
 
+## Scenarios
+A scenario is many steps on one repo copy: `ai/evals/scenarios/<id>.json`. Run one with `ai/bin/ai-eval scenario --only <id> [--agent claude|codex|both] [--runs N]`. `--dry` lists the runs.
+
+- Steps: `session` (a headless session, scored like a case; `max_turns` sets the turns), `git` (harness git commands with the repo hooks; add `-c core.hooksPath=/dev/null` before the subcommand to skip them), `write` (harness files inside the repo) and `check` (a state check).
+- `expect` in a scenario session also takes `says`: regexes on the raw transcript, for a refusal text that no rule logs.
+- `"agents"` limits a scenario to these agents.
+- `"plugin": "checkout"` tests this checkout, not the installed setup. Claude loads this checkout's ai-core with `--plugin-dir` (the installed ai-core is off). Codex gets a temp `CODEX_HOME` with this checkout's hooks. The pre-commit hook runs this checkout's `ai-precommit`. A fake `gh` logs to `gh.log` of the run. `"skills"` copies skills from `ai/skills/` into the repo when the installed copy is older. `"allow"` adds Claude allowed tools.
+- Checks with `"plugin": "checkout"`: `hook` runs this checkout's router on the end state with the turn start of the last session (a fresh state, so no loop limit counts) and compares the decision; `git_out` matches a git command's output; `gh_log` matches the fake gh log.
+- `verify-enforcement` (Claude) and `verify-commit-gate` (Codex) prove the 4 verify hooks. Report: `docs/reports/ai-eval-verify-enforcement-2026-11-18.md`.
+
 ## Pass bars
 - Should-fire: 3 of 3 runs per case.
 - Should-not-fire: 0 false fires.

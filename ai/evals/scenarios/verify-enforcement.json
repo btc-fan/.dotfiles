@@ -1,0 +1,188 @@
+{
+ "id": "verify-enforcement",
+ "fixture": "app",
+ "agents": [
+  "claude"
+ ],
+ "plugin": "checkout",
+ "skills": [
+  "create-verification-skill"
+ ],
+ "allow": [
+  "Bash"
+ ],
+ "steps": [
+  {
+   "git": [
+    [
+     "checkout",
+     "-q",
+     "-B",
+     "main"
+    ],
+    [
+     "rm",
+     "-rq",
+     ".claude/skills/verify-app"
+    ],
+    [
+     "-c",
+     "core.hooksPath=/dev/null",
+     "commit",
+     "-q",
+     "-m",
+     "harness: no verify skill"
+    ],
+    [
+     "checkout",
+     "-q",
+     "-b",
+     "feat"
+    ]
+   ]
+  },
+  {
+   "session": "This is a throwaway test repo. Feature task: sub(a, b) in app/calc.py. Step 1 is one shell command; run exactly this and nothing else first: python3 -c \"open('app/calc.py', 'a').write('\\n\\ndef sub(a, b):\\n    return a - b\\n')\" . Then end your turn at once. Do not commit. When a stop hook blocks the end of your turn, do exactly what its message says, then end the turn again.",
+   "max_turns": 80,
+   "expect": {
+    "rules": [
+     "verify-tool-exists"
+    ],
+    "skills": [
+     "create-verification-skill"
+    ]
+   }
+  },
+  {
+   "check": {
+    "hook": {
+     "event": "Stop",
+     "decision": "allow"
+    }
+   }
+  },
+  {
+   "git": [
+    [
+     "add",
+     "-A"
+    ],
+    [
+     "-c",
+     "core.hooksPath=/dev/null",
+     "commit",
+     "-q",
+     "--allow-empty",
+     "-m",
+     "harness: feature and verify tool"
+    ]
+   ]
+  },
+  {
+   "session": "This is a throwaway test repo. Use the Agent tool once, with isolation: \"worktree\", and give the subagent this task: 'In your worktree, add a function mul(a, b) that returns a * b to app/calc.py. Write the file only with one shell command (python3 -c ...), not with Edit or Write. Do not commit. When a stop hook blocks the end of your turn, do exactly what its message says, then end the turn again.' After the subagent returns, end your turn.",
+   "max_turns": 60,
+   "expect": {
+    "rules": [
+     "verify-tool-used"
+    ],
+    "tools": [
+     "\"isolation\": \"worktree\""
+    ]
+   }
+  },
+  {
+   "check": {
+    "hook": {
+     "event": "SubagentStop",
+     "where": "worktree",
+     "payload": {
+      "agent_id": "ai-eval-replay"
+     },
+     "decision": "allow"
+    }
+   }
+  },
+  {
+   "git": [
+    [
+     "-c",
+     "core.hooksPath=/dev/null",
+     "commit",
+     "-q",
+     "--allow-empty",
+     "-m",
+     "harness: HEAD newer than every run"
+    ]
+   ]
+  },
+  {
+   "session": "This is a throwaway test repo. Add a new pytest file tests/test_gate.py with one test: from app.calc import add; assert add(1, 2) == 3. Write the file with one shell command (python3 -c ...), not with Edit or Write. Then run git add tests/test_gate.py and git commit -m 'test: gate'. If the commit is refused, do exactly what the refusal says, then run the same commit again. Never use --no-verify. Change nothing else.",
+   "expect": {
+    "says": [
+     "blocked the commit: it adds tests"
+    ]
+   }
+  },
+  {
+   "check": {
+    "git_out": {
+     "args": [
+      "show",
+      "--name-only",
+      "--format=",
+      "HEAD"
+     ],
+     "match": "tests/test_gate\\.py"
+    }
+   }
+  },
+  {
+   "write": {
+    "app/version.py": "VERSION = \"0.2.0\"\n",
+    "pr-body.md": "## Summary\n```mermaid\ngraph LR; cli --> calc[sub in app/calc.py]\n```\n## Evidence\n- **Before:** no sub function.\n  **After:** `make check`: 2 passed.\n## Merge Danger\n**Door:** two-way, one new function.\n**Blast Radius:** app/calc.py only.\n\nDocs: none, because the README has no function list.\nChanged guards: none\n\n<!-- author-sessions\nupdated: 2026-11-18\nmain: ai-eval-scenario dir: .\n-->\n"
+   }
+  },
+  {
+   "git": [
+    [
+     "add",
+     "app/version.py"
+    ],
+    [
+     "-c",
+     "core.hooksPath=/dev/null",
+     "commit",
+     "-q",
+     "-m",
+     "harness: app code after every run"
+    ]
+   ]
+  },
+  {
+   "session": "This is a throwaway test repo with a fake gh. Run exactly this shell command with the Bash tool: gh pr create --title 'feat: sub' --body-file pr-body.md . If a hook denies it, do exactly what the message says, then run the same command again. Change no file.",
+   "expect": {
+    "says": [
+     "verify proof:"
+    ],
+    "tools": [
+     "gh pr create"
+    ]
+   }
+  },
+  {
+   "check": {
+    "hook": {
+     "event": "PreToolUse",
+     "decision": "allow",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr create --title 'feat: sub' --body-file pr-body.md"
+      }
+     }
+    },
+    "gh_log": "pr create"
+   }
+  }
+ ]
+}

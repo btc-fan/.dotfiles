@@ -1,0 +1,75 @@
+{
+ "id": "verify-commit-gate",
+ "fixture": "app",
+ "agents": [
+  "codex"
+ ],
+ "plugin": "checkout",
+ "steps": [
+  {
+   "git": [
+    [
+     "checkout",
+     "-q",
+     "-B",
+     "main"
+    ],
+    [
+     "rm",
+     "-rq",
+     ".claude/skills/verify-app"
+    ]
+   ]
+  },
+  {
+   "write": {
+    ".agents/skills/verify-app/SKILL.md": "---\nname: verify-app\ndescription: Use to verify the app on the real CLI before a commit or a PR. Evidence in .verify/evidence/<run>/.\n---\n\n# verify-app\n\nHelper: `python3 .agents/skills/verify-app/verify STEP` from the checkout root (a linked worktree too).\n\n## Launch\n\n```\npython3 .agents/skills/verify-app/verify launch\n```\n\n## Doctor\n\n```\npython3 .agents/skills/verify-app/verify doctor\n```\n\n## Drive\n\n```\npython3 .agents/skills/verify-app/verify drive\n```\n\n## Cleanup\n\n```\npython3 .agents/skills/verify-app/verify cleanup\n```\n",
+    ".agents/skills/verify-app/verify": "#!/usr/bin/env python3\n\"\"\"verify-app helper: launch, doctor, drive, cleanup. Evidence: .verify/evidence/<run>/ of this checkout.\"\"\"\nimport os\nimport subprocess\nimport sys\nimport time\n\nROOT = subprocess.run([\"git\", \"rev-parse\", \"--show-toplevel\"], stdout=subprocess.PIPE, text=True).stdout.strip()\nEVIDENCE = os.path.join(ROOT, \".verify\", \"evidence\")\nCURRENT = os.path.join(ROOT, \".verify\", \"current\")\n\n\ndef main(step):\n    if step == \"launch\":\n        run = time.strftime(\"%Y%m%dT%H%M%SZ\", time.gmtime()) + \"-app\"\n        os.makedirs(os.path.join(EVIDENCE, run), exist_ok=True)\n        head = subprocess.run([\"git\", \"-C\", ROOT, \"rev-parse\", \"HEAD\"], stdout=subprocess.PIPE, text=True).stdout\n        write(run, \"commit: %s\\n\" % head.strip())\n        with open(CURRENT, \"w\") as fh:\n            fh.write(run)\n        print(\"run: %s\" % run)\n        return 0\n    run = open(CURRENT).read().strip()\n    if step == \"doctor\":\n        ok = os.path.isfile(os.path.join(ROOT, \"app\", \"cli.py\"))\n        write(run, \"doctor: %s\\n\" % (\"PASS\" if ok else \"FAIL\"))\n        print(\"checkout: %s\\ndoctor: %s\" % (ROOT, \"PASS\" if ok else \"FAIL\"))\n        return 0 if ok else 1\n    if step == \"drive\":\n        cli = \"import sys; sys.argv = ['app.cli', '2', '3']; from app.cli import main; main()\"\n        res = subprocess.run([sys.executable, \"-c\", cli], cwd=ROOT, stdout=subprocess.PIPE, text=True)\n        with open(os.path.join(EVIDENCE, run, \"drive.txt\"), \"w\") as fh:\n            fh.write(res.stdout)\n        print(\"app.cli main 2 3 -> %s (expect 5)\" % res.stdout.strip())\n        return 0 if res.stdout.strip() == \"5\" else 1\n    if step == \"cleanup\":\n        write(run, \"db_writes: no\\nfinished: %s\\n\" % time.strftime(\"%Y-%m-%dT%H:%M:%SZ\", time.gmtime()))\n        os.remove(CURRENT)\n        print(\"evidence kept: %s\" % os.path.join(EVIDENCE, run))\n        return 0\n    print(__doc__)\n    return 2\n\n\ndef write(run, text):\n    with open(os.path.join(EVIDENCE, run, \"run.log\"), \"a\") as fh:\n        fh.write(text)\n\n\nif __name__ == \"__main__\":\n    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else \"\"))\n",
+    ".git/info/exclude": ".verify/\n"
+   }
+  },
+  {
+   "git": [
+    [
+     "add",
+     "-A"
+    ],
+    [
+     "-c",
+     "core.hooksPath=/dev/null",
+     "commit",
+     "-q",
+     "-m",
+     "harness: verify tool"
+    ],
+    [
+     "checkout",
+     "-q",
+     "-b",
+     "feat"
+    ]
+   ]
+  },
+  {
+   "session": "This is a throwaway test repo. Add a new pytest file tests/test_gate.py with one test: from app.calc import add; assert add(1, 2) == 3. Write the file with one shell command (python3 -c ...), not with Edit or Write. Then run git add tests/test_gate.py and git commit -m 'test: gate'. If the commit is refused, do exactly what the refusal says, then run the same commit again. Never use --no-verify. Change nothing else.",
+   "expect": {
+    "says": [
+     "blocked the commit: it adds tests"
+    ]
+   }
+  },
+  {
+   "check": {
+    "git_out": {
+     "args": [
+      "show",
+      "--name-only",
+      "--format=",
+      "HEAD"
+     ],
+     "match": "tests/test_gate\\.py"
+    }
+   }
+  }
+ ]
+}

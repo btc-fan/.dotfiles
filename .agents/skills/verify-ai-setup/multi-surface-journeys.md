@@ -28,6 +28,18 @@ Session, then git state, then the pre-commit hook. The recipes are in [features/
 - **Commit.** A new test with no run newer than HEAD: the commit is refused; after the run named in the refusal it passes.
 - End state: one `verify-tool-used` wall per red stop, a valid `run.log` in the worktree, the second commit in `git log`.
 
+## The 4 verify hooks end to end (ai-eval scenario)
+
+Sessions, then git state, the pre-commit hook and the PR gate. `ai-eval` runs this journey, not `$H`: it has no launch or doctor. The scenarios use this checkout's plugin (`"plugin": "checkout"`), so the installed setup does not count. Report: `docs/reports/ai-eval-verify-enforcement-2026-11-18.md`.
+
+- **Claude.** `ai/bin/ai-eval scenario --only verify-enforcement --agent claude --runs 3 --out <temp folder>`. Fixture `app` without its verify skill, on branch `feat`.
+  - Hook 1: a feature prompt. Expect rule `verify-tool-exists`, skill `create-verification-skill`, then the check `hook Stop = allow`.
+  - Hook 2: a subagent with `isolation: "worktree"` changes `app/calc.py` by shell. Expect rule `verify-tool-used`, then the check `hook SubagentStop = allow` in the worktree.
+  - Hook 3: after an empty harness commit, a new test and `git commit`. Expect the text `blocked the commit: it adds tests`, then `tests/test_gate.py` in HEAD.
+  - Hook 4: after a harness commit of app code, `gh pr create`. Expect the text `verify proof:`, then the check `hook PreToolUse = allow` and `pr create` in the fake gh log.
+- **Codex.** `ai/bin/ai-eval scenario --only verify-commit-gate --agent codex --runs 3 --out <temp folder>`. The harness writes a small `verify-app` tool. Expect the same hook 3 refusal, then `tests/test_gate.py` in HEAD.
+- End state: per run, `scenario.json` in the out folder, and `stream-N.jsonl` and `state-N/` per session under `scenarios/<agent>/<id>-<run>/`.
+
 ## Bug prompt, then the turn end
 
 Hook payloads in one session: see stop-rules.md. A real session version is planned with ticket 14 (hint instead of stop).
