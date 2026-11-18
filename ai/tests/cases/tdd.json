@@ -8,14 +8,14 @@
    "payload": {"prompt": "Write tests first for a new function sub(a, b), then implement it."}
   },
   {
-   "name": "EN test-first prompt, no skill, Stop: block",
-   "expect": "block",
+   "name": "EN test-first prompt, no skill, Stop: no block (a hint since ticket 14)",
+   "expect": "allow",
    "steps": [
     {"event": "UserPromptSubmit", "payload": {"prompt": "do this red-green: add a parser for dates"}},
     {"event": "Stop", "payload": {"stop_hook_active": false}}
    ],
-   "contains": ["[ai router: tdd]", "tdd"],
-   "state_contains": {"misses.jsonl": "\"rule\": \"tdd\""}
+   "state_contains": {"fired.jsonl": "\"rule\": \"tdd\""},
+   "state_not_contains": {"misses.jsonl": "tdd"}
   },
   {
    "name": "skill used in the turn: Stop passes",
@@ -28,8 +28,8 @@
    "state_not_contains": {"misses.jsonl": "tdd"}
   },
   {
-   "name": "the OMC tdd skill is not proof for Matt's tdd",
-   "expect": "block",
+   "name": "the OMC tdd skill: Stop still has no block",
+   "expect": "allow",
    "steps": [
     {"event": "UserPromptSubmit", "payload": {"prompt": "write the failing test first, then the code"}},
     {"event": "PostToolUse", "payload": {"tool_name": "Skill", "tool_input": {"skill": "oh-my-claudecode:tdd"}}},

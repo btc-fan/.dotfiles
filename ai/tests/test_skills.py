@@ -103,8 +103,13 @@ def t_render_checks_skill_rules(work):
     assert any("strength" in e for e in errors(dict(gate, strength="loud"))), "unknown strength"
     routing = rendered(work)
     gated = {r["id"]: (r["strength"], r["require_skill"]) for r in routing["rules"] if r.get("require_skill")}
-    assert gated == {"writing-for-agents": ("gate", "writing-for-agents"), "diagnosing-bugs": ("stop", "diagnosing-bugs"),
-                     "tdd": ("stop", "tdd"), "ship": ("gate", "ship")}, gated
+    assert gated == {"writing-for-agents": ("gate", "writing-for-agents"), "ship": ("gate", "ship")}, gated
+    hints = {r["id"]: r["strength"] for r in routing["rules"] if r["id"] in ("diagnosing-bugs", "tdd")}
+    assert hints == {"diagnosing-bugs": "nudge", "tdd": "nudge"}, "ticket 14: hints, no stop: %s" % hints
+    assert [s["name"] for s in routing["skills"]["hints"]] == ["diagnosing-bugs", "tdd"], routing["skills"]
+    l0 = open(os.path.join(work, sorted(d for d in os.listdir(work) if d.startswith("render-"))[-1], "L0.md")).read()
+    assert "stop = the turn cannot end" not in l0, "no stop rule left: the L0 legend must not name stop"
+    assert "| diagnosing-bugs |" in l0 and "| diagnosing-bugs (stop) |" not in l0, l0
 
 
 def t_eval_turns_let_stop_fire(work):

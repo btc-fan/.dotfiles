@@ -161,18 +161,16 @@ rules:
     scope: global
     summary: 'bug or performance prompt (slow, perf, broken, debug, crash, regression; RO, RU)'
     trigger: {prompt: '\b(slow(er|ly|ness|s|ed|ing)?|performance|perf|broken|debug(s|ged|ging)?|crash(es|ed|ing)?|regressions?)\b|\b(lent[aăe]?|performan[tț][aăe]|stricat[aăe]?|s-a stricat|nu (mai )?merge|depaneaz[aă]|crap[aă]|se blocheaz[aă]|regresie)\b|(?<!\w)(медленн|тормоз|производительн|слома|отлад|дебаг|пада|упал|краш|регресси)\w*|(?<!\w)не работает'}
-    require_skill: diagnosing-bugs
     action: "Use the diagnosing-bugs skill (Skill tool) and follow its loop before you end the turn."
-    strength: stop
+    strength: nudge   # ticket 14 (2026-11-18): as a stop, 6 of 6 blocks were false (research and setup prompts)
 
   - id: tdd
     scope: global
     summary: 'test-first prompt (tests first, tdd, red-green, failing test first; RO, RU)'
     # owner 2026-11-16: the baseline showed 0/3 tdd skill use (Claude works test-first by hand without the skill)
     trigger: {prompt: '\b(tests? first|test-first|tdd|red[- ]green|(write|add) (the |a )?(failing )?tests? (first|before)|failing tests? first)\b|\b(teste(le)? (mai )?[iî]nt[aâ]i|test(e|ul)? [iî]nainte|mai [iî]nt[aâ]i (un |testele|testul))\b|(?<!\w)(сначала тест|тесты сначала|тест сначала|красн\w* зел[её]н)\w*'}
-    require_skill: tdd
     action: "Use the tdd skill (Skill tool) and follow its red-green slices before you end the turn."
-    strength: stop
+    strength: nudge   # ticket 14 (2026-11-18): as a stop, 1 of 1 block was false
 
   - id: ship
     scope: global
@@ -372,13 +370,14 @@ winners:
     - {job: 'Cut a version', use: 'release (ours)', losers: ['oh-my-claudecode:release']}
 
 # ---------- skill card (SessionStart: startup, resume, clear, compact; under 1500 characters) ----------
-# must_use: the skills the agent must use, one trigger line each. typed_only: skills with
+# must_use: the skills a gate checks, one trigger line each. hints: skills the prompt hint names (no block). typed_only: skills with
 # disable-model-invocation (no Skill tool call); the card gives the SKILL.md path to read and follow.
 skills:
   must_use:
     - {name: writing-for-agents, when: 'before an edit of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md'}
-    - {name: diagnosing-bugs, when: 'a bug, crash, slow or performance prompt, before the turn ends'}
     - {name: ship, when: 'the branch is done, before gh pr ready'}
-    - {name: tdd, when: 'a tests-first or red-green prompt, before the turn ends'}
+  hints:      # ticket 14: the prompt hint names them; no block
+    - {name: diagnosing-bugs, when: 'a bug, crash, slow or performance prompt'}
+    - {name: tdd, when: 'a tests-first or red-green prompt'}
   typed_only: [grill-with-docs, to-spec, to-tickets, implement, handoff, wayfinder, improve-codebase-architecture,
                retro, create-verification-skill, maintain-verification-skill]

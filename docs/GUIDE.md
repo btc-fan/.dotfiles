@@ -54,8 +54,9 @@ Five ideas carry the whole design:
 4. **Few hard stops, and mechanisms for the rest.** On `dev-mac` the agent is autonomous except for the gates:
    `secret-scan` (no key, token or password in a commit or push), `pr-rules` (a PR body must have the agreed
    parts), `merge-approval` (no merge and no push to main without your OK), `no-verify` (no skipped git hooks),
-   and since 2026-11-16 the skill gates, `gh-write`, the winner gate and the graph-first deny. Two stop rules
-   make the agent use a skill before it ends a turn. Section 3.5 lists them all.
+   and since 2026-11-16 the skill gates, `gh-write`, the winner gate and the graph-first deny. No stop rule
+   blocks the end of a turn: `diagnosing-bugs` and `tdd` are hints since 2026-11-18 (ticket 14). Section 3.5
+   lists them all.
 5. **Skills do the method.** Matt Pocock's skills give the engineering flow (grill, spec, tickets, tdd,
    review, PR, retro). Our own skills add verification (`verify-<app>`), prompting other agents and the
    `skills-guide`.
@@ -209,7 +210,7 @@ exits 0. A deny decided before the error still counts.
 | `UserPromptExpansion` | typed `/skill` | Logs that a typed skill fired (proof). |
 | `PreToolUse` | Bash, Read, Edit, Write, MultiEdit, Grep, Glob, Skill, Agent, Task | The gates (section 3.5) and some nudges (ledger areas). Claude Bash also runs the `rtk-hook` wrapper. |
 | `PostToolUse` | Bash, Edit, Write, Skill, context7 tools | Nudges after the fact: after `git commit` (update the Map), after a write with an em dash, after a docs lookup. |
-| `Stop` | every stop | The stop rules (`diagnosing-bugs`, `tdd`: block once per session when the skill was not used). The miss log: a rule fired but the agent never called the tool it named. Then `claude-notify`. The `stop-check` (runs check-fast before "done") is off on `dev-mac`. |
+| `Stop` | every stop | The stop rules (none since 2026-11-18: `diagnosing-bugs` and `tdd` are hints). The miss log: a rule fired but the agent never called the tool it named. Then `claude-notify`. The `stop-check` (runs check-fast before "done") is off on `dev-mac`. |
 | `SessionEnd` | every end | Drops the session state file, cleans Serena. |
 | `Notification` | permission or idle prompt | `claude-notify` (a desktop or phone note). |
 
@@ -253,8 +254,8 @@ Global rules (every repo):
 | writing-for-agents | **gate** | before an edit or shell write of AGENTS.md, CLAUDE.md, CLAUDE.local.md, a SKILL.md | Load the `writing-for-agents` skill first. |
 | ship | **gate** | before `gh pr ready` | Run the `ship` skill first. |
 | gh-write | **gate** | a `gh` write other than the PR commands | Ask the owner. |
-| diagnosing-bugs | **stop** | a bug or performance prompt | Use the `diagnosing-bugs` skill before the turn ends. |
-| tdd | **stop** | a tests-first prompt | Use Matt's `tdd` skill before the turn ends. |
+| diagnosing-bugs | nudge | a bug or performance prompt | Use the `diagnosing-bugs` skill. A hint: the turn end is not blocked. |
+| tdd | nudge | a tests-first prompt | Use Matt's `tdd` skill. A hint: the turn end is not blocked. |
 
 Opt-in rows (only where the project turned the tool on): serena, graph (both on by default), omc, seo, blog,
 browser, ui, tracker-flow, domain-docs, knowledge-wiki.
@@ -279,8 +280,8 @@ that matters is a mechanism that runs at the moment of the action, for Claude Co
 | Mechanism | Event | What it does |
 |---|---|---|
 | Gate | PreToolUse | Denies the tool call with the reason and the next step |
-| Stop rule | Stop | A prompt arms it. The next Stop gets `{"decision": "block"}` once per session when the skill was not used |
-| Skill card | SessionStart | A short text (under 1500 characters) with the must-use skills and the typed-only skills |
+| Stop rule | Stop | A prompt arms it. The next Stop gets `{"decision": "block"}` once per session when the skill was not used. No rule uses it since 2026-11-18 |
+| Skill card | SessionStart | A short text (under 1500 characters) with the must-use skills, the hint skills and the typed-only skills |
 | Winner table | PreToolUse on the Skill tool | Denies a skill that loses in an overlap, and names the winner |
 | Measurement | `ai-doctor`, `ai-eval` | Skill use over 30 days, misses of the skill rules, hit rate per case |
 
@@ -295,16 +296,20 @@ cache, the machine copy). The proof lives in the session state, not in the share
 |---|---|---|---|
 | `writing-for-agents` | gate | the skill before an Edit, Write, MultiEdit or `apply_patch` of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md, and before a shell write (`>`, `>>`, `tee`, `sed -i`, `cp`, `mv`) onto them | Not seen: `python -c`, `perl -i`, a script file |
 | `ship` | gate | the skill before `gh pr ready` | `gh pr ready --undo` passes |
-| `diagnosing-bugs` | stop | the skill before the turn ends, after a bug or performance prompt (slow, performance, broken, debug, crash, regression; Romanian and Russian forms) | Once per session |
-| `tdd` | stop | Matt's `tdd` before the turn ends, after a tests-first, tdd or red-green prompt | Once per session |
 | `gh-write` | gate | the owner says yes (Codex: denied with a message) | `gh` reads pass. `pr create`, `edit`, `ready`, `merge` keep their own gates |
 | graph-first (`nav-first`) | gate, once | `graphify query` before the first broad search (`rg`, `grep -r`, `find -name`, the Grep tool) in a repo with a graph | The next search passes. A stale graph: "graphify update, then query". A session that used graphify or a Serena tool passes. Serena symbol tools are the right answer for "where is X used" |
 
 Each block is a row in `~/.local/state/ai/misses.jsonl`. `ai-doctor` shows the misses and the use of each skill over
 30 days.
 
+**Hints, not stops (2026-11-18, ticket 14).** `diagnosing-bugs` (a bug or performance prompt: slow, performance,
+broken, debug, crash, regression; Romanian and Russian forms) and `tdd` (a tests-first, tdd or red-green prompt) were
+stop rules. As stops they blocked 7 of 7 turns falsely: research and setup prompts that only mention debug, broken
+or crash. Now they are nudges. The prompt still shows the hint. The end of the turn is never blocked.
+
 **The skill card.** At every SessionStart (startup, resume, clear, compact) the agent gets one card. It names the
-4 must-use skills (`writing-for-agents`, `diagnosing-bugs`, `ship`, `tdd`) with one trigger line each. It also lists
+2 must-use skills that a gate checks (`writing-for-agents`, `ship`) and 2 hint skills (`diagnosing-bugs`, `tdd`), with
+one trigger line each. It also lists
 the 10 typed-only skills (`grill-with-docs`, `to-spec`, `to-tickets`, `implement`, `handoff`, `wayfinder`,
 `improve-codebase-architecture`, `retro`, `create-verification-skill`, `maintain-verification-skill`). The model
 cannot call a typed-only skill (`disable-model-invocation`). So the card says: read the `SKILL.md`, follow it, and
@@ -1720,7 +1725,7 @@ A hook rewrites shell commands to `rtk <cmd>` to cut output. That is normal. On 
 
 Run `ai-sync`. Check with `ai-sync --check`.
 
-### A gate or a stop rule blocked the agent
+### A gate blocked the agent
 
 1. Read the reason. It names the skill or the step: "load the writing-for-agents skill first", "run the ship skill",
    "run graphify query first", "use X, not Y" (winner gate).

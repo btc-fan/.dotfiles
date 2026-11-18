@@ -20,7 +20,8 @@ Tests: `bash ai/tests/run.sh` (should-fire and should-not-fire stdin samples for
 Pasted text: before the prompt rules match, the router removes code fences and lines that start with `⏺`, `❯`, `>` or `│` (output pasted from another session). For the ui and diagnosing-bugs rules a match does not count when a hyphen joins it to a word (`ui-ux-pro-max`) or when it is capitalised next to another capitalised word (a product name such as `Acme Performance Suite`).
 
 Skill card: at every SessionStart (startup, resume, clear, compact) the router sends the `skills` block of
-`routing.yaml`: the must-use skills with one trigger line each, and the folder of each installed typed-only skill
+`routing.yaml`: the must-use skills (a gate checks them) and the hint skills (`hints`: no block), with one trigger
+line each, and the folder of each installed typed-only skill
 (read `<dir>/<name>/SKILL.md` and follow it). ai-render fails when the worst case passes 1500 characters. Skill
 use is logged to `fired.jsonl` (kind `skill`) for a Skill call, a typed `/name` and a read of a SKILL.md (Claude
 Read, or cat, head, sed and the like in a shell command); `ai-doctor` counts it over 30 days (`fired.jsonl` and
@@ -33,7 +34,8 @@ Skill gates (`require_skill: <name>` in `routing.yaml`): the rule passes only wh
 session (a Skill call, a typed `/name`, or a read of its SKILL.md). With `strength: gate` a PreToolUse deny
 (writing-for-agents before Edit, Write, MultiEdit, Codex `apply_patch` or a shell write (`>`, `>>`, `tee`, `sed -i`,
 `cp`, `mv`) of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md; ship before `gh pr ready`). With `strength: stop` the prompt arms the rule and the next Stop gets
-`{"decision": "block"}` when the skill was not used (diagnosing-bugs, tdd), once per session per rule. Each block is a
+`{"decision": "block"}` when the skill was not used, once per session per rule. No rule uses `strength: stop` since
+2026-11-18: diagnosing-bugs and tdd are nudges (ticket 14; as stops 7 of 7 blocks were false). Each block is a
 row in `misses.jsonl`; `ai-doctor` shows these misses over 30 days. The owner skip below works for these rules
 too (gate name = rule id), and for `winner-gate` and `nav-first`.
 
@@ -73,8 +75,9 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
 - writing-for-agents (gate, `require_skill`): Edit, Write, MultiEdit, `apply_patch` or a shell write of AGENTS.md,
   CLAUDE.md, CLAUDE.local.md or a SKILL.md, until the skill has a proof in the session.
 - ship (gate, `require_skill`): `gh pr ready` (not `--undo`), until the ship skill ran.
-- Stop rules (`strength: stop`, `require_skill`): diagnosing-bugs (a bug or performance prompt) and tdd (a tests-first
-  prompt). The next Stop is blocked once per session per rule. The separate `stop-check.py` runs `check-fast`.
+- Stop rules (`strength: stop`, `require_skill`): none since 2026-11-18. diagnosing-bugs (a bug or performance
+  prompt) and tdd (a tests-first prompt) are nudges: the prompt shows the hint, the turn end is not blocked. The
+  separate `stop-check.py` runs `check-fast`.
 - pr-rules: `gh pr create` and `gh pr edit` with a body need a mermaid block and the author-sessions block,
   plus the fields of the project tier (mvp: `Verify:`, `Risk:`; long: also `Docs:`, `Changed guards:`, `Ledger:`
   on fix PRs; placeholders count as missing). A fix PR needs a test file in its diff; over 400 lines warns.

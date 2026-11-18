@@ -634,7 +634,7 @@ SKILL_HOMES = ("/.claude/skills/", "/.agents/skills/", "/.claude/plugins/", "/.c
 
 
 def skill_card(skills, ctx):
-    """The must-use skills, and where this agent reads each typed-only skill that is installed."""
+    """The must-use and hint skills, and where this agent reads each typed-only skill that is installed."""
     dirs = {}
     for name in skills.get("typed_only") or []:
         path = skill_md(ctx.root, name, ctx.agent)
@@ -645,11 +645,14 @@ def skill_card(skills, ctx):
 
 def render_card(skills, dirs):
     """dirs: skills folder -> typed-only skill names in it. "" when there is nothing to say."""
-    must = skills.get("must_use") or []
-    if not must and not dirs:
+    must, hints = skills.get("must_use") or [], skills.get("hints") or []
+    if not must and not hints and not dirs:
         return ""
     lines = ["[ai router: skill-card] Must-use skills (the router checks them):"]
     lines += ["- %s: %s" % (s["name"], s["when"]) for s in must]
+    if hints:
+        lines.append("Use these skills when the prompt fits (a hint, the router does not block):")
+        lines += ["- %s: %s" % (s["name"], s["when"]) for s in hints]
     if dirs:
         lines.append("Typed-only skills (no Skill tool call): read <dir>/<name>/SKILL.md and follow it; tell the "
                      "owner the typed form /name.")
