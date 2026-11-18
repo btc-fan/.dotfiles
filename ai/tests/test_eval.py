@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 
 TESTS = os.path.dirname(os.path.realpath(__file__))
 AI_DIR = os.path.dirname(TESTS)
@@ -61,6 +62,38 @@ def t_fixtures(work):
                 ".claude/skills/verify-app/SKILL.md"):
         assert rel in files, "%s not committed in app: %s" % (rel, files)
     assert read(os.path.join(root, "app", "Makefile")).startswith("check:\n"), "app: make check target"
+
+
+def t_app_libraries(work):
+    """The app fixture has the Libraries block ai-libs writes, so the docs-lookup case prompt fires the rule."""
+    ev = load()
+    root = os.path.join(work, "fx-libs")
+    ev.make_fixtures(root)
+    app = os.path.join(root, "app")
+    loader = importlib.machinery.SourceFileLoader("ai_libs", os.path.join(AI_DIR, "bin", "ai-libs"))
+    libs = types.ModuleType(loader.name)
+    libs.__file__ = loader.path
+    loader.exec_module(libs)
+    want = libs.render(app, [{"lib": "pytest", "version": "?", "context7": "/pytest-dev/pytest", "note": ""}])
+    assert want in read(os.path.join(app, "AGENTS.md")), "app AGENTS.md: not the ai-libs block: " + want
+    check = run([sys.executable, os.path.join(AI_DIR, "bin", "ai-libs"), "--check", "--dir", app], None)
+    assert check.returncode == 0, "ai-libs --check must pass, so ai-adopt keeps the block: " + check.stdout
+
+    build = os.path.join(work, "libs-build")
+    subprocess.check_call([sys.executable, os.path.join(AI_DIR, "bin", "ai-render"), "--out", build],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    case = [c for c in ev.load_cases() if c["id"] == "docs-lookup"][0]
+    assert case["fixture"] == "app", case
+    payload = {"hook_event_name": "UserPromptSubmit", "session_id": "t-libs", "cwd": app, "prompt": case["prompt"]}
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.path.join(work, "home-libs"),
+           "AI_STATE_DIR": os.path.join(work, "state-libs"), "AI_ROUTING_JSON": os.path.join(build, "routing.json"),
+           "AI_NOTIFY_DRY": "1", "LANG": "C.UTF-8", "AI_GRAPHIFY_BIN": os.path.join(work, "no-graphify")}
+    router = os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks", "router.py")
+    res = subprocess.run([sys.executable, router, "--agent", "claude", "UserPromptSubmit"], cwd=app, env=env,
+                         input=json.dumps(payload).encode(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out = res.stdout.decode()
+    assert "docs-lookup" in out and "/pytest-dev/pytest" in out, "docs-lookup did not fire: " + out
+    assert load().router_seen(env["AI_STATE_DIR"])["rules"] == ["docs-lookup"], "no docs-lookup row in fired.jsonl"
 
 
 def t_fixture_project_copy(work):
@@ -314,7 +347,7 @@ def t_failed_run_is_error(work):
     assert res["error"] == "You have hit your usage limit.", res
 
 
-TESTS_LIST = [t_fixtures, t_fixture_project_copy, t_copy_fixture_skips_socket, t_snapshot_skips_ignored, t_score_stream, t_router_seen,
+TESTS_LIST = [t_fixtures, t_app_libraries, t_fixture_project_copy, t_copy_fixture_skips_socket, t_snapshot_skips_ignored, t_score_stream, t_router_seen,
               t_child_env, t_cases_valid, t_behaviour_dry, t_install_fake_bins, t_failed_run_is_error]
 
 if __name__ == "__main__":
