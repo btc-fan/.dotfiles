@@ -1371,24 +1371,9 @@ def pr_verify_log(root, diff):
                info["name"], sha, when))
 
 
-VERIFY_LOG_RX = re.compile(r"^(commit|doctor|db_writes|finished):[ \t]*(\S+)[ \t]*$", re.M)
-
-
 def valid_verify_logs(root):
-    """[(commit, finished epoch)] of the valid runs in <root>/.verify/evidence/<run>/run.log. Valid: all 4 lines,
-    a 40-hex commit, doctor: PASS, db_writes: no, a UTC ISO 8601 finished time (rules/verification-skill.md)."""
-    base, out = os.path.join(root, ".verify", "evidence"), []
-    try:
-        names = os.listdir(base)
-    except OSError:
-        return out
-    for name in names:
-        f = dict(VERIFY_LOG_RX.findall(read_text(os.path.join(base, name, "run.log")) or ""))
-        fin = parse_iso(f.get("finished", ""))
-        if re.fullmatch(r"[0-9a-f]{40}", f.get("commit", "")) and f.get("doctor") == "PASS" \
-                and f.get("db_writes") == "no" and fin:
-            out.append((f["commit"], fin))
-    return out
+    """[(commit, finished epoch)] of the valid runs of `root` (one parser for the log contract: verify_runs)."""
+    return [(r["commit"], r["ts"]) for r in verify_runs(root) if r["valid"]]
 
 
 def probe_pr(stages, cmd=""):

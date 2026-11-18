@@ -268,7 +268,7 @@ def vh_repo(work, name, verify=True, files=None, adopted=True, old_commit=False)
     return repo, env
 
 
-def run_log(root, name, ago_s, doctor="PASS", db="no", lines=None):
+def run_log_ago(root, name, ago_s, doctor="PASS", db="no", lines=None):
     """A run folder with run.log; finished ago_s seconds back (the helper writes it in real use)."""
     import time
     finished = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - ago_s))
@@ -322,7 +322,7 @@ def t_vh_exists_green_with_skill_and_one_run(work):
     why = stop(env, repo)
     assert why and "verify-tool-exists" in why and "verify-app" in why and LAUNCH in why, \
         "a skill without one valid run is not proven yet: %s" % why
-    run_log(repo, "20261118T100000Z-first", 60)
+    run_log_ago(repo, "20261118T100000Z-first", 60)
     assert stop(env, repo, session="vh2") is None, "skill + one valid run after the change: the turn ends"
     prompt(env, repo, session="vh4")
     shell_write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return a + b + 0\n", ago_s=300)
@@ -350,7 +350,7 @@ def t_vh_no_block_without_code_change(work):
 def t_vh_used_worktree_shell_write(work):
     """The ScripTube regression: a subagent writes a test by shell in a linked worktree and makes no new run."""
     repo, env = vh_repo(work, "app")
-    run_log(repo, "20261117T100000Z-old", 7200)
+    run_log_ago(repo, "20261117T100000Z-old", 7200)
     prompt(env, repo)
     wt = os.path.join(work, "wt")
     git(repo, "worktree", "add", "-q", "-b", "ticket-1", wt, env=env)
@@ -358,9 +358,9 @@ def t_vh_used_worktree_shell_write(work):
     why = stop(env, wt, event="SubagentStop", agent_id="sub1")
     assert why and "[ai router: verify-tool-used]" in why and "tests/test_more.py" in why, why
     assert LAUNCH in why and ".agents/skills/verify-app/verify doctor" in why and wt in why, why
-    run_log(repo, "20261118T100000Z-main-checkout", 60)
+    run_log_ago(repo, "20261118T100000Z-main-checkout", 60)
     assert stop(env, wt, event="SubagentStop", agent_id="sub2"), "a run of the main checkout is not the worktree's"
-    run_log(wt, "20261118T100500Z-ticket-1", 60)
+    run_log_ago(wt, "20261118T100500Z-ticket-1", 60)
     assert stop(env, wt, event="SubagentStop", agent_id="sub3") is None, "a valid run after the change: ends"
     # a commit in a worktree made in this turn is still a change of the turn (the reflog of the worktree HEAD)
     prompt(env, repo, session="vh6")
@@ -375,27 +375,27 @@ def t_vh_used_worktree_shell_write(work):
 
 def t_vh_used_invalid_logs(work):
     repo, env = vh_repo(work, "app")
-    run_log(repo, "20261117T100000Z-old", 7200)
+    run_log_ago(repo, "20261117T100000Z-old", 7200)
     prompt(env, repo)
     shell_write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return b + a\n", ago_s=600)
-    run_log(repo, "20261118T100000Z-fail", 60, doctor="FAIL")
+    run_log_ago(repo, "20261118T100000Z-fail", 60, doctor="FAIL")
     why = stop(env, repo, session="vh")
     assert why and "verify-tool-used" in why and "doctor FAIL" in why, why
-    run_log(repo, "20261118T100100Z-sql", 50, db="yes")
+    run_log_ago(repo, "20261118T100100Z-sql", 50, db="yes")
     why = stop(env, repo, session="vh")
     assert why and "db_writes yes" in why, why
-    run_log(repo, "20261118T100200Z-short", 40, lines=["doctor: PASS", "db_writes: no"])
+    run_log_ago(repo, "20261118T100200Z-short", 40, lines=["doctor: PASS", "db_writes: no"])
     prompt(env, repo, session="vhb")      # same tree in a new turn would need a new change: new session instead
     shell_write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return b + a + 0\n", ago_s=500)
     why = stop(env, repo, session="vhb")
     assert why and "missing commit, finished" in why, why
-    run_log(repo, "20261118T100300Z-good", 30)
+    run_log_ago(repo, "20261118T100300Z-good", 30)
     assert stop(env, repo, session="vhb", stop_hook_active=True) is None, "valid: doctor PASS, db_writes no"
 
 
 def t_vh_loop_limit(work):
     repo, env = vh_repo(work, "app")
-    run_log(repo, "20261117T100000Z-old", 7200)
+    run_log_ago(repo, "20261117T100000Z-old", 7200)
     prompt(env, repo)
     shell_write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return b + a\n")
     assert stop(env, repo), "block 1"
@@ -436,15 +436,15 @@ def t_vh_commit_gate_python(work):
     repo, env = vh_repo(work, "app", old_commit=True)
     precommit_hook(repo)
     git(repo, "config", "diff.mnemonicPrefix", "true", env=env)     # the owner's config: i/ and w/, not a/ and b/
-    run_log(repo, "20261118T080000Z-before-head", 3 * 3600)
+    run_log_ago(repo, "20261118T080000Z-before-head", 3 * 3600)
     res = commit(repo, env, "tests/test_more.py", "def test_more():\n    assert 1\n")
     assert res.returncode != 0 and "verify-app" in res.text and LAUNCH in res.text, res.text
     assert "tests/test_more.py" in res.text and "test_more" in res.text, res.text
     assert '"wall": "verify-commit"' in (read(os.path.join(env["AI_STATE_DIR"], "walls.jsonl")) or "")
-    run_log(repo, "20261118T110000Z-bad", 60, doctor="FAIL")
+    run_log_ago(repo, "20261118T110000Z-bad", 60, doctor="FAIL")
     assert commit(repo, env, "tests/test_more.py", "def test_more():\n    assert 1\n").returncode != 0, \
         "an invalid run does not count"
-    run_log(repo, "20261118T110100Z-good", 30)
+    run_log_ago(repo, "20261118T110100Z-good", 30)
     res = commit(repo, env, "tests/test_more.py", "def test_more():\n    assert 1\n")
     assert res.returncode == 0, res.text
     # the next new test needs a run newer than this commit
@@ -491,10 +491,10 @@ def t_vh_commit_gate_worktree(work):
     precommit_hook(repo)
     wt = os.path.join(work, "wt")
     git(repo, "worktree", "add", "-q", "-b", "ticket-1", wt, env=env)
-    run_log(repo, "20261118T110000Z-main", 30)
+    run_log_ago(repo, "20261118T110000Z-main", 30)
     res = commit(wt, env, "tests/test_more.py", "def test_more():\n    assert 1\n")
     assert res.returncode != 0 and wt in res.text, "the main checkout's run is not proof for the worktree: " + res.text
-    run_log(wt, "20261118T110100Z-wt", 20)
+    run_log_ago(wt, "20261118T110100Z-wt", 20)
     res = commit(wt, env, "tests/test_more.py", "def test_more():\n    assert 1\n")
     assert res.returncode == 0, res.text
 
