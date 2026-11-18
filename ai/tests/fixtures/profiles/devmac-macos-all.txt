@@ -119,6 +119,8 @@ undo --only ^cmd:bin:osv-scanner$: 1 entr(y/ies) reversed
   [dry-run] sh -c npm\ install\ --prefix\ ~/.local/share/ai/npm/context7-mcp-4.7.0\ --ignore-scripts\ --no-audit\ --no-fund\ --save-exact\ @upstash/context7-mcp@4.7.0
   [dry-run] record  npm-local:context7 undo: sh -c 'rm -rf "$1"/context7-mcp-*' _ ~/.local/share/ai/npm
   planned: context7-mcp 4.7.0 in ~/.local/share/ai/npm/context7-mcp-4.7.0 (audit skipped, integrity checked, scripts off)
+  gitleaks: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 8.30.1
+  [dry-run] download gitleaks_8.30.1_darwin_arm64.tar.gz of gitleaks v8.30.1, check it against the release's checksums, install to ~/.local/bin/gitleaks
   [dry-run] set     ~/Library/Application Support/rtk/config.toml [hooks] exclude_commands = ["git push", "gh"]
 
 [7/14] MCP servers

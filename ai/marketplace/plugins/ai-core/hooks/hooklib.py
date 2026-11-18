@@ -11,6 +11,7 @@ Shell parsing (parse_command): a small tokenizer that knows quotes, escapes, her
 Quoted words are never read as commands, so a commit message or echo text cannot trigger a gate.
 """
 import json
+import math
 import os
 import re
 import time
@@ -769,6 +770,11 @@ SECRET_PATTERNS = [
 PLACEHOLDER = re.compile(r"(?i)(x{4,}|\*{3,}|\.{3,}|changeme|change[_-]?me|example\S*|your[\w-]*|dummy\S*|redacted|"
                          r"placeholder\S*|todo|none|null|true|false|password|pass|secret|pwd|test|fake\S*|"
                          r"<[^>]*>|\$\{[^}]*\}|\$\(.*\)|\{\{.*\}\})")
+# Test fixture paths (ticket 11): here only real key shapes block, never assigned words (password = "x").
+FIXTURE_PATH = re.compile(r"(^|/)(tests?|__tests__|specs?|fixtures?|__fixtures__|testdata|test[_-]data|mocks?|"
+                          r"__mocks__)/|(^|/)(test_[^/]*|[^/]*_test\.\w+|[^/]*\.(test|spec)\.\w+|conftest\.py)$|"
+                          r"\.(example|sample)$", re.I)
+FAKE_MARK = re.compile(r"(?i)test|fake|dummy|sample|example|mock|placeholder|x{4,}|0{6,}|123456")
 
 
 class ScanTimeout(Exception):
@@ -811,11 +817,11 @@ def scan_actions(actions, budget):
         if repo is None:
             continue
         if act["sub"] == "commit":
-            text = scan_git(repo, ["diff", "--cached", "--no-color", "-U0"], budget)
+            text = merge_new_lines(repo, scan_git(repo, ["diff", "--cached", "--no-color", "-U0"], budget), budget)
             if act["worktree"]:
                 text += scan_git(repo, ["diff", "--no-color", "-U0"], budget) + untracked_text(repo, budget)
             what.add("files to commit")
-            hits.extend(gitleaks_scan(repo, "commit", None, allowed, budget))
+            hits.extend(gitleaks_scan(repo, "commit", None, allowed, budget, text))
             msg = message_text(act, repo)
             if msg:
                 msg_hits = builtin_scan(as_added(msg), allowed)
@@ -825,7 +831,7 @@ def scan_actions(actions, budget):
         else:
             text = scan_git(repo, ["log", "-p", "--no-color", "-U0", "-n", "300", "HEAD", "--not", "--remotes"], budget)
             what.add("unpushed commits")
-            hits.extend(gitleaks_scan(repo, "push", "-n 300 HEAD --not --remotes", allowed, budget))
+            hits.extend(gitleaks_scan(repo, "push", "-n 300 HEAD --not --remotes", allowed, budget, text))
         hits.extend(builtin_scan(text, allowed))
     return hits, what
 
@@ -842,6 +848,33 @@ def scan_git(repo, args, budget):
         log_error("git", exc)
         return ""
     return res.stdout.decode("utf-8", "replace") if res.returncode == 0 else ""
+
+
+def is_diff_header(line):
+    return bool(re.match(r"^\+\+\+ (a/|b/|/dev/null)", line))
+
+
+def merge_new_lines(repo, diff, budget):
+    """During a merge (MERGE_HEAD set), keep only the added lines that are new against the merged branch too:
+    content already on the default branch (or on the other branch) is not scanned again."""
+    head = scan_git(repo, ["rev-parse", "-q", "--verify", "MERGE_HEAD"], budget).strip()
+    if not head:
+        return diff
+    # shortcut: an octopus merge is compared with its first MERGE_HEAD only; upgrade if octopus merges show up.
+    other = scan_git(repo, ["diff", "--cached", "--no-color", "-U0", head], budget)
+    new = {ln for ln in other.splitlines() if ln.startswith("+") and not is_diff_header(ln)}
+    return "\n".join(ln for ln in diff.splitlines() if not ln.startswith("+") or is_diff_header(ln) or ln in new)
+
+
+def fake_value(value):
+    """A provider-shaped value that is not a real key: a test word in it, or too little entropy."""
+    if FAKE_MARK.search(value):
+        return True
+    counts = {}
+    for ch in value:
+        counts[ch] = counts.get(ch, 0) + 1
+    entropy = -sum(c / float(len(value)) * math.log(c / float(len(value)), 2) for c in counts.values())
+    return entropy < 3.5
 
 
 def probe_secrets(stages, cmd=""):
@@ -983,14 +1016,20 @@ def untracked_text(repo, budget, max_files=300, max_bytes=512 * 1024):
 
 
 def builtin_scan(diff, allowed):
-    hits = []
+    hits, fixture = [], False
     for line in (diff or "").splitlines():
-        if not line.startswith("+") or re.match(r"^\+\+\+ (a/|b/|/dev/null)", line):
+        if is_diff_header(line):
+            fixture = bool(FIXTURE_PATH.search(line[6:] if line.startswith("+++ b/") else ""))
+            continue
+        if not line.startswith("+"):
             continue
         for name, rx in SECRET_PATTERNS:
             for mm in rx.finditer(line):
                 value = mm.group(1) if rx.groups else mm.group(0)
                 if value in allowed:
+                    continue
+                if fixture and (name.startswith(("assigned-secret", "url-with-password"))
+                                or (name != "private-key" and fake_value(value))):
                     continue
                 if name.startswith(("assigned-secret", "url-with-password")) and not looks_secret(value, name):
                     continue
@@ -1009,7 +1048,9 @@ def looks_secret(value, name):
     return not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.]+|[A-Z_][A-Z0-9_]*", value)
 
 
-def gitleaks_scan(repo, mode, log_opts, allowed, budget):
+def gitleaks_scan(repo, mode, log_opts, allowed, budget, added=""):
+    """gitleaks findings that are in the added lines the builtin scan read (a merge does not scan the default
+    branch again); in a test fixture path only a real key shape counts (no generic rule, no fake value)."""
     import shutil
     import subprocess
     import tempfile
@@ -1034,7 +1075,15 @@ def gitleaks_scan(repo, mode, log_opts, allowed, budget):
             os.unlink(report)
         except OSError:
             pass
-    return ["gitleaks:%s" % f.get("RuleID", "?") for f in data if f.get("Secret") not in allowed]
+    out = []
+    for f in data:
+        secret, rule = f.get("Secret") or "", f.get("RuleID") or "?"
+        if secret in allowed or (secret.splitlines() or [""])[0] not in added:
+            continue
+        if FIXTURE_PATH.search(f.get("File") or "") and (rule.startswith("generic") or fake_value(secret)):
+            continue
+        out.append("gitleaks:%s" % rule)
+    return out
 
 
 def allowed_secrets():
@@ -1059,7 +1108,8 @@ def allowed_secrets():
 # (removed 2026-11-15, every project is long). A fix: PR needs a test file in its diff; over 400 changed
 # lines (lockfiles and generated files left out) is a warning, never a block.
 PR_FILL = {"--fill", "--fill-first", "--fill-verbose", "--web", "-f", "-w"}
-PR_FIELDS = ("Evidence", "Door", "Blast Radius", "Docs", "Changed guards")
+PR_FIELDS = ("Evidence", "Door", "Blast Radius")              # these block (ticket 13: the core template)
+PR_WARN_FIELDS = ("Docs", "Changed guards")                    # these warn only (and Ledger on fix PRs)
 PR_FIELD_HELP = {"Evidence": "Before and After: the check command and the tail of its output",
                  "Door": "one-way or two-way, with a reason", "Blast Radius": "what can break",
                  "Docs": "the docs changed, or \"none, because ...\"",
@@ -1079,8 +1129,11 @@ PR_SIZE_WARN = 400
 
 
 def gate_pr(ctx, cmd, stages):
-    problems = []
+    problems, warnings, here = [], [], ctx.cwd or "."
     for st in stages:
+        if st.exe in ("cd", "pushd", "popd"):
+            here = cd_target(st, here) or ctx.cwd or "."     # the folder the gh command runs in
+            continue
         if st.exe != "gh" or st.args[:1] != ["pr"] or len(st.args) < 2 or st.args[1] not in ("create", "edit"):
             continue
         sub, args = st.args[1], st.args[2:]
@@ -1091,7 +1144,11 @@ def gate_pr(ctx, cmd, stages):
         body_flag = any(a.split("=")[0] in ("--body", "-b", "--body-file", "-F") for a in args)
         if sub == "edit" and not body_flag:
             continue
-        text = pr_body_text(ctx, cmd, args)
+        text, unread = pr_body_text(here, cmd, args)
+        if unread:
+            problems.append("could not read the body file %s (write it before the gh command, or pass the body "
+                            "with --body)" % unread)
+            continue
         missing = []
         if "```mermaid" not in text:
             missing.append("a ```mermaid diagram")
@@ -1100,15 +1157,16 @@ def gate_pr(ctx, cmd, stages):
         line = session_line(ctx)
         if line and re.search(r"(?im)^\s*main:\s*unknown\b", text):
             missing.append("a real main: line in the author-sessions block (this session: %s)" % line)
-        root = project_root(ctx.cwd)
-        fields = list(PR_FIELDS)
+        root = project_root(here)
         fix = bool(PR_FIX_TITLE.match(flag_value(args, ("--title", "-t")) or ""))
-        if fix:
-            fields.append("Ledger")
-        for name in fields:
+        for name in PR_FIELDS:
             why = pr_field_problem(name, pr_field(text, name))
             if why:
                 missing.append(why)
+        for name in PR_WARN_FIELDS + (("Ledger",) if fix else ()):
+            why = pr_field_problem(name, pr_field(text, name))
+            if why and why not in warnings:
+                warnings.append(why)
         if sub == "create" and root:
             diff_problems, files = pr_diff_checks(ctx, root, args, fix)
             missing.extend(diff_problems)
@@ -1116,12 +1174,14 @@ def gate_pr(ctx, cmd, stages):
             if why:
                 missing.append(why)
         problems.extend(m for m in missing if m not in problems)
+    if warnings:
+        ctx.add_context("[ai gate pr-rules] warning, add to the PR body: %s." % "; ".join(warnings))
     if not problems:
         return None
     return ("deny", "PR not ready, missing: %s. Body follows the pr skill template: ## Summary (with a ```mermaid "
             "diagram), ## Evidence (Before and After: command and output tail), ## Merge Danger (**Door:** one-way "
-            "or two-way and why; **Blast Radius:** what can break). Also: Docs, Changed guards, Ledger "
-            "on fix PRs. Author-sessions block at the end. Pass it with --body or --body-file."
+            "or two-way and why; **Blast Radius:** what can break). Author-sessions block at the end. Also "
+            "(a warning only): Docs, Changed guards, Ledger on fix PRs. Pass it with --body or --body-file."
             % "; ".join(problems))
 
 
@@ -1136,17 +1196,37 @@ def session_line(ctx):
     return "main: %s dir: %s" % (ctx.session, cwd)
 
 
-def pr_body_text(ctx, cmd, args):
-    text = "\n".join(args)     # one line per word: -b "Verify: ..." keeps its field at a line start
+def pr_body_text(here, cmd, args):
+    """(body text, unreadable body file path or None). A body file path may use a variable that a simple
+    `VAR=value` earlier in the same command sets ($VAR, "$VAR", ${VAR}); a heredoc in the command counts as
+    the body (the file it writes does not exist yet)."""
+    text, unread = "\n".join(args), None    # one line per word: -b "Evidence: ..." keeps its field at a line start
+    heredoc = "<<" in cmd and "--body" in cmd
     for i, a in enumerate(args):
         opt, eq, val = a.partition("=")
         if opt in ("--body-file", "-F"):
             path = val if eq else (args[i + 1] if i + 1 < len(args) else "-")
-            if path != "-":
-                text += "\n" + (read_text(os.path.join(ctx.cwd, os.path.expanduser(path))) or "")
-    if "<<" in cmd and "--body" in cmd:
-        text += "\n" + cmd       # heredoc body inside $(cat <<EOF ...)
-    return text
+            if path == "-":
+                continue
+            path = expand_vars(path, cmd)
+            body = None if "$" in path else read_text(os.path.join(here, os.path.expanduser(path)))
+            if body is None and not heredoc:
+                unread = path
+            text += "\n" + (body or "")
+    if heredoc:
+        text += "\n" + cmd       # heredoc body inside $(cat <<EOF ...) or cat > file <<EOF
+    return text, unread
+
+
+SHELL_ASSIGN = re.compile(r"(?:^|[\s;&|(])([A-Za-z_]\w*)=(\"[^\"$`]*\"|'[^']*'|[^\s;&|()\"'$`]+)(?=[\s;&|)]|$)")
+
+
+def expand_vars(path, cmd):
+    """$VAR / ${VAR} in a path, from the last simple VAR=value in the command (no $(...), no other variables)."""
+    found = {}
+    for m in SHELL_ASSIGN.finditer(cmd):
+        found[m.group(1)] = m.group(2).strip("\"'")
+    return re.sub(r"\$\{(\w+)\}|\$(\w+)", lambda m: found.get(m.group(1) or m.group(2), m.group(0)), path)
 
 
 def flag_value(args, names):
@@ -1221,10 +1301,16 @@ def pr_diff_checks(ctx, root, args, fix):
     head = flag_value(args, ("--head", "-H")) or "HEAD"
     if ":" in head:
         head = "HEAD"           # owner:branch of a fork: compare the local HEAD
-    candidates = ["origin/" + base, base] if base else []
-    ref = (git_quick(root, ["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"]) or "").strip()
-    candidates += ([ref] if ref else []) + ["origin/main", "origin/master", "main", "master"]
+    if base:     # the base the command names, never main instead (ticket 13: --base ai)
+        candidates = ["origin/" + base, base]
+    else:
+        ref = (git_quick(root, ["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"]) or "").strip()
+        candidates = ([ref] if ref else []) + ["origin/main", "origin/master", "main", "master"]
     base_ref = next((c for c in candidates if git_quick(root, ["rev-parse", "-q", "--verify", c + "^{commit}"])), None)
+    if base_ref is None and base and re.match(r"^[\w./-]+$", base):
+        git_quick(root, ["fetch", "-q", "origin", "+refs/heads/%s:refs/remotes/origin/%s" % (base, base)], timeout=5)
+        if git_quick(root, ["rev-parse", "-q", "--verify", "origin/%s^{commit}" % base]):
+            base_ref = "origin/" + base
     numstat = git_quick(root, ["diff", "--numstat", "%s...%s" % (base_ref, head)]) if base_ref else None
     if numstat is None:
         ctx.add_context("[ai gate pr-rules] could not diff against the base branch: the test-file, size and "
@@ -1278,7 +1364,8 @@ def probe_pr(stages, cmd=""):
 
 MERGE_OK_RX = re.compile(
     r"^\W*(merge|approved?|lgtm|ship it)\W*$"
-    r"|\bmerge\s+(it|this|them|that|the\s+prs?|prs?\b|pr\s*#?\d+|#\d+|now|please|all)\b"
+    r"|\bmerge\s+(it|this|them|that|the\s+prs?|prs?\b|pr\s*#?\d+|#?\d+|now|please|all|everything)\b"
+    r"|\bmerge\s+the\s+branch(es)?\b|\blet'?s\s+merge\b"     # ticket 12: "merge 18", "lets merge everything"
     r"|\b(please|go\s+ahead\s+and|go\s+ahead,?|you\s+can|ok(ay)?,?|yes,?|now)\s+merge\b"
     r"|^\W*merge\W+(go\s+ahead|do\s+it)\b"          # R-009: "merge go ahead", "merge, go ahead"
     r"|\b(approved?|lgtm|ship\s+it)\b"
@@ -1286,7 +1373,7 @@ MERGE_OK_RX = re.compile(
     r"|(?<!\w)(смерж\w*|мерж\w*|одобр\w*|сливай)",
     re.I)
 NO_MERGE_RX = re.compile(
-    r"\b(don'?t|do\s+not|never|not\s+yet|no|without|before|stop|wait|nu|не)\b\W+(\w+\W+){0,3}?"
+    r"\b(don'?t|do\s+not|never|not|no|without|before|stop|wait|nu|не)\b\W+(\w+\W+){0,3}?"
     r"(merge|approv|aprob|мерж|смерж|одобр|слив)", re.I)
 
 
@@ -1302,16 +1389,21 @@ def owner_merge_ok(prompt):
 
 
 def merge_calls(stages, cwd):
-    """What in this command merges into, or pushes to, main/master: ["gh pr merge", ...]."""
-    out = []
+    """What in this command merges into, or pushes to, main/master: ["gh pr merge", ...]. A push is read in the
+    checkout it acts on: `cd <dir>` earlier in the command and `git -C <dir>` (ticket 12), not the session folder."""
+    out, here = [], cwd
     for st in stages:
+        if st.exe in ("cd", "pushd", "popd"):
+            # shortcut: a cd to a variable or `-` falls back to the session folder; upgrade if such pushes show up.
+            here = cd_target(st, here) or cwd
+            continue
         if st.exe == "gh" and st.args[:2] == ["pr", "merge"]:
             out.append("gh pr merge")
         elif st.exe == "gh" and st.args[:1] == ["api"] and any(re.search(r"/pulls/\d+/merge\b", a)
                                                                for a in st.args):
             out.append("gh api .../pulls/N/merge")
         elif st.exe == "git":
-            sub, rest, d = git_sub(st, cwd)
+            sub, rest, d = git_sub(st, here)
             if sub == "push" and push_targets_main(rest, d):
                 out.append("git push to main/master")
     return out

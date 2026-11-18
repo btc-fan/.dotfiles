@@ -132,7 +132,7 @@ rules:
     summary: 'before gh pr create or edit'
     trigger: {tool_before: 'Bash', command: '\bgh pr (create|edit)\b'}
     action: "PR body (pr skill template): Summary with a Mermaid diagram, Evidence (Before, After), Merge Danger (Door: one-way or two-way; Blast Radius), Docs, Changed guards (Ledger on fix PRs), author-sessions block last."
-    strength: gate    # blocks without ```mermaid, <!-- author-sessions, the fields Evidence, Door (one-way or two-way), Blast Radius (placeholders refused), a test file in a fix: PR; --fill/--web refused
+    strength: gate    # blocks without ```mermaid, <!-- author-sessions, the fields Evidence, Door (one-way or two-way), Blast Radius (placeholders refused), a test file in a fix: PR; --fill/--web refused; Docs, Changed guards, Ledger warn only
 
   - id: merge-approval
     scope: global
