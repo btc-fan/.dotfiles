@@ -114,7 +114,7 @@ To read the full table: `ai/routing.yaml`. Do not copy it here.
 | `ai-gate-skip` | owner only: `sudo ai-gate-skip <gate> <minutes max 60> <why>` |
 | `ai-docs-check` | Markdown checks of a repo: placement, no U+2014, relative links (`--md`) |
 | `ai-render` | builds routing.json, L0 table and the root file |
-| `ai-sync` | after a pull: runs `ai-render`, refreshes this user's copied rule blocks (Codex; Hermes and `/etc` only through the admin `install.sh --update`). `--check` compares, `--install-hook` makes `git pull` run it |
+| `ai-sync` | after a pull: runs `ai-render`, refreshes this user's copied rule blocks (Codex; Hermes and `/etc` only through the admin `install.sh --update`) and links new `ai/skills` into `~/.claude/skills` and `~/.agents/skills`. `--check` compares, `--install-hook` makes `git pull` run it |
 | `agent-audit npm\|pypi\|dir\|skill <target>` | audit before install |
 | `ai-start` | new project: grilling, propose tools, write project config |
 | `ai-adopt` | existing repo: project layer, the Map and Libraries sections of AGENTS.md, opt-in tools (`--tools omc,seo,blog,browser,...`), Serena index and graph build with git hooks |
