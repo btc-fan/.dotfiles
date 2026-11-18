@@ -10,9 +10,10 @@
   ai-eval behaviour [--agent claude|codex|both] [--runs N] [--dry] [--out DIR]
                                         one fresh headless session per case and run, on a fresh copy of the
                                         adopted fixture; cases are ai/evals/cases/*.json. --dry only lists the runs.
-  ai-eval scenario [--agent claude|codex|both] [--runs N] [--dry] [--out DIR]
+  ai-eval scenario [--agent claude|codex|both] [--runs N] [--only ID] [--dry] [--out DIR]
                                         multi-session runs on ONE repo copy (ai/evals/scenarios/*.json): each step
-                                        is a session (scored like a case), a harness git step, or a state check.
+                                        is a session (scored like a case), a harness git or write step, or a state
+                                        check. --only runs one scenario id.
 
 Fixtures: empty-git (git init only), docs-only (README.md, docs/*.md), no-git (a plain folder), app (Python package,
 pytest test, Makefile with check, .claude/skills/verify-app/SKILL.md, AGENTS.md with a Libraries block for
@@ -29,8 +30,18 @@ not into the owner's stats.
 Scenario file: {"id", "fixture", "steps": [{"session": prompt, "expect": {...}} | {"git": [[arg, ...], ...]} |
 {"check": {"map_contains": text, "branch": name, "graph": "fresh"}}]}. Git steps run with the repo's own hooks (a
 merge refreshes the graph as on a real machine). A run passes when every session is a hit and every check holds.
+Scenario options: "agents" (only these agents); "plugin": "checkout" (the sessions load this checkout's ai-core, as
+verify-ai-setup drives them: Claude --plugin-dir, Codex a temp CODEX_HOME with its hooks; AI_HOME and routing from
+this checkout; the pre-commit hook runs this checkout's ai-precommit; a fake gh logs to <run>/gh.log); "skills"
+(this checkout's ai/skills/<name> copied into the repo's .claude/skills and .agents/skills, git-excluded: a skill
+under test that is not installed); "allow" (more Claude allowed tools). Session options: "max_turns"; expect
+"says": [regex, ...] on the raw transcript. Write step: {"write": {path: text}} inside the repo. Checks with a
+checkout plugin: "hook": {"event", "payload", "where": "repo"|"worktree", "decision"} replays this checkout's
+router on the end state, with the turn start of the last session (no loop counts); "git_out": {"args", "match"};
+"gh_log": regex.
 Reports: a table on stdout and <level>.json in --out (default: a new temp folder; never inside this repo).
 """
+import glob
 import hashlib
 import json
 import os
@@ -41,6 +52,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 
 BIN = os.path.dirname(os.path.realpath(__file__))
 AI_DIR = os.path.dirname(BIN)
@@ -79,7 +91,7 @@ def main(argv):
 
 
 def parse(args):
-    opts = {"keep": False, "dry": False, "agent": "both", "runs": 3, "out": None}
+    opts = {"keep": False, "dry": False, "agent": "both", "runs": 3, "out": None, "only": None}
     args = list(args)
     while args:
         a = args.pop(0)
@@ -89,8 +101,8 @@ def parse(args):
             opts["agent"] = args.pop(0)
         elif a == "--runs" and args and args[0].isdigit() and int(args[0]) > 0:
             opts["runs"] = int(args.pop(0))
-        elif a == "--out" and args:
-            opts["out"] = args.pop(0)
+        elif a in ("--out", "--only") and args:
+            opts[a[2:]] = args.pop(0)
         else:
             sys.exit("ai-eval: bad argument: %s (see ai-eval --help)" % a)
     return opts
@@ -244,8 +256,11 @@ def behaviour(opts):
 
 def scenario(opts):
     agents = ["claude", "codex"] if opts["agent"] == "both" else [opts["agent"]]
-    scs = load_scenarios()
-    plan = [(agent, sc, n) for agent in agents for sc in scs for n in range(1, opts["runs"] + 1)]
+    scs = [sc for sc in load_scenarios() if opts["only"] in (None, sc["id"])]
+    if not scs:
+        sys.exit("ai-eval: no scenario %s" % opts["only"])
+    plan = [(agent, sc, n) for agent in agents for sc in scs for n in range(1, opts["runs"] + 1)
+            if agent in sc.get("agents", [agent])]
 
     if opts["dry"]:
         for agent, sc, n in plan:
@@ -263,9 +278,11 @@ def scenario(opts):
     for agent in agents:
         for sc in scs:
             mine = [r for r in results if r["agent"] == agent and r["scenario"] == sc["id"]]
+            if not mine:
+                continue
             for i, step in enumerate(sc["steps"]):
                 kind = next(iter(step))
-                if kind == "git":
+                if kind in ("git", "write"):
                     continue
                 oks = [r["steps"][i].get("ok") for r in mine if len(r["steps"]) > i]
                 errors = sum(1 for ok in oks if ok is None)
@@ -296,31 +313,57 @@ def run_scenario(out, notes, agent, sc, n):
     base = os.path.join(out, "scenarios", agent, "%s-%d" % (sc["id"], n))
     repo = os.path.join(base, "repo")
     copy_fixture(os.path.join(out, "fixtures", sc["fixture"]), repo)
+    checkout = checkout_setup(out, base, repo, sc) if sc.get("plugin") == "checkout" else None
+    last = {}       # the last session: start time and session id, for a hook replay
     for i, step in enumerate(sc["steps"], 1):
         if "git" in step:
             rc, text = git_step(repo, step["git"])
             result["steps"].append({"kind": "git", "ok": rc == 0, "out": last_line(text)})
             if rc != 0:
                 return result
+        elif "write" in step:
+            result["steps"].append(dict(write_step(repo, step["write"]), kind="write"))
         elif "session" in step:
-            result["steps"].append(dict(session_step(base, repo, agent, step, i), kind="session"))
+            last = {"ts": time.time()}
+            result["steps"].append(dict(session_step(base, repo, agent, step, i, checkout, last), kind="session"))
         else:
-            result["steps"].append(dict(check_step(repo, step["check"]), kind="check"))
+            result["steps"].append(dict(check_step(repo, step["check"], checkout, last), kind="check"))
     result["pass"] = all(st["ok"] for st in result["steps"])
     return result
 
 
-def session_step(base, repo, agent, step, i):
+def session_step(base, repo, agent, step, i, checkout=None, last=None):
     state = os.path.join(base, "state-%d" % i)
-    rc, text = call(agent_cmd(agent, step["session"], repo), child_env(state), repo, RUN_TIMEOUT)
+    cmd, env = agent_cmd(agent, step["session"], repo, step.get("max_turns")), child_env(state)
+    if checkout:
+        cmd, env = checkout_session(agent, cmd, env, repo, checkout)
+    turns = int(step.get("max_turns") or 40)
+    rc, text = call(cmd, env, repo, max(RUN_TIMEOUT, 20 * turns))
     write(os.path.join(base, "stream-%d.jsonl" % i), text)
     seen = score_stream(text)
     router = router_seen(state)
     seen["skills"] += router["skills"]
     seen["rules"] = router["rules"]
+    seen["said"] = [rx for rx in step["expect"].get("says", []) if re.search(rx, text)]
+    if last is not None:
+        last["session_id"] = next((e.get("session_id") or e.get("thread_id") for e in json_lines(text)
+                                   if e.get("subtype") == "init" or e.get("type") == "thread.started"), None)
     if rc != 0 and not seen["tools"]:
         return {"ok": None, "rc": rc, "error": run_error(text), "seen": seen}
     return {"ok": hit(step["expect"], seen), "rc": rc, "seen": seen}
+
+
+def write_step(repo, files):
+    """Harness files (a fixture tool, a PR body): each path must stay inside the repo."""
+    top = os.path.realpath(repo)
+    for rel, text in files.items():
+        path = os.path.realpath(os.path.join(repo, rel))
+        if not path.startswith(top + os.sep):
+            return {"ok": False, "error": "outside the repo: %s" % rel}
+        write(path, text)
+        if text.startswith("#!"):
+            os.chmod(path, 0o755)
+    return {"ok": True, "files": sorted(files)}
 
 
 def git_step(repo, commands):
@@ -335,9 +378,17 @@ def git_step(repo, commands):
     return 0, text
 
 
-def check_step(repo, check):
-    """State checks between sessions: the Map names a module, the current branch, the graph freshness."""
+def check_step(repo, check, checkout=None, last=None):
+    """State checks between sessions: the Map names a module, the current branch, the graph freshness; with a
+    checkout plugin also a hook replay, a git command's output and the fake gh log."""
     got = {}
+    if "hook" in check:
+        got["hook"] = replay_hook(repo, check["hook"], checkout, last or {})
+    if "git_out" in check:
+        text = call(["git", "-C", repo] + list(check["git_out"]["args"]), dict(os.environ), repo, 60)[1]
+        got["git_out"] = bool(re.search(check["git_out"]["match"], text))
+    if "gh_log" in check:
+        got["gh_log"] = bool(re.search(check["gh_log"], read_file(os.path.join(checkout["base"], "gh.log"))))
     if "map_contains" in check:
         got["map_contains"] = check["map_contains"] in map_section(repo)
     if "branch" in check:
@@ -347,7 +398,8 @@ def check_step(repo, check):
         sys.path.insert(0, os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks"))
         import hooklib
         got["graph"] = hooklib.graph_status(repo, hooklib.git_history(repo)) == check["graph"]
-    return {"ok": all(got.values()), "got": got}
+    ok = all(v is True or (k == "hook" and v == check["hook"]["decision"]) for k, v in got.items())
+    return {"ok": ok, "got": got}
 
 
 def map_section(repo):
@@ -380,13 +432,13 @@ WRITE_TOOLS = ["Edit", "Write", "Bash(git *)", "Bash(uv *)", "Bash(python3 *)", 
                "Bash(graphify *)", "Bash(rtk *)", "Bash(mkdir *)"]
 
 
-def agent_cmd(agent, prompt, repo=None):
+def agent_cmd(agent, prompt, repo=None, turns=None):
     """The headless command. With repo (scenario sessions): write access inside that repo only."""
     if agent == "claude":
         # 15 turns: a Stop gate (diagnosing-bugs) blocks the first stop, and the agent needs turns after it.
         # 40 for a scenario session: it builds code, runs the tests and commits.
         cmd = ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--max-turns",
-               "40" if repo else "15"]
+               str(turns or (40 if repo else 15))]
         if repo:
             cmd += ["--permission-mode", "acceptEdits", "--allowedTools"] + WRITE_TOOLS
         return cmd
@@ -515,6 +567,7 @@ def hit(expect, seen):
     return (all(s in seen["skills"] for s in expect.get("skills", []))
             and all(any(re.search(rx, t) for t in seen["tools"]) for rx in expect.get("tools", []))
             and all(r in seen.get("rules", []) for r in expect.get("rules", []))
+            and all(rx in seen.get("said", []) for rx in expect.get("says", []))
             and not any(s in seen["skills"] for s in expect.get("not_skills", []))
             and not any(r in seen.get("rules", []) for r in expect.get("not_rules", []))
             and not any(re.search(rx, t) for rx in expect.get("not_tools", []) for t in seen["tools"]))
@@ -523,9 +576,118 @@ def hit(expect, seen):
 def expected_text(case):
     exp = case["expect"]
     parts = ["skill " + s for s in exp.get("skills", [])] + ["tool /%s/" % t for t in exp.get("tools", [])]
-    parts += ["rule " + r for r in exp.get("rules", [])] + ["not " + s for s in exp.get("not_skills", [])]
+    parts += ["rule " + r for r in exp.get("rules", [])] + ["says /%s/" % t for t in exp.get("says", [])]
+    parts += ["not " + s for s in exp.get("not_skills", [])]
     parts += ["not rule " + r for r in exp.get("not_rules", [])] + ["not tool /%s/" % t for t in exp.get("not_tools", [])]
     return ", ".join(parts)
+
+
+# ---------------------------------------------------------------- checkout plugin (scenario "plugin": "checkout")
+
+PLUGIN = os.path.join(AI_DIR, "marketplace", "plugins", "ai-core")
+ROUTER = os.path.join(PLUGIN, "hooks", "router.py")
+NO_INSTALLED_CORE = {"ai-core@ai": False}       # the installed copy stays off in a session
+FAKE_GH = """#!/bin/sh
+# fake gh (ai-eval, verify-ai-setup): logs the call, never reaches GitHub
+echo "gh $*" >> '%s'
+case "$1 $2" in
+  "pr list"|"pr view"|"api "*) echo '[]' ;;
+  "auth status") echo 'Logged in to github.com (fake)' ;;
+esac
+exit 0
+"""
+
+
+def checkout_setup(out, base, repo, sc):
+    """This checkout in one scenario run: the pinned pre-commit hook, the stand-in skills, the fake gh, routing."""
+    hook = os.path.join(repo, ".git", "hooks", "pre-commit")
+    if os.path.isfile(hook):    # a session shell reads the owner profile: PATH would find the installed copy
+        write(hook, "#!/bin/sh\nexec %s\n" % shlex.quote(os.path.join(BIN, "ai-precommit")))
+        os.chmod(hook, 0o755)
+    exclude = []
+    for name in sc.get("skills", []):
+        for d in (".claude", ".agents"):
+            shutil.copytree(os.path.join(AI_DIR, "skills", name), os.path.join(repo, d, "skills", name))
+            exclude.append("/%s/skills/%s" % (d, name))
+    if exclude:
+        with open(os.path.join(repo, ".git", "info", "exclude"), "a", encoding="utf-8") as fh:
+            fh.write("\n".join(exclude) + "\n")
+    write(os.path.join(base, "bin", "gh"), FAKE_GH % os.path.join(base, "gh.log"))
+    os.chmod(os.path.join(base, "bin", "gh"), 0o755)
+    env = {"PATH": os.pathsep.join([os.path.join(base, "bin"), BIN, os.environ.get("PATH", "")]),
+           "AI_HOME": AI_HOME, "AI_ROUTING_JSON": render_routing(out), "AI_NOTIFY_DRY": "1"}
+    return {"base": base, "env": env, "allow": sc.get("allow", [])}
+
+
+def checkout_session(agent, cmd, env, repo, checkout):
+    """The session command and env with this checkout's ai-core instead of the installed one."""
+    env = dict(env, **checkout["env"])
+    if agent == "claude":
+        i = cmd.index("--allowedTools") + 1
+        cmd[i:i] = ["Bash(gh *)"] + list(checkout["allow"])
+        settings = {"enabledPlugins": NO_INSTALLED_CORE, "env": env_list()}
+        return cmd + ["--plugin-dir", PLUGIN, "--settings", json.dumps(settings), "--strict-mcp-config"], env
+    env.update(env_list(), CODEX_HOME=codex_home(os.path.join(checkout["base"], "codex-home")))
+    return cmd, env
+
+
+def replay_hook(repo, spec, checkout, last):
+    """This checkout's router on the end state: a fresh state folder whose session has only the turn start of the
+    last session, so the decision is the hook's own and no loop limit counts. "allow", "block", "deny" or a note."""
+    root = repo
+    if spec.get("where") == "worktree":
+        trees = sorted(glob.glob(os.path.join(repo, ".claude", "worktrees", "*")), key=os.path.getmtime)
+        if not trees:
+            return "no worktree under .claude/worktrees"
+        root = trees[-1]
+    sid = last.get("session_id") or "ai-eval-replay"
+    state = tempfile.mkdtemp(prefix="ai-eval-replay-")
+    try:
+        write(os.path.join(state, "sessions", re.sub(r"[^A-Za-z0-9_.-]", "_", sid)[:120] + ".json"),
+              json.dumps({"turn": {"ts": last.get("ts") or time.time(), "roots": {}}}))
+        payload = dict({"session_id": sid, "cwd": root, "hook_event_name": spec["event"], "stop_hook_active": False},
+                       **spec.get("payload", {}))
+        env = dict(child_env(state), **checkout["env"])
+        res = subprocess.run([sys.executable, ROUTER, "--agent", spec.get("agent", "claude"), spec["event"]],
+                             input=json.dumps(payload).encode(), env=env, cwd=root, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, timeout=60)
+    finally:
+        shutil.rmtree(state, ignore_errors=True)
+    for event in json_lines(res.stdout.decode("utf-8", "replace")):
+        if event.get("decision") == "block":
+            return "block"
+        if (event.get("hookSpecificOutput") or {}).get("permissionDecision") in ("deny", "ask"):
+            return event["hookSpecificOutput"]["permissionDecision"]
+    return "allow"
+
+
+def render_routing(out):
+    """routing.json of this checkout (ai-render --profile dev-mac), once per out folder."""
+    build = os.path.join(out, "build")
+    if not os.path.isfile(os.path.join(build, "routing.json")):
+        call([sys.executable, os.path.join(BIN, "ai-render"), "--profile", "dev-mac", "--out", build],
+             dict(os.environ), AI_HOME, 120)
+    return os.path.join(build, "routing.json")
+
+
+def env_list():
+    """This checkout's ai/adapters/env.list (KEY=VALUE lines), the env install.sh gives every agent."""
+    pairs = (line.partition("=") for line in read_file(os.path.join(AI_DIR, "adapters", "env.list")).splitlines()
+             if re.match(r"[A-Z0-9_]+=", line))
+    return {k: v for k, _eq, v in pairs}
+
+
+def codex_home(home):
+    """A temp CODEX_HOME: the login by link, this checkout's hooks as user hooks, trust from aiconf."""
+    if not os.path.isdir(home):
+        os.makedirs(home)
+        os.symlink(os.path.expanduser("~/.codex/auth.json"), os.path.join(home, "auth.json"))
+        hooks = os.path.join(home, "hooks.json")
+        write(hooks, read_file(os.path.join(PLUGIN, "hooks", "codex-hooks.json")).replace("${PLUGIN_ROOT}", PLUGIN))
+        write(os.path.join(home, "config.toml"), "[features]\nhooks = true\n")
+        call([sys.executable, os.path.join(AI_DIR, "lib", "aiconf.py"), "codex-trust-hooks",
+              os.path.join(home, "config.toml"), "--source", "%s=%s" % (hooks, hooks)], None, home, 60)
+    return home
 
 
 # ---------------------------------------------------------------- fixtures
@@ -686,6 +848,14 @@ def yes_no(value):
 def last_line(text):
     lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
     return lines[-1][:160] if lines else ""
+
+
+def read_file(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except OSError:
+        return ""
 
 
 def write(path, text):

@@ -368,13 +368,14 @@ the rule id, `winner-gate`, `nav-first`, `verify-tool-exists` or `verify-tool-us
 
 ### 3.6 Testing the setup with ai-eval
 
-`ai/bin/ai-eval` tests the setup in three levels. Reports go outside the repo.
+`ai/bin/ai-eval` tests the setup in four levels. Reports go outside the repo.
 
 | Level | Command | What it does |
 |---|---|---|
 | Fixtures | `ai-eval fixtures DIR` | Makes the fixture repos in DIR: `empty-git`, `docs-only`, `no-git`, `app` (a Python package with a test, a Makefile with `check` and a `verify-app` skill) and `project-copy` (a clone of the repo in `$AI_EVAL_PROJECT`, without its remotes) |
 | Install | `ai-eval install [--keep] [--out DIR]` | Runs `ai-adopt` twice on each fixture in a throwaway HOME, then `ai-doctor --project-only` and the uninstall. A pass: both runs exit 0, the second run changes no tracked file, doctor and uninstall exit 0. `no-git` must be refused first, then pass with `--init` |
 | Behaviour | `ai-eval behaviour [--agent claude\|codex\|both] [--runs N] [--dry] [--out DIR]` | Starts a fresh headless `claude -p` or `codex exec` per case and run, on a fresh copy of the adopted fixture. `--dry` only lists the runs |
+| Scenario | `ai-eval scenario [--agent claude\|codex\|both] [--runs N] [--only ID] [--dry] [--out DIR]` | Runs the steps of `ai/evals/scenarios/<id>.json` on one repo copy: sessions, harness git and write steps, state checks. With `"plugin": "checkout"` the sessions use this checkout's hooks, not the installed ones. Format: `ai/evals/HOWTO.md` |
 
 How a behaviour run is made safe and scored:
 - `AI_STATE_DIR` points to a folder of the run, so your own stats stay clean. The herdr variables are unset.
@@ -1965,7 +1966,7 @@ Result on 2026-11-17 (after the enforcement round): 14 suites, all 0 failed; the
 | `test_commands.py` | 16 | ai-start, ai-sync (rules copies, skill links), hooks files, no em dash, router speed |
 | `test_profiles.py` | 7 | dev-mac and server render and install plans (fixtures) |
 | `test_info.py` | 6 | ai-info output |
-| `test_eval.py` | 11 | `ai-eval`: fixtures, the install level on fake binaries, the stream scorer, `behaviour --dry`, the case files |
+| `test_eval.py` | 15 | `ai-eval`: fixtures, the install level on fake binaries, the stream scorer, `behaviour --dry`, the case files, scenarios (fake agents, the checkout plugin, `--dry`) |
 | `test_box.py` | 30 checks | the box MCP server (servers only) |
 
 New router rules of 2026-11-16 and their cases: merge-approval 16, no-verify 7, nav-first 7, merge-review 4,
