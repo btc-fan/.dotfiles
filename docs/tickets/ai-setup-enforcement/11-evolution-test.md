@@ -6,5 +6,5 @@
 
 **Status:** ready-for-agent
 
-- [ ] Scenario runs headless for Claude and for Codex
-- [ ] Each check passes in 3 of 3 runs
+- [x] Scenario runs headless for Claude and for Codex (`ai-eval scenario`, report docs/reports/ai-eval-evolution-2026-11-18.md)
+- [ ] Each check passes in 3 of 3 runs: not yet, findings moved to ticket 13
