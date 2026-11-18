@@ -23,7 +23,7 @@ def main():
     work = tempfile.mkdtemp(prefix="ai-cmd-tests-")
     try:
         for test in (t_hook_files, t_no_em_dash, t_render_cap, t_pr_resume, t_notify, t_agent_audit,
-                     t_ai_start, t_router_speed, t_ai_sync, t_ai_sync_links_skills, t_ai_sync_keeps_pstack, t_sync_hooks, t_hermes_plugin, t_playwright,
+                     t_ai_start, t_router_speed, t_ai_sync, t_ai_sync_links_skills, t_ai_sync_keeps_pstack, t_merged_branches_note, t_sync_hooks, t_hermes_plugin, t_playwright,
                      t_state_mode, t_skill_scanner_reject, t_winners_table):
             try:
                 test(work)
@@ -425,6 +425,31 @@ def t_ai_sync_keeps_pstack(work):
         link = os.path.join(home, d, "skills", "create-verification-skill")
         want = os.path.join(src, "create-verification-skill")
         assert os.path.islink(link) and os.readlink(link) == want, "%s: %s" % (d, os.readlink(link))
+def t_merged_branches_note(work):
+    """After a merge to main, the session-start note names the local branches whose remote branch is gone
+    (merged and deleted), so the agent deletes them and their worktrees. A branch with a live remote is not named."""
+    remote = os.path.join(work, "gone-remote.git")
+    repo = os.path.join(work, "gone-repo")
+    git = lambda *a: run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t"] + list(a))
+    run(["git", "init", "-q", "--bare", remote])
+    run(["git", "init", "-q", "-b", "main", repo])
+    os.makedirs(os.path.join(repo, ".ai"))
+    open(os.path.join(repo, "app.py"), "w").write("x = 1\n")
+    git("add", "app.py"); git("commit", "-q", "-m", "one")
+    first = git("rev-parse", "HEAD").stdout.strip()
+    open(os.path.join(repo, ".ai", "last-review"), "w").write(first + "\n")
+    git("remote", "add", "origin", remote)
+    for b in ("feat-done", "feat-open"):
+        git("branch", b); git("push", "-q", "-u", "origin", b)
+    run(["git", "-C", remote, "branch", "-D", "feat-done"])
+    git("fetch", "-q", "--prune", "origin")
+    open(os.path.join(repo, "app.py"), "w").write("x = 2\n")
+    git("commit", "-q", "-am", "merged work")
+    sys.path.insert(0, HOOKS)
+    import hooklib
+    note = hooklib.merge_review_note(repo)
+    assert "feat-done" in note and "git branch -D" in note and "git worktree remove" in note, note
+    assert "feat-open" not in note, note
 
 
 def t_sync_hooks(work):

@@ -1,6 +1,6 @@
 # ai/skills
 
-Our own skills live here. The installer copies them to `~/.agents/skills/` (shared by Codex, opencode, Hermes) and links them for Claude.
+Our own skills live here. The installer links them into `~/.agents/skills/` (shared by Codex, opencode, Hermes) and `~/.claude/skills/` (Claude). After a `git pull`, `ai-sync` links a new skill the same way (no install.sh run).
 
 | Skill | Source |
 |---|---|

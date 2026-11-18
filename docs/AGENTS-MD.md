@@ -161,7 +161,7 @@ Write commit messages in English.
 4. **Test the rule.** If it is a routing rule, add one should-fire and one should-not-fire eval (see [EXTENDING.md](EXTENDING.md)). Run `ai-doctor`.
 5. **Commit.** The changed part (and `ai/routing.yaml` if you changed it). The rendered file is not committed.
 6. **Push.** `git push origin ai`.
-7. **Deliver.** Server: the admin runs `sudo /opt/ai-setup/install.sh --update --for-user <user>` (fast-forwards the root-owned clone, refreshes every user's files, the Hermes copy and the `/etc` rules). macOS: `git -C ~/.dotfiles-ai pull`; the git hook runs `ai-sync`, which refreshes your own files (Claude, Codex, opencode).
+7. **Deliver.** Server: the admin runs `sudo /opt/ai-setup/install.sh --update --for-user <user>` (fast-forwards the root-owned clone, refreshes every user's files, the Hermes copy and the `/etc` rules). macOS: `git -C ~/.dotfiles-ai pull`; the git hook runs `ai-sync`, which refreshes your own files (Claude, Codex, opencode) and links new skills from `ai/skills`.
 8. **Check.** `ai-sync --check` and `ai-doctor` on each machine. On a server with boxes, an admin also runs `sudo proj sync-rules --all`.
 
 If the hook is not installed on a machine, run `ai-sync` by hand after the pull. Install the hook with `ai-sync --install-hook`. On a server, `ai-sync` from a user's `~/.dotfiles-ai` refreshes only that user's own files; the Hermes copy and `/etc` rules change only through the admin command.

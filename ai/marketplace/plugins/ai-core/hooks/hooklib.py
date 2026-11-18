@@ -2118,12 +2118,21 @@ def merge_review_note(root, agent="claude"):
             pass
         return ""
     count = count if count.isdigit() else "some"
+    gone = gone_branches(root)
+    clean = (" Merged branches still here (remote branch gone): %s. Delete each with git branch -D <name>, and "
+             "its worktree with git worktree remove <path>." % ", ".join(gone[:10])) if gone else ""
     return ("%s moved since the last architecture review (%s new commits after %s). Before new work: "
             "/improve-codebase-architecture on the area that changed, then /retro on the merged work. Findings "
             "become tickets or a PR for the owner, not direct edits on %s. Then record it: git rev-parse %s > "
-            ".ai/last-review. The owner may say skip (record it the same way).%s"
-            % (branch, count, last[:7], branch, branch,
+            ".ai/last-review. The owner may say skip (record it the same way).%s%s"
+            % (branch, count, last[:7], branch, branch, clean,
                typed_skills_note(root, ["improve-codebase-architecture", "retro"], agent)))
+
+
+def gone_branches(root):
+    """Local branches whose remote branch is gone (merged and deleted on the remote). Local refs only: no network."""
+    out = git_quick(root, ["for-each-ref", "--format=%(refname:short) %(upstream:track)", "refs/heads"]) or ""
+    return [line.split()[0] for line in out.splitlines() if line.endswith(" [gone]")]
 
 
 def legacy_memory_dir(root):
