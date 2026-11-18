@@ -13,7 +13,9 @@ What each event does:
   PreToolUse           L4 gates (deny or ask) and context nudges (quiet windows, log-only rules).
   PostToolUse          nudges after edits/commands, docs lookups, Skill proof (Skill call or a read SKILL.md).
   UserPromptExpansion  Skill proof for a typed /skill.
-  Stop                 miss log (rule fired, no matching tool or skill call), then claude-notify.
+  Stop                 stop rules, the verify hooks (below), the miss log, then claude-notify.
+  SubagentStop         the verify hooks: verify-tool-exists and verify-tool-used block the end of a turn that
+                       changed app code (read from git) without a proven verify skill or a fresh valid run.
   SessionEnd           drop the session state file.
 
 Never breaks a session: an internal error is logged to router-errors.log and the hook exits 0.
@@ -37,7 +39,7 @@ from hooklib import (GATES, GATE_PROBES, ai_home, append_jsonl, command_text, ga
                      state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
                      graph_status, git_history, short_skill, write_targets,
                      owner_merge_ok, merge_review_note, nav_note, upgrade_note, legacy_memory_note, probe_pr,
-                     session_line, log_wall)
+                     session_line, log_wall, verify_proof, verify_steps, app_code_state, head_at, git_quick)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
 CONTEXT_CAP = 9500          # additionalContext is cut here (hook output caps: Claude 10,000 chars, Codex ~2,500 tokens)
@@ -199,6 +201,10 @@ EXPLICIT_DOCS = re.compile(r"\b(docs|documentation|api reference|changelog|relea
 
 
 def on_user_prompt(ctx):
+    try:
+        verify_turn_start(ctx)
+    except Exception as exc:     # never break the session
+        log_error("verify_turn_start", exc)
     prompt = ctx.payload.get("prompt") or ""
     if not prompt.strip() or is_notification(prompt):
         return
@@ -443,10 +449,15 @@ def on_prompt_expansion(ctx):
 
 def on_stop(ctx):
     check_stop_rules(ctx)
+    verify_stop(ctx)
     if not ctx.payload.get("stop_hook_active"):
         check_misses(ctx)
     if not ctx.stop_block:          # the turn goes on: the owner is not told it finished
         run_notify(ctx)
+
+
+def on_subagent_stop(ctx):
+    verify_stop(ctx)
 
 
 def on_session_end(ctx):
@@ -460,6 +471,7 @@ HANDLERS = {
     "PostToolUse": on_post_tool,
     "UserPromptExpansion": on_prompt_expansion,
     "Stop": on_stop,
+    "SubagentStop": on_subagent_stop,
     "SessionEnd": on_session_end,
 }
 
@@ -779,6 +791,106 @@ def check_stop_rules(ctx):
         ctx.stop_block.append("[ai router: %s] %s Then finish the turn." % (rid, render_action(rule, ctx)))
         ctx.wall(ctx.stop_block[-1])
         skill_missed(rule, ctx, "Stop")
+
+
+# ---------------------------------------------------------------- verify hooks (verify-enforcement 02, 03)
+# Two walls, verify-tool-exists and verify-tool-used, in an adopted repo (.ai/enabled). No routing.yaml rows (as
+# winner-gate): the block message carries the whole instruction, and two rows would push the L0 table past the cut.
+# The checkout is the git top level of the payload cwd (a linked worktree is its own checkout). The change is
+# read from git, not from tool calls, so shell writes count: the app code files that differ from the turn start.
+# UserPromptSubmit records the turn start (time; HEAD and the dirty code files of the session checkout). Another
+# checkout (a subagent's worktree) uses HEAD at the turn start from its reflog, and all its uncommitted code.
+
+VERIFY_MAX_TRIES = 2        # blocks on the same app-code state
+VERIFY_MAX_CHAIN = 4        # blocks in one chain of continuation stops (stop_hook_active)
+
+
+def adopted(root):
+    return bool(root) and os.path.isfile(os.path.join(root, ".ai", "enabled"))
+
+
+def verify_turn_start(ctx):
+    d = ctx.state.load()
+    turn = {"ts": time.time(), "roots": {}}
+    root = ctx.root
+    if adopted(root):
+        head = head_at(root, None)
+        turn["roots"][root] = {"head": head, "code": app_code_state(root, head)}
+    d["turn"] = turn
+    ctx.state.dirty = True
+
+
+def verify_stop(ctx):
+    """Stop and SubagentStop: hook 1 (no proven verify skill) or hook 2 (no valid run after the first change)."""
+    root = ctx.root
+    if not adopted(root):
+        return
+    d = ctx.state.load()
+    turn = d.get("turn") or {}
+    start = (turn.get("roots") or {}).get(root)
+    head = start["head"] if start else head_at(root, turn.get("ts"))
+    before = start["code"] if start else {}
+    now = app_code_state(root, head)
+    changed = sorted(f for f in set(now) | set(before) if now.get(f) != before.get(f))
+    if not changed:
+        return
+    times = [os.path.getmtime(os.path.join(root, f)) for f in changed if now.get(f) not in (None, "deleted")]
+    first = min(times) if times else turn.get("ts") or time.time()
+    info = verify_skill(root)
+    proven = bool(info) and any(verify_proof(r)[0] for r in {root, main_checkout(root)} if r)
+    rid = "verify-tool-used" if proven else "verify-tool-exists"
+    if proven:
+        fresh, note = verify_proof(root, first)
+        if fresh:
+            return
+        why = ("App code changed in %s in this turn (%s) and no valid run.log in %s finished after the first change "
+               "(%s). %s%s" % (root, files_note(changed), os.path.join(root, ".verify", "evidence"), iso_of(first),
+                               "%s. " % note if note else "", verify_steps(root, info)))
+    elif info:
+        why = ("App code changed in %s in this turn (%s). %s has no valid run yet: prove the tool once. %s"
+               % (root, files_note(changed), info["name"], verify_steps(root, info)))
+    else:
+        path = skill_md(root, "create-verification-skill", ctx.agent)
+        why = ("App code changed in %s in this turn (%s) and this project has no verify skill. Build it now with "
+               "create-verification-skill (%s): it writes .agents/skills/verify-<app>/. Then prove it with one real "
+               "run: its helper writes .verify/evidence/<run>/run.log with doctor: PASS and db_writes: no."
+               % (root, files_note(changed), "read %s and follow it" % path if path else "Skill tool"))
+    if owner_skip(ctx, rid, root) or not verify_may_block(ctx, d, now):
+        return
+    ctx.stop_block.append("[ai router: %s] %s Then finish the turn." % (rid, why))
+    ctx.wall(ctx.stop_block[-1])
+    ctx.fired({"id": rid}, ctx.event)
+
+
+def verify_may_block(ctx, d, now):
+    """The loop limits (as stop-check): VERIFY_MAX_TRIES blocks per app-code state, VERIFY_MAX_CHAIN per chain of
+    continuation stops, per agent (main or a subagent id). Counts the block it allows."""
+    import hashlib
+    key = str(ctx.payload.get("agent_id") or "main")
+    st = d.setdefault("verify_blocks", {}).setdefault(key, {"chain": 0, "tries": {}})
+    if not ctx.payload.get("stop_hook_active"):
+        st["chain"] = 0
+    fp = hashlib.sha1(json.dumps(now, sort_keys=True).encode()).hexdigest()[:16]
+    ctx.state.dirty = True
+    if st["tries"].get(fp, 0) >= VERIFY_MAX_TRIES or st["chain"] >= VERIFY_MAX_CHAIN:
+        return False
+    st["tries"][fp] = st["tries"].get(fp, 0) + 1
+    st["chain"] += 1
+    return True
+
+
+def main_checkout(root):
+    """The main checkout of a linked worktree (its runs prove the tool exists), else root."""
+    common = (git_quick(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]) or "").strip()
+    return os.path.dirname(common) if common.endswith(os.sep + ".git") else root
+
+
+def files_note(changed, cap=5):
+    return ", ".join(changed[:cap]) + (" and %d more" % (len(changed) - cap) if len(changed) > cap else "")
+
+
+def iso_of(ts):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
 
 
 # ---------------------------------------------------------------- conditions
@@ -1290,7 +1402,7 @@ def owner_skip(ctx, gate, what):
     """True when the owner let this gate through (sudo ai-gate-skip <gate> ...): logged, and the agent is told.
     Every deny path asks this first, just before it would deny."""
     skips, problems = ctx.skips
-    tell = ctx.event != "Stop"      # Stop output has no additionalContext
+    tell = ctx.event not in ("Stop", "SubagentStop")      # a stop block carries only its reason
     for p in problems:
         if tell and "[ai gate] " + p not in ctx.contexts:
             ctx.add_context("[ai gate] " + p)

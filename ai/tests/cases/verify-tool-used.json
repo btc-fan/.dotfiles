@@ -1,0 +1,195 @@
+{
+ "rule": "verify-tool-used",
+ "cases": [
+  {
+   "name": "ScripTube regression: shell write of a test in a linked worktree, no new run: blocked",
+   "expect": "block",
+   "project": {
+    "git_init": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     ".gitignore": ".verify/\n",
+     "src/app.py": "def add(a, b):\n    return a + b\n",
+     ".agents/skills/verify-app/SKILL.md": "---\nname: verify-app\n---\n\n## Launch\n\n```\n./verify launch\n```\n",
+     ".verify/evidence/r0/run.log": "commit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\ndoctor: PASS\ndb_writes: no\nfinished: 2019-01-01T00:00:00Z\n"
+    },
+    "commit": "init",
+    "setup_sh": "git worktree add -q -b ticket ../wt && mkdir -p ../wt/tests && printf 'def test_more():\\n    assert 1\\n' > ../wt/tests/test_more.py"
+   },
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "implement ticket 3"
+     }
+    },
+    {
+     "event": "SubagentStop",
+     "payload": {
+      "stop_hook_active": false,
+      "agent_id": "a1",
+      "cwd": "{{PROJ}}/../wt"
+     }
+    }
+   ],
+   "contains": [
+    "[ai router: verify-tool-used]",
+    "tests/test_more.py",
+    "verify-app",
+    "launch: ./verify launch"
+   ]
+  },
+  {
+   "name": "a valid run in the worktree after the change: the turn ends",
+   "expect": "allow",
+   "project": {
+    "git_init": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     ".gitignore": ".verify/\n",
+     "src/app.py": "def add(a, b):\n    return a + b\n",
+     ".agents/skills/verify-app/SKILL.md": "---\nname: verify-app\n---\n\n## Launch\n\n```\n./verify launch\n```\n",
+     ".verify/evidence/r0/run.log": "commit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\ndoctor: PASS\ndb_writes: no\nfinished: 2019-01-01T00:00:00Z\n"
+    },
+    "commit": "init",
+    "setup_sh": "git worktree add -q -b ticket ../wt && echo 'W = 1' > ../wt/src/w.py && touch -t 202001010000 ../wt/src/w.py && mkdir -p ../wt/.verify/evidence/r1 && printf 'commit: cccccccccccccccccccccccccccccccccccccccc\\ndoctor: PASS\\ndb_writes: no\\nfinished: {{OLD}}\\n' > ../wt/.verify/evidence/r1/run.log"
+   },
+   "steps": [
+    {
+     "event": "SubagentStop",
+     "payload": {
+      "stop_hook_active": false,
+      "agent_id": "a1",
+      "cwd": "{{PROJ}}/../wt"
+     }
+    }
+   ]
+  },
+  {
+   "name": "doctor FAIL does not count",
+   "expect": "block",
+   "project": {
+    "git_init": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     ".gitignore": ".verify/\n",
+     "src/app.py": "def add(a, b):\n    return a + b\n",
+     ".agents/skills/verify-app/SKILL.md": "---\nname: verify-app\n---\n\n## Launch\n\n```\n./verify launch\n```\n",
+     ".verify/evidence/r0/run.log": "commit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\ndoctor: PASS\ndb_writes: no\nfinished: 2019-01-01T00:00:00Z\n",
+     ".verify/evidence/r1/run.log": "commit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\ndoctor: FAIL\ndb_writes: no\nfinished: {{OLD}}\n"
+    },
+    "commit": "init",
+    "setup_sh": "echo 'X = 9' > src/app.py && touch -t 202001010000 src/app.py"
+   },
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false
+     }
+    }
+   ],
+   "contains": [
+    "run r1 does not count: doctor FAIL"
+   ]
+  },
+  {
+   "name": "a direct database write does not count",
+   "expect": "block",
+   "project": {
+    "git_init": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     ".gitignore": ".verify/\n",
+     "src/app.py": "def add(a, b):\n    return a + b\n",
+     ".agents/skills/verify-app/SKILL.md": "---\nname: verify-app\n---\n\n## Launch\n\n```\n./verify launch\n```\n",
+     ".verify/evidence/r0/run.log": "commit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\ndoctor: PASS\ndb_writes: no\nfinished: 2019-01-01T00:00:00Z\n",
+     ".verify/evidence/r1/run.log": "commit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\ndoctor: PASS\ndb_writes: yes\nfinished: {{OLD}}\n"
+    },
+    "commit": "init",
+    "setup_sh": "echo 'X = 9' > src/app.py && touch -t 202001010000 src/app.py"
+   },
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false
+     }
+    }
+   ],
+   "contains": [
+    "db_writes yes"
+   ]
+  },
+  {
+   "name": "loop limit: 2 blocks on the same tree, then the turn ends",
+   "expect": "allow",
+   "project": {
+    "git_init": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     ".gitignore": ".verify/\n",
+     "src/app.py": "def add(a, b):\n    return a + b\n",
+     ".agents/skills/verify-app/SKILL.md": "---\nname: verify-app\n---\n\n## Launch\n\n```\n./verify launch\n```\n",
+     ".verify/evidence/r0/run.log": "commit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\ndoctor: PASS\ndb_writes: no\nfinished: 2019-01-01T00:00:00Z\n"
+    },
+    "commit": "init",
+    "dirty": {
+     "src/app.py": "X = 5\n"
+    }
+   },
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": true
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "the second stop of the chain still blocks",
+   "expect": "block",
+   "project": {
+    "git_init": true,
+    "files": {
+     ".ai/enabled": "tier: long\n",
+     ".gitignore": ".verify/\n",
+     "src/app.py": "def add(a, b):\n    return a + b\n",
+     ".agents/skills/verify-app/SKILL.md": "---\nname: verify-app\n---\n\n## Launch\n\n```\n./verify launch\n```\n",
+     ".verify/evidence/r0/run.log": "commit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\ndoctor: PASS\ndb_writes: no\nfinished: 2019-01-01T00:00:00Z\n"
+    },
+    "commit": "init",
+    "dirty": {
+     "src/app.py": "X = 5\n"
+    }
+   },
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": true
+     }
+    }
+   ]
+  }
+ ]
+}

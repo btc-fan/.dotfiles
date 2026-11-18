@@ -89,6 +89,17 @@
         ]
       }
     ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude SubagentStop",
+            "timeout": 25
+          }
+        ]
+      }
+    ],
     "SessionEnd": [
       {
         "hooks": [

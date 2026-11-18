@@ -64,11 +64,17 @@ the app changes."
   and an e2e test path.
 - L7: `ai-doctor --project`: WARN when missing (an agent task: build it with create-verification-skill), stale,
   or without the Claude link.
-- Planned, not built yet (spec `docs/specs/verify-enforcement.md`): ticket 02, a Stop and SubagentStop hook that
-  blocks a turn with an app-code edit when the tool is missing; ticket 03, a Stop and SubagentStop hook that blocks
-  when app code changed and no valid log is newer than the change; ticket 04, an `ai-precommit` step that refuses a
-  commit adding tests without a valid log newer than HEAD; ticket 05, the PR gate on `gh pr create`, `edit` and
-  `ready` that needs a valid log at the PR head SHA. All 4 read the log contract above.
+- L4 (Stop and SubagentStop, adopted repos): router walls `verify-tool-exists` (ticket 02: app code changed in the turn,
+  no verify skill or one without a valid run) and `verify-tool-used` (ticket 03: app code changed, no valid log in
+  this checkout that finished after the first change). The change is read from git in the agent's checkout (a
+  linked worktree too), so shell writes count. Loop limits: 2 blocks per app-code state, 4 per chain. Details:
+  `ai/marketplace/plugins/ai-core/hooks/README.md`.
+- L4 (git pre-commit, every writer): `ai-precommit` refuses a commit whose staged diff adds a test (Python
+  `def test_...(`, `test(` or `it(` in a JS or TS spec file) in a project with a verify skill, when no valid log of
+  this checkout finished after HEAD's commit time (ticket 04; wall `verify-commit`). Edits and deletions of tests
+  pass.
+- Planned (spec `docs/specs/verify-enforcement.md`): ticket 05, the PR gate on `gh pr create`, `edit` and `ready`
+  that needs a valid log at the PR head SHA. All hooks read the log contract above (`hooklib.verify_runs`).
 - Text: Done item 1 in the repo AGENTS.md. The root AGENTS.md carries nothing extra (hooks over text).
 
 ## Proof
@@ -82,7 +88,8 @@ the app changes."
 - Signal: Skill or Read of `create-verification-skill` or `verify-<app>`, `.verify/evidence/<run>/run.log`,
   `[ai router: verify-before-done]`. Tests: `ai/tests/test_tier1.py` (`t_verify_*`, `t_pstack_adapt_ours`,
   `t_adopt_verify_link`, `t_typed_only_skill_paths`), `ai/tests/cases/verify-before-done.json`, `pr-rules.json`,
-  `test_resolve.py` (`t_bash_pstack`).
+  `test_resolve.py` (`t_bash_pstack`), `cases/verify-tool-exists.json`, `cases/verify-tool-used.json`, `test_flow.py`
+  (`t_vh_*`: the hooks and the commit gate, the worktree regression).
 
 ## Setup checklist
 - Install: `install.sh` links `ai/skills/create-verification-skill` and `ai/skills/maintain-verification-skill`

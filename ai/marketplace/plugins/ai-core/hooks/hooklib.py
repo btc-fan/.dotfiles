@@ -2349,6 +2349,106 @@ def verify_status_line(root, agent="claude"):
     return line + "."
 
 
+# ---------------------------------------------------------------- verify evidence (verify-enforcement 02, 03, 04)
+# The log contract (ai/rules/verification-skill.md): .verify/evidence/<run>/run.log in the root of the checkout
+# that ran it, with `commit: <40 hex>`, `doctor: PASS|FAIL`, `db_writes: yes|no`, `finished: <UTC ISO 8601>`.
+
+EVIDENCE_REL = os.path.join(".verify", "evidence")
+RUN_LOG_KEYS = ("commit", "doctor", "db_writes", "finished")
+
+
+def verify_runs(root):
+    """Every run.log of the checkout `root`, newest `finished` first (unfinished last): dicts with the 4 fields,
+    "run" (folder name), "ts" (finished, epoch; 0 when missing or bad), "valid" and "why" (why it does not count)."""
+    base = os.path.join(root or "", EVIDENCE_REL)
+    try:
+        names = os.listdir(base)
+    except OSError:
+        return []
+    out = []
+    for name in names:
+        text = read_text(os.path.join(base, name, "run.log"))
+        if text is None:
+            continue
+        f = {}
+        for ln in text.splitlines():
+            key, sep, value = ln.partition(":")
+            if sep and key.strip() in RUN_LOG_KEYS and key.strip() not in f:
+                f[key.strip()] = value.strip()
+        ts = parse_iso(f["finished"]) if f.get("finished") else 0.0
+        missing = [k for k in RUN_LOG_KEYS if k not in f]
+        why = ("missing %s" % ", ".join(missing) if missing
+               else "commit is not a 40-hex sha" if not re.fullmatch(r"[0-9a-f]{40}", f["commit"])
+               else "doctor %s" % f["doctor"] if f["doctor"] != "PASS"
+               else "db_writes %s (a direct database write)" % f["db_writes"] if f["db_writes"] != "no"
+               else "finished is not a UTC ISO 8601 time" if not ts else "")
+        out.append(dict(f, run=name, ts=ts, valid=not why, why=why))
+    return sorted(out, key=lambda r: r["ts"], reverse=True)
+
+
+def verify_proof(root, since=0.0):
+    """(True, "") when a valid run of `root` finished at or after `since` (epoch); else (False, a note on the runs
+    that do not count, or "")."""
+    runs = verify_runs(root)
+    if any(r["valid"] and r["ts"] >= since for r in runs):
+        return True, ""
+    bad = [r for r in runs if not r["valid"] and (r["ts"] >= since or not r["ts"])][:3]
+    return False, "; ".join("run %s does not count: %s" % (r["run"], r["why"]) for r in bad)
+
+
+VERIFY_STEP_NAMES = ("launch", "doctor", "drive", "cleanup")
+
+
+def verify_steps(root, info):
+    """What to run, for a block message: the skill's SKILL.md and the first command of its Launch, Doctor, Drive
+    and Cleanup sections (a code block line, else an inline `command`)."""
+    path = os.path.join(root, info["path"], "SKILL.md")
+    parts = []
+    for sec in re.split(r"^##[ \t]+", read_text(path) or "", flags=re.M)[1:]:
+        title, _nl, body = sec.partition("\n")
+        name = title.strip().split(" ")[0].lower()
+        m = re.search(r"```[^\n]*\n\s*([^\n]+)", body) or re.search(r"`([^`\n]+)`", body)
+        if name in VERIFY_STEP_NAMES and m and name not in [p[0] for p in parts]:
+            parts.append((name, m.group(1).strip()))
+    steps = "; ".join("%s: %s" % p for p in parts) or "launch, doctor, drive the changed feature, cleanup"
+    return ("In %s, run %s on the changed feature (read %s and follow it). %s. Its helper writes "
+            ".verify/evidence/<run>/run.log; a run counts with doctor: PASS and db_writes: no."
+            % (root, info["name"], path, steps))
+
+
+def app_code_state(root, base):
+    """{repo-relative path: content sha1, or "deleted"} of the code files of the checkout `root` that differ from
+    commit `base` (committed since, staged, unstaged or untracked). Tests count; the verify skill does not."""
+    import hashlib
+    skill = verify_skill(root)
+    skip = tuple(os.path.join(d, "verify-") for d in VERIFY_DIRS) + (".verify/",) + \
+        ((skill["path"] + "/",) if skill else ())
+    names = (git_quick(root, ["diff", "--name-only", "-z", base, "--"], timeout=5) if base
+             else git_quick(root, ["ls-files", "-z"], timeout=5)) or ""
+    names += git_quick(root, ["ls-files", "-o", "--exclude-standard", "-z"], timeout=5) or ""
+    out = {}
+    for rel in names.split("\0"):
+        if not rel or not is_code_file(rel) or rel.startswith(skip):
+            continue
+        try:
+            with open(os.path.join(root, rel), "rb") as fh:
+                out[rel] = hashlib.sha1(fh.read()).hexdigest()
+        except OSError:
+            out[rel] = "deleted"
+    return out
+
+
+def head_at(root, ts):
+    """HEAD of the checkout `root` at time `ts` (epoch), from its reflog: a worktree made later gives its first
+    HEAD. Without ts or reflog: HEAD now. None without commits."""
+    if ts:
+        iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts - 1))    # 1 s back: a commit in the same second
+        sha = (git_quick(root, ["rev-parse", "-q", "--verify", "HEAD@{%s}" % iso]) or "").strip()
+        if sha:
+            return sha
+    return (git_quick(root, ["rev-parse", "-q", "--verify", "HEAD"]) or "").strip() or None
+
+
 def read_and_follow(root, name, agent="claude"):
     """Short form for the status line: a typed-only skill the agent runs by reading its file."""
     path = skill_md(root, name, agent)

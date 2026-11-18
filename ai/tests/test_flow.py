@@ -239,6 +239,265 @@ def t_precommit_no_tools_no_block(work):
     assert res.returncode == 0 and "skipped" in res.text, res.text
 
 
+# ---------------------------------------------------------------- verify hooks (verify-enforcement 02, 03, 04)
+# Hook 1 (verify-tool-exists) and hook 2 (verify-tool-used): router Stop and SubagentStop, the change read from git.
+# Hook 3: ai-precommit, driven by a real git commit. The proof is .verify/evidence/<run>/run.log (4-line contract).
+
+VERIFY_SKILL = ("---\nname: verify-app\ndescription: drive the app\n---\n\n# verify-app\n\n## Launch\n\n```\n"
+                ".agents/skills/verify-app/verify launch\n```\n\n## Doctor\n\n```\n.agents/skills/verify-app/verify "
+                "doctor\n```\n\n## Drive\n\n```\n.agents/skills/verify-app/verify drive <feature>\n```\n\n## Cleanup\n\n"
+                "```\n.agents/skills/verify-app/verify cleanup\n```\n")
+LAUNCH = ".agents/skills/verify-app/verify launch"
+
+
+def vh_repo(work, name, verify=True, files=None, adopted=True, old_commit=False):
+    """An adopted Python app (optionally with a verify skill), committed; old_commit dates the commit 2 h back."""
+    f = dict(PY_APP if files is None else files)
+    if adopted:
+        f[".ai/enabled"] = "tier: long\n"
+    if verify:
+        f[".agents/skills/verify-app/SKILL.md"] = VERIFY_SKILL
+    f[".gitignore"] = ".verify/\n"
+    repo, env = new_repo(work, name, f)
+    if old_commit:
+        import time
+        stamp = "@%d +0000" % (time.time() - 7200)
+        git(repo, "commit", "-q", "--amend", "--no-edit", "--no-verify", "--date", stamp,
+            env=dict(env, GIT_COMMITTER_DATE=stamp))
+    return repo, env
+
+
+def run_log(root, name, ago_s, doctor="PASS", db="no", lines=None):
+    """A run folder with run.log; finished ago_s seconds back (the helper writes it in real use)."""
+    import time
+    finished = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - ago_s))
+    rows = lines or ["commit: " + "a" * 40, "doctor: " + doctor, "db_writes: " + db, "finished: " + finished]
+    write(os.path.join(root, ".verify", "evidence", name, "run.log"), "\n".join(rows) + "\n")
+
+
+def shell_write(path, text, ago_s=0):
+    """A write the router never sees as a tool call (the shell); the file time set ago_s seconds back."""
+    import time
+    write(path, text)
+    if ago_s:
+        os.utime(path, (time.time() - ago_s, time.time() - ago_s))
+
+
+def stop(env, cwd, event="Stop", agent="claude", session="vh", **extra):
+    payload = dict({"session_id": session, "cwd": cwd, "stop_hook_active": False}, **extra)
+    out = hook(event, payload, env, agent=agent)
+    for line in out.splitlines():
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if d.get("decision") == "block":
+            return d.get("reason") or "block"
+    return None
+
+
+def prompt(env, cwd, session="vh"):
+    hook("UserPromptSubmit", {"session_id": session, "cwd": cwd, "prompt": "change the add function"}, env)
+
+
+def t_vh_exists_blocks_main_and_subagent(work):
+    repo, env = vh_repo(work, "app", verify=False)
+    prompt(env, repo)
+    assert stop(env, repo) is None, "no app-code change yet: the turn ends"
+    shell_write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return b + a\n")
+    why = stop(env, repo)
+    assert why and "[ai router: verify-tool-exists]" in why and "create-verification-skill" in why, why
+    assert "src/app/core.py" in why and "run.log" in why, why
+    sub = stop(env, repo, event="SubagentStop", agent_id="sub1", agent_type="general-purpose")
+    assert sub and "verify-tool-exists" in sub, "a subagent turn is blocked the same way: %s" % sub
+    walls = read(os.path.join(env["AI_STATE_DIR"], "walls.jsonl")) or ""
+    assert '"wall": "verify-tool-exists"' in walls, walls
+
+
+def t_vh_exists_green_with_skill_and_one_run(work):
+    repo, env = vh_repo(work, "app")
+    prompt(env, repo)
+    shell_write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return b + a\n", ago_s=600)
+    why = stop(env, repo)
+    assert why and "verify-tool-exists" in why and "verify-app" in why and LAUNCH in why, \
+        "a skill without one valid run is not proven yet: %s" % why
+    run_log(repo, "20261118T100000Z-first", 60)
+    assert stop(env, repo, session="vh2") is None, "skill + one valid run after the change: the turn ends"
+    prompt(env, repo, session="vh4")
+    shell_write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return a + b + 0\n", ago_s=300)
+    assert stop(env, repo, session="vh4") is None, "skill + a valid run after the change: the turn ends"
+
+
+def t_vh_no_block_without_code_change(work):
+    docs, env = vh_repo(work, "docs", verify=False, files={"README.md": "# docs\n"})
+    prompt(env, docs)
+    shell_write(os.path.join(docs, "README.md"), "# docs\n\nmore\n")
+    assert stop(env, docs) is None, "a docs-only repo: no block"
+    empty, env = vh_repo(work, "empty", verify=False, files={})
+    prompt(env, empty)
+    assert stop(env, empty) is None, "an empty repo: no block"
+    wip, env = vh_repo(work, "wip", verify=False)
+    shell_write(os.path.join(wip, "src", "app", "core.py"), "def add(a, b):\n    return 3\n")
+    prompt(env, wip)
+    assert stop(env, wip) is None, "app code dirty before the turn and untouched in it: no block"
+    raw, env = vh_repo(work, "raw", verify=False, adopted=False)
+    prompt(env, raw)
+    shell_write(os.path.join(raw, "src", "app", "core.py"), "def add(a, b):\n    return 4\n")
+    assert stop(env, raw) is None, "a repo that is not adopted (.ai/enabled missing): no block"
+
+
+def t_vh_used_worktree_shell_write(work):
+    """The ScripTube regression: a subagent writes a test by shell in a linked worktree and makes no new run."""
+    repo, env = vh_repo(work, "app")
+    run_log(repo, "20261117T100000Z-old", 7200)
+    prompt(env, repo)
+    wt = os.path.join(work, "wt")
+    git(repo, "worktree", "add", "-q", "-b", "ticket-1", wt, env=env)
+    shell_write(os.path.join(wt, "tests", "test_more.py"), "def test_more():\n    assert 1\n", ago_s=300)
+    why = stop(env, wt, event="SubagentStop", agent_id="sub1")
+    assert why and "[ai router: verify-tool-used]" in why and "tests/test_more.py" in why, why
+    assert LAUNCH in why and ".agents/skills/verify-app/verify doctor" in why and wt in why, why
+    run_log(repo, "20261118T100000Z-main-checkout", 60)
+    assert stop(env, wt, event="SubagentStop", agent_id="sub2"), "a run of the main checkout is not the worktree's"
+    run_log(wt, "20261118T100500Z-ticket-1", 60)
+    assert stop(env, wt, event="SubagentStop", agent_id="sub3") is None, "a valid run after the change: ends"
+    # a commit in a worktree made in this turn is still a change of the turn (the reflog of the worktree HEAD)
+    prompt(env, repo, session="vh6")
+    wt2 = os.path.join(work, "wt2")
+    git(repo, "worktree", "add", "-q", "-b", "ticket-2", wt2, env=env)
+    shell_write(os.path.join(wt2, "src", "app", "core.py"), "def add(a, b):\n    return a - b\n", ago_s=30)
+    git(wt2, "add", "src/app/core.py", env=env)
+    git(wt2, "commit", "-q", "--no-verify", "-m", "x", env=env)
+    why = stop(env, wt2, event="SubagentStop", agent_id="sub4", session="vh6")
+    assert why and "src/app/core.py" in why, "committed in the turn, no run after it: %s" % why
+
+
+def t_vh_used_invalid_logs(work):
+    repo, env = vh_repo(work, "app")
+    run_log(repo, "20261117T100000Z-old", 7200)
+    prompt(env, repo)
+    shell_write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return b + a\n", ago_s=600)
+    run_log(repo, "20261118T100000Z-fail", 60, doctor="FAIL")
+    why = stop(env, repo, session="vh")
+    assert why and "verify-tool-used" in why and "doctor FAIL" in why, why
+    run_log(repo, "20261118T100100Z-sql", 50, db="yes")
+    why = stop(env, repo, session="vh")
+    assert why and "db_writes yes" in why, why
+    run_log(repo, "20261118T100200Z-short", 40, lines=["doctor: PASS", "db_writes: no"])
+    prompt(env, repo, session="vhb")      # same tree in a new turn would need a new change: new session instead
+    shell_write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return b + a + 0\n", ago_s=500)
+    why = stop(env, repo, session="vhb")
+    assert why and "missing commit, finished" in why, why
+    run_log(repo, "20261118T100300Z-good", 30)
+    assert stop(env, repo, session="vhb", stop_hook_active=True) is None, "valid: doctor PASS, db_writes no"
+
+
+def t_vh_loop_limit(work):
+    repo, env = vh_repo(work, "app")
+    run_log(repo, "20261117T100000Z-old", 7200)
+    prompt(env, repo)
+    shell_write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return b + a\n")
+    assert stop(env, repo), "block 1"
+    assert stop(env, repo, stop_hook_active=True), "block 2 (same tree)"
+    assert stop(env, repo, stop_hook_active=True) is None, "2 blocks on the same tree: no endless block"
+    for i in range(3):      # a new tree each time: the chain cap of 4 still ends it
+        shell_write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return %d\n" % i)
+        stop(env, repo, stop_hook_active=True)
+    prompt(env, repo, session="vh5")
+    shell_write(os.path.join(repo, "src", "app", "x.py"), "X = 1\n")
+    outs = [stop(env, repo, session="vh5", stop_hook_active=i > 0) for i in range(6)]
+    assert sum(1 for o in outs if o) <= 4 and outs[0], outs
+
+
+def t_vh_codex_stop_block(work):
+    repo, env = vh_repo(work, "app", verify=False)
+    hook("UserPromptSubmit", {"session_id": "cx", "cwd": repo, "prompt": "change add", "turn_id": "t1"}, env,
+         agent="codex")
+    shell_write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return b + a\n")
+    why = stop(env, repo, agent="codex", session="cx", turn_id="t1")
+    assert why and "verify-tool-exists" in why and "create-verification-skill" in why, why
+
+
+def precommit_hook(repo):
+    """The pre-commit hook ai-adopt installs, calling this checkout's ai-precommit (shared by linked worktrees)."""
+    path = os.path.join(repo, ".git", "hooks", "pre-commit")
+    write(path, "#!/bin/sh\nexec %s %s\n" % (sys.executable, os.path.join(BIN, "ai-precommit")))
+    os.chmod(path, 0o755)
+
+
+def commit(repo, env, rel, text):
+    write(os.path.join(repo, rel), text)
+    git(repo, "add", "-A", env=env)
+    return git(repo, "commit", "-q", "-m", "add " + rel, env=env)
+
+
+def t_vh_commit_gate_python(work):
+    repo, env = vh_repo(work, "app", old_commit=True)
+    precommit_hook(repo)
+    git(repo, "config", "diff.mnemonicPrefix", "true", env=env)     # the owner's config: i/ and w/, not a/ and b/
+    run_log(repo, "20261118T080000Z-before-head", 3 * 3600)
+    res = commit(repo, env, "tests/test_more.py", "def test_more():\n    assert 1\n")
+    assert res.returncode != 0 and "verify-app" in res.text and LAUNCH in res.text, res.text
+    assert "tests/test_more.py" in res.text and "test_more" in res.text, res.text
+    assert '"wall": "verify-commit"' in (read(os.path.join(env["AI_STATE_DIR"], "walls.jsonl")) or "")
+    run_log(repo, "20261118T110000Z-bad", 60, doctor="FAIL")
+    assert commit(repo, env, "tests/test_more.py", "def test_more():\n    assert 1\n").returncode != 0, \
+        "an invalid run does not count"
+    run_log(repo, "20261118T110100Z-good", 30)
+    res = commit(repo, env, "tests/test_more.py", "def test_more():\n    assert 1\n")
+    assert res.returncode == 0, res.text
+    # the next new test needs a run newer than this commit
+    res = commit(repo, env, "tests/test_again.py", "async def test_again():\n    assert 1\n")
+    assert res.returncode != 0, "a fresh run is per commit: %s" % res.text
+
+
+def t_vh_commit_edits_and_no_skill_pass(work):
+    repo, env = vh_repo(work, "app")
+    precommit_hook(repo)
+    res = commit(repo, env, "tests/test_core.py",
+                 "from app.core import add\n\n\ndef test_add():\n    assert add(2, 2) == 4\n")
+    assert res.returncode == 0, "an edit of an existing test passes: %s" % res.text
+    os.unlink(os.path.join(repo, "tests", "test_core.py"))
+    git(repo, "add", "-A", env=env)
+    res = git(repo, "commit", "-q", "-m", "drop", env=env)
+    assert res.returncode == 0, "a deleted test passes: %s" % res.text
+    res = commit(repo, env, "src/app/more.py", "def test_like_name_in_app():\n    pass\n")
+    assert res.returncode != 0, "a test function is a test function, in any .py file"
+    bare, env2 = vh_repo(work, "bare", verify=False)
+    precommit_hook(bare)
+    res = commit(bare, env2, "tests/test_more.py", "def test_more():\n    assert 1\n")
+    assert res.returncode == 0, "no verify skill: hook 1 covers it, the commit passes: %s" % res.text
+
+
+def t_vh_commit_gate_js(work):
+    files = {"package.json": "{}\n", "src/server.js": "module.exports = {};\n",
+             "test/app.test.js": "const test = require('node:test');\ntest('home', () => {});\n"}
+    repo, env = vh_repo(work, "web", files=files)
+    precommit_hook(repo)
+    res = commit(repo, env, "test/app.test.js",
+                 "const test = require('node:test');\ntest('home', () => {});\ntest('about', () => {});\n")
+    assert res.returncode != 0 and "about" in res.text, res.text
+    git(repo, "reset", "-q", "--hard", env=env)
+    res = commit(repo, env, "src/page.spec.ts", "describe('page', () => {\n  it('renders', () => {});\n});\n")
+    assert res.returncode != 0 and "renders" in res.text, res.text
+    git(repo, "reset", "-q", "--hard", env=env)
+    res = commit(repo, env, "src/util.ts", "export const it = (x: number) => x;\nit(1);\n")
+    assert res.returncode == 0, "it( outside a spec file is not a test: %s" % res.text
+
+
+def t_vh_commit_gate_worktree(work):
+    repo, env = vh_repo(work, "app", old_commit=True)
+    precommit_hook(repo)
+    wt = os.path.join(work, "wt")
+    git(repo, "worktree", "add", "-q", "-b", "ticket-1", wt, env=env)
+    run_log(repo, "20261118T110000Z-main", 30)
+    res = commit(wt, env, "tests/test_more.py", "def test_more():\n    assert 1\n")
+    assert res.returncode != 0 and wt in res.text, "the main checkout's run is not proof for the worktree: " + res.text
+    run_log(wt, "20261118T110100Z-wt", 20)
+    res = commit(wt, env, "tests/test_more.py", "def test_more():\n    assert 1\n")
+    assert res.returncode == 0, res.text
+
+
 # ---------------------------------------------------------------- ai-versions
 
 def t_versions_record(work):

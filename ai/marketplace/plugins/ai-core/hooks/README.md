@@ -42,7 +42,7 @@ too (gate name = rule id), and for `winner-gate` and `nav-first`.
 ## Gates
 
 Every deny path asks `owner_skip` first, so the owner escape hatch works for every gate and stop rule. Gate names
-are the rule ids, plus `winner-gate` and `nav-first`.
+are the rule ids, plus `winner-gate`, `nav-first`, `verify-tool-exists` and `verify-tool-used`.
 
 Gates catch honest mistakes. They are not a sandbox against an adversary: an agent that wants to bypass a
 gate can (for example, write a script file and run it). Escape hatch for a real exception, owner only:
@@ -89,6 +89,21 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
 - writing-for-agents (gate, `require_skill`): Edit, Write, MultiEdit, `apply_patch` or a shell write of AGENTS.md,
   CLAUDE.md, CLAUDE.local.md or a SKILL.md, until the skill has a proof in the session.
 - ship (gate, `require_skill`): `gh pr ready` (not `--undo`), until the ship skill ran.
+- verify-tool-exists, verify-tool-used (verify-enforcement 02, 03; router `verify_stop` on Stop and SubagentStop;
+  no routing.yaml rows, as winner-gate: two rows would push the L0 table past the cut): in an adopted repo (`.ai/enabled`), the end of a turn of the main agent or a subagent is blocked
+  when app code changed in the turn and the proof is missing. The checkout is the git top level of the payload
+  cwd (a linked worktree is its own checkout). The change comes from git, not from tool calls, so shell writes and
+  commits count: the code files (tests too; not the verify skill, not `.verify/`) that differ from the turn start.
+  UserPromptSubmit records the turn start (time, HEAD and the dirty code files of the session checkout); another
+  checkout uses HEAD at the turn start from its reflog and counts all its uncommitted code. verify-tool-exists:
+  no `verify-<app>` skill, or one without a valid run in this checkout or the main checkout; the message says to
+  build it with create-verification-skill and prove it once. verify-tool-used: no valid run.log in this checkout
+  finished at or after the first change (the oldest file time of the changed files); the message names the skill,
+  its SKILL.md and the first command of its Launch, Doctor, Drive and Cleanup sections, and the runs that do not
+  count. Valid run.log (`hooklib.verify_runs`, contract in `ai/rules/verification-skill.md`): all 4 lines, a 40-hex
+  commit, `doctor: PASS`, `db_writes: no`, a UTC ISO 8601 `finished`. Loop limits as stop-check: 2 blocks per
+  app-code state, 4 per chain of continuation stops, per agent (main or the subagent id). `ai-precommit` reads the
+  same logs for the commit gate (wall `verify-commit`).
 - Stop rules (`strength: stop`, `require_skill`): none since 2026-11-18. diagnosing-bugs (a bug or performance
   prompt) and tdd (a tests-first prompt) are nudges: the prompt shows the hint, the turn end is not blocked. The
   separate `stop-check.py` runs `check-fast`.

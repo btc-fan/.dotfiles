@@ -36,6 +36,6 @@ Each feature file has an H1, one paragraph, then `Sub-features`, `How to get to 
 8. [Skill card](./skill-card.md): the session start text.
 9. [Router gates](./router-gates.md): deny and pass, by payload and in a real session.
 10. [Stop rules](./stop-rules.md): the turn end of a bug prompt.
-11. [Verify hooks](./verify-hooks.md): planned, tickets 02 to 05.
+11. [Verify hooks](./verify-hooks.md): the turn end and the commit need a valid verify run (hooks 1 to 3; the PR gate is planned).
 
 Then the flows in [../multi-surface-journeys.md](../multi-surface-journeys.md).
