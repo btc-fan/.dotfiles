@@ -311,7 +311,7 @@ def run_scenario(out, notes, agent, sc, n):
 
 def session_step(base, repo, agent, step, i):
     state = os.path.join(base, "state-%d" % i)
-    rc, text = call(agent_cmd(agent, step["session"]), child_env(state), repo, RUN_TIMEOUT)
+    rc, text = call(agent_cmd(agent, step["session"], repo), child_env(state), repo, RUN_TIMEOUT)
     write(os.path.join(base, "stream-%d.jsonl" % i), text)
     seen = score_stream(text)
     router = router_seen(state)
@@ -374,10 +374,24 @@ def load_cases():
     return cases
 
 
-def agent_cmd(agent, prompt):
+# Scenario sessions write code and commit in the throwaway repo copy: edits plus these commands, nothing wider.
+WRITE_TOOLS = ["Edit", "Write", "Bash(git *)", "Bash(uv *)", "Bash(python3 *)", "Bash(pytest *)", "Bash(make *)",
+               "Bash(graphify *)", "Bash(rtk *)", "Bash(mkdir *)"]
+
+
+def agent_cmd(agent, prompt, repo=None):
+    """The headless command. With repo (scenario sessions): write access inside that repo only."""
     if agent == "claude":
         # 15 turns: a Stop gate (diagnosing-bugs) blocks the first stop, and the agent needs turns after it.
-        return ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--max-turns", "15"]
+        # 40 for a scenario session: it builds code, runs the tests and commits.
+        cmd = ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--max-turns",
+               "40" if repo else "15"]
+        if repo:
+            cmd += ["--permission-mode", "acceptEdits", "--allowedTools"] + WRITE_TOOLS
+        return cmd
+    if repo:    # workspace-write keeps .git read-only: name it, so a branch and a commit work
+        return ["codex", "exec", "--json", "-s", "workspace-write",
+                "-c", 'sandbox_workspace_write.writable_roots=["%s"]' % os.path.join(repo, ".git"), prompt]
     return ["codex", "exec", "--json", prompt]
 
 
