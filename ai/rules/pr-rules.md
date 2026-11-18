@@ -11,11 +11,14 @@ NOT FOUND (our own gate).
 ## When / when not
 - Every `gh pr create` and `gh pr edit` with a body (also behind `rtk` and `rtk proxy`).
 - Always: a ```mermaid block and the `<!-- author-sessions` block.
-- Fields (no tiers since 2026-11-15, every project is long): `Evidence` (check command and the tail of its output; a
-  `## Evidence` heading or an `Evidence:` label), `Door:` (must say one-way or two-way), `Blast Radius:`.
-  With a verify-<app> skill and app code changed, Evidence also names the skill run, an evidence path and the e2e
-  test. Also `Docs:` (files, or "none, because ..."), `Changed guards:` (each edited or
-  removed test and why, or "none"), and on a fix PR `Ledger: R-NNN`. 
+- Fields that block (no tiers since 2026-11-15, every project is long): `Evidence` (check command and the tail of
+  its output; a `## Evidence` heading or an `Evidence:` label), `Door:` (must say one-way or two-way),
+  `Blast Radius:`. With a verify-<app> skill and app code changed, Evidence also names the skill run, an evidence
+  path and the e2e test.
+- Fields that only warn (ticket 13, 2026-11-18): `Docs:` (files, or "none, because ..."), `Changed guards:` (each
+  edited or removed test and why, or "none"), and on a fix PR `Ledger: R-NNN`.
+- Body file: `$VAR`, `"$VAR"`, `${VAR}` come from a simple `VAR=value` earlier in the same command; a `cd`
+  earlier in the command sets the folder. An unreadable body file gives "could not read the body file <path>".
 - Placeholder text (`TODO`, `TBD`, `<...>`, `...`, `n/a`) counts as missing.
 - A `fix:` PR (title `fix`, `bugfix`, `hotfix`) needs a test file in its diff against the base .
 - Over 400 changed lines (lockfiles and generated files left out): a warning, never a block.
@@ -24,7 +27,8 @@ NOT FOUND (our own gate).
 ## Enforcement
 - L4 gate, deny (Codex: deny with `decision: block`). Owner skip: `sudo ai-gate-skip pr-rules <min> <why>`.
 - L0: `ai/agents-md/50-pull-requests.md` lists the parts.
-- No diff (no base branch found): the test-file and size checks are skipped with a note in the context.
+- No diff (no base branch found): the test-file and size checks are skipped with a note in the context. A named
+  base (`--base ai`) is `origin/ai`, else `ai`, else fetched (`git fetch origin ai`, 5 s); never main in its place.
 - Only `fix:`, `fix(scope):`, `bugfix:`, `hotfix:` titles are fix PRs. A test file is a test name or a code file
   under tests/ (tests/README.md is not).
 - Limit: `gh api repos/.../pulls -f body=...` and the GitHub web page are not checked (no `gh pr` command).

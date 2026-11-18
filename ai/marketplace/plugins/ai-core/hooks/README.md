@@ -61,23 +61,43 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   (Codex has no ask: deny with a message).
 - secret-scan: `git commit` scans the staged diff; with `git add` earlier in the same command, `commit -a`
   or a commit pathspec it also scans unstaged changes and untracked files. `git push` scans commits not
-  on any remote (last 300). gitleaks runs too when installed. Allowlist: only the context7 key, exact
-  value, from committed (HEAD) MCP config of this repo or `CONTEXT7_API_KEY` in `~/.config/ai/secrets.env`.
+  on any remote (last 300). Only added lines are scanned. During a merge (`MERGE_HEAD` set) only the lines
+  that are new against the merged branch too are scanned, so content already on the default branch is not
+  scanned again. In a test fixture path (`tests/`, `test/`, `fixtures/`, `testdata/`, `mocks/`, `test_*`,
+  `*_test.*`, `*.test.*`, `*.spec.*`, `conftest.py`, `*.example`, `*.sample`) only a real key shape blocks: a
+  provider pattern with no test word (`test`, `fake`, `dummy`, `sample`, `example`, `mock`) and an entropy of
+  3.5 bits per character or more, or a private key header. An assigned word (`password = "x"`) does not block
+  there. gitleaks runs too when installed (profile dev-mac installs it, pinned in `ai/pins.env`); its findings
+  count only when the secret is in the scanned added lines, and in a test fixture path only a real key shape
+  (no `generic-*` rule) counts. Without gitleaks only the builtin patterns run. Allowlist: only the context7
+  key, exact value, from committed (HEAD) MCP config of this repo or `CONTEXT7_API_KEY` in
+  `~/.config/ai/secrets.env`.
 - no-sudo: `sudo`, `su`, `doas`, `pkexec`, `sudoedit`, `run0` at a command position (also inside `bash -c`, behind
   `env`, `nice`, `timeout`). Profile `server` only (`dev-mac` does not render this row, nor audit-before-install and
   no-destroy).
 - merge-approval: `gh pr merge` and a `git push` to main or master are denied until the owner's latest message says
   merge or approve. A harness notification (task-notification, "[SYSTEM NOTIFICATION") never sets or clears that OK. An `<agent-message>` hand-back counts as a notification too. The OK comes only from the
   owner's own typed lines: pasted output (code fences, lines that start with `⏺`, `❯`, `>` or `│`) never sets it.
+  Accepted OKs include "merge 18", "merge #18", "merge the branches", "merge everything", "lets merge this".
+  Refused: a negation before the word ("don't merge", "not yet", "do not merge yet", "lets not merge"), "wait",
+  a question, and words without merge or approve ("ok go for it"). A push is checked in the checkout it acts on:
+  `cd <dir>` earlier in the command and `git -C <dir>`, not the session folder. A command that only names main
+  (`git diff main...HEAD`) is not a push to main.
 - no-verify: `git commit` or `git push` with `--no-verify` (or `commit -n`) is denied.
 - writing-for-agents (gate, `require_skill`): Edit, Write, MultiEdit, `apply_patch` or a shell write of AGENTS.md,
   CLAUDE.md, CLAUDE.local.md or a SKILL.md, until the skill has a proof in the session.
 - ship (gate, `require_skill`): `gh pr ready` (not `--undo`), until the ship skill ran.
 - Stop rules (`strength: stop`, `require_skill`): diagnosing-bugs (a bug or performance prompt) and tdd (a tests-first
   prompt). The next Stop is blocked once per session per rule. The separate `stop-check.py` runs `check-fast`.
-- pr-rules: `gh pr create` and `gh pr edit` with a body need a mermaid block and the author-sessions block,
-  plus the fields of the project tier (mvp: `Verify:`, `Risk:`; long: also `Docs:`, `Changed guards:`, `Ledger:`
-  on fix PRs; placeholders count as missing). A fix PR needs a test file in its diff; over 400 lines warns.
+- pr-rules: `gh pr create` and `gh pr edit` with a body are denied without the core template: a mermaid block
+  (Summary), Evidence, Door (one-way or two-way), Blast Radius and the author-sessions block (placeholders count
+  as missing). `Docs:`, `Changed guards:` and `Ledger:` (fix PRs) only give a warning in the context. A fix PR
+  needs a test file in its diff; over 400 lines warns. The body file path may use a variable from a simple
+  `VAR=value` earlier in the same command (`$B`, `"$B"`, `${B}`); a `cd` earlier in the command sets the folder
+  for a relative path and for the diff. A body file that cannot be read gives one plain reason ("could not read
+  the body file <path>"), not a list of every field. A heredoc in the command counts as the body. The diff uses
+  the base the command names (`--base ai`: `origin/ai`, else `ai`, else a 5 s `git fetch origin ai`), never main
+  in its place.
   `--fill` and `--web` are refused. A `main: unknown` line is refused when the hook payload has a session id:
   the router gives the real line (`main: <session id> dir: <cwd with ~>`) at session start and as context on
   `gh pr create|edit`, so the block gets a real id also without herdr. The command is never rewritten.
@@ -130,8 +150,10 @@ key, token, secret or password.
   approximated. The `-a` flag is read from the parsed arguments, not from message text.
 - Push scan reads at most 300 unpushed commits and only HEAD (not other pushed refs).
 - A gitleaks error other than a timeout (bad report, crash) is logged and only the builtin patterns count.
-- `gh pr create -F file`: a relative path is read from the hook cwd (a `cd` earlier in the command is
-  not applied); `--body-file -` (stdin) can only be checked when the heredoc is in the command.
+- `gh pr create -F file`: a variable in the path is read only from a simple `VAR=value` in the same command
+  (not from `$(...)` or the shell environment); `--body-file -` (stdin) can only be checked when the heredoc is
+  in the command. A `cd` to a variable falls back to the hook cwd (pr-rules and the merge-approval push check).
+- Secret scan in a merge with more than one `MERGE_HEAD` (octopus) compares with the first one only.
 - Codex: file edits by `apply_patch` are not checked by no-em-dash or graph-update (Bash and Claude
   Edit/Write only); re-inject after compaction uses SessionStart source `compact`.
 - The writing-for-agents gate does not see a write by a script or an interpreter (`python -c`, `perl -i`, `dd`).

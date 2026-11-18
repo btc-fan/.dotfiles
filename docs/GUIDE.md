@@ -555,6 +555,7 @@ Profile `dev-mac` switches (file `ai/profiles/dev-mac.env`):
 | PROFILE_ROOT_LAYER | 0 | Linux: everything in the home folder, no sudo, no /etc files |
 | PROFILE_GUARDS | 0 | No ask/deny permission rules, no Stop check, no-sudo and no-destroy rows off |
 | PROFILE_OPENCODE, PROFILE_BOX, PROFILE_LAST30DAYS | 0 | Those tools are not installed |
+| PROFILE_GITLEAKS | 1 | gitleaks is installed at the pinned version (`GITLEAKS_HOLD` in `ai/pins.env`) for the secret-scan gate |
 
 Useful flags:
 - `--skip-scan <tool,...|all>`: skip the scanner for these tools (only matters on a profile with scanners).
@@ -747,7 +748,13 @@ you commit or push.
 Only the owner can let it through, by running the command himself. Do not try to get around the gate.
 ```
 
-The agent must stop and tell you. If the hit is a false alarm (a test fixture), you run the commit yourself.
+The agent must stop and tell you. If the hit is a false alarm, you run the commit yourself.
+
+Since ticket 11 (2026-11-18) fewer false alarms reach you. In a test fixture path (`tests/`, `fixtures/`,
+`conftest.py`, `.env.example`) only a real key shape blocks, for example a `ghp_` token with real length and
+entropy. A fake test password such as `adminpass123` passes there. A merge commit does not scan content
+that is already on the default branch again. The same key shapes in app code still block. Profile dev-mac
+installs gitleaks (pinned version), and the gate runs it next to its own patterns.
 
 ### 7.5 Gate: pr-rules (L4)
 
@@ -758,9 +765,9 @@ The agent runs `gh pr create --title x --body 'just a summary'`. Today's install
 check command and the tail of its output); Risk: (one line: what can break). ...
 ```
 
-After the rollout the gate checks the new template (section 11): Summary with Mermaid, Evidence, Door, Blast
-Radius, Docs, Changed guards, Ledger on fix PRs, author-sessions block. The exact new message is not verified at
-the time of writing.
+After the rollout the gate checks the new template (section 11). It blocks without: Summary with Mermaid,
+Evidence, Door, Blast Radius, author-sessions block. Docs, Changed guards and Ledger (fix PRs) only give a
+warning (ticket 13, 2026-11-18). The exact new message is not verified at the time of writing.
 
 ### 7.6 ai-adopt plan and diff
 
@@ -1588,9 +1595,14 @@ Rules:
 
 ### 11.2 What the gate checks
 
-`pr-rules` runs before `gh pr create` and before `gh pr edit` with a body. It denies when a part is missing or
-is placeholder text (`TODO`, `TBD`, `<...>`, `n/a`). It refuses `--fill` and `--web` (they hide the body). Over
-400 changed lines (lockfiles and generated files left out) is a warning, not a block.
+`pr-rules` runs before `gh pr create` and before `gh pr edit` with a body. It denies when a core part is missing
+or is placeholder text (`TODO`, `TBD`, `<...>`, `n/a`): the Mermaid diagram, Evidence, Door, Blast Radius, the
+author-sessions block. Docs, Changed guards and Ledger give a warning only. It refuses `--fill` and `--web` (they
+hide the body). Over 400 changed lines (lockfiles and generated files left out) is a warning, not a block.
+
+The gate reads `--body-file "$B"` when `B=<path>` is set earlier in the same command. When it cannot read the
+body file, it says "could not read the body file <path>". With `--base ai` it compares with `origin/ai` (it
+fetches that branch when it is missing), never with main.
 
 Verified on all 3 machines after the rollout (2026-11-15): a body in the template above is allowed; an old body
 with `Verify:` and `Risk:` instead of Evidence and Merge Danger is denied. `**Door:**` must say one-way or
@@ -1671,8 +1683,9 @@ Never: a commit on `main` or `master`, `git add -A` without `git status` first, 
    in a test fixture), run the commit yourself in your terminal. The agent must not try to get around the gate
    (no other command, no other agent).
 3. pr-rules: fill the missing parts of the body (section 11) and pass it with `--body-file`.
-4. merge-approval: say "merge" (or "approve") in your next message, or merge on GitHub yourself. A question
-   ("is it approved?") and a "don't merge yet" do not count. Your next message without the word clears it.
+4. merge-approval: say "merge" (or "approve") in your next message, or merge on GitHub yourself. "merge 18",
+   "merge #18", "merge the branches" and "lets merge everything" also count. A question ("is it approved?"),
+   "don't merge yet", "wait" and "ok go for it" do not count. Your next message without the word clears it.
 5. no-verify: the agent fixes what the pre-commit hook reports and commits again.
 
 ### Claude says "You've hit your weekly limit"
@@ -1806,7 +1819,7 @@ flowchart TD
 |---|---|---|
 | secret-scan | a commit or push with a key, token or password | removing the secret |
 | pr-rules | a PR body without the template parts | a complete body |
-| merge-approval | `gh pr merge`, `gh api .../pulls/N/merge`, a push to main or master (also `--all`, `--mirror`, `HEAD:main`, inside `bash -c`) | your latest message says merge or approve; a question or "don't merge yet" does not count; your next message without the word clears it |
+| merge-approval | `gh pr merge`, `gh api .../pulls/N/merge`, a push to main or master (also `--all`, `--mirror`, `HEAD:main`, inside `bash -c`; the branch of the checkout that `cd <dir>` or `git -C <dir>` names) | your latest message says merge or approve; a question or "don't merge yet" does not count; your next message without the word clears it |
 | no-verify | `git commit --no-verify`, `git commit -n`, `git push --no-verify` | a commit that passes the hook |
 
 ### 15.4 UI from day one
