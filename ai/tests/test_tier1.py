@@ -151,6 +151,20 @@ def t_plan_keeps_owner_flags(work):
     assert "ai-ratchet" in p["text"] and "\tuv run pytest -q --durations=50\n" in p["text"], p["text"]
 
 
+def t_plan_keeps_target_comments(work):
+    """A rerun replaced the check-fast comment the block already had ("measured 266 s ... no lint") with the
+    generic one, so the owner put it back by hand (2026-11-19). The comment lines already in the block stay."""
+    mod = load(os.path.join(BIN, "ai-check-detect"), "acd_comments")
+    repo = tree(work, "plan-comments", {"pyproject.toml": "[project]\nname='x'\n[tool.ruff]\n", "uv.lock": "",
+                                        "tests/test_a.py": "def test_a(): pass\n"})
+    write(os.path.join(repo, "Makefile"), mod.plan(repo, mod.detect(repo), "long")["text"])
+    mine = "# check-fast: the test suite only, measured 266 s"
+    edited = re.sub(r"^# check-fast:.*$", mine, read(os.path.join(repo, "Makefile")), flags=re.M)
+    assert mine in edited, edited
+    write(os.path.join(repo, "Makefile"), edited)
+    assert mod.plan(repo, mod.detect(repo), "long")["text"] is None, "a rerun must keep the comment"
+
+
 # ---------------------------------------------------------------- T1 + T5: ai-adopt
 
 def t_adopt_own_done(work):
@@ -1301,7 +1315,7 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
 TESTS_LIST = [t_verify_skills_copy, t_pstack_adapt_ours, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_skills_none, t_detect_python_uv, t_detect_python_pip, t_detect_python_no_manifest, t_detect_node, t_detect_go_rust, t_detect_monorepo, t_detect_missing_dir,
               t_detect_probe_drops_missing_tool, t_adopt_failing_check_turns_stop_off, t_adopt_leaves_tree_clean, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
               t_adopt_branch_exists_main_clean, t_adopt_old_branch, t_adopt_unborn_main, t_typed_only_skill_paths,
-              t_plan_keeps_targets, t_plan_keeps_owner_flags, t_adopt_owner_text_survives_rerun, t_adopt_gitignore_makefile_owner_lines,
+              t_plan_keeps_targets, t_plan_keeps_owner_flags, t_plan_keeps_target_comments, t_adopt_owner_text_survives_rerun, t_adopt_gitignore_makefile_owner_lines,
               t_adopt_conflict_writes_nothing, t_doctor_owner_text, t_adopt_own_done, t_adopt_own_done_verify_block, t_adopt_long_tier, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused, t_adopt_monorepo_owner_makefile_done,
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_continuation_checks_the_fix, t_stop_chain_cap, t_stop_no_baseline_uses_head,
               t_stop_recipe_changed, t_stop_skipped_only_and_group_kill,

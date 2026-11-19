@@ -377,7 +377,13 @@ def keep_owner_flags(block, old):
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
     import ownertext
     mine, new = m.group(0).splitlines(), block.splitlines()
+    # The "# check-fast:" / "# check:" comment already in the block stays (it may hold a measured time, 2026-11-19).
+    kept = {ln.split(":", 1)[0]: ln for ln in mine if TARGET_COMMENT.match(ln)}
+    new = [kept.get(ln.split(":", 1)[0], ln) if TARGET_COMMENT.match(ln) else ln for ln in new]
     return "\n".join([new[0]] + ownertext.merge(mine[1:-1], new[1:-1]) + [new[-1]]) + "\n"
+
+
+TARGET_COMMENT = re.compile(r"^# check(-fast)?:")
 
 
 def recipe(cmd, runner):
