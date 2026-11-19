@@ -162,6 +162,10 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   denied once with "run graphify query first" (a stale graph: "run graphify update, then graphify query"); the
   next search passes. A session that already ran graphify or a Serena tool
   passes (PostToolUse marks it).
+  Each later broad search that names a code symbol of `graph.json` is denied once for that symbol, with the
+  symbol, its file and line, and the navigation order; the same search passes on a retry. A name counts only
+  with an underscore or an upper-case letter (not `batch`, not `__init__`). Not counted: words in a path or a
+  glob, a search that filters the output of a pipe, document nodes. `no-graph` switches both denies off.
 
 A gate decision is sent even when the state dir cannot be written; an internal error before a decision
 fails open and is logged to `~/.local/state/ai/router-errors.log` (ai-doctor shows it).
