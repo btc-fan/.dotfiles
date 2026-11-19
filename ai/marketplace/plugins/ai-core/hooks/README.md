@@ -178,6 +178,17 @@ State files (`gates.log`, `fired.jsonl`, `misses.jsonl`, `walls.jsonl`, ...) are
 `gates.log` are redacted with the secret patterns plus any `NAME=value` where NAME looks like a
 key, token, secret or password.
 
+## Sources for the verify hooks
+
+The verify hooks (verify-tool-exists, verify-tool-used, verify-commit, verify-pr) apply the approach of these
+sources. What we took from each: `ai/rules/verification-skill.md`. Speed, and other ways to integrate:
+`docs/reports/verify-integration-research-2026-11-19.md`.
+
+1. pstack generator: https://github.com/cursor/plugins/blob/main/pstack/skills/create-verification-skill/SKILL.md
+2. Worked example: https://github.com/poteto/verification-skill-example
+3. A real project: https://github.com/kody-hq/kody/blob/main/.agents/skills/control-kody/SKILL.md
+4. PR system recap: https://github.com/kody-hq/kody/blob/main/.agents/skills/visual-recap/SKILL.md
+
 ## Known limits (accepted, documented; owner: keep it simple)
 
 - The install gate is advisory: `~/.local/state/ai/audit.log` is writable by the same user the agent
