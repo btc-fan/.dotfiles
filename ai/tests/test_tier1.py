@@ -1324,6 +1324,7 @@ def t_update_machine(work):
     old = run(["git", "-C", tree_dir, "rev-parse", "--short", "HEAD"]).stdout.strip()
     new = run(["git", "-C", src, "rev-parse", "--short", "HEAD"]).stdout.strip()
     upd = [sys.executable, os.path.join(BIN, "ai-update")]
+    assert run(upd + ["--help"], env=env).returncode == 0 and run(upd + ["--bogus"], env=env).returncode == 2
 
     write(os.path.join(tree_dir, "install.sh"), stub + "# edited\n")
     res = run(upd, env=env)

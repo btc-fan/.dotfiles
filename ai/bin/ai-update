@@ -28,7 +28,7 @@ STATE = os.environ.get("AI_STATE_DIR") or os.path.join(HOME, ".local", "state", 
 
 def main(argv):
     opts = {a: a in argv for a in ("--projects", "--only-projects", "--no-pull", "--dry-run")}
-    unknown = [a for a in argv if a not in opts]
+    unknown = [a for a in argv if a not in opts and a not in ("-h", "--help")]
     if unknown or "-h" in argv or "--help" in argv:
         print(__doc__.strip())
         return 0 if not unknown else 2
