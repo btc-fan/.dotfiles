@@ -24,7 +24,7 @@ The OMC block is never copied into AGENTS.md. Only the short form is.
 - L4: the audit gate covers `npm i -g oh-my-claude-sisyphus` (cli route). Exact version only. Plugin route: install.sh installs or moves the plugin only when the marketplace clone is at the commit of the newest stable tag (SPEC 23), after `agent-audit dir` of that commit, else it warns and skips.
 - L5: OMC agents (executor, writer, designer) do not carry our skills. SubagentStart context injects the L0 table.
 - L7: ai-doctor checks the OMC version is 5.8.4 (plugin list, or `omc --version` on the cli route), `disableAutoUpdate` set, exa off, `OMC_REPLY_ENABLED` unset, `OMC_UPDATE_REGISTRY_BASE` set, no OMC line in crontab.
-- Text order: owner text first, OMC block after. On a clash the owner text and hard rules win. Known clash: "verify before claiming completion" against the 60-word limit. Report the proof in telegraph style. Do not drop the verification.
+- Text order: owner text first, OMC block after. On a clash the owner text and hard rules win. Known clash: "verify before claiming completion" against the 60-word limit. Report the proof in short STE sentences. Do not drop the verification.
 
 ## Proof
 - Should fire: a typed `/oh-my-claudecode:autopilot build a CLI that converts CSV to JSON`. Skill `oh-my-claudecode:autopilot`.
