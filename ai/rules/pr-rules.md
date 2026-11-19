@@ -23,7 +23,7 @@ NOT FOUND (our own gate).
 - Body file: `$VAR`, `"$VAR"`, `${VAR}` come from a simple `VAR=value` earlier in the same command; a `cd`
   earlier in the command sets the folder. An unreadable body file gives "could not read the body file <path>".
 - Placeholder text (`TODO`, `TBD`, `<...>`, `...`, `n/a`) counts as missing.
-- A `fix:` PR (title `fix`, `bugfix`, `hotfix`) needs a test file in its diff against the base .
+- A `fix:` PR (title `fix`, `bugfix`, `hotfix`) needs a test file in its diff against the base. A case file `tests/cases/*.json` counts; fixture JSON does not.
 - Over 400 changed lines (lockfiles and generated files left out): a warning, never a block.
 - `--fill`, `--fill-first`, `--fill-verbose`, `--web`: refused (the gate cannot see the body).
 

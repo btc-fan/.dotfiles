@@ -127,7 +127,8 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
 - pr-rules: `gh pr create` and `gh pr edit` with a body are denied without the core template: a mermaid block
   (Summary), Evidence, Door (one-way or two-way), Blast Radius and the author-sessions block (placeholders count
   as missing). `Docs:`, `Changed guards:` and `Ledger:` (fix PRs) only give a warning in the context. A fix PR
-  needs a test file in its diff; over 400 lines warns. The body file path may use a variable from one simple
+  needs a test file in its diff (a `tests/cases/*.json` case file counts); over 400 lines warns. The body file
+  path may use a variable from one simple
   `VAR=value` earlier in the same command (`$B`, `"$B"`, `${B}`). A variable set twice, set to a value that is not
   a literal, or set as a prefix of the command (`B=x gh ...`) makes the body file unread (review S3). A `cd`
   earlier in the command sets the folder for a relative path and for the diff; a cd to a folder that does not

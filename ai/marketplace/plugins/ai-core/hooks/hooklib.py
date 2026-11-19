@@ -1164,7 +1164,9 @@ PR_DOOR = re.compile(r"\b(one|two)[- ]way\b", re.I)
 PR_DOOR_UNFILLED = re.compile(r"\bone[- ]way\s*(or|/)\s*two[- ]way\b", re.I)    # the template text left in
 PR_FIX_TITLE = re.compile(r"^\s*(fix|bugfix|hotfix)(\([^)]*\))?!?:", re.I)     # conventional titles only
 PR_TEST_PATH = re.compile(r"(^|/)test_[^/]*\.py$|_test\.(go|py)$|\.(test|spec)\.[cm]?[jt]sx?$|"
-                          r"(^|/)(tests?|spec|__tests__)/(.*/)?[^/]+\.(py|[cm]?[jt]sx?|go|rs|rb|java|kt|php|cs|swift)$")
+                          r"(^|/)(tests?|spec|__tests__)/(.*/)?[^/]+\.(py|[cm]?[jt]sx?|go|rs|rb|java|kt|php|cs|swift)$|"
+                          # data-driven test cases (this repo: ai/tests/cases/<rule>.json); fixture JSON does not count
+                          r"(^|/)tests?/cases/[^/]+\.json$")
 PR_GENERATED = re.compile(r"(^|/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|poetry\.lock|Cargo\.lock|"
                           r"go\.sum|bun\.lockb?|composer\.lock|Gemfile\.lock)$|\.(lock|min\.js|min\.css|snap)$|"
                           r"(^|/)(dist|vendor|generated|__generated__)/|(^|/)\.verify/evidence/")
@@ -1423,7 +1425,7 @@ def pr_diff_checks(ctx, diff, fix):
     lines = sum(int(x) for r in rows if not PR_GENERATED.search(r[2]) for x in r[:2] if x.isdigit())
     out = []
     if fix and not any(PR_TEST_PATH.search(f) for f in files):
-        out.append("a test file in the diff of a fix: PR (tests/..., test_*.py, *_test.go, *.test.ts); none against %s"
+        out.append("a test file in the diff of a fix: PR (tests/..., test_*.py, *_test.go, *.test.ts, tests/cases/*.json); none against %s"
                    % base_ref)
     if lines > PR_SIZE_WARN:
         ctx.add_context("[ai gate pr-rules] warning: %d changed lines against %s (generated files left out), over %d. "

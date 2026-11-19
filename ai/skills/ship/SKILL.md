@@ -24,14 +24,22 @@ Do not merge. The owner merges, or tells you "merge" (the merge-approval gate ch
 6. **UI (only when UI files changed).** Read `design-system/<app>/MASTER.md` and the page override, then run the
    ui-ux-pro-max pre-delivery checklist (`references/pro-rules.md`) on the changed screens. For a web page with
    SEO or blog tools on in this repo: `claude-seo` page audit, or the `claude-blog` check for a post.
-7. **Docs.** The Map paths still exist, a new module is in the Map, a one-way-door change has an ADR.
+7. **Docs.** The Map paths still exist, a new module is in the Map, a one-way-door change has an ADR. Read each
+   changed document once as STE (ASD-STE100, rules below) and rewrite each sentence that breaks a rule. A rewrite
+   is a new commit: start again at step 1.
 8. **PR.** Update the body (pr template): Summary with the Mermaid diagram, Evidence (Before and After, the step 2
    output tail, the step 3 evidence as a GitHub link
    `https://github.com/<owner>/<repo>/tree/<branch>/.verify/evidence/<run>` and the e2e test), Merge Danger
    (Door, Blast Radius), Docs, Changed guards.
-   Then `gh pr ready <n>`.
+   Read the body once as STE and rewrite each sentence that breaks a rule. Then `gh pr ready <n>`.
 9. **Ask.** Tell the owner in 3 lines: what changed, the evidence, the merge danger. End with: "Say merge and I
    merge it, or approve and merge on GitHub."
+
+## STE rules (steps 7 and 8)
+
+Done when each sentence passes: an instruction has 20 words or fewer, a description 25 or fewer. One instruction
+per sentence, in the active voice. Each word has one meaning, and the words are literal (no idioms). Code,
+commands, paths and quoted output stay as they are.
 
 ## After the owner says merge
 
