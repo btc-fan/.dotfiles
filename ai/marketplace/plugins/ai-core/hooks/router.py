@@ -469,6 +469,7 @@ def on_prompt_expansion(ctx):
 
 def on_stop(ctx):
     check_stop_rules(ctx)
+    pr_url_stop(ctx)
     verify_stop(ctx)
     if not ctx.payload.get("stop_hook_active"):
         check_misses(ctx)
@@ -812,6 +813,36 @@ def check_stop_rules(ctx):
         ctx.stop_block.append("[ai router: %s] %s Then finish the turn." % (rid, render_action(rule, ctx)))
         ctx.wall(ctx.stop_block[-1])
         skill_missed(rule, ctx, "Stop")
+
+
+# ---------------------------------------------------------------- pr-url (owner 2026-11-19)
+# A reply to the owner names each PR with its full URL. No routing.yaml row (as the verify walls): the block reason
+# carries the instruction. The Stop payload gives the reply (last_assistant_message). A continuation stop
+# (stop_hook_active) passes, so the check blocks one time per chain and cannot loop.
+
+PR_NUMBER = re.compile(r"\b(?:PRs?|pull requests?)\s+#?(\d+)((?:(?:\s*,\s*|\s+and\s+)#?\d+)*)", re.I)
+
+
+def pr_numbers(text):
+    """PR numbers that the text names in words: PR 7, PR #7, PRs #21, #22 and #23, pull request 7."""
+    nums = set()
+    for m in PR_NUMBER.finditer(text):
+        nums.add(m.group(1))
+        nums.update(re.findall(r"\d+", m.group(2)))
+    return nums
+
+
+def pr_url_stop(ctx):
+    reply = ctx.payload.get("last_assistant_message") or ""
+    if not reply or ctx.payload.get("stop_hook_active"):
+        return
+    bare = sorted(pr_numbers(reply) - set(re.findall(r"/pull/(\d+)", reply)), key=int)
+    if not bare or owner_skip(ctx, "pr-url", ""):
+        return
+    ctx.stop_block.append("[ai router: pr-url] Your reply names PR %s without a URL. Name each PR with its full "
+                          "URL (https://github.com/<owner>/<repo>/pull/<n>; gh pr view <n> --json url). Write the "
+                          "reply again, then finish the turn." % ", ".join(bare))
+    ctx.wall(ctx.stop_block[-1])
 
 
 # ---------------------------------------------------------------- verify hooks (verify-enforcement 02, 03)

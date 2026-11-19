@@ -1,0 +1,104 @@
+{
+ "rule": "pr-url",
+ "cases": [
+  {
+   "name": "PR numbers without URLs: blocked, every number named",
+   "expect": "block",
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Open: PRs #21, #22 and #23. Merge PR 7 next."
+     }
+    }
+   ],
+   "contains": [
+    "[ai router: pr-url]",
+    "PR 7, 21, 22, 23"
+   ]
+  },
+  {
+   "name": "every PR has its URL: allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Merge PR #7: https://github.com/o/r/pull/7"
+     }
+    }
+   ]
+  },
+  {
+   "name": "one PR linked, one not: blocked for the bare one only",
+   "expect": "block",
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Merge pull request 12 and PR #7: https://github.com/o/r/pull/7"
+     }
+    }
+   ],
+   "contains": [
+    "names PR 12 without"
+   ]
+  },
+  {
+   "name": "a continuation stop passes (no loop)",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": true,
+      "last_assistant_message": "Merge PR #7 next."
+     }
+    }
+   ]
+  },
+  {
+   "name": "no PR named (a gh command, a step number): allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Run gh pr view 7 and step 2 of 5."
+     }
+    }
+   ]
+  },
+  {
+   "name": "no reply text: allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": ""
+     }
+    }
+   ]
+  },
+  {
+   "name": "codex Stop: blocked",
+   "expect": "block",
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Merge PR #7 next."
+     }
+    }
+   ],
+   "agent": "codex"
+  }
+ ]
+}
