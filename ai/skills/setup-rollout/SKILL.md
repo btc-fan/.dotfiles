@@ -35,16 +35,13 @@ Done when: you can say "fresh" or "update", and the target is a machine or a fol
 
 ## 2. Update a machine
 
-1. Get the change. A clone on branch `ai`: `git -C ~/.dotfiles-ai pull --ff-only`. A detached copy:
-   `git -C ~/.dotfiles-ai fetch` then `git -C ~/.dotfiles-ai checkout --detach origin/ai`, then run
-   `~/.dotfiles-ai/ai/bin/ai-sync` yourself (a checkout runs no post-merge hook).
-2. `ai-sync` (the hook runs it after a pull) renders the rules and routing and refreshes the Codex block.
-   It takes about 10 s. Claude reads the plugin from the folder: router changes are live at the next session start.
-   It also links a new skill from `ai/skills` into `~/.claude/skills` and `~/.agents/skills`.
-3. Run `install.sh` again only when the change touched the installer (new hooks, binaries, switches, tool
-   versions) or `ai-doctor` says so. First `~/.dotfiles-ai/install.sh --dry-run --yes`. Show the plan to the owner.
-   Then `~/.dotfiles-ai/install.sh --yes`. Check line 2 of the output: `Agents:` must list claude and codex.
-   If not, read `PITFALLS.md` (agent detection).
+1. `ai-update --dry-run`, then `ai-update` (first time on a machine: `~/.dotfiles-ai/ai/bin/ai-update`). It pulls
+   branch `ai` (a clone fast-forwards, a detached copy checks out `origin/ai`), runs `ai-sync`, `install.sh --yes`
+   and `ai-doctor --quick`. A refusal (uncommitted changes in `~/.dotfiles-ai`, a branch other than `ai`) prints
+   the way out: follow it, never edit around it.
+2. Check the `Agents:` line it prints: it must list claude and codex. If not, read `PITFALLS.md` (agent detection).
+   Router changes are live at the next session start.
+3. A step that needed a hand edit is a setup bug: fix it in this repo with a test, then run the command again.
 
 Done when: `git -C ~/.dotfiles-ai log --oneline -1` shows the commit that was merged to `ai`.
 
@@ -66,8 +63,8 @@ Done when: both outputs are shown in your report, with the commit hash.
 3. `~/.dotfiles-ai/ai/bin/ai-adopt --dir X --dry-run`. Read every "would write" line.
    "nothing to change (base vN)" means the project is current: stop.
 4. `~/.dotfiles-ai/ai/bin/ai-adopt --dir X --yes`. When it exits non-zero with "owner text would change: nothing
-   written", it is the add-only guard. Stop. Show the owner the printed diff. The owner decides. On main or master it commits on branch `ai-adopt` and
-   prints "merge the ai-adopt branch". No remote: it warns that push and PR are not possible.
+   written", it is the add-only guard. Stop. Show the owner the printed diff. The owner decides. On main or master it commits on branch `ai-adopt`,
+   pushes it and opens the PR ("ai-adopt: PR <url>"). No remote: it warns that push and PR are not possible.
 5. Prove the owner items survived (next step). Then `git status --short` must be empty: `ai-adopt` commits
    every file it writes.
 
@@ -88,7 +85,7 @@ Done when: steps 1 to 3 show no loss and the `make check-fast` result is in your
 
 ## 6. Hand over
 
-1. Push the branch. Open a PR with the `pr` skill template. Evidence: the diff stat and the step 5 result.
+1. `ai-adopt` pushed the branch and opened the PR. Add the step 5 result to its Evidence.
 2. The owner merges. After the merge: pull the default branch, delete the merged local branch.
 3. Verify a session in the project. Ask in a fresh session: "Quote the SessionStart context: the skill card and
    the main: line." Expect the must-use skills (writing-for-agents, ship), the hint skills (diagnosing-bugs, tdd),
@@ -100,5 +97,6 @@ Done when: the owner confirms the PR is merged and the session quote matches.
 
 ## Roll out to every machine
 
-After a merge to `ai`, do steps 2 and 3 on each machine, one machine at a time. Report one line per machine:
-name, commit, `ai-doctor` result.
+After a merge to `ai`, run `ai-update --projects` on each machine, one machine at a time (step 3 checks still
+apply). It ends with one line per project: current, PR, skipped (reason) or failed. Report one line per machine
+(name, commit, `ai-doctor` result) and the project lines; the owner merges the PRs.

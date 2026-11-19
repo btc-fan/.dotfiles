@@ -472,6 +472,16 @@ To see that a tool really fires, read the logs in `~/.local/state/ai/` ([docs/CO
 
 ## 7. Update
 
+One command (owner 2026-11-19, plug and play):
+
+- `ai-update`: brings this machine to the newest branch `ai` (pull, `ai-sync`, `install.sh --yes`, `ai-doctor`). Every
+  project on the machine gets the new rules, hooks and skills at once.
+- `ai-update --projects`: the same, then `ai-adopt` in every adopted project. A project with changes gets a PR; you
+  merge it. A project on another branch, or with uncommitted changes, is skipped with the reason.
+- A new project: `ai-adopt --dir . --yes`, then merge its PR. That project is on the list from then on.
+- `--dry-run` prints the plan and changes nothing. First time on a machine (before `ai-update` is linked):
+  `~/.dotfiles-ai/ai/bin/ai-update`.
+
 Tools update on every `install.sh` run (owner decision 2026-11-14). No tool updates itself.
 
 1. What moves: every tool of the setup (Codex, OMC, OMX, opencode, herdr, Serena, graphify, context7, RTK, the
@@ -492,7 +502,7 @@ Tools update on every `install.sh` run (owner decision 2026-11-14). No tool upda
      audited: the very first guarddog on a machine (bootstrap, with a warning) and Claude Code itself.
 3. Offline, or a registry error: the installed version stays and the run says so. The install does not fail.
 4. Server: as admin, `sudo /opt/ai-setup/install.sh --update --for-user <user>`. It fast-forwards the root-owned clone, moves every tool to its newest stable release and refreshes everything else, including the Hermes copies and the `/etc` rules, which only this admin command can refresh. Run it on a schedule you choose: nothing updates between runs.
-5. macOS: `~/.dotfiles-ai/install.sh`. A `git -C ~/.dotfiles-ai pull` alone runs `ai-sync` (rules, your own files and the links for new skills in `ai/skills`), not the tool updates.
+5. macOS: `ai-update` (or `~/.dotfiles-ai/install.sh` by hand). A `git -C ~/.dotfiles-ai pull` alone runs `ai-sync` (rules, your own files and the links for new skills in `ai/skills`), not the tool updates.
 6. On a server, `ai-sync` from a user's `~/.dotfiles-ai` refreshes only that user's own files.
 7. See what changed: `~/.local/state/ai/resolved.json` (per tool: source, newest seen, installed, times; on a server the system tools are in `/var/lib/ai/resolved.json`) and the `install` lines in `~/.local/state/ai/audit.log`. `ai-doctor` prints `update available: <tool> <installed> -> <newest>`.
 8. Hold a tool back: add `<TOOL>_HOLD=<version>` to `ai/pins.env` (for example `CODEX_HOLD=0.167.0`, or a tag or commit for a git source). The next run installs exactly that version and leaves it there. Remove the line to follow the newest stable again. See [docs/EXTENDING.md](docs/EXTENDING.md), "Updates and holding a tool back".
