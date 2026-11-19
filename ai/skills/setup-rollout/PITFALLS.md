@@ -5,8 +5,8 @@ Each item happened on a real machine. Machine names are generic.
 ## Machine
 
 - **Agent detection (second Mac).** `claude` and `codex` live under `~/.nvm/versions/node/<v>/bin`. The installer
-  printed "Agents: herdr." and skipped every Claude step (rules block, OMC note). Run it from a login shell and
-  add `--agents claude,codex,herdr`. Check line 2 of the install output.
+  printed "Agents: herdr." and skipped every Claude step (rules block, OMC note). Fixed 2026-11-19: `install.sh`
+  adds each nvm bin folder that holds claude or codex to PATH. Still check line 2 of the install output.
 - **Remote PATH.** A non-login ssh shell has no `~/.local/bin`, Homebrew or nvm. macOS:
   `ssh <host> "zsh -lc 'bash -s'" < script.sh`. Linux: `ssh <host> 'bash -s' < script.sh`.
 - **RTK by hand (owner choice).** Put `off` in `~/.config/ai/rtk-hook` (or `AI_RTK_HOOK=off` for `install.sh`).

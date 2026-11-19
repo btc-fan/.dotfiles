@@ -143,6 +143,19 @@ def seed_records(home, keys):
           json.dumps({"version": 1, "entries": entries}))
 
 
+def t_agents_under_nvm(work):
+    """claude and codex installed with npm under nvm, a non-login shell (ssh) without nvm on PATH: the installer
+    still finds them (a machine needed --agents by hand, 2026-11-19)."""
+    env, home, bindir = fake_env(work, "nvm", ("node", "npm", "uv"))
+    nvm_bin = os.path.join(home, ".nvm", "versions", "node", "v24.1.0", "bin")
+    os.makedirs(nvm_bin)
+    for t in ("claude", "codex"):
+        stub(nvm_bin, t, "#!/bin/sh\n[ \"$1\" = --version ] && echo '%s 1.0.0'\nexit 0\n" % t)
+    code, out = install(dict(env, AI_OS_FORCE="macos"), "--dry-run", "--yes")
+    head = [ln for ln in out.splitlines() if ln.startswith("AI setup")][0]
+    assert code == 0 and "Agents: claude,codex,herdr." in head, head
+
+
 def t_devmac_plan(work):
     """dev-mac dry run (macOS forced, fake tools): skill-scanner is the only scanner (first install unaudited, one
     info line); guarddog, osv-scanner and opencode installed earlier are undone; packages say "audit skipped";
@@ -341,7 +354,7 @@ def t_devmac_linux_plan(work):
     assert "[14/14] verify" in out, out
 
 
-TESTS_LIST = [t_devmac_last30days, t_doctor_devmac, t_render_profiles, t_server_plan_unchanged, t_devmac_plan, t_devmac_linux_plan, t_profile_choice]
+TESTS_LIST = [t_devmac_last30days, t_doctor_devmac, t_render_profiles, t_server_plan_unchanged, t_devmac_plan, t_agents_under_nvm, t_devmac_linux_plan, t_profile_choice]
 
 if __name__ == "__main__":
     sys.exit(main())

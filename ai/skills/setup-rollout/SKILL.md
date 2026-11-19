@@ -91,9 +91,10 @@ Done when: steps 1 to 3 show no loss and the `make check-fast` result is in your
 1. Push the branch. Open a PR with the `pr` skill template. Evidence: the diff stat and the step 5 result.
 2. The owner merges. After the merge: pull the default branch, delete the merged local branch.
 3. Verify a session in the project. Ask in a fresh session: "Quote the SessionStart context: the skill card and
-   the main: line." Expect the 4 must-use skills (writing-for-agents, diagnosing-bugs, ship, tdd), the typed-only
-   paths and the session id. `/memory` lists `~/.claude/CLAUDE.md` and the project `AGENTS.md`. `/hooks` lists
-   the ai-core router on SessionStart, UserPromptSubmit, PreToolUse, PostToolUse and Stop.
+   the main: line." Expect the must-use skills (writing-for-agents, ship), the hint skills (diagnosing-bugs, tdd),
+   the typed-only paths, the session id, and "Verify skill: verify-<app>" in the status line. `/memory` lists
+   `~/.claude/CLAUDE.md` and the project `AGENTS.md`. `/hooks` lists the ai-core router on SessionStart,
+   UserPromptSubmit, PreToolUse, PostToolUse, Stop and SubagentStop.
 
 Done when: the owner confirms the PR is merged and the session quote matches.
 
