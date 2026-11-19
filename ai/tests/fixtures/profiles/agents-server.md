@@ -173,6 +173,7 @@ opt-in = only where the project enabled the tool (ai-start, ai-adopt).
 | gh-write (gate) | gh write other than the PR commands | gh reads run freely; other gh writes ask the owner first. |
 | ledger-nudge | before an edit in a regression-ledger area | docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests. |
 | no-em-dash | after a write with U+2014 | Remove the em dash (U+2014). Use '-', ':' or a new sentence. |
+| ste-sentence | Markdown sentence over 25 words | STE: 25 words max per sentence. Split it. |
 | docs-lookup | prompt names a library listed in Libraries, or before a dependency-file edit | context7 query-docs with the Libraries ID (resolve only if missing), then the official docs site. (cached IDs) |
 | feature-grill | feature request prompt (add, implement, build ... a feature, endpoint, page; RO, RU) | Branch <feature-slug> first; grill-with-docs (else grilling); 3+ files: to-spec, to-tickets; /implement each ticket (check-fast, verify-<app> evidence, e2e, commit; draft PR after the first). Done: ship skill, then ask the owner to merge. Trivial: skip. |
 | verify-before-done | after a code edit where a verify-<app> skill exists | Before done: check-fast, then verify-<app> on the changed feature (evidence), then e2e tests. |

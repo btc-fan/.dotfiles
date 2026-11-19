@@ -37,7 +37,7 @@ from hooklib import (GATES, GATE_PROBES, ai_home, append_jsonl, command_text, ga
                      log_line, one_line, project_skills, project_tier, verify_skill, is_code_file, skill_md,
                      origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
                      state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
-                     graph_status, git_history, short_skill, write_targets,
+                     graph_status, git_history, git_out, short_skill, write_targets,
                      owner_merge_ok, merge_review_note, nav_note, upgrade_note, legacy_memory_note, probe_pr,
                      session_line, log_wall, verify_proof, verify_steps, app_code_state, head_at, git_quick)
 
@@ -424,6 +424,17 @@ def on_post_tool(ctx):
         if not trig.get("tool_after") or not tool_matches(trig["tool_after"], tool):
             continue
         if not rule_enabled(rule, ctx) or not conditions_match(rule, tool, tin, cmd, ctx):
+            continue
+        if trig.get("long_sentence"):
+            limit = int(trig["long_sentence"])
+            old = {tuple(w) for w in long_sentences(old_text(tool, tin, ctx), limit)}
+            long = [w for w in long_sentences("\n\n".join(written_texts(tin)), limit) if tuple(w) not in old]
+            text = render_action(rule, ctx) if long else ""
+            if text:
+                worst = max(long, key=len)
+                ctx.fired(rule, "PostToolUse")
+                ctx.add_context('[ai router: %s] %s (%s, %d sentence(s); the longest has %d words: "%s ...")' % (
+                    rule["id"], text, file_of(tin) or "edited text", len(long), len(worst), " ".join(worst[:8])))
             continue
         if trig.get("content"):
             if ctx.stages:      # git diff shows every uncommitted line: one nudge per file and session
@@ -994,6 +1005,11 @@ def shell_content_hits(needle, paths, cwd):
 
 
 def content_hits(needle, tin):
+    return sum(1 for t in written_texts(tin) for line in t.splitlines() if needle in line)
+
+
+def written_texts(tin):
+    """The new text of an Edit, Write, MultiEdit or NotebookEdit call."""
     texts = []
     for key in ("content", "new_string", "new_source"):
         if isinstance(tin.get(key), str):
@@ -1001,7 +1017,44 @@ def content_hits(needle, tin):
     for edit in tin.get("edits") or []:
         if isinstance(edit, dict) and isinstance(edit.get("new_string"), str):
             texts.append(edit["new_string"])
-    return sum(1 for t in texts for line in t.splitlines() if needle in line)
+    return texts
+
+
+MD_NOT_PROSE = re.compile(r"\A---\n.*?^---[^\n]*$|^[ \t]*```.*?^[ \t]*```[^\n]*$|^[ \t]*~~~.*?^[ \t]*~~~[^\n]*$|"
+                          r"<!--.*?(?:-->|\Z)|^[ \t]*(#|\||>)[^\n]*$|^(    |\t)[^\n]*$", re.S | re.M)
+MD_FENCE = re.compile(r"^[ \t]*(```|~~~)", re.M)
+MD_MAX_CHARS = 200000
+MD_LIST_ITEM = re.compile(r"^[ \t]*([-*+]|\d+[.)])[ \t]+", re.M)
+
+
+def long_sentences(text, limit):
+    """The sentences of Markdown prose with more than `limit` words, each as its list of words (ASD-STE100: 25 words
+    at most in a description, 20 in an instruction). Not prose: the front matter, a code block, a table row, a
+    heading, a quote, an HTML comment, a link target. Inline code is one word. A list item and a paragraph each end
+    a sentence. Not checked: an odd number of fence lines (an edit inside a code block), a text over MD_MAX_CHARS."""
+    if len(text) > MD_MAX_CHARS or len(MD_FENCE.findall(text)) % 2:
+        return []
+    text = MD_NOT_PROSE.sub("\n\n", text)
+    text = re.sub(r"`[^`\n]*`", "code", text)
+    text = re.sub(r"\]\([^)\s]*\)", "]", text)
+    text = MD_LIST_ITEM.sub("\n\n", text)
+    out = []
+    for sentence in re.split(r"(?<=[.!?:])\s+|\n[ \t]*\n", text):
+        words = [w for w in sentence.split() if re.search(r"\w", w)]
+        if len(words) > limit:
+            out.append(words)
+    return out
+
+
+def old_text(tool, tin, ctx):
+    """The text a write replaced: the old_string of an Edit or MultiEdit, else the HEAD copy of a tracked file."""
+    olds = [tin.get("old_string")] + [e.get("old_string") for e in tin.get("edits") or [] if isinstance(e, dict)]
+    olds = [t for t in olds if isinstance(t, str)]
+    if olds or tool != "Write" or not ctx.root or not file_of(tin):
+        return "\n\n".join(olds)
+    path = file_of(tin)
+    rel = os.path.relpath(path if os.path.isabs(path) else os.path.join(ctx.cwd, path), ctx.root)
+    return "" if rel.startswith("..") else git_out(ctx.root, ["show", "HEAD:" + rel])
 
 
 def nudge_key(rule, tool, tin, cmd, ctx):

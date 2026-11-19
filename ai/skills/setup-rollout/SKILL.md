@@ -1,6 +1,6 @@
 ---
 name: setup-rollout
-description: 'Use when the owner wants the AI setup installed or updated on a machine, a project folder adopted or re-adopted ("apply the dotfiles ai setup to folder X", "adopt this repo", "update the AI setup on the server"), or a merged change rolled out to every machine. Runbook with a check after each step. Not for changing the setup itself (use promote-skill).'
+description: 'Use when the owner wants the AI setup installed or updated on a machine, a project folder adopted or re-adopted ("apply the dotfiles ai setup to folder X", "adopt this repo", "update the AI setup on the server"), or a machine brought up to a merged change. Runbook with a check after each step. Not for changing the setup itself (use promote-skill).'
 ---
 
 # Roll out the AI setup
@@ -95,8 +95,8 @@ Done when: steps 1 to 3 show no loss and the `make check-fast` result is in your
 
 Done when: the owner confirms the PR is merged and the session quote matches.
 
-## Roll out to every machine
+## Update after a merge
 
-After a merge to `ai`, run `ai-update --projects` on each machine, one machine at a time (step 3 checks still
-apply). It ends with one line per project: current, PR, skipped (reason) or failed. Report one line per machine
-(name, commit, `ai-doctor` result) and the project lines; the owner merges the PRs.
+After a merge to `ai`, each user runs `ai-update --projects` on their own machine (step 3 checks still apply).
+It ends with one line per project: current, PR, skipped (reason) or failed. Report the machine line (commit,
+`ai-doctor` result) and the project lines. The project owner merges the PRs.
