@@ -1,0 +1,56 @@
+{
+ "rule": "worktree-first",
+ "cases": [
+  {
+   "name": "Edit in an adopted repo on main: deny, with the worktree command",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/app.py", "old_string": "1", "new_string": "2"}},
+   "project": {"git_init": true, "files": {"app.py": "x = 1\n", ".ai/enabled": "tier: long\n"}, "commit": "init", "branch": "main"},
+   "contains": ["[ai gate worktree-first]", "git -C", "worktree add", "-b <slug>", "origin/main"]
+  },
+  {
+   "name": "Write of a new file on master: deny",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Write", "tool_input": {"file_path": "{{PROJ}}/src/new.py", "content": "x"}},
+   "project": {"git_init": true, "files": {"app.py": "x = 1\n", ".ai/enabled": "tier: long\n"}, "commit": "init", "branch": "master"},
+   "contains": ["origin/master"]
+  },
+  {
+   "name": "Edit on a feature branch: allow",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/app.py", "old_string": "1", "new_string": "2"}},
+   "project": {"git_init": true, "files": {"app.py": "x = 1\n", ".ai/enabled": "tier: long\n"}, "commit": "init", "branch": "feat-cart"}
+  },
+  {
+   "name": "repo not adopted (no .ai/): allow",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/app.py", "old_string": "1", "new_string": "2"}},
+   "project": {"git_init": true, "files": {"app.py": "x = 1\n"}, "commit": "init", "branch": "main"}
+  },
+  {
+   "name": "a gitignored file on main (local state): allow",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Write", "tool_input": {"file_path": "{{PROJ}}/.verify/data/app.db", "content": "x"}},
+   "project": {"git_init": true, "files": {"app.py": "x = 1\n", ".ai/enabled": "tier: long\n", ".gitignore": ".verify/*\n"}, "commit": "init", "branch": "main"}
+  },
+  {
+   "name": "a file outside any repo: allow",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Write", "tool_input": {"file_path": "{{HOME}}/notes.txt", "content": "x"}},
+   "project": {"git_init": true, "files": {"app.py": "x = 1\n", ".ai/enabled": "tier: long\n"}, "commit": "init", "branch": "main"}
+  },
+  {
+   "name": "a shell command on main is not judged here: allow",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "ls"}},
+   "project": {"git_init": true, "files": {"app.py": "x = 1\n", ".ai/enabled": "tier: long\n"}, "commit": "init", "branch": "main"}
+  }
+ ]
+}

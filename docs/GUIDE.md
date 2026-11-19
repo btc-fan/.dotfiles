@@ -1391,7 +1391,7 @@ You:    /implement docs/tickets/tripnotes-v1/02-sync-note-up.md
 - `/implement-spec` (opt-in): one implementer subagent per ready ticket, each in its own git worktree, merged into
   one integration branch, one code-review at the end. Use it when the tickets have a clear "Blocked by" graph.
 - OMC `/team`: ad-hoc parallel agents on a shared task list. Use it when there is no ticket graph.
-- Your own worktrees: `git worktree add ../<repo>-<feature> -b <feature>`. Run `ai-adopt` once in the new
+- Every job gets its own worktree (worktree-first gate, owner 2026-11-19): `git worktree add ../<repo>-<feature> -b <feature> origin/main`. Run `ai-adopt` once in the new
   worktree folder so the skill links exist there (links are gitignored).
 
 #### Keep the knowledge fresh

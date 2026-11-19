@@ -33,7 +33,7 @@ import time
 
 sys.dont_write_bytecode = True      # no __pycache__ inside the (possibly read-only) plugin dir
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from hooklib import (GATES, GATE_PROBES, ai_home, append_jsonl, command_text, gate_skips,  # noqa: E402
+from hooklib import (FILE_GATES, GATES, GATE_PROBES, ai_home, append_jsonl, command_text, gate_skips,  # noqa: E402
                      iso_now, knowledge_delta, knowledge_index, ledger_hits, ledger_note, libs_hits, log_error,
                      log_line, one_line, project_skills, project_tier, verify_skill, is_code_file, skill_md,
                      origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
@@ -334,6 +334,8 @@ def on_pre_tool(ctx):
             probe = GATE_PROBES.get(rule["id"])
             if cmd and (conditions_match(rule, tool, tin, cmd, ctx) or (probe and probe(ctx.stages, cmd))):
                 run_gate(rule, ctx, cmd)
+            elif not cmd and rule["id"] in FILE_GATES and file_of(tin):     # Edit, Write: the gate judges the file
+                run_gate(rule, ctx, file_of(tin))
             continue
         if not conditions_match(rule, tool, tin, cmd, ctx):
             continue
@@ -1382,6 +1384,10 @@ def _ph_ledger_hits(ctx):
     return ledger_note(new)
 
 
+WORKTREE_STEP = ("First a worktree for the job (worktree-first gate): git worktree add ../<repo>-<slug> -b <slug> "
+                 "origin/<main> (main or master, or the base the owner names); work only there. ")
+
+
 def _ph_feature_flow(ctx):
     """The feature-grill action: grill-with-docs, to-spec, to-tickets and the Done order where the project links
     them; plain grilling elsewhere (tier try, not adopted)."""
@@ -1392,14 +1398,14 @@ def _ph_feature_flow(ctx):
         plan = (" A feature that touches 3+ files: to-spec, then to-tickets (vertical slices with acceptance criteria "
                 "and the %s feature each slice must pass; tickets in docs/tickets/, never GitHub issues without the "
                 "owner)." % vname) if spec == {"to-spec", "to-tickets"} else ""
-        return ("Feature work: grill-with-docs first (one round of questions, then GLOSSARY.md and docs/adr "
+        return ("%sFeature work: grill-with-docs first (one round of questions, then GLOSSARY.md and docs/adr "
                 "updates).%s Then build slice by slice: check-fast green, %s on the changed feature (evidence kept), "
                 "then e2e tests for the proven journey. Feature done: the ship skill (checks, review, security, "
                 "Evidence, gh pr ready), then ask the owner to merge. A trivial change (typo, rename, one-line fix): "
                 "none needed.%s"
-                % (plan, vname, typed_skills_note(ctx.root, ["grill-with-docs"] + sorted(spec) + ["implement"],
+                % (WORKTREE_STEP, plan, vname, typed_skills_note(ctx.root, ["grill-with-docs"] + sorted(spec) + ["implement"],
                                                   ctx.agent)))
-    return ("Feature work: before any code, run the grilling skill (one round of questions first), unless the "
+    return (WORKTREE_STEP + "Feature work: before any code, run the grilling skill (one round of questions first), unless the "
             "change is trivial (typo, rename, one-line fix, a config value).")
 
 

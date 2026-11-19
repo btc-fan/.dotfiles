@@ -319,6 +319,8 @@ def setup_project(proj, spec):
             write(os.path.join(proj, rel), text)
         subprocess.check_call(["git", "-C", proj, "add", "-A"], env=git_env)
         subprocess.check_call(["git", "-C", proj, "commit", "-q", "--no-verify", "-m", "extra %d" % i], env=git_env)
+    if spec.get("branch"):                  # the current branch name (main, master, a feature branch)
+        subprocess.check_call(["git", "-C", proj, "symbolic-ref", "HEAD", "refs/heads/" + spec["branch"]])
     if spec.get("worktree"):                # a second git worktree of the same repo
         subprocess.check_call(["git", "-C", proj, "worktree", "add", "-q", "-b", "wt", spec["worktree"]],
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
