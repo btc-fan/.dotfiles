@@ -13,7 +13,8 @@ What each event does:
   PreToolUse           L4 gates (deny or ask) and context nudges (quiet windows, log-only rules).
   PostToolUse          nudges after edits/commands, docs lookups, Skill proof (Skill call or a read SKILL.md).
   UserPromptExpansion  Skill proof for a typed /skill.
-  Stop                 stop rules, the verify hooks (below), the miss log, then claude-notify.
+  Stop                 stop rules, pr-url (a PR named without its URL), the verify hooks (below), the miss
+                       log, then claude-notify.
   SubagentStop         the verify hooks: verify-tool-exists and verify-tool-used block the end of a turn that
                        changed app code (read from git) without a proven verify skill or a fresh valid run.
   SessionEnd           drop the session state file.
@@ -469,6 +470,7 @@ def on_prompt_expansion(ctx):
 
 def on_stop(ctx):
     check_stop_rules(ctx)
+    pr_url_stop(ctx)
     verify_stop(ctx)
     if not ctx.payload.get("stop_hook_active"):
         check_misses(ctx)
@@ -812,6 +814,39 @@ def check_stop_rules(ctx):
         ctx.stop_block.append("[ai router: %s] %s Then finish the turn." % (rid, render_action(rule, ctx)))
         ctx.wall(ctx.stop_block[-1])
         skill_missed(rule, ctx, "Stop")
+
+
+# ---------------------------------------------------------------- pr-url (owner 2026-11-19)
+# A reply to the owner names each PR with its full URL. No routing.yaml row (as the verify walls): the block reason
+# carries the instruction. The Stop payload gives the reply (last_assistant_message). A continuation stop
+# (stop_hook_active) passes, so the check blocks one time per chain and cannot loop.
+
+PR_NUMBER = re.compile(r"\b(?:PRs?|pull requests?)[ \t]*[#:-]?[ \t]*#?(\d+)\b(?!/)"
+                       r"((?:(?:[ \t]*,[ \t]*(?:and[ \t]+)?|[ \t]+and[ \t]+|[ \t]*-[ \t]*|[ \t]+to[ \t]+)#?\d+\b(?!/))*)", re.I)
+CODE = re.compile(r"```.*?(?:```|\Z)|`[^`\n]*`", re.S)       # pasted output and commands are not the reply's words
+
+
+def pr_numbers(text):
+    """PR numbers that the text names in words: PR 7, PR#7, PRs: #21, #22, and #23, PRs 21-23, pull request 7."""
+    nums = set()
+    for m in PR_NUMBER.finditer(CODE.sub(" ", text)):
+        nums.add(int(m.group(1)))
+        nums.update(int(n) for n in re.findall(r"\d+", m.group(2)))
+    return nums
+
+
+def pr_url_stop(ctx):
+    reply = ctx.payload.get("last_assistant_message") or ""
+    if not reply or ctx.payload.get("stop_hook_active"):
+        return
+    linked = set(int(n) for n in re.findall(r"/pull/(\d+)", reply))
+    bare = sorted(pr_numbers(reply) - linked)
+    if not bare or owner_skip(ctx, "pr-url", ""):
+        return
+    ctx.stop_block.append("[ai router: pr-url] Your reply names PR %s without a URL. Name each PR with its full URL "
+                          "(https://github.com/<owner>/<repo>/pull/<n>; gh pr view <n> --json url). Write the reply "
+                          "again. Then finish the turn." % ", ".join(str(n) for n in bare))
+    ctx.wall(ctx.stop_block[-1])
 
 
 # ---------------------------------------------------------------- verify hooks (verify-enforcement 02, 03)
