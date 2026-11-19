@@ -24,7 +24,7 @@ Gates are lint, not a sandbox: a script file or an unusual command can pass them
   installed either (exit 5, no override). OMC 5.8.6 has two skill-scanner HIGH findings: it is rejected everywhere.
 - `server` (Ubuntu servers): everything on this page.
 - `dev-mac` (the owner's Macs) is weaker on purpose. No install audit: npm, PyPI and GitHub installs are not
-  scanned (each prints `audit skipped: profile dev-mac`), only skills and plugin sources (skill-scanner). No OS
+  scanned (each prints `audit skipped: profile dev-mac`; `agent-audit` adds "Not a blocker ... go on with the install"), only skills and plugin sources (skill-scanner). No OS
   sandbox: the Claude sandbox and the Codex requirements below are Linux managed settings; a Mac has no managed
   layer of ours. The gates are lint there too, and the `audit-before-install` gate is off; there is no
   `ai-gate-skip` (the owner runs a blocked command himself). No box and no box MCP server.

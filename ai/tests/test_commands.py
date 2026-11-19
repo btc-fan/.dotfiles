@@ -297,6 +297,8 @@ def t_skill_scanner_reject(work):
     assert res.returncode == 0 and "not applicable" in res.stdout and "CALLED" not in res.stdout, res.stdout
     res = run(["bash", audit, "npm", "left-pad", "1.3.0"], env=dev)
     assert res.returncode == 0 and "audit skipped: profile dev-mac" in res.stdout and "CALLED" not in res.stdout, res.stdout
+    # An agent read "audit skipped" as a blocker and stopped (owner 2026-11-19): the line says the install may go on.
+    assert "Not a blocker" in res.stdout and "go on with the install" in res.stdout, res.stdout
     assert open(os.path.join(state, "audit.log")).read().splitlines()[-1].split()[-1] == "SKIPPED"
     res = run(["bash", "-c", 'set -euo pipefail; . "%s"; PROFILE_PACKAGE_AUDIT=0 AI_PROFILE=dev-mac; '
                              'audit_ok pypi httpx 0.28.1 && echo RESULT=pass' % lib], env=dict(dev, AI_HOME=home))
