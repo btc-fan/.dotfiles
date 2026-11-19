@@ -1438,6 +1438,18 @@ def t_nav_graph_symbols(work):
     assert router.search_words("Grep", {"pattern": r"\bMailQueue\("}, ctx) == {"MailQueue"}
 
 
+def t_pr_test_path(work):
+    """R-016: a data-driven case file counts as the test file of a fix PR; fixture JSON does not."""
+    sys.path.insert(0, HOOKS)
+    import hooklib
+    counts = ["ai/tests/cases/nav-first.json", "tests/cases/price.json", "test/cases/x.json", "tests/test_a.py",
+              "src/a_test.go", "web/a.test.ts"]
+    skips = ["tests/fixtures/price.json", "tests/cases/sub/x.json", "mytests/cases/x.json", "tests/cases/x.json.bak",
+             "ai/routing.json", "src/a.py"]
+    assert all(hooklib.PR_TEST_PATH.search(f) for f in counts), [f for f in counts if not hooklib.PR_TEST_PATH.search(f)]
+    assert not any(hooklib.PR_TEST_PATH.search(f) for f in skips), [f for f in skips if hooklib.PR_TEST_PATH.search(f)]
+
+
 def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
     full = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C.UTF-8"}
     full.update(env or {})
@@ -1457,7 +1469,7 @@ TESTS_LIST = [t_verify_skills_copy, t_pstack_adapt_ours, t_adopt_verify_link, t_
               t_stop_recipe_changed, t_stop_skipped_only_and_group_kill,
               t_stop_success_silent_both_agents, t_stop_codex_block_and_timeout, t_stop_floor_zero_tests,
               t_stop_off_switches, t_stop_omc_coexistence, t_ledger_check_honest, t_ledger_removed_in_last_commit, t_ledger_quarantine_clock,
-              t_ledger_stop_note, t_nav_graph_symbols, t_ratchet, t_ratchet_other_languages, t_stop_ratchet_long_tier]
+              t_ledger_stop_note, t_nav_graph_symbols, t_pr_test_path, t_ratchet, t_ratchet_other_languages, t_stop_ratchet_long_tier]
 
 if __name__ == "__main__":
     sys.exit(main())
