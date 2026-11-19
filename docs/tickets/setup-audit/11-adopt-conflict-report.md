@@ -1,6 +1,6 @@
 # 11: ai-adopt reports conflicts with an AI setup that the project already has
 
-**What to build:** `ai-adopt --dry-run` on a project with its own AI setup prints one conflict report before it writes a file. Today the owner finds the conflicts by hand after the adopt. The radar999 adoption needed a second PR to unify the old project agents and path rules with the setup.
+**What to build:** `ai-adopt --dry-run` on a project with its own AI setup prints one conflict report before it writes a file. Today the owner finds the conflicts by hand after the adopt. One project adoption needed a second PR to unify the old project agents and path rules with the setup.
 
 Conflicts seen or possible today:
 
