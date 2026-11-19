@@ -79,11 +79,12 @@ rules:
 
   - id: nav-first
     scope: global
-    summary: 'first broad code search (Grep, rg, grep -r, find); denied once where a graph exists'
+    summary: 'broad search (Grep, rg, grep -r); with a graph: denied once, and once per graph symbol'
     trigger: {tool_before: 'Grep|Bash|shell|exec_command|local_shell', command: '(^|[;&|(]\s*)(rg|ag|ack|git grep|grep\s+(-\w*[rR]\w*|--recursive)|find\s+\S+\s+(-i?name|-path|-type))\b'}
     action: "{nav_hint}"   # empty when the repo has no graph and Serena is off
     once_per: 'session'
-    deny_once_when: graph   # the first search is denied once when the repo has a graph (stale: update it first)
+    deny_once_when: graph   # with a graph: the first search is denied once (stale: update it first), and each
+                            # later search that names a code symbol of graph.json once per symbol
     proof: 'graphify (query|affected)|find_symbol|find_referencing_symbols|get_symbols_overview|find_declaration|find_implementations'   # ticket 18: initial_instructions and graphify update are not navigation
     strength: nudge
 

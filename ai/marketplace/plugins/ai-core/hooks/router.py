@@ -337,15 +337,20 @@ def on_pre_tool(ctx):
         if not conditions_match(rule, tool, tin, cmd, ctx):
             continue
         text = render_action(rule, ctx)
-        if text and ctx.state.allow_nudge(rule, nudge_key(rule, tool, tin, cmd, ctx)):
-            ctx.fired(rule, "PreToolUse")
-            deny = graph_deny(rule, ctx)
-            # once per session (the nudge key above), so the next search passes
-            if deny and not owner_skip(ctx, rule["id"], cmd or tool):
-                ctx.decide("deny", "[ai router: %s] %s %s Then search again: the next search passes."
-                           % (rule["id"], deny, text))
-            else:
-                ctx.add_context("[ai router: %s] %s" % (rule["id"], text))
+        if not text:
+            continue
+        first = ctx.state.allow_nudge(rule, nudge_key(rule, tool, tin, cmd, ctx))
+        symbols = symbol_deny(rule, tool, tin, ctx)
+        if not first and not symbols:
+            continue
+        ctx.fired(rule, "PreToolUse")
+        deny = " ".join(filter(None, [graph_deny(rule, ctx) if first else "", symbols]))
+        # the first search and each symbol are denied once per session (session state), so the next search passes
+        if deny and not owner_skip(ctx, rule["id"], cmd or tool):
+            ctx.decide("deny", "[ai router: %s] %s %s Then search again: the next search passes."
+                       % (rule["id"], deny, text))
+        else:
+            ctx.add_context("[ai router: %s] %s" % (rule["id"], text))
     abs_rewrite(ctx, tool, tin, cmd)
 
 
@@ -1187,6 +1192,69 @@ def graph_deny(rule, ctx):
             or "graph" not in enabled_tools(root) or not ctx.state.has_code(root):
         return ""
     return GRAPH_DENY.get(graph_status(root, git_history(root)), "")
+
+
+def symbol_deny(rule, tool, tin, ctx):
+    """A rule with `deny_once_when: graph`: the deny text for the code symbols of the graph that this search names,
+    each symbol once per session; else "". No graph, or no-graph: no deny."""
+    root = ctx.root
+    if rule.get("deny_once_when") != "graph" or not root or "graph" not in enabled_tools(root):
+        return ""
+    words = search_words(tool, tin, ctx)
+    known = graph_symbols(root) if words else {}
+    seen = ctx.state.load().setdefault("nav_symbols", [])
+    new = sorted(w for w in words if w in known and w not in seen)
+    if not new:
+        return ""
+    new = new[:5]       # a symbol that is not named in the deny stays unseen, so a later search names it
+    seen.extend(new)
+    ctx.state.dirty = True
+    return "Code symbols in this search: %s." % ", ".join("%s (%s)" % (w, known[w]) for w in new)
+
+
+SEARCH_EXES = ("rg", "grep", "ag", "ack")
+GRAPH_MAX_BYTES = 50 * 1024 * 1024
+SYMBOL_RX = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")
+
+
+def search_words(tool, tin, ctx):
+    """The identifier-like words of a search: the Grep pattern, or the arguments of rg, grep, ag, ack and git grep
+    that are not an option, a path or a glob. A search that filters the output of a pipe is not a code search."""
+    if tool == "Grep":
+        args = [str(tin.get("pattern") or "")]
+    else:
+        piped = {id(b) for a, b in zip(ctx.stages, ctx.stages[1:]) if a.op in ("|", "|&")}
+        args = [a for st in ctx.stages
+                if id(st) not in piped and (st.exe in SEARCH_EXES or (st.exe == "git" and st.args[:1] == ["grep"]))
+                for a in st.args
+                if not a.startswith("-") and not re.search(r"[/*]", a) and not os.path.exists(os.path.join(ctx.cwd, a))]
+    return {w for a in args for w in SYMBOL_RX.findall(re.sub(r"\\[A-Za-z]", " ", a))}
+
+
+def graph_symbols(root):
+    """{name: "file:line"} for the code symbols of graphify-out/graph.json. A name counts only with an underscore
+    or an upper-case letter: a one-word lower-case name (batch, client) is also an everyday word. A dunder name
+    (__init__) is in every class, so it does not count."""
+    # shortcut: reads graph.json on each later broad search (2 MB: 20 ms), cache the names when a graph passes 20 MB
+    path = os.path.join(root, "graphify-out", "graph.json")
+    out = {}
+    try:
+        if os.path.getsize(path) > GRAPH_MAX_BYTES:
+            return {}
+        with open(path) as fh:
+            nodes = json.load(fh).get("nodes") or []
+        for node in nodes:
+            if not isinstance(node, dict) or node.get("file_type") != "code":
+                continue
+            name = str(node.get("label") or "").lstrip(".")
+            name = name[:-2] if name.endswith("()") else name
+            if SYMBOL_RX.fullmatch(name) and not name.startswith("__") and ("_" in name or name != name.lower()):
+                # the place reaches the agent in the deny text: one short line
+                where = "%s:%s" % (node.get("source_file") or "?", node.get("source_location") or "?")
+                out.setdefault(name, " ".join(where.split())[:120])
+    except Exception:       # a broken graph never blocks a search: no symbols
+        return {}
+    return out
 
 
 def set_flag(ctx, key):
