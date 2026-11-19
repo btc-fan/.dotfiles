@@ -10,4 +10,4 @@
 - [ ] The helper writes the log fields the hooks read.
 - [ ] The project hook and its settings entry are gone; the ADR records why.
 - [ ] One feature driven end to end on the new rules; evidence path in the PR.
-- [ ] oldmac setup updated to the merged commit first.
+- [x] oldmac setup updated to the merged commit first (69ce424, 2026-11-19). The verify Done line is merged in the project (re-adopt PR).

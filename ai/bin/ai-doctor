@@ -86,6 +86,7 @@ def main(argv):
     check_installed()
     check_versions(network=not quick and "--offline" not in argv)
     check_herdr()
+    check_gh()
     check_contracts()
     check_copies()
     check_secrets()
@@ -279,6 +280,23 @@ def check_versions(network=False):
         else:
             say("PASS", "%s %s is the %s" % (r["tool"], have,
                 "held version (ai/pins.env)" if r["state"] == "hold" else "newest stable"))
+
+
+def check_gh():
+    """gh logged in: PR create, view, checks and merge need it. A machine reached over ssh cannot read a token in the
+    macOS keychain, so the login there keeps it in gh's own file (2026-11-19). No gh: nothing to check."""
+    if not shutil.which("gh"):
+        return
+    try:
+        ok = subprocess.run(["gh", "auth", "status"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            timeout=20).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        ok = False
+    if ok:
+        say("PASS", "gh logged in")
+    else:
+        say("WARN", "gh not logged in (or its token is unreadable here): PR commands fail",
+            "gh auth login -h github.com -p ssh -w (a Mac reached over ssh: add --insecure-storage)")
 
 
 def check_herdr():

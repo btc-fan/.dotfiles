@@ -165,3 +165,22 @@ tests in `ai/tests/test_tier1.py` (and router cases for gates and rows). Common 
    `t_verify_skills_copy` fails on a hand edit.
 8. A new mattpocock opt-in skill: add its name to `MATTPOCOCK_OPTIN_PICKS` (tools.sh) and `OPTIN_SKILLS` (ai-start),
    its callees to `SKILL_CALLEES`, audit it, and update `ai/rules/mattpocock-skills.md`. Global picks stay five.
+
+## 11. Add a machine profile key
+
+A profile is `ai/profiles/<name>.env` (KEY=VALUE, shell syntax). Today: `server` (Ubuntu servers) and `dev-mac`
+(the Macs and dev boxes).
+
+1. Add `PROFILE_<KEY>` to every file in `ai/profiles/`, with a one-line comment above it. Every file sets every key.
+   The `server` value keeps today's server behavior.
+2. Add the key to the `export` line of `ai_profile_resolve` in `ai/lib/profile.sh`. Python reads it with
+   `ai_profile.load(name)` (`ai/lib/ai_profile.py`).
+3. A key that turns a part off on a machine that has it: undo the part from its install records, never delete
+   files the install did not record.
+4. Text for some profiles only: a routing row gets `profiles: [server]`; a line in `ai/agents-md/` ends with
+   ` <!-- profiles: server -->`. `ai-render` keeps it only for those profiles.
+5. Tests in `ai/tests/test_profiles.py`: the switch on and off, and the server dry-run plan unchanged (fixture
+   `server-linux-user.txt`).
+6. Document the key in `README.md` and `docs/INSTALL.md`.
+
+A new profile: copy `ai/profiles/dev-mac.env`, set every key, add tests. `install.sh --profile <name>` selects it.

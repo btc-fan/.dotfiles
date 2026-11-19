@@ -107,6 +107,7 @@ main() {
         trap 'rm -f "$AI_RESOLVE_MEMO"' EXIT
     fi
     [ "$AI_MODE" = user ] || first_question
+    nvm_agents_path
     pick_agents
 
     say "AI setup ($AI_MODE mode${AI_FOR_USER:+ for $AI_FOR_USER}) from $AI_HOME on $AI_OS ($AI_ARCH). Agents: ${AGENTS:-none}."
@@ -278,6 +279,17 @@ profile_save() {
     printf '%s\n' "$AI_PROFILE" > "$tmp"
     aiconf file-put "$AI_PROFILE_FILE" "$tmp" --mode 644
     rm -f "$tmp"
+}
+
+nvm_agents_path() {
+    # claude or codex installed with npm under nvm: a shell without nvm (ssh, cron) has no nvm on PATH, so the agent
+    # looked missing and every Claude step was skipped (2026-11-19). Add each nvm bin folder that holds one of them.
+    local d
+    for d in "$HOME"/.nvm/versions/node/*/bin; do
+        [ -x "$d/claude" ] || [ -x "$d/codex" ] || continue
+        case ":$PATH:" in *":$d:"*) ;; *) PATH="$PATH:$d" ;; esac
+    done
+    export PATH
 }
 
 pick_agents() {

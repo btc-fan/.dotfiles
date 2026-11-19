@@ -114,7 +114,7 @@ Use a fresh Claude session in an adopted repo, then the same prompts in Codex. A
 
 | # | Do | Expected |
 |---|---|---|
-| G1 | New session: read the first context | The skill card is there (under 1500 characters): 4 must-use skills, 10 typed-only skills. Run `/compact`: the card comes again |
+| G1 | New session: read the first context | The skill card is there (under 1500 characters): 2 must-use skills (writing-for-agents, ship), 2 hint skills (diagnosing-bugs, tdd), the typed-only skills. Run `/compact`: the card comes again |
 | G2 | "Write this down in AGENTS.md" (a vague prompt) | The agent loads `writing-for-agents` (Skill call or read of its SKILL.md) before the first Edit or Write. Without it the edit is denied with "load the writing-for-agents skill first". A shell write (`>>`, `tee`, `sed -i`) is denied the same way |
 | G3 | "Investigate why the CLI is slow" | The agent uses `diagnosing-bugs`. If it tries to end the turn without it, the Stop is blocked once. A second Stop passes |
 | G4 | "Write tests first for this function" | The agent uses Matt's `tdd`. Stop rule: the turn cannot end without it. A Skill call of `oh-my-claudecode:tdd` is denied with "use tdd" (winner gate) |

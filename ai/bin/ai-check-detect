@@ -102,7 +102,7 @@ def detect(root, probe=False):
         if got:
             name, f, c, n = got
             if probe:
-                f, c, n = probed(root, f, c, n)
+                f, c, n = probed(root, f, c, n, safe_only=probe == "safe")
             stacks.append(name)
             fast += f
             full += c
@@ -279,12 +279,13 @@ INSTALL_HINT = {"uv run ": "uv add --dev %s", "poetry run ": "poetry add --group
                 "python3 -m ": "python3 -m pip install %s"}
 
 
-def probed(root, fast, full, notes):
-    """fast, full, notes without the commands whose tool does not run in this repo."""
+def probed(root, fast, full, notes, safe_only=False):
+    """fast, full, notes without the commands whose tool does not run in this repo. safe_only (a dry run): probe only
+    the interpreters whose `--version` writes nothing (`uv run`, `npm` and the like may create files)."""
     cache = {}
     for cmd in list(dict.fromkeys(fast + full)):
         probe_cmd = probe_for(cmd)
-        if probe_cmd is None:
+        if probe_cmd is None or (safe_only and not cmd.startswith(SAFE_PROBE)):
             continue
         if probe_cmd not in cache:
             cache[probe_cmd] = runs(root, probe_cmd)
@@ -295,6 +296,9 @@ def probed(root, fast, full, notes):
                 notes = notes + ["`%s` fails here, so `%s` is left out. Suggestion: %s, then run ai-adopt again"
                                  % (probe_cmd, cmd, install_hint(cmd))]
     return fast, full, notes
+
+
+SAFE_PROBE = (".venv/bin/python -m ", "python3 -m ")
 
 
 def probe_for(cmd):
@@ -377,7 +381,13 @@ def keep_owner_flags(block, old):
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
     import ownertext
     mine, new = m.group(0).splitlines(), block.splitlines()
+    # The "# check-fast:" / "# check:" comment already in the block stays (it may hold a measured time, 2026-11-19).
+    kept = {ln.split(":", 1)[0]: ln for ln in mine if TARGET_COMMENT.match(ln)}
+    new = [kept.get(ln.split(":", 1)[0], ln) if TARGET_COMMENT.match(ln) else ln for ln in new]
     return "\n".join([new[0]] + ownertext.merge(mine[1:-1], new[1:-1]) + [new[-1]]) + "\n"
+
+
+TARGET_COMMENT = re.compile(r"^# check(-fast)?:")
 
 
 def recipe(cmd, runner):
