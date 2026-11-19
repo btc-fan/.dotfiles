@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+"""ai-update: one command brings this machine, and with --projects every adopted project, to the newest setup.
+
+  ai-update                   pull branch ai into ~/.dotfiles-ai, ai-sync, install.sh --yes, ai-doctor --quick
+  ai-update --projects        the same, then ai-adopt in every adopted project (one PR per project with changes)
+  ai-update --only-projects   only the project step
+  ai-update --no-pull         use ~/.dotfiles-ai as it is (no fetch)
+  ai-update --dry-run         change nothing: print the plan (install.sh --dry-run, ai-adopt --dry-run)
+
+The machine step (plug-and-play ticket 01): refuses root and a ~/.dotfiles-ai with uncommitted changes. A clone on
+branch ai is fast-forwarded; a detached copy is checked out at origin/ai. The full install log goes to
+~/.local/state/ai/ai-update.log.
+
+The project step (ticket 02): the projects are the list that ai-adopt keeps (~/.local/state/ai/projects) plus every
+git repo with .ai/base-version one level below the projects folders of this machine (~/.config/ai/projects-dir, else
+~/work). A project must be on its default branch with no uncommitted tracked change, else it is skipped with the
+reason. ai-adopt runs there; a change becomes a commit on the branch ai-adopt, a push and a PR, and the project goes
+back to its default branch. One line per project at the end: current, PR, skipped or failed.
+"""
+import os
+import subprocess
+import sys
+
+AI_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+HOME = os.path.expanduser("~")
+STATE = os.environ.get("AI_STATE_DIR") or os.path.join(HOME, ".local", "state", "ai")
+
+
+def main(argv):
+    opts = {a: a in argv for a in ("--projects", "--only-projects", "--no-pull", "--dry-run")}
+    unknown = [a for a in argv if a not in opts and a not in ("-h", "--help")]
+    if unknown or "-h" in argv or "--help" in argv:
+        print(__doc__.strip())
+        return 0 if not unknown else 2
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        print("ai-update: do not run it as root (it updates the setup of your user)")
+        return 1
+    rc = 0
+    if not opts["--only-projects"]:
+        rc = update_machine(opts["--no-pull"], opts["--dry-run"])
+        if rc:
+            return rc
+    if opts["--projects"] or opts["--only-projects"]:
+        rc = update_projects(opts["--dry-run"])
+    return rc
+
+
+# ---------------------------------------------------------------- the machine
+
+def update_machine(no_pull, dry):
+    tree = os.path.realpath(os.path.join(HOME, ".dotfiles-ai"))
+    if not os.path.isfile(os.path.join(tree, "install.sh")):
+        print("ai-update: %s has no install.sh: install once first (docs/INSTALL.md)" % tree)
+        return 1
+    if git(tree, "status", "--porcelain", "--untracked-files=no"):
+        print("ai-update: %s has uncommitted changes. Do one of these first:\n"
+              "  git -C %s status    # see them\n"
+              "  git -C %s stash     # keep them aside, then run ai-update again\n"
+              "  commit and push them to branch ai, then run ai-update again\n"
+              "  or use the files as they are: ai-update --no-pull" % (tree, tree, tree))
+        return 1
+    before = git(tree, "rev-parse", "--short", "HEAD")
+    if not no_pull:
+        if dry:
+            print("ai-update: [dry-run] git fetch origin, then move %s to origin/ai" % tree)
+        elif not pull_ai(tree):
+            return 1
+    after = git(tree, "rev-parse", "--short", "HEAD")
+    if not dry:
+        run([os.path.join(tree, "ai", "bin", "ai-sync")], quiet=True)
+    log = os.path.join(STATE, "ai-update.log")
+    os.makedirs(STATE, exist_ok=True)
+    cmd = [os.path.join(tree, "install.sh"), "--yes"] + (["--dry-run"] if dry else [])
+    with open(log, "w") as fh:
+        rc = subprocess.call(cmd, cwd=tree, stdout=fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+    for line in read_lines(log):
+        if line.startswith("AI setup") or line.lstrip().startswith(("FAIL", "ERROR", "manual:")):
+            print("  " + line.strip())
+    if rc:
+        print("ai-update: install.sh failed (exit %d); full log: %s" % (rc, log))
+        return rc
+    doctor = run([os.path.join(tree, "ai", "bin", "ai-doctor"), "--quick"], quiet=True)
+    print("  " + (doctor.strip().splitlines() or ["ai-doctor: no output"])[-1])
+    print("ai-update: machine %s -> %s%s (log: %s)" % (before, after, " [dry-run]" if dry else "", log))
+    return 0
+
+
+def pull_ai(tree):
+    if subprocess.call(["git", "-C", tree, "fetch", "-q", "origin"]) != 0:
+        print("ai-update: git fetch failed in %s (network?): nothing changed" % tree)
+        return False
+    branch = git(tree, "branch", "--show-current")
+    if branch and branch != "ai":
+        print("ai-update: %s is on branch %s, not ai: switch it first (git -C %s switch ai)" % (tree, branch, tree))
+        return False
+    move = ["merge", "--ff-only", "-q", "origin/ai"] if branch else ["checkout", "-q", "--detach", "origin/ai"]
+    if subprocess.call(["git", "-C", tree] + move) != 0:
+        print("ai-update: could not move %s to origin/ai (local commits?): nothing changed" % tree)
+        return False
+    return True
+
+
+# ---------------------------------------------------------------- the projects
+
+def update_projects(dry):
+    projects = known_projects()
+    if not projects:
+        print("ai-update: no adopted project found (run ai-adopt --dir <project> --yes once in each)")
+        return 0
+    adopt = os.path.join(AI_DIR, "bin", "ai-adopt")
+    results, rc = [], 0
+    for root in projects:
+        state, detail = update_project(root, adopt, dry)
+        results.append((root, state, detail))
+        rc = rc or (1 if state == "failed" else 0)
+    print("ai-update: projects")
+    for root, state, detail in results:
+        print("  %-8s %s%s" % (state, root.replace(HOME, "~", 1), (": " + detail) if detail else ""))
+    return rc
+
+
+def update_project(root, adopt, dry):
+    default = default_branch(root)
+    branch = git(root, "branch", "--show-current")
+    if branch != default:
+        return "skipped", "on branch %s, not %s" % (branch or "(detached)", default)
+    if git(root, "status", "--porcelain", "--untracked-files=no"):
+        return "skipped", "uncommitted changes on %s" % default
+    upstream = git(root, "rev-parse", "--abbrev-ref", "@{u}")      # no upstream: nothing to pull
+    if not dry and upstream and subprocess.call(["git", "-C", root, "pull", "-q", "--ff-only"],
+                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL):
+        return "skipped", "git pull --ff-only failed on %s" % default
+    res = subprocess.run([adopt, "--dir", root, "--yes"] + (["--dry-run"] if dry else []), cwd=root,
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+    out = res.stdout.decode("utf-8", "replace")
+    last = (out.strip().splitlines() or ["(no output)"])[-1]
+    if "nothing to change" in out:
+        return "current", ""
+    if res.returncode != 0:
+        return "failed", last
+    if dry:
+        would = [ln.split(" ", 2)[-1] for ln in out.splitlines() if ln.startswith(("would write", "would run"))]
+        return ("changes", ", ".join(would)) if would else ("failed", last)
+    if "committed on the branch" not in out:
+        return "failed", last
+    if "no remote" in out:
+        subprocess.call(["git", "-C", root, "switch", "-q", default])
+        return "commit", "on branch ai-adopt (no remote: no push, no PR)"
+    pr = adopt_pr_line(out)
+    if git(root, "branch", "--show-current") != default:
+        subprocess.call(["git", "-C", root, "switch", "-q", default])
+    return "pr", pr or "branch ai-adopt pushed (no PR: see ai-adopt output)"
+
+
+def adopt_pr_line(out):
+    """The text after "ai-adopt: PR " (a URL, or the reason there is none)."""
+    for line in out.splitlines():
+        if line.startswith("ai-adopt: PR ") or line.startswith("ai-adopt: gh "):
+            return line.split(": ", 1)[1]
+    return ""
+
+
+def known_projects():
+    """Real paths of the adopted projects: the ai-adopt list plus a scan of the projects folders (main checkouts
+    only: a linked worktree has a .git file, not a folder). A listed folder that is gone is left out."""
+    seen, out = set(), []
+    for path in read_lines(os.path.join(STATE, "projects")) + scanned():
+        real = os.path.realpath(os.path.expanduser(path.strip())) if path.strip() else ""
+        if real and real not in seen and os.path.isdir(os.path.join(real, ".git")) \
+                and os.path.isfile(os.path.join(real, ".ai", "base-version")):
+            seen.add(real)
+            out.append(real)
+    return out
+
+
+def scanned():
+    found = []
+    for folder in projects_folders():
+        try:
+            names = sorted(os.listdir(folder))
+        except OSError:
+            continue
+        found += [os.path.join(folder, n) for n in names]
+    return found
+
+
+def projects_folders():
+    """AI_PROJECTS_DIR, else ~/.config/ai/projects-dir (one line like "~/a and ~/b", also commas), else ~/work: the
+    same order as the host block of install.sh."""
+    lines = read_lines(os.path.join(HOME, ".config", "ai", "projects-dir"))
+    text = os.environ.get("AI_PROJECTS_DIR") or (lines[0] if lines else "~/work")
+    parts = [p.strip() for p in text.replace(" and ", ",").split(",")]
+    return [os.path.expanduser(p) for p in parts if p]
+
+
+def default_branch(root):
+    ref = git(root, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+    if ref:
+        return ref.split("/", 1)[-1]
+    for name in ("main", "master"):
+        if git(root, "rev-parse", "-q", "--verify", "refs/heads/" + name):
+            return name
+    return "main"
+
+
+# ---------------------------------------------------------------- helpers
+
+def git(root, *args):
+    res = subprocess.run(["git", "-C", root] + list(args), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    return res.stdout.decode("utf-8", "replace").strip() if res.returncode == 0 else ""
+
+
+def run(cmd, quiet=False, cwd=None):
+    res = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+    out = res.stdout.decode("utf-8", "replace")
+    if not quiet:
+        sys.stdout.write(out)
+    return out
+
+
+def read_lines(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return [ln.rstrip("\n") for ln in fh]
+    except OSError:
+        return []
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -5,7 +5,7 @@
 - Global rules: `ai/agents-md/*.md` (joined by `ai/bin/ai-render` into `~/.config/ai/AGENTS.md` and the Codex block). Routing rows: `ai/routing.yaml`.
 - Router hooks: `ai/marketplace/plugins/ai-core/hooks/` (`router.py`, `hooklib.py`; `rtk-hook` is the Claude RTK wrapper, silent in auto mode; `README.md` lists every gate and stop rule). The Hermes copies are generated.
 - Gates, stop rules, skill card, winner table: rows and the `skills:` and `winners:` blocks of `ai/routing.yaml`; one contract per rule in `ai/rules/` (for example `winner-gate.md`, `skill-card.md`).
-- Installer: `install.sh` and `ai/adapters/*.sh`. Project layer: `ai/bin/ai-start` (`ai-adopt` is a link to it); add-only updates and the owner-text guard: `ai/lib/ownertext.py`.
+- Installer: `install.sh` and `ai/adapters/*.sh`. Project layer: `ai/bin/ai-start` (`ai-adopt` is a link to it); add-only updates and the owner-text guard: `ai/lib/ownertext.py`. One-command update of a machine and its adopted projects: `ai/bin/ai-update` (project list: `~/.local/state/ai/projects`).
 - Our skills: `ai/skills/<name>/SKILL.md`, linked into `~/.claude/skills` and `~/.agents/skills`.
 - Check: `bash ai/tests/run.sh` (everything; about 10 min).
 - Evals: `ai/bin/ai-eval` (fixture repos, install level, headless behaviour level); cases in `ai/evals/cases/*.json`.

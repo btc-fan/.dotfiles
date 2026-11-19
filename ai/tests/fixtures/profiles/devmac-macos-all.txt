@@ -57,6 +57,7 @@ DRY RUN: commands are printed, nothing is changed.
   [dry-run] link    ~/.local/bin/ai-render -> $REPO/ai/bin/ai-render
   [dry-run] link    ~/.local/bin/ai-start -> $REPO/ai/bin/ai-start
   [dry-run] link    ~/.local/bin/ai-sync -> $REPO/ai/bin/ai-sync
+  [dry-run] link    ~/.local/bin/ai-update -> $REPO/ai/bin/ai-update
   [dry-run] link    ~/.local/bin/ai-versions -> $REPO/ai/bin/ai-versions
   [dry-run] link    ~/.local/bin/claude-notify -> $REPO/ai/bin/claude-notify
   [dry-run] link    ~/.local/bin/pr-resume -> $REPO/ai/bin/pr-resume

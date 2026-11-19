@@ -1248,6 +1248,98 @@ def t_adopt_conflict_writes_nothing(work):
         assert read(os.path.join(repo, rel)) == text, rel
 
 
+# ---------------------------------------------------------------- plug-and-play: ai-update (tickets 01, 02)
+
+FAKE_GH = ("#!/bin/sh\necho \"gh $*\" >> \"$GH_LOG\"\n"
+           "case \"$1 $2\" in \"pr create\") echo https://github.com/someone/upd/pull/7 ;; esac\nexit 0\n")
+
+
+def t_update_projects_flow(work):
+    """The journey proven first with verify-ai-setup (2026-11-19): ai-adopt lists the project and opens the PR; then
+    ai-update --only-projects: skipped (on ai-adopt), current (merged), and an older setup gives commit, push, PR and
+    the project back on its default branch."""
+    repo, env = adopt_repo(work, "upd", {})
+    bare = os.path.join(work, "someone", "upd.git")
+    run(["git", "init", "-q", "--bare", bare])
+    run(["git", "-C", repo, "remote", "add", "origin", bare])
+    base = run(["git", "-C", repo, "branch", "--show-current"]).stdout.strip()
+    run(["git", "-C", repo, "push", "-q", "origin", base], env=env)
+    fake = env["PATH"].split(os.pathsep)[0]
+    write(os.path.join(fake, "gh"), FAKE_GH)
+    write(os.path.join(fake, "claude"), "#!/bin/sh\nexit 0\n")      # never a real headless claude in a test
+    for f in ("gh", "claude"):
+        os.chmod(os.path.join(fake, f), 0o755)
+    env = dict(env, GH_LOG=os.path.join(work, "gh-upd.log"), AI_PROJECTS_DIR=os.path.join(work, "no-such-folder"))
+    write(os.path.join(repo, ".ai", "enabled"), "no-serena\nno-graph\n")
+    res = run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--yes"], env=env, cwd=repo)  # as ai-update runs it
+    assert res.returncode == 0 and "ai-adopt: PR https://github.com/someone/upd/pull/7" in res.stdout, res.stdout
+    assert "pr create --base %s --head ai-adopt" % base in read(env["GH_LOG"]), read(env["GH_LOG"])
+    assert os.path.realpath(repo) in read(os.path.join(env["AI_STATE_DIR"], "projects")).splitlines()
+
+    def update():
+        return run([sys.executable, os.path.join(BIN, "ai-update"), "--only-projects"], env=env, timeout=600).stdout
+
+    out = update()
+    assert "skipped" in out and "on branch ai-adopt, not %s" % base in out, out
+    run(["git", "-C", repo, "switch", "-q", base], env=env)
+    run(["git", "-C", repo, "merge", "-q", "--ff-only", "ai-adopt"], env=env)
+    run(["git", "-C", repo, "branch", "-q", "-D", "ai-adopt"], env=env)
+    run(["git", "-C", repo, "push", "-q", "origin", "--delete", "ai-adopt"], env=env)
+    out = update()
+    assert "current" in out, out
+    agents = read(os.path.join(repo, "AGENTS.md"))
+    line = [ln for ln in agents.splitlines() if ln.startswith("3. No test is deleted")][0]
+    write(os.path.join(repo, "AGENTS.md"), agents.replace(line + "\n", ""))
+    run(["git", "-C", repo, "commit", "-q", "-am", "older setup"], env=env)
+    out = update()
+    assert "pr       " in out and "https://github.com/someone/upd/pull/7" in out, out
+    assert run(["git", "-C", repo, "branch", "--show-current"]).stdout.strip() == base, "back on the default branch"
+    assert line in run(["git", "-C", repo, "show", "ai-adopt:AGENTS.md"]).stdout
+
+
+def t_update_machine(work):
+    """ai-update on a ~/.dotfiles-ai one commit behind: fast-forward, ai-sync, install.sh --yes, ai-doctor; a dirty copy
+    is refused; --dry-run moves nothing and runs install.sh --dry-run."""
+    home = os.path.join(work, "upd-home")
+    origin = os.path.join(work, "upd-origin.git")
+    src = os.path.join(work, "upd-src")
+    stub = "#!/bin/sh\necho \"$(basename \"$0\") $*\" >> \"$HOME/calls\"\n"
+    tree(work, "upd-src", {"install.sh": stub + "echo 'AI setup (stub). Agents: claude.'\n",
+                           "ai/bin/ai-sync": stub, "ai/bin/ai-doctor": stub + "echo 'ai-doctor: 1 pass, 0 fail'\n"})
+    for f in ("install.sh", "ai/bin/ai-sync", "ai/bin/ai-doctor"):
+        os.chmod(os.path.join(src, f), 0o755)
+    env = {"HOME": home, "AI_STATE_DIR": os.path.join(home, "state"), "GIT_AUTHOR_NAME": "t",
+           "GIT_AUTHOR_EMAIL": "t@t.invalid", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t.invalid"}
+    os.makedirs(home)
+    run(["git", "init", "-q", "-b", "ai", src], env=env)
+    run(["git", "-C", src, "add", "-A"], env=env)
+    run(["git", "-C", src, "commit", "-q", "-m", "one"], env=env)
+    run(["git", "clone", "-q", "--bare", src, origin], env=env)
+    tree_dir = os.path.join(home, ".dotfiles-ai")
+    run(["git", "clone", "-q", "-b", "ai", origin, tree_dir], env=env)
+    write(os.path.join(src, "NEW"), "x\n")
+    run(["git", "-C", src, "add", "-A"], env=env)
+    run(["git", "-C", src, "commit", "-q", "-m", "two"], env=env)
+    run(["git", "-C", src, "push", "-q", origin, "ai"], env=env)
+    old = run(["git", "-C", tree_dir, "rev-parse", "--short", "HEAD"]).stdout.strip()
+    new = run(["git", "-C", src, "rev-parse", "--short", "HEAD"]).stdout.strip()
+    upd = [sys.executable, os.path.join(BIN, "ai-update")]
+    assert run(upd + ["--help"], env=env).returncode == 0 and run(upd + ["--bogus"], env=env).returncode == 2
+
+    write(os.path.join(tree_dir, "install.sh"), stub + "# edited\n")
+    res = run(upd, env=env)
+    assert res.returncode == 1 and "has uncommitted changes" in res.stdout, res.stdout
+    run(["git", "-C", tree_dir, "checkout", "-q", "install.sh"])
+    res = run(upd + ["--dry-run"], env=env)
+    assert res.returncode == 0 and "machine %s -> %s [dry-run]" % (old, old) in res.stdout, res.stdout
+    assert "install.sh --yes --dry-run" in read(os.path.join(home, "calls")), read(os.path.join(home, "calls"))
+    res = run(upd, env=env)
+    assert res.returncode == 0 and "machine %s -> %s" % (old, new) in res.stdout, res.stdout
+    assert "ai-doctor: 1 pass, 0 fail" in res.stdout and "Agents: claude." in res.stdout, res.stdout
+    calls = read(os.path.join(home, "calls")).splitlines()
+    assert calls[-3:] == ["ai-sync ", "install.sh --yes", "ai-doctor --quick"], calls
+
+
 # ---------------------------------------------------------------- helpers
 
 def detect(repo):
@@ -1330,7 +1422,7 @@ TESTS_LIST = [t_verify_skills_copy, t_pstack_adapt_ours, t_adopt_verify_link, t_
               t_detect_probe_drops_missing_tool, t_detect_safe_probe_for_dry_run, t_adopt_failing_check_turns_stop_off, t_adopt_leaves_tree_clean, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
               t_adopt_branch_exists_main_clean, t_adopt_old_branch, t_adopt_unborn_main, t_typed_only_skill_paths,
               t_plan_keeps_targets, t_plan_keeps_owner_flags, t_plan_keeps_target_comments, t_adopt_owner_text_survives_rerun, t_adopt_gitignore_makefile_owner_lines,
-              t_adopt_conflict_writes_nothing, t_doctor_owner_text, t_adopt_own_done, t_adopt_own_done_verify_block, t_adopt_long_tier, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused, t_adopt_monorepo_owner_makefile_done,
+              t_adopt_conflict_writes_nothing, t_doctor_owner_text, t_adopt_own_done, t_adopt_own_done_verify_block, t_adopt_long_tier, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused, t_update_projects_flow, t_update_machine, t_adopt_monorepo_owner_makefile_done,
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_continuation_checks_the_fix, t_stop_chain_cap, t_stop_no_baseline_uses_head,
               t_stop_recipe_changed, t_stop_skipped_only_and_group_kill,
               t_stop_success_silent_both_agents, t_stop_codex_block_and_timeout, t_stop_floor_zero_tests,
