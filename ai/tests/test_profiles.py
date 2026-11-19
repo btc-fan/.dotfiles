@@ -247,6 +247,26 @@ def t_render_profiles(work):
         assert ('"deny"' in text and "audit-before-install" in text) == denied, (prof, text)
 
 
+def t_doctor_gh_login(work):
+    """ai-doctor warns when gh is installed but not logged in (a machine said 0 fail while every gh pr call failed,
+    2026-11-19), with the login command; a logged-in gh passes; no gh: nothing to say."""
+    fake = os.path.join(work, "gh-bin")
+    code = ("import importlib.machinery, importlib.util, sys; sys.dont_write_bytecode = True; "
+            "l = importlib.machinery.SourceFileLoader('doctor', %r); s = importlib.util.spec_from_loader('doctor', l); "
+            "m = importlib.util.module_from_spec(s); l.exec_module(m); m.check_gh()" % os.path.join(AI_DIR, "bin", "ai-doctor"))
+
+    def doctor(rc):
+        stub(fake, "gh", "#!/bin/sh\n[ \"$1 $2\" = 'auth status' ] && exit %d\nexit 0\n" % rc)
+        env = {"HOME": os.path.join(work, "gh-home"), "PATH": fake + ":/usr/bin:/bin"}
+        res = subprocess.run([sys.executable, "-c", code], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        return res.stdout.decode()
+
+    out = doctor(1)
+    assert "WARN" in out and "gh auth login -h github.com -p ssh -w" in out, out
+    out = doctor(0)
+    assert "PASS" in out and "WARN" not in out, out
+
+
 def t_doctor_devmac(work):
     """ai-doctor on dev-mac: FAIL for guarddog/osv-scanner from this setup, the audit gate row, a box registration;
     PASS when they are absent (absence is never a failure)."""
@@ -354,7 +374,7 @@ def t_devmac_linux_plan(work):
     assert "[14/14] verify" in out, out
 
 
-TESTS_LIST = [t_devmac_last30days, t_doctor_devmac, t_render_profiles, t_server_plan_unchanged, t_devmac_plan, t_agents_under_nvm, t_devmac_linux_plan, t_profile_choice]
+TESTS_LIST = [t_devmac_last30days, t_doctor_gh_login, t_doctor_devmac, t_render_profiles, t_server_plan_unchanged, t_devmac_plan, t_agents_under_nvm, t_devmac_linux_plan, t_profile_choice]
 
 if __name__ == "__main__":
     sys.exit(main())
