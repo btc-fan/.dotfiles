@@ -1153,12 +1153,14 @@ def symbol_deny(rule, tool, tin, ctx):
     new = sorted(w for w in words if w in known and w not in seen)
     if not new:
         return ""
+    new = new[:5]       # a symbol that is not named in the deny stays unseen, so a later search names it
     seen.extend(new)
     ctx.state.dirty = True
-    return "Code symbols in this search: %s." % ", ".join("%s (%s)" % (w, known[w]) for w in new[:5])
+    return "Code symbols in this search: %s." % ", ".join("%s (%s)" % (w, known[w]) for w in new)
 
 
 SEARCH_EXES = ("rg", "grep", "ag", "ack")
+GRAPH_MAX_BYTES = 50 * 1024 * 1024
 SYMBOL_RX = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")
 
 
@@ -1181,19 +1183,24 @@ def graph_symbols(root):
     or an upper-case letter: a one-word lower-case name (batch, client) is also an everyday word. A dunder name
     (__init__) is in every class, so it does not count."""
     # shortcut: reads graph.json on each later broad search (2 MB: 20 ms), cache the names when a graph passes 20 MB
-    try:
-        with open(os.path.join(root, "graphify-out", "graph.json")) as fh:
-            nodes = json.load(fh).get("nodes") or []
-    except (OSError, ValueError, AttributeError):
-        return {}
+    path = os.path.join(root, "graphify-out", "graph.json")
     out = {}
-    for node in nodes:
-        if not isinstance(node, dict) or node.get("file_type") != "code":
-            continue
-        name = str(node.get("label") or "").lstrip(".")
-        name = name[:-2] if name.endswith("()") else name
-        if SYMBOL_RX.fullmatch(name) and not name.startswith("__") and ("_" in name or name != name.lower()):
-            out.setdefault(name, "%s:%s" % (node.get("source_file") or "?", node.get("source_location") or "?"))
+    try:
+        if os.path.getsize(path) > GRAPH_MAX_BYTES:
+            return {}
+        with open(path) as fh:
+            nodes = json.load(fh).get("nodes") or []
+        for node in nodes:
+            if not isinstance(node, dict) or node.get("file_type") != "code":
+                continue
+            name = str(node.get("label") or "").lstrip(".")
+            name = name[:-2] if name.endswith("()") else name
+            if SYMBOL_RX.fullmatch(name) and not name.startswith("__") and ("_" in name or name != name.lower()):
+                # the place reaches the agent in the deny text: one short line
+                where = "%s:%s" % (node.get("source_file") or "?", node.get("source_location") or "?")
+                out.setdefault(name, " ".join(where.split())[:120])
+    except Exception:       # a broken graph never blocks a search: no symbols
+        return {}
     return out
 
 
