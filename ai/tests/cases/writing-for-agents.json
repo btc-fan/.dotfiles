@@ -243,6 +243,16 @@
                                          "tool_input": {"command": "cat {{HOME}}/.local/share/ai/plugins/ai-core/skills/writing-for-agents/SKILL.md"}}},
     {"event": "PreToolUse", "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/AGENTS.md"}}}
    ]
-  }
+  },
+  {"name": "python heredoc that writes AGENTS.md: deny", "expect": "deny", "event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "python3 - <<'EOF'\nimport pathlib\npathlib.Path(\"AGENTS.md\").write_text(\"x\")\nEOF"}}, "contains": "[ai gate writing-for-agents]"},
+  {"name": "python -c open(..., 'w') on a SKILL.md: deny", "expect": "deny", "event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "python3 -c \"open('ai/skills/ship/SKILL.md', 'w').write('x')\""}}},
+  {"name": "perl -pi on CLAUDE.md: deny", "expect": "deny", "event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "perl -pi -e 's/a/b/' CLAUDE.md"}}},
+  {"name": "node -e writeFileSync on AGENTS.md: deny", "expect": "deny", "event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "node -e \"require('fs').writeFileSync('AGENTS.md', 'x')\""}}},
+  {"name": "python heredoc that only reads AGENTS.md: allow", "expect": "allow", "event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "python3 - <<'EOF'\nprint(open(\"AGENTS.md\").read()[:100])\nEOF"}}},
+  {"name": "python -c that only reads AGENTS.md: allow", "expect": "allow", "event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "python3 -c \"print(open('AGENTS.md').read())\""}}},
+  {"name": "python -c piped into grep -i on AGENTS.md: allow (-i is not perl -i)", "expect": "allow", "event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "python3 -c \"print(1)\" | grep -i x AGENTS.md"}}},
+  {"name": "sys.stdout.write of AGENTS.md text: allow (a read)", "expect": "allow", "event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "python3 -c \"import sys; sys.stdout.write(open('AGENTS.md').read())\""}}},
+  {"name": "perl -ne on AGENTS.md: allow (a read)", "expect": "allow", "event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "perl -ne 'print if /x/' AGENTS.md"}}},
+  {"name": "uv run python that writes AGENTS.md: deny", "expect": "deny", "event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "uv run python -c \"open('AGENTS.md','w').write('x')\""}}}
  ]
 }

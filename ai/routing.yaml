@@ -84,7 +84,7 @@ rules:
     action: "{nav_hint}"   # empty when the repo has no graph and Serena is off
     once_per: 'session'
     deny_once_when: graph   # the first search is denied once when the repo has a graph (stale: update it first)
-    proof: 'graphify|serena|find_symbol|find_referencing_symbols'
+    proof: 'graphify (query|affected)|find_symbol|find_referencing_symbols|get_symbols_overview|find_declaration|find_implementations'   # ticket 18: initial_instructions and graphify update are not navigation
     strength: nudge
 
   - id: knowledge-check
@@ -199,7 +199,7 @@ rules:
   - id: no-em-dash
     scope: global
     summary: 'after a write with U+2014'
-    trigger: {tool_after: 'Edit|Write', content: "\u2014"}   # escaped so this file itself passes the lint
+    trigger: {tool_after: 'Edit|Write|MultiEdit|Bash|shell|exec_command|local_shell', content: "\u2014"}   # escaped so this file itself passes the lint; shell: the lines a command added to the files it writes (ticket 19)
     action: "Remove the em dash (U+2014). Use '-', ':' or a new sentence."
     strength: nudge
 
