@@ -149,7 +149,7 @@ def main(argv):
     knowledge = opts["knowledge"]
     if knowledge and (opts["refresh_map"] or not MAP_RX.search(agents)):
         agents = upsert_map(agents, build_map(root))
-    checks = check_plan(root, tier, probe=not opts["dry_run"])
+    checks = check_plan(root, tier, probe="safe" if opts["dry_run"] else True)
     if checks and checks.get("text") is not None:
         plan.append((os.path.join(root, checks["file"]), checks["text"]))
     if checks:
@@ -1196,7 +1196,7 @@ def check_detect_module():
 
 def check_plan(root, tier, probe=True):
     """The check-fast / check targets for this repo (ai-check-detect), or None (no stack, monorepo: printed).
-    probe: leave out a lint or test tool that does not run here (a dry run does not probe: probes can write)."""
+    probe: leave out a lint or test tool that does not run here ("safe" in a dry run: only probes that write nothing)."""
     mod = check_detect_module()
     info = mod.detect(root, probe=probe)
     if not info.get("ok"):

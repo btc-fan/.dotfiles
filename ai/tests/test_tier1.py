@@ -262,6 +262,20 @@ def t_adopt_monorepo_owner_makefile_done(work):
     assert "; the project check (the Map says which) passes." in done, done
 
 
+def t_detect_safe_probe_for_dry_run(work):
+    """A dry run said "would write Makefile" for a ruff line the real run then left out (2026-11-19). probe="safe"
+    (the ai-adopt dry run) tests the read-only interpreters (.venv/bin/python -m, python3 -m) and nothing else."""
+    repo = tree(work, "py-safe", {"pyproject.toml": "[project]\nname='x'\n[tool.ruff]\n",
+                                  "tests/test_a.py": "def test_a(): pass\n",
+                                  ".venv/bin/python": "#!/bin/sh\ncase \"$2\" in ruff) exit 1;; esac\nexit 0\n"})
+    os.chmod(os.path.join(repo, ".venv", "bin", "python"), 0o755)
+    mod = load(os.path.join(BIN, "ai-check-detect"), "acd_safe")
+    assert mod.detect(repo, probe="safe")["fast"] == [".venv/bin/python -m pytest -x -q"]
+    uv = tree(work, "uv-safe", {"pyproject.toml": "[project]\nname='x'\n[tool.ruff]\n", "uv.lock": "",
+                                "tests/test_a.py": "def test_a(): pass\n"})
+    assert "uv run ruff check ." in mod.detect(uv, probe="safe")["fast"], "uv run can write: not probed"
+
+
 def t_detect_probe_drops_missing_tool(work):
     """QA 2026-11-15 (scriptube): `.venv/bin/python -m ruff` failed, so check-fast failed on a tool not installed."""
     repo = tree(work, "py-probe", {"pyproject.toml": "[project]\nname='x'\n[tool.ruff]\n[tool.mypy]\n",
@@ -1313,7 +1327,7 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
 
 
 TESTS_LIST = [t_verify_skills_copy, t_pstack_adapt_ours, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_skills_none, t_detect_python_uv, t_detect_python_pip, t_detect_python_no_manifest, t_detect_node, t_detect_go_rust, t_detect_monorepo, t_detect_missing_dir,
-              t_detect_probe_drops_missing_tool, t_adopt_failing_check_turns_stop_off, t_adopt_leaves_tree_clean, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
+              t_detect_probe_drops_missing_tool, t_detect_safe_probe_for_dry_run, t_adopt_failing_check_turns_stop_off, t_adopt_leaves_tree_clean, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
               t_adopt_branch_exists_main_clean, t_adopt_old_branch, t_adopt_unborn_main, t_typed_only_skill_paths,
               t_plan_keeps_targets, t_plan_keeps_owner_flags, t_plan_keeps_target_comments, t_adopt_owner_text_survives_rerun, t_adopt_gitignore_makefile_owner_lines,
               t_adopt_conflict_writes_nothing, t_doctor_owner_text, t_adopt_own_done, t_adopt_own_done_verify_block, t_adopt_long_tier, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused, t_adopt_monorepo_owner_makefile_done,
