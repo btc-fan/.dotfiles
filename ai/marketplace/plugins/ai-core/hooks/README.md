@@ -215,11 +215,13 @@ sources. What we took from each: `ai/rules/verification-skill.md`. Speed, and ot
 - Secret scan in a merge with more than one `MERGE_HEAD` (octopus) compares with the first one only.
 - Codex: file edits by `apply_patch` are not checked by no-em-dash or graph-update (Bash and Claude
   Edit/Write only); re-inject after compaction uses SessionStart source `compact`.
-- An interpreter command (`python3 -c`, a python heredoc, `perl -i`, `node -e`, `ruby -e`) that writes (`write_text`,
-  `open(..., 'w')`, `writeFileSync`, `-i`) counts as a write of every file name in its text: the writing-for-agents
-  gate and no-em-dash see it. A script file (`python3 fix.py`) and `dd of=` are not seen.
-- no-em-dash after a shell command reads the files that the command writes: the added lines of `git diff HEAD` in a
-  tracked file, every line in a new file.
+- An interpreter command (`python3 -c`, a python heredoc, `perl -i`, `node -e`, `ruby -e`, also behind `uv run`) that
+  writes (`write_text`, `open(..., 'w')`, `writeFileSync`, perl or ruby `-i`) counts as a write of every file name in
+  its text: the writing-for-agents gate and no-em-dash see it. A script that reads an agent document and writes
+  another file also counts (load the skill once). Not seen: a script file (`python3 fix.py`), `dd of=`, a path built
+  at run time, `shutil.copy`.
+- no-em-dash after a shell command reads the files that the command writes (at most 20): the added lines of
+  `git diff HEAD` in a tracked file, every line in a new file. One nudge per file and session.
 - Builtin secret patterns are a fixed list; new token formats need a new pattern or gitleaks.
 - no-destroy cannot see through a script file, `find -delete` or `xargs rm`; the sandbox, branch protection
   and a database role without DROP/TRUNCATE are the real boundary.

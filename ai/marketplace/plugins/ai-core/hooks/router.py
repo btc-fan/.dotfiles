@@ -426,8 +426,9 @@ def on_post_tool(ctx):
         if not rule_enabled(rule, ctx) or not conditions_match(rule, tool, tin, cmd, ctx):
             continue
         if trig.get("content"):
-            if ctx.stages:
+            if ctx.stages:      # git diff shows every uncommitted line: one nudge per file and session
                 hits, where = shell_content_hits(trig["content"], edited_files(tool, tin, ctx), ctx.cwd)
+                hits = hits if hits and ctx.state.allow_nudge(rule, "%s:%s" % (rule["id"], where)) else 0
             else:
                 hits, where = content_hits(trig["content"], tin), file_of(tin)
             text = render_action(rule, ctx) if hits else ""
@@ -956,7 +957,7 @@ def expand_braces(globs):
 
 
 NAV_TOOLS = ("find_symbol", "find_referencing_symbols", "get_symbols_overview", "find_declaration",
-             "find_implementations")
+             "find_implementations")      # keep in step with the nav-first proof: regex in ai/routing.yaml
 
 
 def is_navigation(tool, stages):
@@ -971,17 +972,22 @@ def shell_content_hits(needle, paths, cwd):
     """A shell command wrote files (ticket 19): count the needle in the lines it added. A tracked file: the added
     lines of git diff HEAD (old text does not count). A new or untracked file: every line. Returns (hits, first file)."""
     total, first = 0, ""
-    for rel in dict.fromkeys(p for p in paths if p):
-        path = os.path.join(cwd, os.path.expanduser(rel))
-        if not os.path.isfile(path) or os.path.getsize(path) > 1000000:
-            continue
+    files = [os.path.join(cwd, os.path.expanduser(p)) for p in dict.fromkeys(p for p in paths if p)]
+    for path in [f for f in files if os.path.isfile(f)][:20]:       # bound: 2 git calls per file
         folder, name = os.path.dirname(path), os.path.basename(path)
-        diff = git_quick(folder, ["diff", "--no-color", "-U0", "HEAD", "--", name])
-        if diff is not None and git_quick(folder, ["ls-files", "--error-unmatch", "--", name]) is not None:
+        tracked = git_quick(folder, ["ls-files", "--error-unmatch", "--", name]) is not None
+        diff = git_quick(folder, ["diff", "--no-color", "-U0", "HEAD", "--", name]) if tracked else None
+        if diff is not None:
             lines = [ln[1:] for ln in diff.splitlines() if ln.startswith("+") and not ln.startswith("+++")]
         else:
-            with open(path, encoding="utf-8", errors="replace") as fh:
-                lines = fh.read().splitlines()
+            try:
+                if os.path.getsize(path) > 1000000:
+                    continue
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    lines = fh.read().splitlines()
+            except OSError:
+                continue
+        rel = os.path.relpath(path, cwd)
         hits = sum(1 for ln in lines if needle in ln)
         total, first = total + hits, first or (rel if hits else "")
     return total, first

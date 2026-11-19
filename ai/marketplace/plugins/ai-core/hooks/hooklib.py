@@ -275,19 +275,33 @@ def shell_inner_text(st):
     return None
 
 
-INTERPRETER = re.compile(r"^(python|perl|node|ruby)[\d.]*$")
-SCRIPT_WRITE = re.compile(r"write_text|write_bytes|\.write\(|open\([^)]*['\"][wax]\+?['\"]|writeFileSync|appendFileSync"
-                          r"|createWriteStream|File\.(write|open)|(^|\s)-[a-z]*i\b")
+SCRIPT_INTERPRETER = re.compile(r"^(python|perl|node|ruby)[\d.]*$")
+SCRIPT_RUNNERS = ("uv", "poetry", "pipenv")      # uv run python ...
+SCRIPT_WRITE = re.compile(r"write_text|write_bytes|open\([^)]*['\"][wax]\+?['\"]|writeFileSync|appendFileSync"
+                          r"|createWriteStream|File\.write")
 SCRIPT_PATH = re.compile(r"(?<![\w.])[\w~./-]+\.[A-Za-z]\w*")
+
+
+def script_writes(stages, cmd):
+    """An interpreter stage (python, perl, node, ruby; also behind uv run) whose script writes: a write call in the
+    raw text (heredoc bodies are not in the stages), or perl / ruby -i (in place)."""
+    for st in stages:
+        words = st.args[1:] if st.exe in SCRIPT_RUNNERS and st.args[:1] == ["run"] else [st.exe] + st.args
+        if not words or not SCRIPT_INTERPRETER.match(os.path.basename(words[0])):
+            continue
+        if SCRIPT_WRITE.search(cmd) or (words[0].startswith(("perl", "ruby"))
+                                        and any(re.match(r"^-[a-zA-Z]*i", a) for a in words[1:])):
+            return True
+    return False
 
 
 def write_targets(stages, cwd, cmd=""):
     """Files a shell command writes: redirections (> >> &>), tee, sed -i, the destination of cp and mv, and for an
-    interpreter (python -c, a python heredoc, perl -i, node -e) every file name in the command when the script writes.
-    shortcut: dd of= and a script file (python fix.py) are not seen; add them when one shows up."""
+    interpreter that writes (script_writes) every file name in the command: a read-and-write script that names an
+    agent document counts as its write. shortcut: dd of= and a script file (python fix.py) are not seen."""
     out = []
-    if cmd and any(INTERPRETER.match(st.exe) for st in stages) and SCRIPT_WRITE.search(cmd):
-        out += SCRIPT_PATH.findall(cmd)      # heredoc bodies are not in the stages: scan the raw text
+    if cmd and script_writes(stages, cmd):
+        out += SCRIPT_PATH.findall(cmd)
     for st in stages:
         out += [t for op, t in st.redirs if op.lstrip("&") in (">", ">>")]
         if st.exe == "tee":
