@@ -160,8 +160,9 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
 - graph-first (the nav-first rule, `deny_once_when: graph`): in a repo with code and a `graphify-out/graph.json`
   (graph not off by `no-graph`), the first broad search of a session (Grep, or the nav-first command regex) is
   denied once with "run graphify query first" (a stale graph: "run graphify update, then graphify query"); the
-  next search passes. A session that already ran graphify or a Serena tool
-  passes (PostToolUse marks it).
+  next search passes. A session that already navigated passes (PostToolUse marks it): `graphify query`,
+  `graphify affected`, or Serena `find_symbol`, `find_referencing_symbols`, `get_symbols_overview`,
+  `find_declaration`, `find_implementations`. Serena `initial_instructions` and `graphify update` do not count.
   Each later broad search that names a code symbol of `graph.json` is denied once for that symbol, with the
   symbol, its file and line, and the navigation order; the same search passes on a retry. A name counts only
   with an underscore or an upper-case letter (not `batch`, not `__init__`). Not counted: words in a path or a
@@ -218,7 +219,13 @@ sources. What we took from each: `ai/rules/verification-skill.md`. Speed, and ot
 - Secret scan in a merge with more than one `MERGE_HEAD` (octopus) compares with the first one only.
 - Codex: file edits by `apply_patch` are not checked by no-em-dash or graph-update (Bash and Claude
   Edit/Write only); re-inject after compaction uses SessionStart source `compact`.
-- The writing-for-agents gate does not see a write by a script or an interpreter (`python -c`, `perl -i`, `dd`).
+- An interpreter command (`python3 -c`, a python heredoc, `perl -i`, `node -e`, `ruby -e`, also behind `uv run`) that
+  writes (`write_text`, `open(..., 'w')`, `writeFileSync`, perl or ruby `-i`) counts as a write of every file name in
+  its text: the writing-for-agents gate and no-em-dash see it. A script that reads an agent document and writes
+  another file also counts (load the skill once). Not seen: a script file (`python3 fix.py`), `dd of=`, a path built
+  at run time, `shutil.copy`.
+- no-em-dash after a shell command reads the files that the command writes (at most 20): the added lines of
+  `git diff HEAD` in a tracked file, every line in a new file. One nudge per file and session.
 - Builtin secret patterns are a fixed list; new token formats need a new pattern or gitleaks.
 - no-destroy cannot see through a script file, `find -delete` or `xargs rm`; the sandbox, branch protection
   and a database role without DROP/TRUNCATE are the real boundary.

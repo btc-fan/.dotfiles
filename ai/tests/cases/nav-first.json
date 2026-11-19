@@ -195,6 +195,10 @@
    "gate_skip": "nav-first {{SOON}} graph is broken today",
    "contains": ["skipped by the owner", "graphify query"],
    "state_contains": {"gates.log": "SKIP nav-first"}
-  }
+  },
+  {"name": "Serena initial_instructions is not navigation: the first Grep is still denied", "expect": "deny", "steps": [{"event": "PostToolUse", "payload": {"tool_name": "mcp__plugin_ai-serena_serena__initial_instructions", "tool_input": {}}}, {"event": "PreToolUse", "payload": {"tool_name": "Grep", "tool_input": {"pattern": "a"}}}], "project": {"git": true, "files": {"app.py": "x = 1\n", "graphify-out/graph.json": "{}", ".serena/project.yml": "name: x\n"}}},
+  {"name": "graphify update is not navigation: the first Grep is still denied", "expect": "deny", "steps": [{"event": "PostToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "graphify update ."}}}, {"event": "PreToolUse", "payload": {"tool_name": "Grep", "tool_input": {"pattern": "a"}}}], "project": {"git": true, "files": {"app.py": "x = 1\n", "graphify-out/graph.json": "{}", ".serena/project.yml": "name: x\n"}}},
+  {"name": "graphify affected and Serena get_symbols_overview count as navigation", "expect": "allow", "steps": [{"event": "PostToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "graphify affected \"app.py::x\""}}}, {"event": "PreToolUse", "payload": {"tool_name": "Grep", "tool_input": {"pattern": "a"}}}], "project": {"git": true, "files": {"app.py": "x = 1\n", "graphify-out/graph.json": "{}", ".serena/project.yml": "name: x\n"}}},
+  {"name": "Serena get_symbols_overview counts as navigation", "expect": "allow", "steps": [{"event": "PostToolUse", "payload": {"tool_name": "mcp__plugin_ai-serena_serena__get_symbols_overview", "tool_input": {"relative_path": "app.py"}}}, {"event": "PreToolUse", "payload": {"tool_name": "Grep", "tool_input": {"pattern": "a"}}}], "project": {"git": true, "files": {"app.py": "x = 1\n", "graphify-out/graph.json": "{}", ".serena/project.yml": "name: x\n"}}}
  ]
 }
