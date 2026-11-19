@@ -82,7 +82,7 @@ def launch(args):
     if not args or bad:
         sys.exit("verify launch: name one or more kinds of %s (got %s)" % (", ".join(KINDS), bad or "none"))
 
-    run = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + label
+    run = run_name(label)
     folder = os.path.join(EVIDENCE, run)
     os.makedirs(folder)
     write(os.path.join(folder, "run.log"), "commit: %s\n" % head())
@@ -382,7 +382,8 @@ def home_listing(home):
 
 def evidence():
     """The current run, or after cleanup the newest one: its files and whether run.log is proof for the hooks."""
-    run = read(CURRENT).strip() or max(os.listdir(EVIDENCE) if os.path.isdir(EVIDENCE) else [""])
+    names = os.listdir(EVIDENCE) if os.path.isdir(EVIDENCE) else []      # EU date order: newest by folder time
+    run = read(CURRENT).strip() or max(names, key=lambda n: os.path.getmtime(os.path.join(EVIDENCE, n)), default="")
     if not run:
         sys.exit("verify evidence: no run yet. Start one: verify launch KIND")
     folder = os.path.join(EVIDENCE, run)
@@ -498,6 +499,14 @@ def pty_run(cmd, env, cwd, timeout):
     proc.wait()
     os.close(master)
     return proc.returncode, b"".join(chunks).decode("utf-8", "replace").replace("\r\n", "\n")
+
+
+def run_name(label):
+    """<branch>_<label>_<DD-MM-YYYY>_<HH-MM-SS> (UTC); the label is left out when it is the branch."""
+    branch = subprocess.run(["git", "-C", ROOT, "branch", "--show-current"], stdout=subprocess.PIPE,
+                            text=True).stdout.strip().replace("/", "-") or "detached"
+    parts = [branch] + ([label] if label and label != branch else [])
+    return "_".join(parts + [time.strftime("%d-%m-%Y_%H-%M-%S", time.gmtime())])
 
 
 def head():

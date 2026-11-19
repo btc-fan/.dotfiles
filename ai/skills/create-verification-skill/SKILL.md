@@ -88,7 +88,7 @@ Each checkout and each linked worktree runs its own instance, with its own port 
 
 ### Evidence and the run log
 
-- Each run writes to its own folder `.verify/evidence/<run>/` in the root of the checkout that runs it (in a linked worktree: the worktree root). `<run>` is the UTC start time and a short label, for example `20261118T143005Z-checkout`.
+- Each run writes to its own folder `.verify/evidence/<run>/` in the root of the checkout that runs it (in a linked worktree: the worktree root). `<run>` is `<branch>_<feature>_<DD-MM-YYYY>_<HH-MM-SS>`: the branch (a `/` becomes `-`), the feature label (left out when it is the same as the branch), and the UTC start time in EU date order. Example: `fix-cart-total_checkout_18-11-2026_14-30-05`.
 - The repo `.gitignore` ignores `.verify/` except `.verify/evidence/` (the managed block of `ai-adopt`). Cleanup never deletes `.verify/evidence/`.
 - Commit each run folder with the change it proves, on the feature branch. The owner reads the proof on GitHub from any machine. A cleanup PR removes runs older than 7 days from main (`ai-evidence-prune`).
 - Each run writes `summary.md` in its run folder: the feature, each step with PASS or FAIL, and the names of the evidence files. A reader opens this file first.

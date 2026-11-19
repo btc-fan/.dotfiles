@@ -5,8 +5,9 @@ Usage: ai-evidence-prune [--dir PATH] [--days N] [--dry-run]
 
 Each verify run is committed in .verify/evidence/<run>/ so the owner can read the proof on GitHub. This script runs
 `git rm -r` on each tracked run folder older than N days (default 7). It keeps the newest run of each feature (the
-folder name after the UTC time, for example "checkout" in 20261118T143005Z-checkout), so main never loses its last
-proof. The age comes from the `finished:` line of run.log, else from the time in the folder name.
+label in fix-cart_checkout_18-11-2026_14-30-05, else the branch), so main never loses its last proof. Runs of
+one feature on different branches share the key. The age comes from the `finished:` line of run.log, else from
+the time in the folder name.
 
 It refuses main and master: the agent runs it on a new branch and opens a cleanup PR; the owner merges it.
 It does not commit. Git history keeps the removed files; only the tree gets smaller.
@@ -20,7 +21,8 @@ import time
 
 EVIDENCE = ".verify/evidence"
 PROTECTED = ("main", "master")
-NAME_RX = re.compile(r"^(\d{8}T\d{6}Z)-?(.*)$")
+NAME_RX = re.compile(r"^(.+)_(\d{2}-\d{2}-\d{4}_\d{2}-\d{2}-\d{2})$")    # <branch>[_<feature>]_<DD-MM-YYYY_HH-MM-SS>
+OLD_RX = re.compile(r"^(\d{8}T\d{6}Z)-?(.*)$")                           # before 2026-11-19: <YYYYMMDDTHHMMSSZ>-<label>
 
 
 def main(argv):
@@ -74,9 +76,8 @@ def runs(root):
                     if p.count("/") >= 3})
     out = []
     for name in names:
-        m = NAME_RX.match(name)
-        ts = finished(os.path.join(root, EVIDENCE, name, "run.log")) or (stamp(m.group(1)) if m else 0)
-        out.append((name, m.group(2) if m else name, ts))
+        feature, when = name_parts(name)
+        out.append((name, feature, finished(os.path.join(root, EVIDENCE, name, "run.log")) or when))
     return out
 
 
@@ -88,6 +89,18 @@ def to_remove(rows, cut):
             newest[feature] = (name, ts)
     keep = {name for name, _ts in newest.values()}
     return [name for name, _feature, ts in rows if ts and ts < cut and name not in keep]
+
+
+def name_parts(name):
+    """(feature, epoch from the name or 0). The feature is the last part before the time: the feature label, else
+    the branch."""
+    m = NAME_RX.match(name)
+    if m:
+        return m.group(1).split("_")[-1], stamp(m.group(2), "%d-%m-%Y_%H-%M-%S")
+    m = OLD_RX.match(name)
+    if m:
+        return m.group(2), stamp(m.group(1))
+    return name, 0
 
 
 def finished(path):

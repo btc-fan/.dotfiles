@@ -40,7 +40,8 @@ the app changes."
 
 ## Evidence log contract (read by the hooks of tickets 02 to 05)
 - One folder per run: `.verify/evidence/<run>/` in the root of the checkout that ran it (a linked worktree: the
-  worktree root). `<run>` is the UTC start time and a label, for example `20261118T143005Z-checkout`. The project
+  worktree root). `<run>` is `<branch>_<feature>_<DD-MM-YYYY>_<HH-MM-SS>` (UTC), for example
+  `fix-cart-total_checkout_18-11-2026_14-30-05`. The project
   `.gitignore` ignores `.verify/` except `.verify/evidence/` (the `ai-adopt` block). Cleanup keeps the evidence.
 - Each run folder is committed on the feature branch with the change it proves, with a `summary.md` and no secrets
   (verify-evidence-in-git, owner 2026-11-19). The owner reads it on GitHub from any machine.

@@ -61,7 +61,9 @@ The feature map in [features/README.md](features/README.md) gives the recipe per
 
 ## Evidence
 
-- Folder: `<checkout>/.verify/evidence/<run>/` (gitignored). `<run>` is the UTC start time and the label.
+- Folder: `<checkout>/.verify/evidence/<run>/`, committed with the PR (`summary.md` first). `<run>` is
+  `<branch>_<label>_<DD-MM-YYYY>_<HH-MM-SS>` (UTC), for example
+  `verify-evidence-in-git_evidence-in-git_19-11-2026_17-30-01`.
 - `run.log`: the helper writes `commit:` at launch, `doctor:` at doctor, `db_writes: no` and `finished:` at cleanup. Never edit it by hand. This tool has no database: `db_writes` is always `no`.
 - One file per drive: `NN-hook.txt`, `NN-cli.txt`, `NN-install-<profile>.txt`, `NN-merge.txt`, `NN-session.txt` with `NN-session-stream.jsonl` and `NN-session-state/fired.jsonl`. `state.json` has the fixture paths and the guard hashes. `guard.txt` has the guard result.
 - `$H evidence` lists the folder of the current run (after cleanup: the newest run) and says whether `run.log` is proof. It reads `run.log` with the hooks' parser (`hooklib.verify_runs`): `commit`, `doctor: PASS`, `db_writes: no`, `finished`.

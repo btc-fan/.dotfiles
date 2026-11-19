@@ -27,6 +27,7 @@ Owner decisions (2026-11-19):
 
 - Replace "Add `.verify/` to the repo `.gitignore`" with: "`ai-adopt` ignores `.verify/` except `.verify/evidence/`. Commit each run folder with the change it proves."
 - Add: "Never write secrets, tokens, cookies or DB dumps into the run folder. Mask them before you save a response body."
+- The run folder name is `<branch>_<feature>_<DD-MM-YYYY>_<HH-MM-SS>` (UTC, EU date order; owner 2026-11-19). The feature part is left out when it is the same as the branch. A `/` in the branch becomes `-`.
 - Add: "Each run writes `summary.md`: the feature, the steps, PASS or FAIL for each step, and the evidence file names." The owner reads this file first on GitHub.
 - `maintain-verification-skill` additions: same rule.
 

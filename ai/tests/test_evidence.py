@@ -57,12 +57,12 @@ def repo_with_runs(work, branch="chore-prune"):
     repo = os.path.join(work, "r")
     os.makedirs(repo)
     git(repo, "init", "-q", "-b", "main")
-    run_folder(repo, "20261101T100000Z-checkout", 18)
-    run_folder(repo, "20261105T100000Z-checkout", 14)
-    run_folder(repo, "20261117T100000Z-checkout", 2)
-    run_folder(repo, "20261102T100000Z-cart", 17)
-    run_folder(repo, "20261103T100000Z-cart", 16)
-    run_folder(repo, "20261104T100000Z-login", 15, finished=False)    # no finished: the folder name time counts
+    run_folder(repo, "feat-pay_checkout_01-11-2026_10-00-00", 18)
+    run_folder(repo, "feat-pay_checkout_05-11-2026_10-00-00", 14)
+    run_folder(repo, "fix-total_checkout_17-11-2026_10-00-00", 2)     # same feature, other branch
+    run_folder(repo, "feat-cart_02-11-2026_10-00-00", 17)             # no feature part: the branch is the key
+    run_folder(repo, "20261103T100000Z-feat-cart", 16)                # the old name form still parses
+    run_folder(repo, "feat-login_login_04-11-2026_10-00-00", 15, finished=False)   # the name time counts
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "evidence")
     if branch:
@@ -80,10 +80,10 @@ def t_prune_old_keeps_newest_per_feature(work):
     res = subprocess.run([sys.executable, PRUNE, "--dir", repo], env=ENV, stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, universal_newlines=True)
     assert res.returncode == 0, res.stdout
-    # checkout: 2 old ones go, the 2-day run stays. cart: both old, the newest stays. login: one run, it stays.
-    assert tracked(repo) == ["20261103T100000Z-cart", "20261104T100000Z-login", "20261117T100000Z-checkout"], \
-        tracked(repo)
-    assert "20261101T100000Z-checkout" in res.stdout and "3 run folders" in res.stdout, res.stdout
+    # checkout: 2 old ones go, the 2-day run stays. feat-cart: both old, the newest stays. login: one run, it stays.
+    assert tracked(repo) == ["20261103T100000Z-feat-cart", "feat-login_login_04-11-2026_10-00-00",
+                             "fix-total_checkout_17-11-2026_10-00-00"], tracked(repo)
+    assert "feat-pay_checkout_01-11-2026_10-00-00" in res.stdout and "3 run folders" in res.stdout, res.stdout
 
 
 def t_prune_refuses_main(work):
