@@ -462,6 +462,12 @@ def t_merged_branches_note(work):
     note = hooklib.merge_review_note(repo)
     assert "feat-done" in note and "git branch -D" in note and "git worktree remove" in note, note
     assert "feat-open" not in note, note
+    assert "ai-evidence-prune" not in note, "no committed evidence, no prune step: " + note
+    os.makedirs(os.path.join(repo, ".verify", "evidence", "20261101T100000Z-cart"))
+    open(os.path.join(repo, ".verify", "evidence", "20261101T100000Z-cart", "run.log"), "w").write("doctor: PASS\n")
+    git("add", "-f", ".verify"); git("commit", "-q", "-m", "evidence")
+    note = hooklib.merge_review_note(repo)
+    assert "ai-evidence-prune" in note and "7 days" in note and "PR" in note, note    # verify-evidence-in-git
 
 
 def t_sync_hooks(work):

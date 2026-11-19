@@ -14,8 +14,9 @@ Do not merge. The owner merges, or tells you "merge" (the merge-approval gate ch
    nothing, stop here and tell the owner "no remote": a push and a PR are not possible yet.
 2. **Checks.** `make check` (the full suite, the ratchet, the Markdown placement check). Keep the command and the
    tail of its output for Evidence.
-3. **Proof in the real app.** If the repo has a `verify-<app>` skill: run it on each changed feature, keep the
-   evidence path, and make sure an e2e test covers the proven journey.
+3. **Proof in the real app.** If the repo has a `verify-<app>` skill: run it on each changed feature, and make sure
+   an e2e test covers the proven journey. Commit each run folder (`.verify/evidence/<run>/`, its `summary.md`
+   first) and push it, so the owner reads the proof on GitHub from any machine.
 4. **Review.** Run Matt's code-review skill against `git diff main...HEAD` (Standards and Spec axes, fresh
    context). Fix every finding, or write in the PR why it stays.
 5. **Security.** Run `/security-review` on the branch. When the lockfile changed, also run the project's dependency
@@ -25,7 +26,9 @@ Do not merge. The owner merges, or tells you "merge" (the merge-approval gate ch
    SEO or blog tools on in this repo: `claude-seo` page audit, or the `claude-blog` check for a post.
 7. **Docs.** The Map paths still exist, a new module is in the Map, a one-way-door change has an ADR.
 8. **PR.** Update the body (pr template): Summary with the Mermaid diagram, Evidence (Before and After, the step 2
-   output tail, the step 3 evidence path and e2e test), Merge Danger (Door, Blast Radius), Docs, Changed guards.
+   output tail, the step 3 evidence as a GitHub link
+   `https://github.com/<owner>/<repo>/tree/<branch>/.verify/evidence/<run>` and the e2e test), Merge Danger
+   (Door, Blast Radius), Docs, Changed guards.
    Then `gh pr ready <n>`.
 9. **Ask.** Tell the owner in 3 lines: what changed, the evidence, the merge danger. End with: "Say merge and I
    merge it, or approve and merge on GitHub."

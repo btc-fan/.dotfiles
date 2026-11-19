@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""ai-evidence-prune: remove old verify run folders from git (spec docs/specs/verify-evidence-in-git.md).
+
+Usage: ai-evidence-prune [--dir PATH] [--days N] [--dry-run]
+
+Each verify run is committed in .verify/evidence/<run>/ so the owner can read the proof on GitHub. This script runs
+`git rm -r` on each tracked run folder older than N days (default 7). It keeps the newest run of each feature (the
+folder name after the UTC time, for example "checkout" in 20261118T143005Z-checkout), so main never loses its last
+proof. The age comes from the `finished:` line of run.log, else from the time in the folder name.
+
+It refuses main and master: the agent runs it on a new branch and opens a cleanup PR; the owner merges it.
+It does not commit. Git history keeps the removed files; only the tree gets smaller.
+"""
+import calendar
+import os
+import re
+import subprocess
+import sys
+import time
+
+EVIDENCE = ".verify/evidence"
+PROTECTED = ("main", "master")
+NAME_RX = re.compile(r"^(\d{8}T\d{6}Z)-?(.*)$")
+
+
+def main(argv):
+    opts = parse(argv)
+    root = git(opts["dir"], "rev-parse", "--show-toplevel").strip()
+    if not root:
+        print("ai-evidence-prune: %s is not a git checkout" % opts["dir"])
+        return 2
+
+    branch = git(root, "branch", "--show-current").strip()
+    if branch in PROTECTED and not opts["dry_run"]:
+        print("ai-evidence-prune: you are on %s. Make a branch first (git switch -c chore-prune-evidence-%s), "
+              "then run again and open a PR." % (branch, time.strftime("%Y%m%d")))
+        return 2
+
+    old = to_remove(runs(root), time.time() - opts["days"] * 86400)
+    if not old:
+        print("ai-evidence-prune: nothing older than %d days (the newest run of each feature stays)" % opts["days"])
+        return 0
+
+    verb = "would remove" if opts["dry_run"] else "removed"
+    if not opts["dry_run"]:
+        paths = ["%s/%s" % (EVIDENCE, name) for name in old]
+        if subprocess.call(["git", "-C", root, "rm", "-r", "-q", "--"] + paths) != 0:
+            print("ai-evidence-prune: git rm failed (see the git message above)")
+            return 1
+    print("ai-evidence-prune: %s %d run folders older than %d days:" % (verb, len(old), opts["days"]))
+    for name in old:
+        print("  %s/%s" % (EVIDENCE, name))
+    return 0
+
+
+def parse(argv):
+    opts = {"dir": ".", "days": 7, "dry_run": False}
+    it = iter(argv)
+    for arg in it:
+        if arg == "--dir":
+            opts["dir"] = next(it, ".")
+        elif arg == "--days":
+            opts["days"] = int(next(it, "7"))
+        elif arg == "--dry-run":
+            opts["dry_run"] = True
+        else:
+            raise SystemExit(__doc__)
+    return opts
+
+
+def runs(root):
+    """[(name, feature, epoch)] of the run folders that git tracks."""
+    names = sorted({p.split("/")[2] for p in git(root, "ls-files", "--", EVIDENCE).splitlines()
+                    if p.count("/") >= 3})
+    out = []
+    for name in names:
+        m = NAME_RX.match(name)
+        ts = finished(os.path.join(root, EVIDENCE, name, "run.log")) or (stamp(m.group(1)) if m else 0)
+        out.append((name, m.group(2) if m else name, ts))
+    return out
+
+
+def to_remove(rows, cut):
+    """Names older than `cut`, except the newest run of each feature. A run without a time is never removed."""
+    newest = {}
+    for name, feature, ts in rows:
+        if ts >= newest.get(feature, (None, -1))[1]:
+            newest[feature] = (name, ts)
+    keep = {name for name, _ts in newest.values()}
+    return [name for name, _feature, ts in rows if ts and ts < cut and name not in keep]
+
+
+def finished(path):
+    try:
+        with open(path) as fh:
+            for line in fh:
+                key, sep, value = line.partition(":")
+                if sep and key.strip() == "finished":
+                    return stamp(value.strip(), "%Y-%m-%dT%H:%M:%SZ")
+    except OSError:
+        pass
+    return 0
+
+
+def stamp(text, fmt="%Y%m%dT%H%M%SZ"):
+    try:
+        return calendar.timegm(time.strptime(text, fmt))
+    except ValueError:
+        return 0
+
+
+def git(root, *args):
+    res = subprocess.run(["git", "-C", root] + list(args), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                         universal_newlines=True)
+    return res.stdout if res.returncode == 0 else ""
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

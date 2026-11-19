@@ -1167,7 +1167,7 @@ PR_TEST_PATH = re.compile(r"(^|/)test_[^/]*\.py$|_test\.(go|py)$|\.(test|spec)\.
                           r"(^|/)(tests?|spec|__tests__)/(.*/)?[^/]+\.(py|[cm]?[jt]sx?|go|rs|rb|java|kt|php|cs|swift)$")
 PR_GENERATED = re.compile(r"(^|/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|poetry\.lock|Cargo\.lock|"
                           r"go\.sum|bun\.lockb?|composer\.lock|Gemfile\.lock)$|\.(lock|min\.js|min\.css|snap)$|"
-                          r"(^|/)(dist|vendor|generated|__generated__)/")
+                          r"(^|/)(dist|vendor|generated|__generated__)/|(^|/)\.verify/evidence/")
 PR_SIZE_WARN = 400
 PR_GATED = ("create", "edit", "ready")      # ticket 05: the verify log on all 3
 
@@ -1442,7 +1442,7 @@ def pr_verify_log(root, diff):
             and not r[2].startswith(info["path"] + "/")]
     if not code:
         return None
-    sha = (git_quick(root, ["rev-parse", "-q", "--verify", head + "^{commit}"]) or "").strip()
+    sha = code_head(root, head)       # an evidence-only commit on top does not move the proven code
     # shortcut: the newest commit that touched the first 500 app-code paths; enough for one PR.
     last = (git_quick(root, ["--literal-pathspecs", "log", "-1", "--format=%H %ct", "%s..%s" % (base_ref, head),
                              "--"] + code[:500]) or "").split()
@@ -1460,6 +1460,14 @@ def pr_verify_log(root, diff):
                last[0][:12] if last else "?", when,
                "Newest valid log: commit %s." % newest[0][:12] if newest else "No valid log in this checkout.",
                info["name"], sha, when))
+
+
+def code_head(root, ref="HEAD"):
+    """The newest commit at or before `ref` that changes a path outside .verify/evidence/ (verify-evidence-in-git:
+    a commit of the run folder moves HEAD but not the driven code). "" without commits."""
+    sha = (git_quick(root, ["log", "-1", "--format=%H", ref, "--", ".", ":(exclude).verify/evidence"],
+                     timeout=5) or "").strip()
+    return sha or (git_quick(root, ["rev-parse", "-q", "--verify", ref + "^{commit}"]) or "").strip()
 
 
 def valid_verify_logs(root):
@@ -2344,11 +2352,15 @@ def merge_review_note(root, agent="claude"):
     gone = gone_branches(root)
     clean = (" Merged branches still here (remote branch gone): %s. Delete each with git branch -D <name>, and "
              "its worktree with git worktree remove <path>." % ", ".join(gone[:10])) if gone else ""
+    # verify-evidence-in-git: committed run folders older than 7 days leave main through a cleanup PR
+    prune = (" Committed verify evidence: on a new branch from %s (chore-prune-evidence-<date>) run ai-evidence-prune "
+             "(it removes runs older than 7 days and keeps the newest run of each feature), commit, push and open "
+             "a PR for the owner." % branch) if git_quick(root, ["ls-files", "--", EVIDENCE_REL]) else ""
     return ("%s moved since the last architecture review (%s new commits after %s). Before new work: "
             "/improve-codebase-architecture on the area that changed, then /retro on the merged work. Findings "
             "become tickets or a PR for the owner, not direct edits on %s. Then record it: git rev-parse %s > "
-            ".ai/last-review. The owner may say skip (record it the same way).%s%s"
-            % (branch, count, last[:7], branch, branch, clean,
+            ".ai/last-review. The owner may say skip (record it the same way).%s%s%s"
+            % (branch, count, last[:7], branch, branch, clean, prune,
                typed_skills_note(root, ["improve-codebase-architecture", "retro"], agent)))
 
 
