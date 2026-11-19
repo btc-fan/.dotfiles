@@ -793,10 +793,11 @@ class ScanTimeout(Exception):
 
 
 class Budget(object):
-    """Secret-scan time budget: total under 20 s (hook timeout 25 s); git 5 s and gitleaks 10 s per call."""
+    """Secret-scan time budget: total under 80 s (PreToolUse hook timeout 90 s); git 30 s and gitleaks 60 s per call
+    (owner 2026-11-18: the 18 s budget timed out on big pushes)."""
 
     def __init__(self):
-        self.end = time.time() + float(os.environ.get("AI_SCAN_BUDGET_S") or 18)
+        self.end = time.time() + float(os.environ.get("AI_SCAN_BUDGET_S") or 75)
 
     def take(self, cap):
         left = self.end - time.time()
@@ -854,7 +855,7 @@ def scan_git(repo, args, budget):
     fixed = ["-c", "diff.mnemonicPrefix=false", "-c", "diff.noprefix=false"]
     try:
         res = subprocess.run(["git", "-C", repo] + fixed + args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                             timeout=budget.take(5))
+                             timeout=budget.take(30))
     except subprocess.TimeoutExpired:
         raise ScanTimeout()
     except OSError as exc:
@@ -1079,7 +1080,7 @@ def gitleaks_scan(repo, mode, log_opts, allowed, budget, added=""):
         args = [exe, "git", "--no-banner", "--exit-code", "0", "--report-format", "json", "--report-path", report]
         args += ["--staged", "--pre-commit"] if mode == "commit" else ["--log-opts", log_opts]
         args.append(repo)
-        subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=budget.take(10))
+        subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=budget.take(60))
         data = json.loads(read_text(report) or "[]")
     except subprocess.TimeoutExpired:
         raise ScanTimeout()

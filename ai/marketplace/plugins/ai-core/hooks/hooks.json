@@ -33,7 +33,7 @@
           {
             "type": "command",
             "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude UserPromptSubmit",
-            "timeout": 5
+            "timeout": 30
           }
         ]
       }
@@ -44,7 +44,7 @@
           {
             "type": "command",
             "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude UserPromptExpansion",
-            "timeout": 5
+            "timeout": 30
           }
         ]
       }
@@ -56,7 +56,7 @@
           {
             "type": "command",
             "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude PreToolUse",
-            "timeout": 25
+            "timeout": 90
           }
         ]
       }
@@ -79,7 +79,7 @@
           {
             "type": "command",
             "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude Stop",
-            "timeout": 25
+            "timeout": 60
           },
           {
             "type": "command",
@@ -95,7 +95,7 @@
           {
             "type": "command",
             "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude SubagentStop",
-            "timeout": 25
+            "timeout": 60
           }
         ]
       }

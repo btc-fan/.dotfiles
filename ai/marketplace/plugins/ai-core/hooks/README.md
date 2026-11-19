@@ -165,7 +165,7 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
 
 A gate decision is sent even when the state dir cannot be written; an internal error before a decision
 fails open and is logged to `~/.local/state/ai/router-errors.log` (ai-doctor shows it).
-The secret scan has a time budget under 20 s (git 5 s and gitleaks 10 s per call). On a timeout it
+The secret scan has a time budget under 80 s (git 30 s and gitleaks 60 s per call; PreToolUse timeout 90 s). On a timeout it
 denies ("scan timed out, nothing was checked"); it never passes unscanned.
 Wall log (ticket 17): every wall fire writes one line to `~/.local/state/ai/walls.jsonl`: a router deny
 (`ctx.decide("deny", ...)`: every gate, the winner gate, nav-first, home-folder, abs-path), a stop block, a
@@ -177,6 +177,17 @@ characters). `ai-doctor` prints a 7-day table: per wall the fires and the last 3
 State files (`gates.log`, `fired.jsonl`, `misses.jsonl`, `walls.jsonl`, ...) are created with mode 0600. Commands in
 `gates.log` are redacted with the secret patterns plus any `NAME=value` where NAME looks like a
 key, token, secret or password.
+
+## Sources for the verify hooks
+
+The verify hooks (verify-tool-exists, verify-tool-used, verify-commit, verify-pr) apply the approach of these
+sources. What we took from each: `ai/rules/verification-skill.md`. Speed, and other ways to integrate:
+`docs/reports/verify-integration-research-2026-11-19.md`.
+
+1. pstack generator: https://github.com/cursor/plugins/blob/main/pstack/skills/create-verification-skill/SKILL.md
+2. Worked example: https://github.com/poteto/verification-skill-example
+3. A real project: https://github.com/kody-hq/kody/blob/main/.agents/skills/control-kody/SKILL.md
+4. PR system recap: https://github.com/kody-hq/kody/blob/main/.agents/skills/visual-recap/SKILL.md
 
 ## Known limits (accepted, documented; owner: keep it simple)
 

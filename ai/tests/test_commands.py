@@ -51,8 +51,9 @@ def t_hook_files(work):
                         assert root_var in cmd, "%s %s: wrong plugin root var in %s" % (name, event, cmd)
                         script = cmd.split("/hooks/", 1)[1].split('"')[0].split()[0]
                         assert os.path.isfile(os.path.join(HOOKS, script)), "%s: missing %s" % (name, script)
-                    # stop-check runs check-fast (55 s cap, a timeout passes): the one hook allowed 60 s (SPEC 25)
-                    cap = 61 if "stop-check.py" in cmd and event == "Stop" else 30
+                    # SPEC 25 kept hooks short; owner 2026-11-18 raised them after secret-scan and prompt timeouts on
+                    # big repos: the PreToolUse router (secret-scan) up to 90 s, every other hook up to 60 s.
+                    cap = 91 if "router.py" in cmd and event == "PreToolUse" else 61
                     assert h.get("timeout", 1) < cap, "%s %s: timeout must stay under %d s" % (name, event, cap)
     claude = json.load(open(os.path.join(HOOKS, "hooks.json")))["hooks"]
     owner = [h["command"] for g in claude["SessionStart"] for h in g["hooks"]]
