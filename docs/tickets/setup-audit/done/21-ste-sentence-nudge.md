@@ -10,4 +10,5 @@ Why: the writing style rule (`ai/agents-md/00-owner.md`, since 2026-11-11) had n
 
 - [x] Red: `ai/tests/cases/ste-sentence.json`: a Write and an Edit with a 32-word sentence fire.
 - [x] Quiet: short sentences, front matter, code blocks, table rows, headings, link targets, short list items, a non-Markdown file.
+- [x] Review: only new sentences count (Edit: not in `old_string`; Write: not in the HEAD copy). MultiEdit, `.markdown` and `.mdx` are checked. Indented code and an edit inside a code block are quiet. No regex is slow on hostile input.
 - [x] The L0 row stays short: the SessionStart context grows by 50 characters only.

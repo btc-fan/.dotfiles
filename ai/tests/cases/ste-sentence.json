@@ -41,6 +41,39 @@
    "payload": {"tool_name": "Write", "tool_input": {"file_path": "{{PROJ}}/app.py",
      "content": "# The router reads the routing file on every hook event and then it checks each rule in order until one rule matches the tool name and the command text of the call.\nx = 1\n"}},
    "project": {"git": true}
+  },
+  {
+   "name": "Edit that keeps an old long sentence (it is in old_string too): quiet",
+   "expect": "nofire",
+   "event": "PostToolUse",
+   "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/README.md",
+     "old_string": "Intro.\n\nThe installer copies every hook file into the plugin folder of the agent and after that it writes the settings file again so that the next session of the agent loads the new hooks.",
+     "new_string": "Intro text.\n\nThe installer copies every hook file into the plugin folder of the agent and after that it writes the settings file again so that the next session of the agent loads the new hooks."}},
+   "project": {"git": true}
+  },
+  {
+   "name": "Write of a tracked file: a long sentence that HEAD already has is quiet",
+   "expect": "nofire",
+   "event": "PostToolUse",
+   "payload": {"tool_name": "Write", "tool_input": {"file_path": "{{PROJ}}/docs/old.md",
+     "content": "# Old\n\nA new short line.\n\nThe installer copies every hook file into the plugin folder of the agent and after that it writes the settings file again so that the next session of the agent loads the new hooks.\n"}},
+   "project": {"git_init": true, "commit": "init", "files": {"docs/old.md": "# Old\n\nThe installer copies every hook file into the plugin folder of the agent and after that it writes the settings file again so that the next session of the agent loads the new hooks.\n"}}
+  },
+  {
+   "name": "MultiEdit that adds a long sentence: reported",
+   "expect": "fire",
+   "event": "PostToolUse",
+   "payload": {"tool_name": "MultiEdit", "tool_input": {"file_path": "{{PROJ}}/docs/notes.markdown", "edits": [
+     {"old_string": "a", "new_string": "The installer copies every hook file into the plugin folder of the agent and after that it writes the settings file again so that the next session of the agent loads the new hooks."}]}},
+   "project": {"git": true}
+  },
+  {
+   "name": "code that is not prose: an indented fence, 4-space code, an Edit inside a fence with an odd fence count: quiet",
+   "expect": "nofire",
+   "event": "PostToolUse",
+   "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/docs/notes.md", "old_string": "a",
+     "new_string": "1. Run it:\n   ```\n   tool --one a --two b --three c --four d --five e --six f --seven g --eight h --nine i --ten j --eleven k --twelve l --thirteen m\n   ```\n\n    four space code with many many words in it one two three four five six seven eight nine ten eleven twelve thirteen fourteen\n\nlast line of a sample with many words one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen\n```\n"}},
+   "project": {"git": true}
   }
  ]
 }
