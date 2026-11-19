@@ -243,6 +243,12 @@
                                          "tool_input": {"command": "cat {{HOME}}/.local/share/ai/plugins/ai-core/skills/writing-for-agents/SKILL.md"}}},
     {"event": "PreToolUse", "payload": {"tool_name": "Edit", "tool_input": {"file_path": "{{PROJ}}/AGENTS.md"}}}
    ]
-  }
+  },
+  {"name": "python heredoc that writes AGENTS.md: deny", "expect": "deny", "event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "python3 - <<'EOF'\nimport pathlib\npathlib.Path(\"AGENTS.md\").write_text(\"x\")\nEOF"}}, "contains": "[ai gate writing-for-agents]"},
+  {"name": "python -c open(..., 'w') on a SKILL.md: deny", "expect": "deny", "event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "python3 -c \"open('ai/skills/ship/SKILL.md', 'w').write('x')\""}}},
+  {"name": "perl -pi on CLAUDE.md: deny", "expect": "deny", "event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "perl -pi -e 's/a/b/' CLAUDE.md"}}},
+  {"name": "node -e writeFileSync on AGENTS.md: deny", "expect": "deny", "event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "node -e \"require('fs').writeFileSync('AGENTS.md', 'x')\""}}},
+  {"name": "python heredoc that only reads AGENTS.md: allow", "expect": "allow", "event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "python3 - <<'EOF'\nprint(open(\"AGENTS.md\").read()[:100])\nEOF"}}},
+  {"name": "python -c that only reads AGENTS.md: allow", "expect": "allow", "event": "PreToolUse", "payload": {"tool_name": "Bash", "tool_input": {"command": "python3 -c \"print(open('AGENTS.md').read())\""}}}
  ]
 }

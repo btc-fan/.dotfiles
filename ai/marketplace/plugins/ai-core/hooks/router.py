@@ -412,7 +412,7 @@ def on_post_tool(ctx):
         record_skill(ctx, name, "read")
     if is_docs_tool(tool):
         log_docs_ids(ctx, tool, tin)
-    if "serena" in tool.lower() or any(st.exe == "graphify" for st in ctx.stages):
+    if is_navigation(tool, ctx.stages):
         set_flag(ctx, "nav_used")
     try:
         ctx.graph_refresh = graph_refresh(ctx)
@@ -426,12 +426,15 @@ def on_post_tool(ctx):
         if not rule_enabled(rule, ctx) or not conditions_match(rule, tool, tin, cmd, ctx):
             continue
         if trig.get("content"):
-            hits = content_hits(trig["content"], tin)
+            if ctx.stages:
+                hits, where = shell_content_hits(trig["content"], edited_files(tool, tin, ctx), ctx.cwd)
+            else:
+                hits, where = content_hits(trig["content"], tin), file_of(tin)
             text = render_action(rule, ctx) if hits else ""
             if text:
                 ctx.fired(rule, "PostToolUse")
                 ctx.add_context("[ai router: %s] %s (%s, %d line(s))" % (
-                    rule["id"], text, file_of(tin) or "edited text", hits))
+                    rule["id"], text, where or "edited text", hits))
             continue
         text = render_action(rule, ctx)
         if text and ctx.state.allow_nudge(rule, nudge_key(rule, tool, tin, cmd, ctx)):
@@ -760,7 +763,7 @@ def edited_files(tool, tin, ctx):
     if tool == "apply_patch":
         return PATCH_FILE_RX.findall(command_of(tin))
     if ctx.stages:
-        return write_targets(ctx.stages, ctx.cwd)
+        return write_targets(ctx.stages, ctx.cwd, command_of(tin))
     return [file_of(tin)]
 
 
@@ -950,6 +953,38 @@ def expand_braces(globs):
         else:
             out.append(g)
     return out
+
+
+NAV_TOOLS = ("find_symbol", "find_referencing_symbols", "get_symbols_overview", "find_declaration",
+             "find_implementations")
+
+
+def is_navigation(tool, stages):
+    """Real code navigation (nav-first, ticket 18): the Serena lookups and graphify query / affected. Serena's
+    initial_instructions (every session calls it first) and graphify update are not navigation."""
+    if "serena" in tool.lower() and tool.rsplit("__", 1)[-1] in NAV_TOOLS:
+        return True
+    return any(st.exe == "graphify" and st.args[:1] in (["query"], ["affected"]) for st in stages)
+
+
+def shell_content_hits(needle, paths, cwd):
+    """A shell command wrote files (ticket 19): count the needle in the lines it added. A tracked file: the added
+    lines of git diff HEAD (old text does not count). A new or untracked file: every line. Returns (hits, first file)."""
+    total, first = 0, ""
+    for rel in dict.fromkeys(p for p in paths if p):
+        path = os.path.join(cwd, os.path.expanduser(rel))
+        if not os.path.isfile(path) or os.path.getsize(path) > 1000000:
+            continue
+        folder, name = os.path.dirname(path), os.path.basename(path)
+        diff = git_quick(folder, ["diff", "--no-color", "-U0", "HEAD", "--", name])
+        if diff is not None and git_quick(folder, ["ls-files", "--error-unmatch", "--", name]) is not None:
+            lines = [ln[1:] for ln in diff.splitlines() if ln.startswith("+") and not ln.startswith("+++")]
+        else:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                lines = fh.read().splitlines()
+        hits = sum(1 for ln in lines if needle in ln)
+        total, first = total + hits, first or (rel if hits else "")
+    return total, first
 
 
 def content_hits(needle, tin):

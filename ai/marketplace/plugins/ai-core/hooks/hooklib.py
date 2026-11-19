@@ -275,10 +275,19 @@ def shell_inner_text(st):
     return None
 
 
-def write_targets(stages, cwd):
-    """Files a shell command writes: redirections (> >> &>), tee, sed -i, and the destination of cp and mv.
-    shortcut: perl -i, dd of=, a script or an interpreter (python -c) are not seen; add them when one shows up."""
+INTERPRETER = re.compile(r"^(python|perl|node|ruby)[\d.]*$")
+SCRIPT_WRITE = re.compile(r"write_text|write_bytes|\.write\(|open\([^)]*['\"][wax]\+?['\"]|writeFileSync|appendFileSync"
+                          r"|createWriteStream|File\.(write|open)|(^|\s)-[a-z]*i\b")
+SCRIPT_PATH = re.compile(r"(?<![\w.])[\w~./-]+\.[A-Za-z]\w*")
+
+
+def write_targets(stages, cwd, cmd=""):
+    """Files a shell command writes: redirections (> >> &>), tee, sed -i, the destination of cp and mv, and for an
+    interpreter (python -c, a python heredoc, perl -i, node -e) every file name in the command when the script writes.
+    shortcut: dd of= and a script file (python fix.py) are not seen; add them when one shows up."""
     out = []
+    if cmd and any(INTERPRETER.match(st.exe) for st in stages) and SCRIPT_WRITE.search(cmd):
+        out += SCRIPT_PATH.findall(cmd)      # heredoc bodies are not in the stages: scan the raw text
     for st in stages:
         out += [t for op, t in st.redirs if op.lstrip("&") in (">", ">>")]
         if st.exe == "tee":

@@ -160,8 +160,9 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
 - graph-first (the nav-first rule, `deny_once_when: graph`): in a repo with code and a `graphify-out/graph.json`
   (graph not off by `no-graph`), the first broad search of a session (Grep, or the nav-first command regex) is
   denied once with "run graphify query first" (a stale graph: "run graphify update, then graphify query"); the
-  next search passes. A session that already ran graphify or a Serena tool
-  passes (PostToolUse marks it).
+  next search passes. A session that already navigated passes (PostToolUse marks it): `graphify query`,
+  `graphify affected`, or Serena `find_symbol`, `find_referencing_symbols`, `get_symbols_overview`,
+  `find_declaration`, `find_implementations`. Serena `initial_instructions` and `graphify update` do not count.
 
 A gate decision is sent even when the state dir cannot be written; an internal error before a decision
 fails open and is logged to `~/.local/state/ai/router-errors.log` (ai-doctor shows it).
@@ -214,7 +215,11 @@ sources. What we took from each: `ai/rules/verification-skill.md`. Speed, and ot
 - Secret scan in a merge with more than one `MERGE_HEAD` (octopus) compares with the first one only.
 - Codex: file edits by `apply_patch` are not checked by no-em-dash or graph-update (Bash and Claude
   Edit/Write only); re-inject after compaction uses SessionStart source `compact`.
-- The writing-for-agents gate does not see a write by a script or an interpreter (`python -c`, `perl -i`, `dd`).
+- An interpreter command (`python3 -c`, a python heredoc, `perl -i`, `node -e`, `ruby -e`) that writes (`write_text`,
+  `open(..., 'w')`, `writeFileSync`, `-i`) counts as a write of every file name in its text: the writing-for-agents
+  gate and no-em-dash see it. A script file (`python3 fix.py`) and `dd of=` are not seen.
+- no-em-dash after a shell command reads the files that the command writes: the added lines of `git diff HEAD` in a
+  tracked file, every line in a new file.
 - Builtin secret patterns are a fixed list; new token formats need a new pattern or gitleaks.
 - no-destroy cannot see through a script file, `find -delete` or `xargs rm`; the sandbox, branch protection
   and a database role without DROP/TRUNCATE are the real boundary.

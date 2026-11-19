@@ -4,13 +4,13 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (R-014)
 
-Reproduced 2026-11-19 with verify-ai-setup (`.verify/evidence/20261119T093247Z-nav-first-audit`), a session without the skill loaded:
+Reproduced 2026-11-19 with verify-ai-setup (`.verify/evidence/20261119T093247Z-nav-first-audit`; again on 59ce5b8: `20261119T122655Z-gate-bypass-before`, fixed: `20261119T123431Z-gate-bypass-after`), a session without the skill loaded:
 - `cat > AGENTS.md <<EOF`: deny (the gate parses shell redirections);
 - `python3 - <<EOF` with `pathlib.Path("AGENTS.md").write_text(...)`: allow (the bug).
 The `no-em-dash` row triggers only on Edit and Write (`tool_after: 'Edit|Write'`).
 
-- [ ] Red: a writing-for-agents case with a python heredoc that writes AGENTS.md expects deny.
-- [ ] Green: the gate also matches an agent-document path named in an interpreter heredoc or `-c`/`-e` script of the command.
-- [ ] A PostToolUse check after Bash: a changed tracked file with U+2014 gets the no-em-dash nudge.
+- [x] Red: a writing-for-agents case with a python heredoc that writes AGENTS.md expects deny.
+- [x] Green: the gate also matches an agent-document path named in an interpreter heredoc or `-c`/`-e` script of the command.
+- [x] A PostToolUse check after Bash: a changed tracked file with U+2014 gets the no-em-dash nudge.
