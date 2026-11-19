@@ -99,6 +99,106 @@
     }
    ],
    "agent": "codex"
+  },
+  {
+   "name": "PR#7 and PR-7 forms: blocked",
+   "expect": "block",
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "PR#7 is merged. See PR-7."
+     }
+    }
+   ],
+   "contains": [
+    "names PR 7 without"
+   ]
+  },
+  {
+   "name": "list with a colon and an Oxford comma: every number named",
+   "expect": "block",
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Open PRs: #21, #22, and #23."
+     }
+    }
+   ],
+   "contains": [
+    "PR 21, 22, 23"
+   ]
+  },
+  {
+   "name": "a range: blocked",
+   "expect": "block",
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Open PRs 21-23."
+     }
+    }
+   ],
+   "contains": [
+    "PR 21, 23"
+   ]
+  },
+  {
+   "name": "a PR named in a code fence (pasted git log): allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "```\nMerge pull request #12 from x/y\n```\nDone."
+     }
+    }
+   ]
+  },
+  {
+   "name": "a PR named in inline code: allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Run `PR 7 check`."
+     }
+    }
+   ]
+  },
+  {
+   "name": "leading zeros match the link number: allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Merged PR 007: https://github.com/o/r/pull/7"
+     }
+    }
+   ]
+  },
+  {
+   "name": "PR 7/8 and PR on its own line: allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "PR 7/8 of the plan.\nPR\n7 rules"
+     }
+    }
+   ]
   }
  ]
 }

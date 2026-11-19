@@ -97,11 +97,12 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
 - writing-for-agents (gate, `require_skill`): Edit, Write, MultiEdit, `apply_patch` or a shell write of AGENTS.md,
   CLAUDE.md, CLAUDE.local.md or a SKILL.md, until the skill has a proof in the session.
 - ship (gate, `require_skill`): `gh pr ready` (not `--undo`), until the ship skill ran.
-- pr-url (router `pr_url_stop` on Stop; no routing.yaml row, as the verify walls; owner 2026-11-19): the end of a
-  turn is blocked when the reply (`last_assistant_message`) names a PR by number (`PR 7`, `PR #7`, `PRs #21, #22
-  and #23`, `pull request 7`) and has no `/pull/<n>` link for it. The block message names the numbers. A
-  continuation stop (`stop_hook_active`) passes, so it blocks one time per chain. A bare `#7` and `gh pr view 7`
-  are not read as a PR name.
+- pr-url (router `pr_url_stop` on Stop; no routing.yaml row, as the verify walls; owner 2026-11-19): the router
+  reads the reply (`last_assistant_message`). When it names a PR by number and has no `/pull/<n>` link for it, the
+  end of the turn is blocked. Forms: `PR 7`, `PR#7`, `PR-7`, `PRs: #21, #22, and #23`, `PRs 21-23`, `pull request
+  7`. Text in code fences and inline code does not count. A bare `#7` is not read as a PR name. Known limits: a
+  continuation stop (`stop_hook_active`) passes, so the check runs only when no other Stop wall blocked first.
+  A `/pull/7` link to any repo counts for PR 7. Only the last message of the turn is read.
 - verify-tool-exists, verify-tool-used (verify-enforcement 02, 03; router `verify_stop` on Stop and SubagentStop;
   no routing.yaml rows, as winner-gate: two rows would push the L0 table past the cut): in an adopted repo (`.ai/enabled`), the end of a turn of the main agent or a subagent is blocked
   when app code changed in the turn and the proof is missing. The checkout is the git top level of the payload
