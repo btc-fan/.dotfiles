@@ -26,7 +26,9 @@ Do not merge. The owner merges, or tells you "merge" (the merge-approval gate ch
 7. **Docs.** The Map paths still exist, a new module is in the Map, a one-way-door change has an ADR.
 8. **PR.** Update the body (pr template): Summary with the Mermaid diagram, Evidence (Before and After, the step 2
    output tail, the step 3 evidence path and e2e test), Merge Danger (Door, Blast Radius), Docs, Changed guards.
-   Then `gh pr ready <n>`.
+   Read the body and each changed document once as STE (ASD-STE100) and rewrite each sentence that breaks a rule.
+   Done when each sentence has 25 words or fewer, one instruction, the active voice, and literal words (no idioms).
+   Code, commands, paths and quoted output stay as they are. Then `gh pr ready <n>`.
 9. **Ask.** Tell the owner in 3 lines: what changed, the evidence, the merge danger. End with: "Say merge and I
    merge it, or approve and merge on GitHub."
 

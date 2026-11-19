@@ -364,6 +364,37 @@
    }
   },
   {
+   "name": "fix PR whose test is a case file (tests/cases/<rule>.json) in the diff",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "gh pr create --title 'Fix: price rounding' --body-file pr.md --base HEAD~1"}},
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/a.py": "x = 1\n",
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check -> 12 passed\nDocs: none, because only tests changed\nChanged guards: none\nLedger: R-001 ai/tests/cases/price.json\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    },
+    "commit": "init",
+    "extra_commits": [{"src/a.py": "x = 2\n", "ai/tests/cases/price.json": "{\"rule\": \"price\", \"cases\": []}\n"}]
+   }
+  },
+  {
+   "name": "fix PR with only fixture JSON under tests/ (not a case file): still denied",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {"tool_name": "Bash", "tool_input": {"command": "gh pr create --title 'fix: price rounding' --body-file pr.md --base HEAD~1"}},
+   "project": {
+    "git_init": true,
+    "files": {
+     "src/a.py": "x = 1\n",
+     "pr.md": "Summary\n```mermaid\ngraph TD; a-->b\n```\n**Door:** two-way, docs only\n**Blast Radius:** small\nEvidence: make check -> 12 passed\n<!-- author-sessions\nupdated: 2026-11-14\nmain: s1 dir: ~/x # pr\n-->\n"
+    },
+    "commit": "init",
+    "extra_commits": [{"src/a.py": "x = 2\n", "tests/fixtures/price.json": "{\"p\": 2}\n"}]
+   },
+   "contains": "a test file in the diff of a fix: PR"
+  },
+  {
    "name": "over 400 changed lines: allowed with a warning",
    "expect": "allow",
    "event": "PreToolUse",

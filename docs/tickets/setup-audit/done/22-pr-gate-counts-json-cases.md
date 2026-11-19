@@ -5,12 +5,12 @@ the "a fix PR has a test file" check of the pr-rules gate. Today only a Python t
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (2026-11-19)
 
 Why: PR #21 (nav-first symbol deny) had its tests as JSON cases. The gate blocked the PR, and the agent added a
 Python unit test only to pass the gate.
 
-- [ ] Red: a gate case with a fix PR whose diff has only `ai/tests/cases/<rule>.json` expects pass. It fails now.
-- [ ] Change `PR_TEST_PATH` in `ai/marketplace/plugins/ai-core/hooks/hooklib.py` and in the copy in
-  `ai/hooks/hermes/hooklib.py`.
-- [ ] A fix PR with no test file and no case file is still blocked.
+- [x] Red: a gate case with a fix PR whose diff has only `ai/tests/cases/<rule>.json` expects pass. It fails now.
+- [x] Change `PR_TEST_PATH` in `ai/marketplace/plugins/ai-core/hooks/hooklib.py`. It counts `tests/cases/*.json`.
+  The file `ai/hooks/hermes/hooklib.py` is a generated copy that git ignores.
+- [x] A fix PR with no test file and no case file is still blocked. Fixture JSON under `tests/` is not a case file.
