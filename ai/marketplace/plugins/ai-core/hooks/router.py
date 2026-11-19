@@ -425,6 +425,15 @@ def on_post_tool(ctx):
             continue
         if not rule_enabled(rule, ctx) or not conditions_match(rule, tool, tin, cmd, ctx):
             continue
+        if trig.get("long_sentence"):
+            long = long_sentences("\n\n".join(written_texts(tin)), int(trig["long_sentence"]))
+            text = render_action(rule, ctx) if long else ""
+            if text:
+                worst = max(long, key=len)
+                ctx.fired(rule, "PostToolUse")
+                ctx.add_context('[ai router: %s] %s (%s, %d sentence(s); the longest has %d words: "%s ...")' % (
+                    rule["id"], text, file_of(tin) or "edited text", len(long), len(worst), " ".join(worst[:8])))
+            continue
         if trig.get("content"):
             hits = content_hits(trig["content"], tin)
             text = render_action(rule, ctx) if hits else ""
@@ -953,6 +962,11 @@ def expand_braces(globs):
 
 
 def content_hits(needle, tin):
+    return sum(1 for t in written_texts(tin) for line in t.splitlines() if needle in line)
+
+
+def written_texts(tin):
+    """The new text of an Edit, Write, MultiEdit or NotebookEdit call."""
     texts = []
     for key in ("content", "new_string", "new_source"):
         if isinstance(tin.get(key), str):
@@ -960,7 +974,29 @@ def content_hits(needle, tin):
     for edit in tin.get("edits") or []:
         if isinstance(edit, dict) and isinstance(edit.get("new_string"), str):
             texts.append(edit["new_string"])
-    return sum(1 for t in texts for line in t.splitlines() if needle in line)
+    return texts
+
+
+MD_NOT_PROSE = re.compile(r"\A---\n.*?^---[^\n]*$|^```.*?^```[^\n]*$|^~~~.*?^~~~[^\n]*$|<!--.*?-->|^[ \t]*(#|\||>)[^\n]*$",
+                          re.S | re.M)
+MD_LIST_ITEM = re.compile(r"^[ \t]*([-*+]|\d+[.)])[ \t]+", re.M)
+
+
+def long_sentences(text, limit):
+    """The sentences of Markdown prose with more than `limit` words, each as its list of words (ASD-STE100: 25 words
+    at most in a description, 20 in an instruction). Not prose: the front matter, a code block, a table row, a
+    heading, a quote, an HTML comment, a link target. Inline code is one word. A list item and a paragraph each end
+    a sentence."""
+    text = MD_NOT_PROSE.sub("\n\n", text)
+    text = re.sub(r"`[^`\n]*`", "code", text)
+    text = re.sub(r"\]\([^)\n]*\)", "]", text)
+    text = MD_LIST_ITEM.sub("\n\n", text)
+    out = []
+    for sentence in re.split(r"(?<=[.!?:])\s+|\n[ \t]*\n", text):
+        words = [w for w in sentence.split() if re.search(r"\w", w)]
+        if len(words) > limit:
+            out.append(words)
+    return out
 
 
 def nudge_key(rule, tool, tin, cmd, ctx):

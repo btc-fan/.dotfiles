@@ -247,6 +247,7 @@ Global rules (every repo):
 | pr-rules | **gate** | before `gh pr create` or `gh pr edit` with a body | The PR body template (section 11). |
 | ledger-nudge | nudge | before an edit in a file that `docs/REGRESSIONS.md` covers | Keep its R-IDs green, run their tests. |
 | no-em-dash | nudge | after a write that contains U+2014 | Use "-", ":" or a new sentence. |
+| ste-sentence | nudge | after an Edit or Write of a Markdown file with a sentence over 25 words | The writing style rule (ASD-STE100): split the sentence. Code blocks, tables, headings and front matter do not count. |
 | docs-lookup | nudge | a prompt about a library, SDK or API | context7 with the Libraries ID first. |
 | feature-grill | nudge | a feature request prompt (EN, RO, RU) | Grill first, then to-spec and to-tickets for 3+ files. |
 | verify-before-done | nudge | after the first code edit of each agent (main and each subagent), project with a `verify-<app>` skill | check-fast, then verify-<app> evidence, then e2e. |

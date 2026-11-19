@@ -96,7 +96,7 @@ Rules by group:
 - Skill gates (`require_skill`): `writing-for-agents` (gate, before an edit of AGENTS.md, CLAUDE.md, a SKILL.md), `ship` (gate, before `gh pr ready`), `diagnosing-bugs` and `tdd` (stop rules: the next Stop is blocked once per session without the skill).
 - Not rows: `winner-gate` (the `winners` table, on the Skill tool) and graph-first (the `nav-first` row with `deny_once_when: graph`). Skip name for the owner escape hatch: the rule id, `winner-gate` or `nav-first`.
 - Tier 1 (adopted repos): `ledger-nudge` (long tier, before an edit in a regression area), `feature-grill` (L2: questions first for a feature prompt). The Stop hook `stop-check` is a separate script, not a routing row.
-- Lint and docs: `no-em-dash`, `docs-lookup` (fires only when the prompt names a library of the Libraries block, or before an edit of a dependency file; a prompt that only says "docs" stays quiet).
+- Lint and docs: `no-em-dash`, `ste-sentence` (a Markdown sentence over 25 words), `docs-lookup` (fires only when the prompt names a library of the Libraries block, or before an edit of a dependency file; a prompt that only says "docs" stays quiet).
 - Off in this project, suggest it: `seo-not-enabled`, `blog-not-enabled`, `browser-not-enabled`.
 - Default on (opt out with `no-serena`, `no-graph`): `serena`, `graph`. Opt-in catalog (`ai-adopt --tools <id>`): `omc`, `seo`, `blog`, `browser`, `ui`, `tracker-flow`, `domain-docs`, `knowledge-wiki`.
 - Removed in v4 (ignored in the logs or unmeasured): `kickoff`, `no-memories`, `no-graph`, `graph-first`, `serena-first`, `graph-update`, `docs-on-dependency`, `github`, `prompting-others`, `agent-docs`, `wait-what`, `toolbox`.

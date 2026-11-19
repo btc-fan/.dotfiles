@@ -203,6 +203,13 @@ rules:
     action: "Remove the em dash (U+2014). Use '-', ':' or a new sentence."
     strength: nudge
 
+  - id: ste-sentence
+    scope: global
+    summary: 'Markdown sentence over 25 words'
+    trigger: {tool_after: 'Edit|Write', paths: '**/*.md', long_sentence: 25}   # the writing style rule (ASD-STE100)
+    action: "STE: 25 words max per sentence. Split it."   # short: the L0 table has a size cut
+    strength: nudge
+
   - id: docs-lookup
     scope: global
     summary: 'prompt names a library listed in Libraries, or before a dependency-file edit'
