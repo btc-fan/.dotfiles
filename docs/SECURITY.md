@@ -27,7 +27,10 @@ Gates are lint, not a sandbox: a script file or an unusual command can pass them
   scanned (each prints `audit skipped: profile dev-mac`; `agent-audit` adds "Not a blocker ... go on with the install"), only skills and plugin sources (skill-scanner). No OS
   sandbox: the Claude sandbox and the Codex requirements below are Linux managed settings; a Mac has no managed
   layer of ours. The gates are lint there too, and the `audit-before-install` gate is off; there is no
-  `ai-gate-skip` (the owner runs a blocked command himself). No box and no box MCP server.
+  `ai-gate-skip` (the owner runs a blocked command). No box and no box MCP server. An agent runs with the
+  owner's full user rights: it can read `~/.ssh`, keys and logins. Open only repositories you trust (a hostile
+  repo runs code through its scripts, tests or git hooks), and never type the password into a dialog that an
+  agent opened.
 
 ## Claude sandbox (Linux, managed settings)
 
