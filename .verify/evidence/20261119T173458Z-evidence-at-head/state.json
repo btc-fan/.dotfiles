@@ -1,0 +1,19 @@
+{
+ "run": "20261119T173458Z-evidence-at-head",
+ "root": "/Users/python-qa/work/dotfiles-verify-evidence",
+ "tmp": "/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-d1hyl0bt",
+ "fixtures": [
+  "python-with-tests"
+ ],
+ "guards": {
+  "/Users/python-qa/.claude/settings.json": "e005656135496005d1c7ba36957524a79b1518a3",
+  "/Users/python-qa/.claude/plugins/installed_plugins.json": "0ebcea0e2e61a9141a76ff73822ea16bd0313b30",
+  "/Users/python-qa/.codex/config.toml": "3e64ee5ba3c6af770b64b729c558c70d1afde7a8",
+  "/Users/python-qa/.codex/hooks.json": "7f198ac2a849ef3fde128dc8ff79e11a49e2c489",
+  "/Users/python-qa/.dotfiles-ai": "a785dad1dd11b90325d4b22f4dd53f63d45b3b5dda39a3ee5e6b4b0d3255bfef95601890afd80709",
+  "/Users/python-qa/.claude/skills": "0c3e7b578c6a76f8acee86ffb7b649a938ef8190",
+  "/Users/python-qa/.agents/skills": "7e9734a48151b34c82f2e7270c886b0494c37f00"
+ },
+ "drives": 1,
+ "agents": false
+}

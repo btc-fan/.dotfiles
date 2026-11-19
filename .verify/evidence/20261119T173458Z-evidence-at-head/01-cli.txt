@@ -1,0 +1,508 @@
+/Users/python-qa/work/dotfiles-verify-evidence/ai/bin/ai-adopt --yes
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-d1hyl0bt/python-with-tests
+rc: 0
+--- transcript
+skip check targets: python (pip, pytest) found, but no test or lint command could be told from the files
+check targets: python: no ruff config, so no lint command
+check targets: `python3 -m pytest --version` fails here, so `python3 -m pytest -x -q` is left out. Suggestion: install it (`python3 -m pip install pytest`), then run ai-adopt again
+write .ai/base-version
+write .ai/enabled
+write AGENTS.md
+write docs/REGRESSIONS.md
+write CLAUDE.md
+write .claude/settings.json
+write .gitignore
+write docs/agents/issue-tracker.md
+write docs/agents/domain.md
+write CODING_STANDARDS.md
+run Map conventions (claude -p, read-only tools)
+run serena project create --index
+run GRAPHIFY_BACKEND=none graphify extract . --code-only
+run graphify hook install (graph rebuilds after commit, checkout, merge, rebase)
+run graphify merge driver off (graph.json is not tracked; the git guard refuses it)
+run ai-ratchet --init (test, skip and lint counts that may only improve)
+run link project skills for Claude (.claude/skills) and Codex (.agents/skills): code-review, codebase-design, diagnosing-bugs, domain-modeling, grill-with-docs, handoff, implement, improve-codebase-architecture, pr, prototype, research, tdd, to-spec, to-tickets, wayfinder
+run install .git/hooks/pre-commit (ai-precommit: lint and format check on staged files, local)
+$ claude -p <map conventions prompt> --allowedTools Read Grep Glob Bash(git ls-files:*) Bash(rg:*)
+Map conventions: no usable answer (exit 1): add them by hand inside the Map markers
+$ serena project create --index /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-d1hy...
+Generated project with language servers {python} at /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-d1hyl0bt/python-with-tests/.serena/project.yml.
+Indexing project...
+Indexing symbols in Project[root='/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-d1hyl0bt/python-with-tests', name=python-with-tests] …
+Indexing:   0% 0/4 [00:00<?, ?it/s]Indexing: 100% 4/4 [00:00<00:00, 78.39it/s]
+Indexed files per language: python=4
+$ graphify extract . --code-only
+[graphify extract] scanning /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-d1hyl0bt/python-with-tests
+[graphify extract] --code-only: skipping 7 non-code file(s) (7 docs, 0 papers, 0 images) — no LLM extraction
+[graphify extract] found 7 code, 0 docs, 0 papers, 0 images
+[graphify extract] 5 path(s) ignored by ignore rules (pruned directories count once): '.ai/base-version', '.serena/.gitignore', '.serena/cache/' (+2 more)
+[graphify extract] Review ignore rules if source is missing; --no-gitignore bypasses VCS ignore rules only; .graphifyignore and --exclude still apply.
+[graphify extract] 3 file(s) not classified (no supported extension or shebang), skipped: .gitignore, Makefile, enabled
+[graphify extract] AST extraction on 7 code files...
+  AST cache: 0/7 files served from cache (0%); 7 to extract
+  warning: 1 code file(s) yielded no symbols (0.00 MB) — a data file, or source this extractor models no symbols for: pyproject.toml
+[graphify extract] wrote /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-d1hyl0bt/python-with-tests/graphify-out/graph.json: 35 nodes, 35 edges, 4 communities
+[graphify extract] wrote /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-d1hyl0bt/python-with-tests/graphify-out/.graphify_analysis.json
+[graphify extract] next: run `graphify cluster-only /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-d1hyl0bt/python-with-tests` to generate GRAPH_REPORT.md and name communities
+
+  Graphify Cloud: faster indexing, fewer tokens, cross-repo search,
+  and PR review, with your whole SDLC mapped and always current.
+  Free plan, no card: https://app.graphify.com/signup?utm_source=cli&utm_medium=terminal&utm_campaign=oss&utm_content=post-run
+$ graphify hook install
+post-commit: installed at /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-d1hyl0bt/python-with-tests/.git/hooks/post-commit
+post-checkout: installed at /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-d1hyl0bt/python-with-tests/.git/hooks/post-checkout
+post-merge: installed at /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-d1hyl0bt/python-with-tests/.git/hooks/post-merge
+post-rewrite: installed at /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-d1hyl0bt/python-with-tests/.git/hooks/post-rewrite
+merge driver: registered (graphify-out/graph.json merge=graphify)
+$ /Users/python-qa/.pyenv/versions/3.11.10/bin/python3 /Users/python-qa/work/dotfiles-verify-evidence/ai/bin/ai-ratchet --init --dir /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-d1hy...
+ai-ratchet: baseline .ai/ratchet.json written: skips 0, tests 1
+[1mdiff --git a/.ai/enabled b/.ai/enabled[m
+[1mnew file mode 100644[m
+[1mindex 0000000..cb34949[m
+[1m--- /dev/null[m
+[1m+++ b/.ai/enabled[m
+[36m@@ -0,0 +1,4 @@[m
+[32m+[m[32m# ai-adopt: the project tier (always long), the mattpocock skills linked here (skills: a, b | none), then opt-in tool ids, one per line; no-serena / no-graph / no-ui / no-stop-check switch a default off[m
+[32m+[m[32mtier: long[m
+[32m+[m[32mskills: grill-with-docs, domain-modeling, to-spec, to-tickets, tdd, pr, diagnosing-bugs, improve-codebase-architecture, implement, research, handoff, wayfinder, prototype[m
+[32m+[m[32mui[m
+[1mdiff --git a/.ai/ratchet.json b/.ai/ratchet.json[m
+[1mnew file mode 100644[m
+[1mindex 0000000..13d45c8[m
+[1m--- /dev/null[m
+[1m+++ b/.ai/ratchet.json[m
+[36m@@ -0,0 +1,4 @@[m
+[32m+[m[32m{[m
+[32m+[m[32m "skips": 0,[m
+[32m+[m[32m "tests": 1[m
+[32m+[m[32m}[m
+[1mdiff --git a/.claude/settings.json b/.claude/settings.json[m
+[1mnew file mode 100644[m
+[1mindex 0000000..93372d5[m
+[1m--- /dev/null[m
+[1m+++ b/.claude/settings.json[m
+[36m@@ -0,0 +1,5 @@[m
+[32m+[m[32m{[m
+[32m+[m[32m  "enabledPlugins": {[m
+[32m+[m[32m    "ui-ux-pro-max@ui-ux-pro-max-skill": true[m
+[32m+[m[32m  }[m
+[32m+[m[32m}[m
+[1mdiff --git a/.gitignore b/.gitignore[m
+[1mnew file mode 100644[m
+[1mindex 0000000..27c9b88[m
+[1m--- /dev/null[m
+[1m+++ b/.gitignore[m
+[36m@@ -0,0 +1,52 @@[m
+[32m+[m[32m# >>> AI tools (managed by ai-adopt; edit outside this block) >>>[m
+[32m+[m[32m.omc/*[m
+[32m+[m[32m!.omc/skills/[m
+[32m+[m[32m.omx/[m
+[32m+[m[32m.codex/[m
+[32m+[m[32m.claude/*[m
+[32m+[m[32m!.claude/settings.json[m
+[32m+[m[32m!.claude/skills/[m
+[32m+[m[32m.claude/skills/*[m
+[32m+[m[32m!.claude/skills/verify-*[m
+[32m+[m[32m.serena/*[m
+[32m+[m[32m!.serena/project.yml[m
+[32m+[m[32mgraphify-out/[m
+[32m+[m[32m.ai/*[m
+[32m+[m[32m!.ai/enabled[m
+[32m+[m[32m!.ai/ratchet.json[m
+[32m+[m[32m!.ai/destructive.txt[m
+[32m+[m[32m!.ai/docs-allow[m
+[32m+[m[32m.verify/*[m
+[32m+[m[32m!.verify/evidence/[m
+[32m+[m[32m.verify/evidence/**/.DS_Store[m
+[32m+[m[32m.claude/skills/grill-with-docs[m
+[32m+[m[32m.claude/skills/domain-modeling[m
+[32m+[m[32m.claude/skills/to-spec[m
+[32m+[m[32m.claude/skills/to-tickets[m
+[32m+[m[32m.claude/skills/tdd[m
+[32m+[m[32m.claude/skills/codebase-design[m
+[32m+[m[32m.claude/skills/code-review[m
+[32m+[m[32m.claude/skills/pr[m
+[32m+[m[32m.claude/skills/diagnosing-bugs[m
+[32m+[m[32m.claude/skills/improve-codebase-architecture[m
+[32m+[m[32m.claude/skills/implement[m
+[32m+[m[32m.claude/skills/research[m
+[32m+[m[32m.claude/skills/handoff[m
+[32m+[m[32m.claude/skills/wayfinder[m
+[32m+[m[32m.claude/skills/prototype[m
+[32m+[m[32m.agents/skills/grill-with-docs[m
+[32m+[m[32m.agents/skills/domain-modeling[m
+[32m+[m[32m.agents/skills/to-spec[m
+[32m+[m[32m.agents/skills/to-tickets[m
+[32m+[m[32m.agents/skills/tdd[m
+[32m+[m[32m.agents/skills/codebase-design[m
+[32m+[m[32m.agents/skills/code-review[m
+[32m+[m[32m.agents/skills/pr[m
+[32m+[m[32m.agents/skills/diagnosing-bugs[m
+[32m+[m[32m.agents/skills/improve-codebase-architecture[m
+[32m+[m[32m.agents/skills/implement[m
+[32m+[m[32m.agents/skills/research[m
+[32m+[m[32m.agents/skills/handoff[m
+[32m+[m[32m.agents/skills/wayfinder[m
+[32m+[m[32m.agents/skills/prototype[m
+[32m+[m[32m# <<< AI tools <<<[m
+[1mdiff --git a/.serena/project.yml b/.serena/project.yml[m
+[1mnew file mode 100644[m
+[1mindex 0000000..a399b31[m
+[1m--- /dev/null[m
+[1m+++ b/.serena/project.yml[m
+[36m@@ -0,0 +1,186 @@[m
+[32m+[m[32m# the name by which the project can be referenced within Serena/when chatting with the LLM.[m
+[32m+[m[32mproject_name: "python-with-tests"[m
+[32m+[m
+[32m+[m[32m# list of language servers to start when using the LSP backend; choose from:[m
+[32m+[m[32m#   ada                    al                     angular                ansible                astro[m
+[32m+[m[32m#   bash                   bsl                    clojure                cpp                    cpp_ccls[m
+[32m+[m[32m#   crystal                csharp                 csharp_omnisharp       cue                    dart[m
+[32m+[m[32m#   deno                   elixir                 elm                    erlang                 fortran[m
+[32m+[m[32m#   fsharp                 gdscript               gleam                  go                     groovy[m
+[32m+[m[32m#   haskell                haxe                   hlsl                   html                   java[m
+[32m+[m[32m#   json                   julia                  julia_fatou            kotlin                 latex[m
+[32m+[m[32m#   lean4                  lua                    lua_emmylua            luau                   markdown[m
+[32m+[m[32m#   matlab                 msl                    nextflow               nix                    ocaml[m
+[32m+[m[32m#   pascal                 perl                   php                    php_devsense           php_phpactor[m
+[32m+[m[32m#   php_phpantom           powershell             python                 python_basedpyright    python_jedi[m
+[32m+[m[32m#   python_pyrefly         python_ty              qml                    r                      rego[m
+[32m+[m[32m#   ruby                   ruby_solargraph        rust                   scala                  scss[m
+[32m+[m[32m#   solidity               svelte                 swift                  systemverilog          terraform[m
+[32m+[m[32m#   toml                   typescript             typescript_tsgo        typescript_vts         vue[m
+[32m+[m[32m#   vbnet                  wolfram                yaml                   zig[m
+[32m+[m[32m#   (This list may be outdated; generated with scripts/print_language_list.py;[m
+[32m+[m[32m#   For the current list, see values of the LanguageServerId enum here:[m
+[32m+[m[32m#   https://github.com/oraios/serena/blob/main/src/solidlsp/ls_config.py)[m
+[32m+[m[32m# For some languages, there are several alternative language servers, e.g. csharp_omnisharp, ruby_solargraph.)[m
+[32m+[m[32m# Note:[m
+[32m+[m[32m#   - For C, use cpp[m
+[32m+[m[32m#   - For JavaScript, use typescript[m
+[32m+[m[32m#   - For Angular projects, use angular (subsumes typescript+html; requires `npm install` in the project root)[m
+[32m+[m[32m#   - For Astro projects, use astro (subsumes typescript/javascript for .astro projects; requires npm)[m
+[32m+[m[32m#   - For Svelte projects, use svelte (subsumes typescript/javascript for .svelte projects; requires npm)[m
+[32m+[m[32m#   - For Deno projects, use deno (serves the same .ts/.js files as typescript; requires the deno CLI on PATH)[m
+[32m+[m[32m#   - For SCSS / Sass / plain CSS, use scss (some-sass-language-server handles all three)[m
+[32m+[m[32m#   - For Free Pascal/Lazarus, use pascal[m
+[32m+[m[32m#   - External Python adapters may add further registered IDs; install the adapter package first[m
+[32m+[m[32m#     and then use its ID here, for example: example[m
+[32m+[m[32m# Special requirements:[m
+[32m+[m[32m#   Some language servers require additional setup/installations.[m
+[32m+[m[32m#   See here for details: https://oraios.github.io/serena/01-about/020_programming-languages.html#language-servers[m
+[32m+[m[32m# When using multiple language servers, the first language server that supports a given file will be used for that file.[m
+[32m+[m[32m# The first language server is the default language and the respective language server will be used as a fallback.[m
+[32m+[m[32m# Note that when using the JetBrains backend, language servers are not used and this list is correspondingly ignored.[m
+[32m+[m[32mlanguage_servers:[m
+[32m+[m[32m- python[m
+[32m+[m
+[32m+[m[32m# the encoding used by text files in the project[m
+[32m+[m[32m# For a list of possible encodings, see https://docs.python.org/3.11/library/codecs.html#standard-encodings[m
+[32m+[m[32mencoding: "utf-8"[m
+[32m+[m
+[32m+[m[32m# optional shell command to run before the language backend (LSP or JetBrains) is initialised.[m
+[32m+[m[32m# the command runs in the project root directory and is only executed if the project is trusted[m
+[32m+[m[32m# (see trusted_project_path_patterns in the global configuration).[m
+[32m+[m[32m# serena waits for the command to exit: a non-zero exit code is logged as an error but does not[m
+[32m+[m[32m# abort activation. a per-project timeout (activation_command_timeout, default 180s) is the safety[m
+[32m+[m[32m# backstop for non-terminating commands; on expiry the process is killed and activation continues.[m
+[32m+[m[32m# example: activation_command: "npx nx run-many -t build"[m
+[32m+[m[32mactivation_command:[m
+[32m+[m
+[32m+[m[32m# maximum time in seconds to wait for activation_command to complete before killing it (default 180s).[m
+[32m+[m[32m# must be a positive number.[m
+[32m+[m[32mactivation_command_timeout: 180[m
+[32m+[m
+[32m+[m[32m# line ending convention to use when writing source files.[m
+[32m+[m[32m# Possible values: unset (use global setting), "lf", "crlf", or "native" (platform default)[m
+[32m+[m[32m# This does not affect Serena's own files (e.g. memories and configuration files), which always use native line endings.[m
+[32m+[m[32mline_ending:[m
+[32m+[m
+[32m+[m[32m# The language backend to use for this project.[m
+[32m+[m[32m# If not set, the global setting from serena_config.yml is used.[m
+[32m+[m[32m# Valid values: LSP, JetBrains[m
+[32m+[m[32m# Note: the backend is fixed at startup. If a project with a different backend[m
+[32m+[m[32m# is activated post-init, an error will be returned.[m
+[32m+[m[32mlanguage_backend:[m
+[32m+[m
+[32m+[m[32m# The interface through which the agent (LLM) accesses Serena's functionality (overrides the global setting).[m
+[32m+[m[32m# Valid values: tools, REPL (see the global configuration for details); leave empty to use the global setting.[m
+[32m+[m[32m# Note: the interface is fixed at startup. If a project is activated post-init, its setting is not applied.[m
+[32m+[m[32magent_interface:[m
+[32m+[m
+[32m+[m[32m# whether to use project's .gitignore files to ignore files[m
+[32m+[m[32mignore_all_files_in_gitignore: true[m
+[32m+[m
+[32m+[m[32m# advanced configuration option allowing to configure language server-specific options.[m
+[32m+[m[32m# Maps the language key to the options.[m
+[32m+[m[32m# The settings are considered only if the project is trusted (see global configuration to define trusted projects).[m
+[32m+[m[32m# See https://oraios.github.io/serena/02-usage/050_configuration.html#language-server-specific-settings[m
+[32m+[m[32mls_specific_settings: {}[m
+[32m+[m
+[32m+[m[32m# list of workspace folder paths (LSP backend only).[m
+[32m+[m[32m# These folders will be used to build up Serena's symbol index.[m
+[32m+[m[32m# Paths must be within the project root and should thus be relative to the project root.[m
+[32m+[m[32m# Furthermore, the paths should not be filtered by ignore settings.[m
+[32m+[m[32m# Default setting: The entire project root folder (".") is considered.[m
+[32m+[m[32m# In (large) monorepos, this can be used to index only subfolders of the project root, e.g.[m
+[32m+[m[32m#   ls_workspace_folders:[m
+[32m+[m[32m#     - "./subproject1"[m
+[32m+[m[32m#     - "./subproject2"[m
+[32m+[m[32mls_workspace_folders: ["."][m
+[32m+[m
+[32m+[m[32m# list of additional workspace folder paths for cross-package reference support.[m
+[32m+[m[32m# Paths can be absolute or relative to the project root.[m
+[32m+[m[32m# Each folder is registered as an LSP workspace folder, enabling language servers to discover[m
+[32m+[m[32m# symbols and references across package boundaries, but these folders are not indexed by Serena,[m
+[32m+[m[32m# i.e. the respective symbols will not be found using Serena's symbol search tools.[m
+[32m+[m[32m# Example:[m
+[32m+[m[32m#   additional_workspace_folders:[m
+[32m+[m[32m#     - ../sibling-package[m
+[32m+[m[32m#     - ../shared-lib[m
+[32m+[m[32mls_additional_workspace_folders: [][m
+[32m+[m
+[32m+[m[32m# list of additional paths to ignore in this project.[m
+[32m+[m[32m# Same syntax as gitignore, so you can use * and **.[m
+[32m+[m[32m# Important: quote patterns that start with `*`, otherwise YAML treats them as aliases.[m
+[32m+[m[32m# Example:[m
+[32m+[m[32m#   ignored_paths:[m
+[32m+[m[32m#     - "examples/**"[m
+[32m+[m[32m#     - ".worktrees/**"[m
+[32m+[m[32m#     - "**/bin/**"[m
+[32m+[m[32m#     - "**/obj/**"[m
+[32m+[m[32m# Note: global ignored_paths from serena_config.yml are also applied additively.[m
+[32m+[m[32mignored_paths: [][m
+[32m+[m
+[32m+[m[32m# whether the project is in read-only mode[m
+[32m+[m[32m# If set to true, all editing tools will be disabled and attempts to use them will result in an error[m
+[32m+[m[32m# Added on 2025-04-18[m
+[32m+[m[32mread_only: false[m
+[32m+[m
+[32m+[m[32m# list of tool names to exclude.[m
+[32m+[m[32m# This extends the existing exclusions (e.g. from the global configuration)[m
+[32m+[m[32m# Find the list of tools here: https://oraios.github.io/serena/01-about/035_tools.html[m
+[32m+[m[32mexcluded_tools: [][m
+[32m+[m
+[32m+[m[32m# list of tools to include that would otherwise be disabled (particularly optional tools that are disabled by default).[m
+[32m+[m[32m# This extends the existing inclusions (e.g. from the global configuration).[m
+[32m+[m[32m# Find the list of tools here: https://oraios.github.io/serena/01-about/035_tools.html[m
+[32m+[m[32mincluded_optional_tools: [][m
+[32m+[m
+[32m+[m[32m# fixed set of tools to use as the base tool set (if non-empty), replacing Serena's default set of tools.[m
+[32m+[m[32m# This cannot be combined with non-empty excluded_tools or included_optional_tools.[m
+[32m+[m[32m# Find the list of tools here: https://oraios.github.io/serena/01-about/035_tools.html[m
+[32m+[m[32mfixed_tools: [][m
+[32m+[m
+[32m+[m[32m# list of APIs (facades or facade methods, e.g. "lsp" or "lsp.find_symbol") to exclude from the REPL.[m
+[32m+[m[32m# This extends the existing exclusions (e.g. from the global configuration).[m
+[32m+[m[32mexcluded_apis: [][m
+[32m+[m
+[32m+[m[32m# list of APIs (facades or facade methods, e.g. "lsp" or "lsp.get_diagnostics_for_symbol") to include in the REPL[m
+[32m+[m[32m# that would otherwise be disabled (particularly optional methods, which are disabled by default).[m
+[32m+[m[32m# This extends the existing inclusions (e.g. from the global configuration).[m
+[32m+[m[32mincluded_apis: [][m
+[32m+[m
+[32m+[m[32m# list of mode names that are to be activated by default, overriding the setting in the global configuration.[m
+[32m+[m[32m# The full set of modes to be activated is base_modes (from global config) + default_modes + added_modes.[m
+[32m+[m[32m# If the setting is undefined/empty, the default_modes from the global configuration (serena_config.yml) apply.[m
+[32m+[m[32m# Otherwise, this overrides the setting from the global configuration (serena_config.yml).[m
+[32m+[m[32m# Therefore, you can set this to [] if you do not want the default modes defined in the global config to apply[m
+[32m+[m[32m# for this project.[m
+[32m+[m[32m# This setting can, in turn, be overridden by CLI parameters (--mode).[m
+[32m+[m[32m# See https://oraios.github.io/serena/02-usage/050_configuration.html#modes[m
+[32m+[m[32mdefault_modes:[m
+[32m+[m
+[32m+[m[32m# list of mode names to be activated additionally for this project, e.g. ["query-projects"][m
+[32m+[m[32m# The full set of modes to be activated is base_modes (from global config) + default_modes + added_modes.[m
+[32m+[m[32m# See https://oraios.github.io/serena/02-usage/050_configuration.html#modes[m
+[32m+[m[32madded_modes:[m
+[32m+[m
+[32m+[m[32m# initial prompt for the project. It will always be given to the LLM upon activating the project[m
+[32m+[m[32m# (contrary to the memories, which are loaded on demand).[m
+[32m+[m[32minitial_prompt: ""[m
+[32m+[m
+[32m+[m[32m# time budget (seconds) per tool call for the retrieval of additional symbol information[m
+[32m+[m[32m# such as docstrings or parameter information.[m
+[32m+[m[32m# This overrides the corresponding setting in the global configuration; see the documentation there.[m
+[32m+[m[32m# If null or missing, use the setting from the global configuration.[m
+[32m+[m[32msymbol_info_budget:[m
+[32m+[m
+[32m+[m[32m# list of regex patterns which, when matched, mark a memory entry as read‑only.[m
+[32m+[m[32m# Extends the list from the global configuration, merging the two lists.[m
+[32m+[m[32mread_only_memory_patterns: [][m
+[32m+[m
+[32m+[m[32m# list of regex patterns for memories to completely ignore.[m
+[32m+[m[32m# Matching memories will not appear in list_memories or activate_project output[m
+[32m+[m[32m# and cannot be accessed via read_memory or write_memory.[m
+[32m+[m[32m# To access ignored memory files, use the read_file tool on the raw file path.[m
+[32m+[m[32m# Extends the list from the global configuration, merging the two lists.[m
+[32m+[m[32m# Example: ["_archive/.*", "_episodes/.*"][m
+[32m+[m[32mignored_memory_patterns: [][m
+[1mdiff --git a/AGENTS.md b/AGENTS.md[m
+[1mindex c285fca..a2182b7 100644[m
+[1m--- a/AGENTS.md[m
+[1m+++ b/AGENTS.md[m
+[36m@@ -1,5 +1,16 @@[m
+ # app[m
+ [m
+[32m+[m[32m<!-- AI:map START (ai-adopt; edit freely inside, keep it under 60 lines) -->[m
+[32m+[m[32m## Map[m
+[32m+[m[32m- What: python-with-tests (Python).[m
+[32m+[m[32m- Where things live: `app/` (3 code files), `tests/` (1 code files).[m
+[32m+[m[32m- Run: `make check`.[m
+[32m+[m[32m- Test: `pytest`.[m
+[32m+[m[32m- Library versions and docs IDs: the Libraries section below.[m
+[32m+[m[32m- Design: `design-system/python-with-tests/MASTER.md` and `design-system/python-with-tests/pages/<page>.md` overrides; read them before UI work (missing: at kickoff, ui-ux-pro-max --design-system makes 3 to 5 directions as prototype variants, the owner picks one, then --persist writes it).[m
+[32m+[m[32m<!-- AI:map END -->[m
+[32m+[m
+[32m+[m
+ <!-- AI:libraries START lock: none -->[m
+ ## Libraries[m
+ Docs: context7 query-docs with the ID below; skip resolve-library-id. "?" = not looked up yet, "-" = no match or not sent. Generated by ai-libs --sync; edit only the note column.[m
+[36m@@ -8,3 +19,23 @@[m [mDocs: context7 query-docs with the ID below; skip resolve-library-id. "?" = not[m
+ |---|---|---|---|[m
+ | pytest | ? | /pytest-dev/pytest |  |[m
+ <!-- AI:libraries END -->[m
+[32m+[m
+[32m+[m[32m<!-- AI:ui v4 START -->[m
+[32m+[m[32mUse ui-ux-pro-max. Read design-system/<app>/MASTER.md (and the page override) first. None yet: 3 to 5 directions (--design-system, different styles) as prototype variants (?variant=); the owner picks one, then --persist. Ask before paid image generation or npx ...@latest. Details: ~/.config/ai/rules/ui-ux-pro-max.md[m
+[32m+[m[32m<!-- AI:ui v4 END -->[m
+[32m+[m
+[32m+[m[32m<!-- AI:done START (ai-adopt; 6 lines, a rerun replaces it) -->[m
+[32m+[m[32m## Done[m
+[32m+[m[32m1. In this order: check-fast green; then verify-<app> on the changed feature (launch, doctor, drive every entry point its feature file lists, evidence kept); only then add e2e tests for the proven journey; the project check (the Map says which) passes. The PR Evidence section cites the output, the evidence path and the e2e test.[m
+[32m+[m[32m2. New behaviour has a test; a bug fix has a test that failed before the fix and a line in docs/REGRESSIONS.md.[m
+[32m+[m[32m3. No test is deleted, skipped or weakened unless the owner said so in this session.[m
+[32m+[m[32m4. Docs touched by the change are updated (Map, README), or the PR says "Docs: none, because ...".[m
+[32m+[m[32m5. Only what was asked; a refactor goes in its own commit or PR.[m
+[32m+[m[32m6. A PR stays under about 400 changed lines (generated files excluded), else split it or say why.[m
+[32m+[m[32m<!-- AI:done END -->[m
+[32m+[m
+[32m+[m[32m## Lessons[m
+[32m+[m[32m<!-- One line per repeated mistake that no check catches yet; name its ledger ID (R-NNN) when it has one. At most 15 lines: when a check covers a lesson, delete its line. -->[m
+[32m+[m
+[32m+[m[32m## Project rules[m
+[32m+[m[32m<!-- Rules for this repo only, one line each. They may add or tighten the global rules, never loosen them; on a conflict the agent asks the owner. -->[m
+[1mdiff --git a/CLAUDE.md b/CLAUDE.md[m
+[1mnew file mode 100644[m
+[1mindex 0000000..43c994c[m
+[1m--- /dev/null[m
+[1m+++ b/CLAUDE.md[m
+[36m@@ -0,0 +1 @@[m
+[32m+[m[32m@AGENTS.md[m
+[1mdiff --git a/CODING_STANDARDS.md b/CODING_STANDARDS.md[m
+[1mnew file mode 100644[m
+[1mindex 0000000..21363de[m
+[1m--- /dev/null[m
+[1m+++ b/CODING_STANDARDS.md[m
+[36m@@ -0,0 +1,14 @@[m
+[32m+[m[32m# Coding standards[m
+[32m+[m
+[32m+[m[32mThe reviewer reads this file (Matt Pocock `code-review`, Standards axis), not the implementer. `/retro` adds rules[m
+[32m+[m[32mhere after a session where the review missed a mistake.[m
+[32m+[m
+[32m+[m[32mOnly judgement calls go here: cross-file consistency, "matches the surrounding style", design choices no tool can[m
+[32m+[m[32mcheck. A mechanical rule (a banned API, an import shape, a file location, a naming pattern) becomes a check[m
+[32m+[m[32minstead: a linter rule, a pre-commit hook or a CI job.[m
+[32m+[m
+[32m+[m[32mOne rule per line, with the reason. Example:[m
+[32m+[m[32m- Handlers stay thin: parse the request, call one service function, return. Why: logic in a handler has no unit test.[m
+[32m+[m
+[32m+[m[32m## Rules[m
+[32m+[m[32m- UI follows `design-system/<app>/MASTER.md` and its page overrides (ui-ux-pro-max). Why: one visual language across screens; the reviewer checks new UI against it.[m
+[1mdiff --git a/docs/REGRESSIONS.md b/docs/REGRESSIONS.md[m
+[1mnew file mode 100644[m
+[1mindex 0000000..42a10a2[m
+[1m--- /dev/null[m
+[1m+++ b/docs/REGRESSIONS.md[m
+[36m@@ -0,0 +1,16 @@[m
+[32m+[m[32m# Regressions[m
+[32m+[m
+[32m+[m[32mOne line per bug that reached the main branch, added in the fix PR together with a test that failed before the[m
+[32m+[m[32mfix. Format (one line, or wrapped with an indent; `area:` is a folder or file path, more than one with commas):[m
+[32m+[m
+[32m+[m[32m    R-001 | 2026-11-14 | area: src/billing | symptom: ... | cause: ... | test: tests/regressions/test_r001_short_name.py | reopened: 0[m
+[32m+[m
+[32m+[m[32mRules: never delete a line; `reopened` only goes up (the same symptom came back); the test is[m
+[32m+[m[32mtests/regressions/test_r<NNN>_*.py and its name says the promise it keeps. `ai-ledger --check` checks this[m
+[32m+[m[32m(`make check` runs it). An edit in an `area:` gets a one-line reminder with the IDs to run.[m
+[32m+[m
+[32m+[m[32m## Ledger[m
+[32m+[m
+[32m+[m[32m## Quarantine[m
+[32m+[m[32mFlaky tests, one line each: `- <test id> | since: YYYY-MM-DD | why`. Older than 14 days: fix it or delete it[m
+[32m+[m[32mwith the owner's OK.[m
+[1mdiff --git a/docs/agents/domain.md b/docs/agents/domain.md[m
+[1mnew file mode 100644[m
+[1mindex 0000000..f66935d[m
+[1m--- /dev/null[m
+[1m+++ b/docs/agents/domain.md[m
+[36m@@ -0,0 +1,4 @@[m
+[32m+[m[32m# Domain docs[m
+[32m+[m
+[32m+[m[32mSingle context: `GLOSSARY.md` (terms, one line each) and `docs/adr/NNNN-<title>.md` (decisions that are hard to[m
+[32m+[m[32mreverse) at the repo root. grill-with-docs and domain-modeling update them during the questions.[m
+[1mdiff --git a/docs/agents/issue-tracker.md b/docs/agents/issue-tracker.md[m
+[1mnew file mode 100644[m
+[1mindex 0000000..1255ae1[m
+[1m--- /dev/null[m
+[1m+++ b/docs/agents/issue-tracker.md[m
+[36m@@ -0,0 +1,33 @@[m
+[32m+[m[32m# Issue tracker[m
+[32m+[m
+[32m+[m[32mLocal, in this repo. No GitHub issues, labels or remote calls without the owner's OK in this session.[m
+[32m+[m
+[32m+[m[32m- Specs (to-spec): `docs/specs/<feature-slug>.md`.[m
+[32m+[m[32m- Tickets (to-tickets): `docs/tickets/<feature-slug>/NN-<slice>.md`, one file per vertical slice: title,[m
+[32m+[m[32m  acceptance criteria, blocked by, and the verify-<app> feature the slice must pass (its file in the project's[m
+[32m+[m[32m  verify skill). A ticket is done when check-fast is green, the verify run left evidence, and an e2e test encodes[m
+[32m+[m[32m  the proven journey.[m
+[32m+[m[32m- Close a ticket by moving its file to `docs/tickets/<feature-slug>/done/` in the PR that finishes it.[m
+[32m+[m[32m- Work closes through PRs: one branch per feature (named after the slug), a draft PR after the first ticket,[m
+[32m+[m[32m  the ship skill, then `gh pr ready`. Every PR goes through the owner: the agent merges only after the[m
+[32m+[m[32m  owner says merge.[m
+[32m+[m[32m- Research notes (research): `docs/research/<topic>.md`, each claim with its source. The first lines say[m
+[32m+[m[32m  `Date:`, `Sources:` and `Status:` (current, superseded by <file>, or decided in ADR NNNN).[m
+[32m+[m[32m- Release reports (release skill): `docs/releases/<version>.md`.[m
+[32m+[m
+[32m+[m[32m## Wayfinding operations[m
+[32m+[m
+[32m+[m[32mUsed by `/wayfinder`. The **map** is a file with one **child** file per ticket.[m
+[32m+[m
+[32m+[m[32m- **Map**: `docs/maps/<effort>/map.md` (the Destination / Notes / Decisions-so-far / Not yet specified / Out of[m
+[32m+[m[32m  scope body).[m
+[32m+[m[32m- **Child ticket**: `docs/maps/<effort>/issues/NN-<slug>.md`, numbered from `01`, with the question in the body. A[m
+[32m+[m[32m  `Type:` line records the ticket type (`research`/`prototype`/`grilling`/`task`); a `Status:` line records[m
+[32m+[m[32m  `claimed`/`resolved`.[m
+[32m+[m[32m- **Blocking**: a `Blocked by: NN, NN` line near the top. A ticket is unblocked when every file it lists is[m
+[32m+[m[32m  `resolved`.[m
+[32m+[m[32m- **Frontier**: scan `docs/maps/<effort>/issues/` for files that are open, unblocked, and unclaimed; first by[m
+[32m+[m[32m  number wins.[m
+[32m+[m[32m- **Claim**: set `Status: claimed` and save before any work.[m
+[32m+[m[32m- **Resolve**: append the answer under an `## Answer` heading, set `Status: resolved`, then append a context[m
+[32m+[m[32m  pointer (gist + link) to the map's Decisions-so-far in `map.md`.[m
+[graphify hook] launching background rebuild (log: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-d1hyl0bt/home/.cache/graphify-rebuild.log)
+[ai-adopt 15679c1] chore(ai): adopt base AI setup v4
+ 11 files changed, 350 insertions(+)
+ create mode 100644 .ai/enabled
+ create mode 100644 .ai/ratchet.json
+ create mode 100644 .claude/settings.json
+ create mode 100644 .gitignore
+ create mode 100644 .serena/project.yml
+ create mode 100644 CLAUDE.md
+ create mode 100644 CODING_STANDARDS.md
+ create mode 100644 docs/REGRESSIONS.md
+ create mode 100644 docs/agents/domain.md
+ create mode 100644 docs/agents/issue-tracker.md
+ai-adopt: committed on the branch ai-adopt, not on main: merge the ai-adopt branch (owner)
+Enumerating objects: 20, done.
+Counting objects:   5% (1/20)Counting objects:  10% (2/20)Counting objects:  15% (3/20)Counting objects:  20% (4/20)Counting objects:  25% (5/20)Counting objects:  30% (6/20)Counting objects:  35% (7/20)Counting objects:  40% (8/20)Counting objects:  45% (9/20)Counting objects:  50% (10/20)Counting objects:  55% (11/20)Counting objects:  60% (12/20)Counting objects:  65% (13/20)Counting objects:  70% (14/20)Counting objects:  75% (15/20)Counting objects:  80% (16/20)Counting objects:  85% (17/20)Counting objects:  90% (18/20)Counting objects:  95% (19/20)Counting objects: 100% (20/20)Counting objects: 100% (20/20), done.
+Delta compression using up to 12 threads
+Compressing objects:   7% (1/14)Compressing objects:  14% (2/14)Compressing objects:  21% (3/14)Compressing objects:  28% (4/14)Compressing objects:  35% (5/14)Compressing objects:  42% (6/14)Compressing objects:  50% (7/14)Compressing objects:  57% (8/14)Compressing objects:  64% (9/14)Compressing objects:  71% (10/14)Compressing objects:  78% (11/14)Compressing objects:  85% (12/14)Compressing objects:  92% (13/14)Compressing objects: 100% (14/14)Compressing objects: 100% (14/14), done.
+Writing objects:   5% (1/18)Writing objects:  11% (2/18)Writing objects:  16% (3/18)Writing objects:  22% (4/18)Writing objects:  27% (5/18)Writing objects:  33% (6/18)Writing objects:  38% (7/18)Writing objects:  44% (8/18)Writing objects:  50% (9/18)Writing objects:  55% (10/18)Writing objects:  61% (11/18)Writing objects:  66% (12/18)Writing objects:  72% (13/18)Writing objects:  77% (14/18)Writing objects:  83% (15/18)Writing objects:  88% (16/18)Writing objects:  94% (17/18)Writing objects: 100% (18/18)Writing objects: 100% (18/18), 8.90 KiB | 8.90 MiB/s, done.
+Total 18 (delta 0), reused 0 (delta 0), pack-reused 0 (from 0)
+To /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-d1hyl0bt/remotes/fixture-owner/python-with-tests.git
+ * [new branch]      HEAD -> ai-adopt
+branch 'ai-adopt' set up to track 'origin/ai-adopt'.
+ai-adopt: PR (gh printed nothing)
+
+--- git status --short after
