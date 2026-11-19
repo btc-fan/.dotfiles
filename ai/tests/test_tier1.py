@@ -231,6 +231,23 @@ def t_adopt_monorepo_refused(work):
     assert not os.path.exists(os.path.join(repo, "Makefile")), "monorepo: nothing written"
 
 
+def t_adopt_monorepo_owner_makefile_done(work):
+    """A monorepo whose owner wrote check-fast and check in the root Makefile (a project, 2026-11-19): the Done line
+    names `make check-fast` and `make check`, not "check-fast green; The project check" (no command, a capital)."""
+    mk = "check-fast:\n\tpnpm -r test\n\ncheck:\n\tpnpm -r test\n"
+    repo, env = adopt_repo(work, "mono-mk", {"pnpm-workspace.yaml": "packages: ['a']\n", "package.json": "{}",
+                                            "Makefile": mk})
+    res = adopt(repo, env)
+    assert res.returncode == 0 and "skip check targets: monorepo" in res.stdout, res.stdout
+    done = open(os.path.join(repo, "AGENTS.md")).read()
+    assert "1. In this order: `make check-fast` green;" in done and "`make check` passes." in done, done
+    assert open(os.path.join(repo, "Makefile")).read() == mk, "owner Makefile unchanged"
+    repo, env = adopt_repo(work, "mono-nomk", {"pnpm-workspace.yaml": "packages: ['a']\n", "package.json": "{}"})
+    assert adopt(repo, env).returncode == 0
+    done = open(os.path.join(repo, "AGENTS.md")).read()
+    assert "; the project check (the Map says which) passes." in done, done
+
+
 def t_detect_probe_drops_missing_tool(work):
     """QA 2026-11-15 (scriptube): `.venv/bin/python -m ruff` failed, so check-fast failed on a tool not installed."""
     repo = tree(work, "py-probe", {"pyproject.toml": "[project]\nname='x'\n[tool.ruff]\n[tool.mypy]\n",
@@ -1285,7 +1302,7 @@ TESTS_LIST = [t_verify_skills_copy, t_pstack_adapt_ours, t_adopt_verify_link, t_
               t_detect_probe_drops_missing_tool, t_adopt_failing_check_turns_stop_off, t_adopt_leaves_tree_clean, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
               t_adopt_branch_exists_main_clean, t_adopt_old_branch, t_adopt_unborn_main, t_typed_only_skill_paths,
               t_plan_keeps_targets, t_plan_keeps_owner_flags, t_adopt_owner_text_survives_rerun, t_adopt_gitignore_makefile_owner_lines,
-              t_adopt_conflict_writes_nothing, t_doctor_owner_text, t_adopt_own_done, t_adopt_own_done_verify_block, t_adopt_long_tier, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused,
+              t_adopt_conflict_writes_nothing, t_doctor_owner_text, t_adopt_own_done, t_adopt_own_done_verify_block, t_adopt_long_tier, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused, t_adopt_monorepo_owner_makefile_done,
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_continuation_checks_the_fix, t_stop_chain_cap, t_stop_no_baseline_uses_head,
               t_stop_recipe_changed, t_stop_skipped_only_and_group_kill,
               t_stop_success_silent_both_agents, t_stop_codex_block_and_timeout, t_stop_floor_zero_tests,

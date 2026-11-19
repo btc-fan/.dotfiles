@@ -1232,7 +1232,7 @@ def upsert_check_line(agents, checks):
 
 
 def render_done(tier, checks, verify_name="verify-<app>"):
-    cmd = "`%s`" % checks["full_cmd"] if checks else "The project check (the Map says which)"
+    cmd = "`%s`" % checks["full_cmd"] if checks else "the project check (the Map says which)"
     fast = "`%s`" % checks["fast_cmd"] if checks else "check-fast"
     ledger = " and a line in docs/REGRESSIONS.md"
     first = ("1. In this order: %s green; then %s on the changed feature (launch, doctor, drive every entry point "
@@ -1250,6 +1250,14 @@ def render_done(tier, checks, verify_name="verify-<app>"):
         "<!-- AI:done END -->"]) + "\n"
 
 
+def owner_make_targets(root):
+    """{fast_cmd, full_cmd} when the owner's root Makefile has check-fast and check (a monorepo we skip), else None."""
+    text = read(os.path.join(root, "Makefile")) if root else ""
+    if re.search(r"^check-fast:", text or "", re.M) and re.search(r"^check:", text or "", re.M):
+        return {"fast_cmd": "make check-fast", "full_cmd": "make check"}
+    return None
+
+
 def upsert_done(agents, tier, checks, root=None):
     """The managed Done block (6 lines) and an empty Lessons section. A hand-written Done section wins."""
     vs = verify_links(root) if root else []
@@ -1258,7 +1266,7 @@ def upsert_done(agents, tier, checks, root=None):
     if OWN_DONE_RX.search(outside):
         print("keep: AGENTS.md has its own Done section (no second one added; the AI:verify line goes under it)")
         return upsert_verify(agents, render_verify(name))
-    block = render_done(tier, checks, name)
+    block = render_done(tier, checks or owner_make_targets(root), name)
     if DONE_RX.search(agents):
         agents = DONE_RX.sub(lambda m: merged(m.group(0), block), agents, count=1)
     else:
