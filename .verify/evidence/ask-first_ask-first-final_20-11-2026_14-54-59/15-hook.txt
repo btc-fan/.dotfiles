@@ -1,0 +1,9 @@
+router.py --agent claude PreToolUse
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-i35hw65k/python-with-tests
+payload: {"session_id": "s6", "tool_name": "Bash", "tool_input": {"command": "systemctl restart nginx"}, "cwd": "/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-i35hw65k/python-with-tests", "hook_event_name": "PreToolUse"}
+decision: allow
+rules fired: none
+router errors: none
+rc: 0
+
+--- output
