@@ -22,6 +22,8 @@
 5. Run time: two renders and two passes. The test prints the time of each pass. When the suite gets more than 20% slower, the ticket says so in its evidence.
 6. The golden fixture holds the L0 table today. Tickets 11, 13 and 14 change that text, so each of them updates the fixture in the same commit.
 7. A case that passes only because the server render holds a gate that `dev-mac` does not hold: the dev-mac pass shows it as a failure. Each such case is fixed or moved, never skipped.
+8. Difference found in the code: 8 case files name an id that is in no render (`_home-folder`, `_proof`, `_skill-card`, `_tiebreaks`, `winner-gate`, `pr-url`, `verify-tool-exists`, `verify-tool-used`), so they run in both passes.
+9. Measured on macOS: the router suite took 114 s with 890 cases before, and 177 s with 1581 cases after (dev-mac 691 cases in 73 s, server 890 cases in 98 s). That is 55% slower, until ticket 18 removes the server pass.
 
 **Owner steps:** None.
 
@@ -31,10 +33,10 @@
 
 **Size:** S
 
-- [ ] `test_router.py` prints 2 passes: `dev-mac` and `server`.
-- [ ] The main pass renders `dev-mac`, and a test fails when the render command has no `--profile` flag.
-- [ ] The coverage check fails for a rule with no fire case, and names the rule. A test proves it with a throwaway rule.
-- [ ] `ai/tests/fixtures/profiles/agents-dev-mac.md` exists, and the suite compares the render with it.
+- [x] `test_router.py` prints 2 passes: `dev-mac` and `server`.
+- [x] The main pass renders `dev-mac`, and a test fails when the render command has no `--profile` flag.
+- [x] The coverage check fails for a rule with no fire case, and names the rule. A test proves it with a throwaway rule.
+- [x] `ai/tests/fixtures/profiles/agents-dev-mac.md` exists, and the suite compares the render with it.
 - [ ] `bash ai/tests/run.sh` passes on a macOS machine and on a Linux machine with no `~/.config/ai/profile` file.
 
 **Verify:**
