@@ -348,6 +348,7 @@ MAP_LINES = [
     ("- Version: `v2.1`, guide in `docs/GUIDE.md`.", True),
     ("- Contracts: `ai/rules/` (for example `winner-gate.json`).", True),
     ("- State: `~/.local/state/ai/projects` (machine only).", True),
+    ("- Design: `design-system/shop/MASTER.md` (missing: made at kickoff).", True),    # a planned path that the line marks
     ("- Old: `src/gone.py` (removed last week).", False),
     ("- Tests: `tests/**/*.py`.", False),
 ]

@@ -192,6 +192,8 @@ def map_problems(root, files):
             continue
         base = os.path.dirname(f)
         for n, line in lines:
+            if "(missing" in line:      # a planned path: the line says that the file is made later (the Design line of ai-adopt)
+                continue
             for span in CODE_SPAN_RX.findall(line):
                 path = map_path(span.strip("`").strip())
                 if path and not map_path_ok(root, base, path, seen, names):
