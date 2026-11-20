@@ -209,6 +209,7 @@ def on_user_prompt(ctx):
         log_error("verify_turn_start", exc)
     prompt = ctx.payload.get("prompt") or ""
     if not prompt.strip() or is_notification(prompt):
+        end_turn_ok(ctx)                # a notification turn is not the owner's: no OK carries into it
         return
     prompt = owner_text(prompt)
     remember_owner_ok(ctx, prompt)      # only the owner's typed lines can say merge or go, never pasted ones
@@ -302,6 +303,17 @@ def remember_owner_ok(ctx, prompt):
             ctx.add_context("[ai router: ask-first] " + note)
     except Exception as exc:
         log_error("owner_ok", exc)
+
+
+def end_turn_ok(ctx):
+    """The owner's typed OK covers one turn: it ends at Stop and at a notification turn."""
+    try:
+        d = ctx.state.load()
+        if d.get("ask_ok"):
+            d["ask_ok"] = False
+            ctx.state.dirty = True
+    except Exception as exc:
+        log_error("end_turn_ok", exc)
 
 
 def on_pre_tool(ctx):
@@ -483,6 +495,7 @@ def on_stop(ctx):
     if not ctx.payload.get("stop_hook_active"):
         check_misses(ctx)
     if not ctx.stop_block:          # the turn goes on: the owner is not told it finished
+        end_turn_ok(ctx)
         run_notify(ctx)
 
 

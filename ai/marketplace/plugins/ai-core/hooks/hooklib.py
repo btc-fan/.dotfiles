@@ -2277,8 +2277,10 @@ def ask_first_prompt(d, prompt):
 
 # An OK word opens a prompt of at most 5 words, or an approval phrase is anywhere: "ok, now look at the logs" is
 # a reply, not an approval.
-ASK_OK_RX = re.compile(r"^(?=\W*(\w+\W*){1,5}$)\W*(go|ok(ay)?|yes|yep|da|fa-?l|да|давай|proceed|approved?)(?!\w)"
-                       r"|\b(go\s+ahead|do\s+it|approved?|proceed)\b", re.I)
+# The whole prompt is OK words ("go", "yes do it", "go ahead please"): an OK word inside pasted output or a longer
+# request ("the build was approved", "ok check the logs") is not an approval.
+ASK_OK_RX = re.compile(r"^\W*((go|ahead|ok(ay)?|yes|yep|do|it|approved?|approve|proceed|please|now|da|fa-?l|да|"
+                       r"давай)\W*)+$", re.I)
 NO_ASK_RX = re.compile(r"(?<!\w)(don'?t|do\s+not|not|no|never|wait|hold\s+on|nu|нет|не|what|how|why|which|where)"
                        r"(?!\w)", re.I)
 ASKED_CHANGE_RX = re.compile(r"\b(prs?|pull\s+requests?|features?|fix\w*|bugs?|issues?|release|implement\w*|build|"
@@ -2287,8 +2289,8 @@ ASKED_CHANGE_RX = re.compile(r"\b(prs?|pull\s+requests?|features?|fix\w*|bugs?|i
 
 
 def owner_ask_ok(prompt):
-    """True for a short typed go, ok, yes (RO da, fa-l; RU да, давай), or approve, do it, proceed in any prompt.
-    A negation or a question is not an OK."""
+    """True when the prompt is only OK words: go, ok, yes, do it, go ahead, approve, proceed (RO da, fa-l; RU да,
+    давай). A negation or a question is not an OK."""
     return owner_said(prompt, ASK_OK_RX, NO_ASK_RX)
 
 
@@ -2452,8 +2454,11 @@ def stdin_text(st, cmd, cwd):
         if op == "<<<":
             return target
         if op == "<":
-            path = os.path.expanduser(expand_vars(target, cmd))
-            return None if "$" in path or "`" in path else read_text(os.path.join(cwd, path))
+            path = os.path.join(cwd, os.path.expanduser(expand_vars(target, cmd)))
+            # A device, a FIFO or a huge file would hang or kill the hook, and a dead hook lets the command run.
+            if "$" in path or "`" in path or not os.path.isfile(path) or os.path.getsize(path) > 1_000_000:
+                return None
+            return read_text(path)
     # shortcut: a heredoc counts when an ssh stage starts it; with two ssh heredocs, both bodies count for each.
     bodies = [m.group(4) for m in HEREDOC.finditer(cmd) if re.search(r"\bssh\b", re.split(r"[;&|]", m.group(1))[-1])]
     return "\n".join(bodies) or None

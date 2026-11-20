@@ -165,7 +165,9 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   to unit, cron, sudoers, PAM, fstab and GRUB files; an unknown program with a start or stop verb. Also
   `gh pr`, `issue` or `release create` when no owner prompt in the session asked for a PR, feature or fix. Reads pass.
   The owner's typed go, ok, yes, approve or do it (RO da, fa-l; RU да, давай) lets every high-impact step pass
-  for the rest of that turn. A negation, a question, pasted text or an agent message does not.
+  for the rest of that turn. The whole prompt must be OK words ("go", "yes do it"). A longer prompt, a negation,
+  a question, pasted text or an agent message is not an OK. The OK ends at Stop and at a notification turn.
+  A `bash -s` script is read only from a regular file of 1 MB or less; a device or a FIFO passes unread.
   A prompt that audits, checks, reviews or explains, or asks a question, with no change verb, makes a read-only
   turn. Then every host change also stops: a write over ssh (redirect, `tee`, `sed -i`, `cp`, `mv`) and a local
   write outside the repo, the scratchpad and `/tmp`. The router note says "read-only turn".

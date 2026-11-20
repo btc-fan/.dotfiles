@@ -929,7 +929,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -944,7 +944,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     }
@@ -959,7 +959,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -989,7 +989,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     }
@@ -1005,7 +1005,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1020,7 +1020,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     }
@@ -1035,7 +1035,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1050,7 +1050,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     }
@@ -1065,7 +1065,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1080,7 +1080,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     }
@@ -1095,7 +1095,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1110,7 +1110,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     }
@@ -1125,7 +1125,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1140,7 +1140,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     }
@@ -1155,7 +1155,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1176,7 +1176,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     }
@@ -1197,7 +1197,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     }
@@ -1212,7 +1212,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1227,7 +1227,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     }
@@ -1242,7 +1242,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1257,7 +1257,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     }
@@ -1272,7 +1272,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1287,7 +1287,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     }
@@ -1303,7 +1303,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1318,7 +1318,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     }
@@ -1790,7 +1790,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1805,7 +1805,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1831,7 +1831,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1846,7 +1846,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1854,7 +1854,7 @@
      "event": "Stop",
      "payload": {
       "stop_hook_active": false,
-      "last_assistant_message": "I ran `systemctl restart radar-api`. It is active again."
+      "last_assistant_message": "I ran `systemctl restart web-api`. It is active again."
      }
     }
    ]
@@ -1868,7 +1868,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1883,7 +1883,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1905,7 +1905,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1927,7 +1927,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1942,7 +1942,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1971,7 +1971,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -1995,7 +1995,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -2012,12 +2012,12 @@
      "event": "Stop",
      "payload": {
       "stop_hook_active": false,
-      "last_assistant_message": "I ran systemctl restart radar-api."
+      "last_assistant_message": "I ran systemctl restart web-api."
      }
     }
    ],
    "contains": "docker compose",
-   "not_contains": "systemctl restart radar-api,"
+   "not_contains": "systemctl restart web-api,"
   },
   {
    "name": "codex: stop names the approved restart",
@@ -2029,7 +2029,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -2044,7 +2044,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -2073,7 +2073,7 @@
      "payload": {
       "tool_name": "Bash",
       "tool_input": {
-       "command": "systemctl restart radar-api"
+       "command": "systemctl restart web-api"
       }
      }
     },
@@ -2121,8 +2121,8 @@
    }
   },
   {
-   "name": "ok: stop inside an approval is still an OK",
-   "expect": "allow",
+   "name": "ok: 'go, stop the old worker' is a new request, not an OK (security review: an OK is the whole prompt)",
+   "expect": "deny",
    "steps": [
     {
      "event": "PreToolUse",
@@ -2148,7 +2148,8 @@
       }
      }
     }
-   ]
+   ],
+   "contains": "[ai gate ask-first]"
   },
   {
    "name": "ok: a reply that starts with ok is not an OK",
@@ -2421,6 +2422,164 @@
      }
     }
    ]
+  },
+  {
+   "name": "security: 'approved' inside pasted output is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "Look at the logs, the build was approved by CI"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "security: 'proceed' inside an error line is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "Here is the output:\nERROR: cannot proceed\nfix it"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "security: 'ok check the logs' is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "ok check the logs"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "ok: 'yes do it' is an OK",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "yes do it"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: 'go ahead please' is an OK",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go ahead please"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "security: the OK ends with the turn (Stop)",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "I ran systemctl restart web-api."
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "security: bash -s < /dev/zero does not kill the gate (the restart after it still denies)",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh h 'bash -s' < /dev/zero; systemctl restart web-api"
+    }
+   },
+   "contains": "[ai gate ask-first]"
   }
  ]
 }
