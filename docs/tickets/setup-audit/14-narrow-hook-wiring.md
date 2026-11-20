@@ -14,7 +14,7 @@ ticket is the part that needs no decision.
 
 - [x] The matchers hold only tools that a rendered rule names. Read, Glob, Agent and Task go. (PreToolUse; the PostToolUse matcher keeps Read, because a read of a SKILL.md is the proof of a skill rule.)
 - [x] Each entry that can deny has `onFailure: "block"`. A test makes a gate sleep past its timeout and sees a
-  block. (The test is a real session in the verify run of the PR: a unit test cannot start Claude.)
+  block. (The test is a real session in the verify run of the PR: a unit test cannot start Claude. The Stop and SubagentStop entries have no field: the Claude Code hooks reference says that `onFailure` has no effect there.)
 - [ ] The Stop check entries are written only for a profile that turns the Stop check on. On dev-mac no
   `stop-check.py` process starts.
 - [ ] The prompt hook has enough time to store the owner's merge OK on a slow machine, or the OK is stored in a

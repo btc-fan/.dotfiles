@@ -90,17 +90,19 @@ main() {
 # R-018: the hook code that Claude runs is a copy in its plugin cache. Only install.sh refreshed it, so a
 # gate that came with a pull stayed off. No copy yet: install.sh makes it, ai-sync makes none.
 sync_claude_plugin_copy() {
-    local p hash
-    [ -n "$(claude_ai_core_cache)" ] || return 0
+    local p hash cache
+    cache=$(claude_ai_core_cache)
+    [ -n "$cache" ] || return 0
     p=$(PLUGIN_DIR)
     hash=$(aiconf tree-hash "$p")
-    [ "$(aiconf tree-hash "$(claude_ai_core_cache)")" != "$hash" ] || return 0
-    if [ "${AI_DRY_RUN:-0}" = 1 ]; then info "would refresh the Claude copy of ai-core"; return 0; fi
-    if claude_ai_core_cache_sync "$p" "$hash"; then
-        mkdir -p "$AI_STATE_DIR" && printf '%s\n' "$hash" > "$AI_STATE_DIR/ai-core.claude.hash"
-        ok "Claude copy of ai-core refreshed: new sessions run the hooks of this pull"
+    [ "$(aiconf tree-hash "$cache")" != "$hash" ] || return 0
+
+    if [ "$AI_DRY_RUN" = 1 ]; then
+        info "would refresh the Claude copy of ai-core"
+    elif claude_ai_core_cache_sync "$p" "$hash"; then
+        ok "Claude copy of ai-core refreshed: the next hook call runs the code of this pull"
     else
-        warn "Claude copy of ai-core not refreshed: run install.sh"
+        warn "Claude copy of ai-core not refreshed: the new router does not answer, or the copy failed (ai-doctor)"
     fi
 }
 

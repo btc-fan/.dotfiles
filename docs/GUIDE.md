@@ -208,7 +208,7 @@ exits 0. A deny decided before the error still counts.
 | `SessionStart` | startup, resume, clear, compact | Status line for this repo (Map, Libraries, Serena, Graph, Verify skill), the session-start rules, the skill card and the author-sessions line (`main: <session id> dir: <cwd>`). After `compact` or `clear` it sends the routing table and the card again. |
 | `UserPromptSubmit` | every prompt | Regex on your prompt. When a rule matches, it adds an "L2" checklist: the agent must answer YES or NO per tool before it acts. |
 | `UserPromptExpansion` | typed `/skill` | Logs that a typed skill fired (proof). |
-| `PreToolUse` | Bash, Read, Edit, Write, MultiEdit, Grep, Glob, Skill, Agent, Task | The gates (section 3.5) and some nudges (ledger areas). Claude Bash also runs the `rtk-hook` wrapper. |
+| `PreToolUse` | Bash, Edit, Write, MultiEdit, NotebookEdit, Grep, Skill | The gates (section 3.5) and some nudges (ledger areas). A router that fails or passes its timeout blocks the call (`onFailure`). Claude Bash also runs the `rtk-hook` wrapper. |
 | `PostToolUse` | Bash, Edit, Write, Skill, context7 tools | Nudges after the fact: after `git commit` (update the Map), after a write with an em dash, after a docs lookup. |
 | `Stop` | every stop | The stop rules (none since 2026-11-18: `diagnosing-bugs` and `tdd` are hints). The verify walls `verify-tool-exists` and `verify-tool-used` (section 3.5). The miss log: a rule fired but the agent never called the tool it named. Then `claude-notify`. The `stop-check` (runs check-fast before "done") is off on `dev-mac`. |
 | `SubagentStop` | every subagent stop | The verify hooks, for each subagent in its own checkout. |

@@ -433,20 +433,41 @@ claude_take_over() {
 }
 
 # Newest cached copy of ai-core, or empty.
+# The ai-core copy that Claude runs: the installPath that Claude recorded, else the newest cache folder.
 claude_ai_core_cache() {
-    ls -td "$CLAUDE_PLUGINS_DIR"/cache/ai/ai-core/* 2>/dev/null | head -n1 || true
+    local p
+    p=$(python3 - "$CLAUDE_PLUGINS_DIR/installed_plugins.json" 2>/dev/null <<'EOS' || true
+import json, sys
+rows = (json.load(open(sys.argv[1])).get("plugins") or {}).get("ai-core@ai") or []
+print((rows[0].get("installPath") or "") if rows else "")
+EOS
+)
+    if [ -n "$p" ] && [ -d "$p" ]; then printf '%s\n' "$p"; return 0; fi
+    ls -td "$CLAUDE_PLUGINS_DIR"/cache/ai/ai-core/*/ 2>/dev/null | head -n1 | sed 's:/$::' || true
 }
 
 # claude_ai_core_cache_sync <plugin dir> <tree hash>: make the copy that Claude runs equal to the repo.
 # `claude plugin update` keeps a cache whose version number did not change, so the repo is copied over it.
-# 0: the copy matches (or dry run). 1: no cache folder, or the copy still differs.
+# 0: the copy matches (or dry run). 1: no cache folder, the new router does not answer, or the copy differs.
 claude_ai_core_cache_sync() {
     local p=$1 hash=$2 cache
     [ "$AI_DRY_RUN" != 1 ] || return 0
     cache=$(claude_ai_core_cache)
     [ -n "$cache" ] || return 1
-    [ "$(aiconf tree-hash "$cache")" = "$hash" ] || aiconf tree-sync "$p" "$cache" >/dev/null
+    [ "$(aiconf tree-hash "$cache")" != "$hash" ] || return 0
+    plugin_router_answers "$p" || return 1
+    aiconf tree-sync "$p" "$cache" >/dev/null
     [ "$(aiconf tree-hash "$cache")" = "$hash" ]
+}
+
+# plugin_router_answers <plugin dir>: the router of that tree starts and answers an empty PreToolUse payload.
+# The PreToolUse entry blocks the tool call when the router fails, so a broken tree must not replace the copy.
+plugin_router_answers() {
+    local state rc=0
+    state=$(mktemp -d)
+    printf '{}' | AI_STATE_DIR="$state" /usr/bin/python3 "$1/hooks/router.py" --agent claude PreToolUse >/dev/null 2>&1 || rc=1
+    rm -rf "$state"
+    return "$rc"
 }
 
 # ---------------------------------------------------------------- step 8: plugins
@@ -996,10 +1017,7 @@ for event, groups in data.items():
     for g in groups:
         hooks = [dict(h, command=h["command"].replace("${CLAUDE_PLUGIN_ROOT}", root) + " --managed")
                  for h in g.get("hooks", []) if "/hooks/router.py" in h.get("command", "")]
-        if event == "PreToolUse":
-            # Gates fail closed: a crash, bad output or timeout of the router blocks the call (Claude 2.1.295+;
-            # hooks fail open by default). Managed only: the server's Claude version is known.
-            hooks = [dict(h, onFailure="block") for h in hooks]
+        # hooks.json sets onFailure "block" on the PreToolUse entry (gates fail closed): the managed copy keeps it.
         if hooks:
             out.setdefault(event, []).append(dict(g, hooks=hooks))
 if rtk:

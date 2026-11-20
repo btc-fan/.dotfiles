@@ -31,7 +31,7 @@ The measured result here: the agents did not follow 75% of the reminder rules. A
 |---|---|---|---|---|
 | Always-loaded words | about 115 | 66 | 1,758 | 3,206, plus the project file |
 | Instructions in that text | 0 | 0 | about 147 sentences | 83 |
-| Agent hooks | 0 | 0 | 0 | 12 hook commands, 5,628 lines of router code |
+| Agent hooks | 0 | 0 | 0 | 12 hook commands, 5,668 lines of router code |
 | Rules as reminders | 0 | 0 | 0 | 27 of 38 |
 | Hard rules live in | none | CI (1 required check), 2 git hooks, 16 lint rules | CI (10 required checks), 11 lint rules | 11 command gates in the agent hook |
 | Skills | 58, typed only | 8, about 300 words each | 41, median 408 words | 9 own, about 940 words each |
@@ -40,6 +40,13 @@ The measured result here: the agents did not follow 75% of the reminder rules. A
 
 kody states its rule in `docs/contributing/harness-engineering.md`: "Prefer a failing check over another paragraph of advice."
 trezor-suite states the same in `skills/performance-complexity/SKILL.md`: "Anything a linter could decide belongs in `noRestrictedSyntax` or the `eslint-local-rules` directory instead."
+
+## Earlier work in this repo
+
+This note agrees with the target shape of `docs/reports/setup-deep-audit-2026-11-18.md` (section 11): short text, git hooks for git rules, narrow agent hooks.
+The map `docs/maps/setup-shape/map.md` and the tickets in `docs/tickets/setup-audit/` hold the plan.
+New in this note: the outside setups, the miss numbers, the server-side checks, and the old hook copy (R-018).
+The plan is mostly not done yet: 17 of the 23 audit tickets are open, and the pull requests after the audit added gates and rules.
 
 ## What the vendors say
 
