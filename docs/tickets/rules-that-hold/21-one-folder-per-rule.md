@@ -11,6 +11,8 @@
 - `ai/tools.yaml` is the one catalog of plugins and MCP servers: id, marketplace, default scope, opt-in key. The 7 places read it.
 - `ai/checks/_template/` holds a sample gate with 1 fire case and 1 no-fire case.
 - `docs/EXTENDING.md` gives the recipes for a hard rule, a skill, a plugin or MCP server, and a project-only rule. It also asks the 3 questions of spec section 6.8.
+- Scripts before text (the owner asked for this on 2026-11-20). The register refuses a new row that only adds reminder text: `ai-render --check` fails on a row with no check function, unless the row is in a short allow list. The number of rows in that list has a limit that only goes down.
+- The recipe for a new rule in `docs/EXTENDING.md` starts with the question "can a script see it?". When the answer is yes, the rule is a script in the project's `make check`, in the commit hook or in a gate. Text is the last choice.
 
 **Rules kept:** Each of the 12 gates keeps its id, its logic and its deny text; only the file it lives in changes. Each of the 14 mechanisms without a row gets a row. Or it gets 1 line in `docs/EXTENDING.md` that names it as tool safety (for example the `ai-start` walls).
 

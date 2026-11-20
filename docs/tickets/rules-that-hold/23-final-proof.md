@@ -11,6 +11,8 @@
 - `ai-doctor --numbers --json` on the branch, compared with `docs/reports/baseline-<date>.md`, in one table.
 - A trial adopt: copy one real project into a scratch folder with no remote, run `ai-adopt`, `make check` and one Claude session there. No push.
 - A full trial on a new repo (the owner asked for it on 2026-11-20). Make a new folder and a new GitHub repo. Adopt it with this branch. Send the rulesets with `ai-github-wall`. Then one agent does 5 real tasks there, each through a branch and a pull request: a feature, a bug fix with a test, a refactor, a docs change, and one task that tries a forbidden step.
+- The 5 tasks follow the owner's own flow from the rules of the `ai` branch, with the owner's tools: the Map first, graphify and Serena for navigation, context7 for library docs, a worktree and a branch, the spec and ticket skills for the feature, a failing test first for the bug fix, the project's verify skill with evidence, the ship skill, then a pull request with the full PR text.
+- The report has one quality table for each task: tests added, check results, review findings, tokens, turns, and each place where the agent left the flow.
 - For each task the report says which rule acted, in which layer, and if the agent corrected itself. A rule that did not hold is a finding, with its ticket.
 - The report `docs/reports/rules-that-hold-final-<date>.md` holds all of it, plus "Not proven".
 
