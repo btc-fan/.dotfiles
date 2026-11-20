@@ -2153,8 +2153,40 @@ def repo_cmd_rule(st, prefixes):
     return None
 
 
+# ---------------------------------------------------------------- worktree-first (owner 2026-11-19)
+# Every job runs in its own worktree beside the repo (../<repo>-<slug>), from main or master unless the owner names
+# another base. An agent file edit in the checkout of an adopted repo while it is on main or master is denied.
+
+def gate_worktree(ctx, path, stages):
+    """Deny an Edit or Write of a tracked or new file in an adopted repo (.ai/) whose checkout is on main or master.
+    Gitignored files (local state) and files outside a repo pass."""
+    path = os.path.abspath(os.path.join(ctx.cwd or ".", os.path.expanduser(path)))
+    folder = os.path.dirname(path)
+    while folder and not os.path.isdir(folder):          # a new file in a new folder: ask the nearest real folder
+        folder = os.path.dirname(folder) if os.path.dirname(folder) != folder else ""
+    root = (git_quick(folder, ["rev-parse", "--show-toplevel"]) or "").strip() if folder else ""
+    if not root or not os.path.isdir(os.path.join(root, ".ai")):
+        return None
+    branch = (git_quick(root, ["branch", "--show-current"]) or "").strip()
+    if branch not in PROTECTED_BRANCHES:
+        return None
+    real = os.path.join(os.path.realpath(folder), os.path.relpath(path, folder))     # macOS: /var is /private/var
+    if git_quick(root, ["check-ignore", "-q", "--", os.path.relpath(real, root)]) is not None:
+        return None                                       # exit 0: ignored, local state
+    repo = os.path.basename(root)
+    return ("deny", "%s is on %s. Every job works in its own worktree beside the repo, not on %s. Make one, then "
+            "edit the file there:\n  git -C %s fetch -q origin && git -C %s worktree add ../%s-<slug> -b <slug> "
+            "origin/%s\nUse the feature slug (a fix: fix-<slug>). Base: origin/%s, unless the owner named another "
+            "branch. After the merge, remove the worktree and the branch (ship skill)."
+            % (root, branch, branch, root, root, repo, branch, branch), "worktree-first")
+
+
+FILE_GATES = {"worktree-first"}      # gates that judge the file of an Edit or Write, not a shell command
+# shortcut: shell writes (sed -i, >) and Codex apply_patch on main are not judged; add them when agents use them.
+
 GATES = {"audit-before-install": gate_audit, "secret-scan": gate_secrets, "pr-rules": gate_pr, "no-sudo": gate_sudo,
-         "no-destroy": gate_destroy, "merge-approval": gate_merge, "no-verify": gate_no_verify, "gh-write": gate_gh}
+         "no-destroy": gate_destroy, "merge-approval": gate_merge, "no-verify": gate_no_verify, "gh-write": gate_gh,
+         "worktree-first": gate_worktree}
 GATE_PROBES = {"audit-before-install": probe_audit, "secret-scan": probe_secrets, "pr-rules": probe_pr_gate,
                "no-sudo": probe_sudo, "no-destroy": probe_destroy, "merge-approval": probe_merge,
                "no-verify": probe_no_verify, "gh-write": probe_gh}
@@ -2352,8 +2384,10 @@ def merge_review_note(root, agent="claude"):
         return ""
     count = count if count.isdigit() else "some"
     gone = gone_branches(root)
-    clean = (" Merged branches still here (remote branch gone): %s. Delete each with git branch -D <name>, and "
-             "its worktree with git worktree remove <path>." % ", ".join(gone[:10])) if gone else ""
+    trees = branch_worktrees(root)
+    clean = (" Merged branches still here (remote branch gone): %s. Remove each worktree first (git worktree "
+             "remove <path>), then git branch -D <name> and git worktree prune." % ", ".join(
+                 "%s (git worktree remove %s)" % (b, trees[b]) if b in trees else b for b in gone[:10])) if gone else ""
     # verify-evidence-in-git: committed run folders older than 7 days leave main through a cleanup PR
     prune = (" Committed verify evidence: on a new branch from %s (chore-prune-evidence-<date>) run ai-evidence-prune "
              "(it removes runs older than 7 days and keeps the newest run of each feature), commit, push and open "
@@ -2364,6 +2398,19 @@ def merge_review_note(root, agent="claude"):
             ".ai/last-review. The owner may say skip (record it the same way).%s%s%s"
             % (branch, count, last[:7], branch, branch, clean, prune,
                typed_skills_note(root, ["improve-codebase-architecture", "retro"], agent)))
+
+
+def branch_worktrees(root):
+    """{branch: path} of the linked worktrees of the repo (not the main checkout)."""
+    out, path, first = {}, None, True
+    for line in (git_quick(root, ["worktree", "list", "--porcelain"]) or "").splitlines():
+        if line.startswith("worktree "):
+            path = line[9:]
+        elif line.startswith("branch refs/heads/") and path:
+            if not first:
+                out[line[18:]] = path
+            first = False
+    return out
 
 
 def gone_branches(root):

@@ -107,7 +107,7 @@ pr-resume parses this block. Keep the line format exact: one ID, dir:, one path 
 
 
 Git workflow (from the Matt Pocock skills; owner 2026-11-15, merge and release 2026-11-16)
-- Feature or fix work: before the first edit, create a branch named after the feature slug. Use the same slug as docs/specs/<slug>.md and docs/tickets/<slug>/ (a fix: fix-<slug>). Never commit on main or master. A trivial change (typo, one line) also gets its own branch.
+- Every job (feature, fix, trivial change) runs in its own worktree beside the repo, made before the first edit: git worktree add ../<repo>-<slug> -b <slug> origin/<main>. The base is main or master, or the branch the owner names. The slug is the same as docs/specs/<slug>.md and docs/tickets/<slug>/ (a fix: fix-<slug>). Never commit on main or master. The worktree-first gate blocks an agent edit in an adopted repo whose checkout is on main or master.
 - Commit each ticket on that branch (/implement commits at the end). Move the finished ticket file to docs/tickets/<slug>/done/ in the same commit.
 - After the first ticket commit: push the branch and open a draft PR (gh pr create --draft, with the full PR body). Push each later ticket to it.
 - Feature done: run the ship skill (make check, verify-<app>, code-review, security review, UI checklist, Evidence, gh pr ready). Then ask the owner.
@@ -154,7 +154,7 @@ opt-in = only where the project enabled the tool (ai-start, ai-adopt).
 | merge-review | session start: main moved since the last review | /improve-codebase-architecture, then /retro; findings as tickets or a PR; then git rev-parse main > .ai/last-review. |
 | legacy-memory | session start: old Claude memory files exist | Move the facts into the repo (PR), then delete the files. |
 | upgrade-review | session start: AI tools upgraded since the last review | Run the upgrade-review skill. |
-| nav-first | broad search (Grep, rg, grep -r); with a graph: denied once, and once per graph symbol | graphify query (where, how) or graphify affected (impact) first, then Serena find_symbol / find_referencing_symbols; rg only for text. |
+| nav-first | broad search (Grep, rg); with a graph: denied once, and once per graph symbol | graphify query (where, how) or graphify affected (impact) first, then Serena find_symbol / find_referencing_symbols; rg only for text. |
 | knowledge-check | after a git commit | Update the AGENTS.md Map, run ai-libs --sync or graphify update, as the commit needs. |
 | audit-before-install (gate) | before a package install command | agent-audit this package first. No @latest, no curl-to-shell. |
 | secret-scan (gate) | before git commit or push | Secret scan found a key, token or password. Remove it before commit or push. |
@@ -162,6 +162,7 @@ opt-in = only where the project enabled the tool (ai-start, ai-adopt).
 | no-destroy (gate) | rm -r of data, home or repo root; force push or delete of main; reset --hard with changes; root clean -x; compose down -v; DROP/TRUNCATE of a protected DB | Give the owner the exact command and why. Rebuildable folders (node_modules, .venv, dist, build) are fine. |
 | pr-rules (gate) | before gh pr create, edit or ready | PR body (pr skill template): Summary with a Mermaid diagram, Evidence (Before, After), Merge Danger (Door: one-way or two-way; Blast Radius), Docs, Changed guards (Ledger on fix PRs), author-sessions block last. |
 | merge-approval (gate) | before gh pr merge, or a git push to main or master | Merge only after the ship skill and when the owner's latest message says merge or approve. No push to main or master. |
+| worktree-first (gate) | edit on main or master | git worktree add ../<repo>-<slug> -b <slug> origin/<main> |
 | no-verify (gate) | git commit or push with --no-verify (or commit -n) | Never skip git hooks: fix what pre-commit reports, then commit again. |
 | writing-for-agents (gate) | before an edit of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md | Load the writing-for-agents skill first (Skill tool, or read its SKILL.md), then edit. |
 | diagnosing-bugs | bug or performance prompt (slow, perf, broken, debug, crash, regression; RO, RU) | Use the diagnosing-bugs skill (Skill tool) and follow its loop before you end the turn. |
@@ -172,7 +173,7 @@ opt-in = only where the project enabled the tool (ai-start, ai-adopt).
 | no-em-dash | after a write with U+2014 | Remove the em dash (U+2014). Use '-', ':' or a new sentence. |
 | ste-sentence | Markdown sentence over 25 words | STE: 25 words max per sentence. Split it. |
 | docs-lookup | prompt names a library listed in Libraries, or before a dependency-file edit | context7 query-docs with the Libraries ID (resolve only if missing), then the official docs site. (cached IDs) |
-| feature-grill | feature request prompt (add, implement, build ... a feature, endpoint, page; RO, RU) | Branch <feature-slug> first; grill-with-docs (else grilling); 3+ files: to-spec, to-tickets; /implement each ticket (check-fast, verify-<app> evidence, e2e, commit; draft PR after the first). Done: ship skill, then ask the owner to merge. Trivial: skip. |
+| feature-grill | feature request (add, build ...; RO, RU) | Worktree ../<repo>-<slug> first; grill-with-docs (else grilling); 3+ files: to-spec, to-tickets; /implement each ticket (check-fast, verify, e2e, commit; draft PR after #1). Done: ship, then the owner merges. Trivial: no grill. |
 | verify-before-done | after a code edit where a verify-<app> skill exists | Before done: check-fast, then verify-<app> on the changed feature (evidence), then e2e tests. |
 | seo-not-enabled | SEO prompt, project without claude-seo | claude-seo is off here. Suggest: ai-adopt --tools seo. Do not enable it yourself. |
 | blog-not-enabled | blog prompt, project without claude-blog | claude-blog is off here. Suggest: ai-adopt --tools blog. Do not enable it yourself. |
@@ -183,8 +184,8 @@ opt-in = only where the project enabled the tool (ai-start, ai-adopt).
 | seo (opt-in) | SEO prompt | claude-seo first (/seo audit <url>, /seo page <url>). Other agents: hand off to Claude if it is logged in, else follow the skill files. |
 | blog (opt-in) | blog prompt | claude-blog first (claude-blog:blog routes). Post file: blog-*. Site: seo-*. Other agents: hand off to Claude if it is logged in, else follow the skill files. |
 | browser (opt-in) | browser prompt (screenshot, click, e2e) | Playwright MCP (headless, isolated on servers). |
-| ui (opt-in) | UI prompt or UI file | Use ui-ux-pro-max. Read design-system/<app>/MASTER.md (and the page override) first. None yet: 3 to 5 directions (--design-system, different styles) as prototype variants (?variant=); the owner picks one, then --persist. Ask before paid image generation or npx ...@latest. |
-| tracker-flow (opt-in) | tickets, spec, triage, backlog prompt | to-spec, then to-tickets (if the project's skills line lists them). Tickets go in docs/tickets/<feature>/ (docs/agents/issue-tracker.md); no GitHub issues or labels without the owner. |
+| ui (opt-in) | UI prompt or UI file | ui-ux-pro-max. Read design-system/<app>/MASTER.md (and the page override) first. None yet: 3 to 5 --design-system directions as variants (?variant=); the owner picks one, then --persist. Ask before paid image generation or npx ...@latest. |
+| tracker-flow (opt-in) | tickets, spec, triage, backlog prompt | to-spec, then to-tickets (where the skills line lists them). Tickets go in docs/tickets/<feature>/ (docs/agents/issue-tracker.md); no GitHub issues or labels without the owner. |
 | domain-docs (opt-in) | glossary, domain model, ADR prompt | Use grill-with-docs / domain-modeling (GLOSSARY.md, docs/adr/). |
 
 Tie-breaks (use the first, not the second):

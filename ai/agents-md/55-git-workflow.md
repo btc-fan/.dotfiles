@@ -1,6 +1,6 @@
 
 Git workflow (from the Matt Pocock skills; owner 2026-11-15, merge and release 2026-11-16)
-- Feature or fix work: before the first edit, create a branch named after the feature slug. Use the same slug as docs/specs/<slug>.md and docs/tickets/<slug>/ (a fix: fix-<slug>). Never commit on main or master. A trivial change (typo, one line) also gets its own branch.
+- Every job (feature, fix, trivial change) runs in its own worktree beside the repo, made before the first edit: git worktree add ../<repo>-<slug> -b <slug> origin/<main>. The base is main or master, or the branch the owner names. The slug is the same as docs/specs/<slug>.md and docs/tickets/<slug>/ (a fix: fix-<slug>). Never commit on main or master. The worktree-first gate blocks an agent edit in an adopted repo whose checkout is on main or master.
 - Commit each ticket on that branch (/implement commits at the end). Move the finished ticket file to docs/tickets/<slug>/done/ in the same commit.
 - After the first ticket commit: push the branch and open a draft PR (gh pr create --draft, with the full PR body). Push each later ticket to it.
 - Feature done: run the ship skill (make check, verify-<app>, code-review, security review, UI checklist, Evidence, gh pr ready). Then ask the owner.

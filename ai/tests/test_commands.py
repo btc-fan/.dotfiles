@@ -453,6 +453,8 @@ def t_merged_branches_note(work):
     git("remote", "add", "origin", remote)
     for b in ("feat-done", "feat-open"):
         git("branch", b); git("push", "-q", "-u", "origin", b)
+    wt = os.path.join(work, "gone-repo-feat-done")
+    git("worktree", "add", "-q", wt, "feat-done")            # worktree-first: the job ran in ../<repo>-<slug>
     run(["git", "-C", remote, "branch", "-D", "feat-done"])
     git("fetch", "-q", "--prune", "origin")
     open(os.path.join(repo, "app.py"), "w").write("x = 2\n")
@@ -461,6 +463,7 @@ def t_merged_branches_note(work):
     import hooklib
     note = hooklib.merge_review_note(repo)
     assert "feat-done" in note and "git branch -D" in note and "git worktree remove" in note, note
+    assert "git worktree remove %s" % os.path.realpath(wt) in note, "the note names the worktree path: " + note
     assert "feat-open" not in note, note
     assert "ai-evidence-prune" not in note, "no committed evidence, no prune step: " + note
     os.makedirs(os.path.join(repo, ".verify", "evidence", "20261101T100000Z-cart"))

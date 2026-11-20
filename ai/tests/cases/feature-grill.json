@@ -11,7 +11,10 @@
    "project": {
     "git": true
    },
-   "contains": "grilling skill"
+   "contains": [
+    "grilling skill",
+    "worktree add ../<repo>-<slug>"
+   ]
   },
   {
    "name": "a task notification is not an owner prompt",

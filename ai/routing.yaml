@@ -79,7 +79,7 @@ rules:
 
   - id: nav-first
     scope: global
-    summary: 'broad search (Grep, rg, grep -r); with a graph: denied once, and once per graph symbol'
+    summary: 'broad search (Grep, rg); with a graph: denied once, and once per graph symbol'
     trigger: {tool_before: 'Grep|Bash|shell|exec_command|local_shell', command: '(^|[;&|(]\s*)(rg|ag|ack|git grep|grep\s+(-\w*[rR]\w*|--recursive)|find\s+\S+\s+(-i?name|-path|-type))\b'}
     action: "{nav_hint}"   # empty when the repo has no graph and Serena is off
     once_per: 'session'
@@ -142,6 +142,13 @@ rules:
     trigger: {tool_before: 'Bash|shell|exec_command|local_shell', command: '\bgh\b.*\b(merge|api)\b|\bgit\b.*\bpush\b'}
     action: "Merge only after the ship skill and when the owner's latest message says merge or approve. No push to main or master."
     strength: gate    # the router stores the owner's OK per session (UserPromptSubmit); a later prompt without it clears it
+
+  - id: worktree-first
+    scope: global
+    summary: 'edit on main or master'
+    trigger: {tool_before: 'Edit|Write|MultiEdit|NotebookEdit'}
+    action: "git worktree add ../<repo>-<slug> -b <slug> origin/<main>"
+    strength: gate    # owner 2026-11-19; gitignored files and repos without .ai/ pass
 
   - id: no-verify
     scope: global
@@ -223,7 +230,7 @@ rules:
 
   - id: feature-grill
     scope: global
-    summary: 'feature request prompt (add, implement, build ... a feature, endpoint, page; RO, RU)'
+    summary: 'feature request (add, build ...; RO, RU)'
     trigger: {prompt: '\b(add|implement|introduce|create)\b(?!\W+(a\W+|an\W+|the\W+|more\W+|some\W+)?(unit\W+|e2e\W+|regression\W+)?tests?\b)(\W+\w+){0,4}?\W+(feature|endpoint|page(?!\W+break)|screen|command|option|flag|setting|integration|flow|button|form|report|export|webhook|notification|mode|login|sign[- ]?in|sign[- ]?up|oauth|auth\w*|rate limit\w*|limiting|caching|pagination|search|upload|download|sync|dashboard|api)s?\b|\bbuild\b(\W+\w+){0,3}?\W+(feature|endpoint|screen|integration|dashboard)s?\b|\badd support for\b|\bnew feature\b|\bfeature request\b|\bchange (how|the way)\b|\bchange the behaviou?r\b|\b(adaug[aă]|implementeaz[aă]|construie[sș]te|creeaz[aă])\b(?!\W+(un\W+)?test)(\W+\w+){0,4}?\W+(func[tț]ionalitate|func[tț]ie|pagin[aă]|endpoint|op[tț]iune|buton|ecran|raport|integrare|comand[aă]|export|import|autentificare|c[aă]utare)\b|\bfunc[tț]ionalitate nou[aă]\b|\bschimb[aă] (cum|felul)\b|(?<!\w)(добавь|добавить|реализуй|реализовать|сделай|создай|внедри)(?!\s+(\w+\s+)?тест)(\W+\w+){0,4}?\W+(функци|фич|эндпоинт|страниц|кнопк|команд|опци|интеграци|отч[её]т|экран|режим|экспорт|импорт|поиск|авторизаци|вход|регистраци|загрузк)\w*|(?<!\w)нов(ую|ая|ой|ые) (функци|фич)\w*|(?<!\w)измени,? как'}
     action: "{feature_flow}"   # grill-with-docs, to-spec, to-tickets, Done order where linked; else plain grilling
     proof: 'skill:\S*grill|grill[\w-]*/SKILL\.md'
@@ -325,7 +332,7 @@ rules:
     summary: 'UI prompt or UI file'
     tool: ui-ux-pro-max
     trigger: {prompt: '\b(ui|ux|design|landing page|component|layout|color palette|typography|dark mode)\b', paths: '**/*.{tsx,jsx,vue,svelte,css,scss}'}
-    action: "Use ui-ux-pro-max. Read design-system/<app>/MASTER.md (and the page override) first. None yet: 3 to 5 directions (--design-system, different styles) as prototype variants (?variant=); the owner picks one, then --persist. Ask before paid image generation or npx ...@latest."
+    action: "ui-ux-pro-max. Read design-system/<app>/MASTER.md (and the page override) first. None yet: 3 to 5 --design-system directions as variants (?variant=); the owner picks one, then --persist. Ask before paid image generation or npx ...@latest."
     proof: 'skill:\S*ui-ux-pro-max'
     strength: nudge
 
@@ -334,7 +341,7 @@ rules:
     summary: 'tickets, spec, triage, backlog prompt'
     tool: mattpocock tracker skills
     trigger: {prompt: '\b(ticket|tickets|spec|triage|backlog|roadmap|wayfinder)\b'}
-    action: "to-spec, then to-tickets (if the project's skills line lists them). Tickets go in docs/tickets/<feature>/ (docs/agents/issue-tracker.md); no GitHub issues or labels without the owner.{tracker_flow}"
+    action: "to-spec, then to-tickets (where the skills line lists them). Tickets go in docs/tickets/<feature>/ (docs/agents/issue-tracker.md); no GitHub issues or labels without the owner.{tracker_flow}"
     proof: 'skill:\S*(to-spec|to-tickets)|(to-spec|to-tickets)/SKILL\.md'
     strength: nudge
 
