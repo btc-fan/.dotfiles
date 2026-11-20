@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Tests for ai/bin/ai-info: a throwaway HOME, fake agent binaries, no network.
+"""Tests for ai/bin/ai-info and ai-doctor --numbers: a throwaway HOME, fake agent binaries, no network.
 
 Run: python3 ai/tests/test_info.py   (bash ai/tests/run.sh runs it too)
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,7 @@ import time
 TESTS = os.path.dirname(os.path.realpath(__file__))
 AI_DIR = os.path.dirname(TESTS)
 INFO = os.path.join(AI_DIR, "bin", "ai-info")
+DOCTOR = os.path.join(AI_DIR, "bin", "ai-doctor")
 FAILS = []
 SECRET = "ctx7sk-" + "q1w2e3r4-" * 4 + "notforprint"
 
@@ -22,7 +24,8 @@ def main():
     work = tempfile.mkdtemp(prefix="ai-info-tests-")
     try:
         home, fake, repo = setup(work)
-        for test in (t_full, t_short, t_project_state, t_outside_repo, t_no_secrets_fast, t_devmac):
+        for test in (t_full, t_short, t_project_state, t_outside_repo, t_no_secrets_fast, t_devmac,
+                     t_numbers_fixture_logs, t_numbers_temp_rows_left_out, t_numbers_no_logs, t_numbers_json_schema):
             try:
                 test(home, fake, repo)
                 print("ok   " + test.__name__)
@@ -93,7 +96,172 @@ def t_no_secrets_fast(home, fake, repo):
     assert took < 5, "ai-info took %.1f s" % took
 
 
+def t_numbers_fixture_logs(home, fake, repo):
+    """ai-doctor --numbers: the 6 sections, each count as the fixture below states, and exit 0 (plain ai-doctor FAILs
+    in this throwaway HOME)."""
+    res = numbers(home, fake, repo)
+    out = res.stdout
+    assert res.returncode == 0, out
+    assert not [ln for ln in out.splitlines() if ln.startswith(("FAIL", "PASS", "WARN"))], "no check may run:\n" + out
+    for n in range(1, 7):
+        assert "\n%d. " % n in out, "section %d missing:\n%s" % (n, out)
+    want = [
+        "global rules (~/.config/ai/AGENTS.md)  10",     # section 1
+        "Codex rules (~/.codex/AGENTS.md)  5",
+        "project AGENTS.md  %d" % len(PROJECT_AGENTS.split()),
+        "project CLAUDE.local.md  missing",
+        "hook total  5",                                  # section 2: 3 + 2 words
+        "Codex start text  not measured",
+        "Claude hook commands  9",          # section 3: settings 3, demo 5, listed 1, the off plugin not counted
+        "Claude SessionStart  listed 1, settings 2",
+        "Claude PreToolUse  demo 3, settings 1",
+        "Claude hook processes for one Bash call  3",
+        "Codex hook commands  1",
+        "skill descriptions (2 entries)  6",              # section 4
+        "agent descriptions (2 entries)  3",
+        "MCP instructions (1 servers)  3",
+        "deferred tool names  2 names, 5 characters",
+        "MCP tool schemas  not measured",
+        "gate denies  3",                                 # section 5: pr-rules 2, secret-scan 1
+        "pr-rules  2",
+        "repeated denies  1 command(s), 2 denies",
+        "tdd  fired claude 3, codex 1  missed claude 2, codex 0",     # section 6
+        "docs-lookup  fired claude 2, codex 0  missed claude 1, codex 0",   # the miss is in misses.jsonl.1
+        "rows from temp folders left out  4",
+    ]
+    for line in want:
+        assert squash(line) in squash(out), "%r not in output:\n%s" % (line, out)
+
+
+def t_numbers_temp_rows_left_out(home, fake, repo):
+    """Rows whose cwd (repo for walls, session for gates.log) is a temp or .verify folder are not counted."""
+    out = squash(numbers(home, fake, repo).stdout)
+    assert squash("secret-scan  1") in out and "temp-only" not in out, out
+    assert squash("rows from temp folders left out  4 (fired 1, misses 1, walls 1, gates.log 1)") in out, out
+
+
+def t_numbers_no_logs(home, fake, repo):
+    """A new machine: no logs, no transcript, no git repo. Each count is 0 with "no log"; nothing crashes."""
+    empty = os.path.join(home, "..", "state-empty")
+    os.makedirs(empty, exist_ok=True)
+    res = numbers(home, fake, home, state=empty)
+    out = squash(res.stdout)
+    assert res.returncode == 0, res.stdout
+    for line in ("gate denies  0 (no log)", "reminder fires  0 (no log)", "reminder misses  0 (no log)",
+                 "project AGENTS.md  not adopted", "session-start text  not measured: no Claude transcript",
+                 "rows from temp folders left out  0"):
+        assert squash(line) in out, "%r not in output:\n%s" % (line, res.stdout)
+    assert "Traceback" not in out, res.stdout
+
+
+def t_numbers_json_schema(home, fake, repo):
+    res = numbers(home, fake, repo, "--json")
+    assert res.returncode == 0, res.stdout
+    data = json.loads(res.stdout)
+    assert data["version"] == 1 and "commit" in data, data
+    for key in ("rules_files", "start_text", "hooks", "descriptions", "gate_denies", "reminders"):
+        assert isinstance(data.get(key), dict), "section %s missing: %s" % (key, data)
+    assert data["rules_files"]["global"] == 10 and data["rules_files"]["project_claude_local"] == "missing", data
+    assert data["start_text"]["total"] == 5 and data["start_text"]["codex"].startswith("not measured"), data
+    assert data["hooks"]["claude_bash_processes"] == 3 and data["hooks"]["claude_total"] == 9, data
+    assert data["gate_denies"]["total"] == 3 and data["gate_denies"]["by_wall"] == {"pr-rules": 2, "secret-scan": 1}
+    assert data["reminders"]["rules"]["tdd"] == {"fired": {"claude": 3, "codex": 1}, "missed": {"claude": 2, "codex": 0}}
+    assert data["left_out_temp_rows"]["total"] == 4, data
+    with open(os.path.join(home, "..", "routing-server.json")) as fh:
+        nudges = len([r for r in json.load(fh)["rules"] if r.get("strength") == "nudge"])
+    assert data["reminders"]["reminder_rules"] == nudges, data
+
+
 # ---------------------------------------------------------------- helpers
+
+PROJECT_AGENTS = "# proj\n\n<!-- AI:map START (ai-adopt) -->\n## Map\n- What: proj.\n- Run: x.\n<!-- AI:map END -->\n"
+
+
+def numbers(home, fake, cwd, *args, state=None):
+    """ai-doctor --numbers with the fixture state, Claude and Codex folders of numbers_fixture()."""
+    work = os.path.dirname(home)
+    if not os.path.isdir(os.path.join(work, "state")):
+        numbers_fixture(work, home, cwd)
+    env = {"HOME": home, "PATH": fake + os.pathsep + "/usr/bin:/bin", "LANG": "C.UTF-8",
+           "HERMES_USER": "ai-test-no-such-user", "AI_PROFILE": "server",
+           "AI_ROUTING_JSON": os.path.join(work, "routing-server.json"),
+           "AI_STATE_DIR": state or os.path.join(work, "state"),
+           "CLAUDE_CONFIG_DIR": os.path.join(work, "claude"), "CODEX_HOME": os.path.join(home, ".codex")}
+    res = subprocess.run([sys.executable, DOCTOR, "--numbers"] + list(args), cwd=cwd, env=env,
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+    res.stdout = res.stdout.decode("utf-8", "replace")
+    return res
+
+
+def numbers_fixture(work, home, repo):
+    """The counts that t_numbers_* expect: rules files, one transcript, hook files and 7 days of logs."""
+    write(os.path.join(home, ".config", "ai", "AGENTS.md"), "one two three four five six seven eight nine ten\n")
+    write(os.path.join(home, ".codex", "AGENTS.md"), "a b c d e\n")
+    write(os.path.join(home, ".codex", "hooks.json"), json.dumps({"hooks": {"SessionStart": [{"hooks": [
+        {"type": "command", "command": "codex-start"}]}]}}))
+    claude = os.path.join(work, "claude")
+    write(os.path.join(claude, "CLAUDE.md"), "x y z\n")
+
+    def hooks(spec):
+        return {ev: [{"matcher": m, "hooks": [dict(type="command", command=c, **extra) for c, extra in cmds]}
+                     for m, cmds in items] for ev, items in spec.items()}
+    write(os.path.join(claude, "settings.json"), json.dumps({
+        "enabledPlugins": {"demo@m": True, "off@m": False, "listed@m": True},
+        "hooks": hooks({"PreToolUse": [("Bash", [("rtk", {})])], "SessionStart": [("", [("a", {}), ("b", {})])]})}))
+    plugins = {}
+    for name, spec in (("demo", {"PreToolUse": [("*", [("r", {})]), ("Edit|Write", [("e", {})]),
+                                                ("Bash", [("g", {"if": "Bash(git push *)"})])],
+                                 "PostToolUse": [("Bash|Read", [("p", {})])], "Stop": [("", [("s", {})])]}),
+                       ("off", {"PreToolUse": [("*", [("x", {})])]})):
+        path = os.path.join(work, "plugins", name)
+        write(os.path.join(path, "hooks", "hooks.json"), json.dumps({"hooks": hooks(spec)}))
+        plugins[name + "@m"] = [{"scope": "user", "installPath": path}]
+    listed = os.path.join(work, "plugins", "listed")       # hooks named in plugin.json, not in hooks/hooks.json
+    write(os.path.join(listed, ".claude-plugin", "plugin.json"), json.dumps({"hooks": ["./hooks/start.json"]}))
+    write(os.path.join(listed, "hooks", "start.json"), json.dumps({"hooks": hooks({"SessionStart": [("", [("l", {})])]})}))
+    plugins["listed@m"] = [{"scope": "user", "installPath": listed}]
+    write(os.path.join(claude, "plugins", "installed_plugins.json"), json.dumps({"version": 2, "plugins": plugins}))
+
+    root = os.path.realpath(repo)
+    att = [{"type": "hook_success", "hookEvent": "SessionStart", "command": "start-one", "content": "a b c"},
+           {"type": "hook_success", "hookEvent": "SessionStart", "command": "start-two", "content": "",
+            "stdout": json.dumps({"hookSpecificOutput": {"additionalContext": "d e"}})},
+           {"type": "skill_listing", "content": "- s1: one\n- s2: two", "skillCount": 2},
+           {"type": "agent_listing_delta", "addedTypes": ["x", "z"], "addedLines": ["x y", "z"]},
+           {"type": "mcp_instructions_delta", "addedNames": ["m"], "addedBlocks": ["m n o"]},
+           {"type": "deferred_tools_delta", "addedNames": ["Aa", "Bbb"]}]
+    rows = [{"type": "attachment", "attachment": a} for a in att] + [{"type": "assistant"}]
+    write(os.path.join(claude, "projects", re.sub(r"[^A-Za-z0-9]", "-", root), "s1.jsonl"),
+          "".join(json.dumps(r) + "\n" for r in rows))
+
+    now, tmp = time.time(), os.path.join(os.path.realpath(tempfile.gettempdir()), "run-x")
+    ts = lambda ago=3600: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - ago))   # noqa: E731
+    row = lambda rule, agent="claude", cwd="/work/p", **kw: json.dumps(dict(   # noqa: E731
+        ts=kw.pop("t", ts()), session=kw.pop("session", "s1"), agent=agent, cwd=cwd, kind="rule", rule=rule, **kw))
+    state = os.path.join(work, "state")
+    write(os.path.join(state, "fired.jsonl"), "\n".join(
+        [row("tdd")] * 3 + [row("tdd", "codex"), row("docs-lookup"), row("docs-lookup"),
+                            row("tdd", log_only=True), row("tdd", t=ts(8 * 86400)),
+                            row("tdd", cwd=tmp, session="tmp-s"),
+                            row("x").replace('"kind": "rule"', '"kind": "skill"')]) + "\n")
+    write(os.path.join(state, "misses.jsonl"), "\n".join([row("tdd")] * 2 + [row("tdd", cwd=tmp, session="tmp-s")]) + "\n")
+    write(os.path.join(state, "misses.jsonl.1"), row("docs-lookup") + "\n")
+    wall = lambda w, repo="/work/p", t=None: json.dumps(   # noqa: E731
+        {"ts": t or ts(), "host": "h", "repo": repo, "wall": w, "reason": "r"})
+    write(os.path.join(state, "walls.jsonl"), "\n".join(
+        [wall("pr-rules"), wall("pr-rules"), wall("secret-scan"), wall("temp-only", tmp),
+         wall("pr-rules", t=ts(9 * 86400))]) + "\n")
+    write(os.path.join(state, "gates.log"), "".join(
+        "%s %s %s session=%s cmd=%s\n" % (ts(), kind, rule, sess, cmd) for kind, rule, sess, cmd in (
+            ("DENY", "pr-rules", "s1", "gh pr create"), ("DENY", "pr-rules", "s1", "gh pr create"),
+            ("DENY", "secret-scan", "s1", "git commit"), ("DENY", "pr-rules", "tmp-s", "gh pr create"),
+            ("SKIP", "pr-rules", "s1", "gh pr create"))))
+
+
+def squash(text):
+    return re.sub(r"[ \t]+", " ", text)
+
+
 
 def setup(work):
     home = os.path.join(work, "home")

@@ -9,6 +9,8 @@ Measured on 2026-11-18:
 - Three layers shape each reply: the 60-word limit, the i-have-adhd rules and the Ponytail footer. They can ask for different things in one reply.
 - The cost table in the GUIDE is stale (OMC skills, total tokens).
 
+**Covered by:** `docs/tickets/rules-that-hold/01-one-command-for-the-numbers.md` builds the report part (`ai-doctor --numbers`).
+
 **Blocked by:** None (can start immediately)
 
 **Status:** ready-for-agent
