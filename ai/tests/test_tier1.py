@@ -224,6 +224,77 @@ def t_adopt_long_tier(work):
     assert "ai-ratchet" in read(os.path.join(repo, "Makefile")), "check block lost the ratchet"
 
 
+def commit_short_path(repo, env):
+    """A real git commit, as a GUI client runs it: a short PATH without the setup's bin folder."""
+    write(os.path.join(repo, "src", "more.py"), "X = 1\n")
+    run(["git", "-C", repo, "add", "src/more.py"], env=env)
+    return run(["git", "-C", repo, "commit", "-q", "-m", "more"], env=dict(env, PATH="/usr/bin:/bin"))
+
+
+def t_precommit_hook_missing_tool(work):
+    """Ticket 09: the hook fails (exit 1) when ai-precommit is not on PATH, and names the fix."""
+    repo, env = adopt_repo(work, "pc-missing", {})
+    assert adopt(repo, env).returncode == 0
+    res = commit_short_path(repo, env)
+    assert res.returncode == 1 and "ai-precommit not on PATH" in res.stdout and "install.sh" in res.stdout, res.stdout
+
+
+def t_precommit_optional_key(work):
+    """Ticket 09: git config ai.precommit optional (set by a person): one WARN line, the commit passes."""
+    repo, env = adopt_repo(work, "pc-optional", {})
+    assert adopt(repo, env).returncode == 0
+    run(["git", "-C", repo, "config", "ai.precommit", "optional"])
+    res = commit_short_path(repo, env)
+    warns = [ln for ln in res.stdout.splitlines() if "WARN" in ln]
+    assert res.returncode == 0 and len(warns) == 1 and "ai-precommit" in warns[0], res.stdout
+    res = run([sys.executable, os.path.join(BIN, "ai-doctor"), "--project-only", repo], env=env, cwd=repo)
+    assert "WARN git config ai.precommit is optional" in res.stdout, res.stdout
+
+
+def t_make_check_ci_missing_tool(work):
+    """Ticket 09: a missing setup tool fails make check when CI is set; outside CI a WARN line, and it passes."""
+    mod = load(os.path.join(BIN, "ai-check-detect"), "acd_ci")
+    repo, env = adopt_repo(work, "make-ci", {})
+    write(os.path.join(repo, "Makefile"), mod.plan(repo, mod.detect(repo, probe=False), "long")["text"])
+    path = env["PATH"].split(os.pathsep)[0] + os.pathsep + "/usr/bin:/bin"     # fake uv only, no ai-docs-check
+    res = run(["make", "-C", repo, "check"], env=dict(env, PATH=path, CI="1"))
+    assert res.returncode != 0 and "ai-ledger not on PATH" in res.stdout and "install.sh" in res.stdout, res.stdout
+    res = run(["make", "-C", repo, "check"], env=dict(env, PATH=path))
+    assert res.returncode == 0 and "WARN: ai-docs-check not on PATH" in res.stdout, res.stdout
+
+
+OLD_SILENT_HOOK = """#!/bin/sh
+# ai-adopt pre-commit (ai-precommit): lint and format check on the staged files. Local, not committed.
+command -v ai-precommit >/dev/null 2>&1 || { echo "ai-precommit not on PATH: pre-commit check skipped"; exit 0; }
+exec ai-precommit
+"""
+OLD_SILENT_MAKE = ('@if command -v ai-ratchet >/dev/null 2>&1; then ai-ratchet; '
+                   'else echo "ai-ratchet not on PATH: ratchet skipped"; fi')
+
+
+def t_adopt_upgrades_silent_checks(work):
+    """Ticket 09: an old adopted project (silent hook, silent Makefile line) gets the new text on the next ai-adopt;
+    ai-doctor --project names the old hook first. A hook the owner wrote stays as it is."""
+    mod = load(os.path.join(BIN, "ai-check-detect"), "acd_up")
+    repo, env = adopt_repo(work, "pc-upgrade", {})
+    assert adopt(repo, env).returncode == 0
+    hook = os.path.join(repo, ".git", "hooks", "pre-commit")
+    write(hook, OLD_SILENT_HOOK)
+    make = os.path.join(repo, "Makefile")
+    assert mod.RATCHET_LINE in read(make), read(make)
+    write(make, read(make).replace(mod.RATCHET_LINE, OLD_SILENT_MAKE))
+    run(["git", "-C", repo, "commit", "-qam", "old setup"], env=env)
+    res = run([sys.executable, os.path.join(BIN, "ai-doctor"), "--project-only", repo], env=env, cwd=repo)
+    assert "WARN" in res.stdout and "silent" in res.stdout and "ai-adopt" in res.stdout, res.stdout
+    res = adopt(repo, env)
+    assert res.returncode == 0, res.stdout
+    assert read(hook) != OLD_SILENT_HOOK and "exit 1" in read(hook), read(hook)
+    assert OLD_SILENT_MAKE not in read(make) and mod.RATCHET_LINE in read(make), read(make)
+    write(hook, "#!/bin/sh\necho mine\n")
+    res = adopt(repo, env)
+    assert read(hook) == "#!/bin/sh\necho mine\n" and "command -v ai-precommit" in res.stdout, res.stdout
+
+
 def t_adopt_ignores_global_excludes(work):
     """M3 2026-11-15: a personal global ignore (core.excludesFile) hides AGENTS.md, CLAUDE.md and .claude/: the
     adopt commit must still hold them (only the repo's .gitignore counts)."""
@@ -1483,7 +1554,8 @@ TESTS_LIST = [t_verify_skills_copy, t_pstack_adapt_ours, t_adopt_verify_link, t_
               t_detect_probe_drops_missing_tool, t_detect_safe_probe_for_dry_run, t_adopt_failing_check_turns_stop_off, t_adopt_leaves_tree_clean, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
               t_adopt_branch_exists_main_clean, t_adopt_old_branch, t_adopt_unborn_main, t_typed_only_skill_paths,
               t_plan_keeps_targets, t_plan_keeps_owner_flags, t_plan_keeps_target_comments, t_adopt_owner_text_survives_rerun, t_adopt_gitignore_makefile_owner_lines,
-              t_adopt_conflict_writes_nothing, t_doctor_owner_text, t_adopt_own_done, t_adopt_own_done_verify_block, t_adopt_long_tier, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused, t_update_projects_flow, t_update_machine, t_adopt_monorepo_owner_makefile_done,
+              t_adopt_conflict_writes_nothing, t_doctor_owner_text, t_adopt_own_done, t_adopt_own_done_verify_block, t_adopt_long_tier, t_precommit_hook_missing_tool, t_precommit_optional_key, t_make_check_ci_missing_tool,
+              t_adopt_upgrades_silent_checks, t_adopt_ignores_global_excludes, t_adopt_monorepo_refused, t_update_projects_flow, t_update_machine, t_adopt_monorepo_owner_makefile_done,
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_continuation_checks_the_fix, t_stop_chain_cap, t_stop_no_baseline_uses_head,
               t_stop_recipe_changed, t_stop_skipped_only_and_group_kill,
               t_stop_success_silent_both_agents, t_stop_codex_block_and_timeout, t_stop_floor_zero_tests,

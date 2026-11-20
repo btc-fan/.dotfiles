@@ -1928,6 +1928,12 @@ def check_flow_2026_11_16(root, hl):
         "pre-commit hook (lint and format on staged files)",
         "" if "ai-precommit" in text else ("the repo's own hooks: %s" % (own or "pre-commit")) if (own or text)
         else "ai-adopt installs it (.git/hooks/pre-commit)")
+    if "pre-commit check skipped\"; exit 0; }" in text:
+        say("WARN", "pre-commit hook is the old silent version (it passes when ai-precommit is missing)",
+            "re-run ai-adopt: it writes the new hook")
+    if run(["git", "-C", root, "config", "--get", "ai.precommit"])[1].strip() == "optional":
+        say("WARN", "git config ai.precommit is optional (the hook passes without ai-precommit)",
+            "only a person sets it; unset: git config --unset ai.precommit")
     ids = hl.enabled_ids(root)
     if "ui" in ids:
         found = [d for d in (os.listdir(os.path.join(root, "design-system"))

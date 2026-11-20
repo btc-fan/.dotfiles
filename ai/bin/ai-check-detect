@@ -43,16 +43,35 @@ WORKSPACE_FILES = ("pnpm-workspace.yaml", "lerna.json", "nx.json", "turbo.json",
 NPM_PLACEHOLDER = "no test specified"
 BLOCK_START = "# >>> ai checks (ai-adopt; edit freely inside, a rerun replaces this block) >>>"
 BLOCK_END = "# <<< ai checks <<<"
-RATCHET_LINE = ('@if command -v ai-ratchet >/dev/null 2>&1; then ai-ratchet; '
-                'else echo "ai-ratchet not on PATH: ratchet skipped"; fi')
-LEDGER_LINE = ('@if command -v ai-ledger >/dev/null 2>&1; then ai-ledger --check; '
-               'else echo "ai-ledger not on PATH: ledger check skipped"; fi')
-DOCS_LINE = ('@if command -v ai-docs-check >/dev/null 2>&1; then ai-docs-check; '
-             'else echo "ai-docs-check not on PATH: Markdown placement check skipped"; fi')
-LIBS_LINE = ('@if command -v ai-libs >/dev/null 2>&1; then ai-libs --check; '
-             'else echo "ai-libs not on PATH: Libraries check skipped"; fi')
-MD_LINE = ('@if command -v ai-docs-check >/dev/null 2>&1; then ai-docs-check --md; '
-           'else echo "ai-docs-check not on PATH: Markdown checks skipped"; fi')
+def tool_line(tool, cmd, what):
+    """A setup tool's check line: runs the tool; a missing tool fails when CI is set (ticket 09), else one WARN line.
+    printenv, not $CI: the same text works in a Makefile and a justfile."""
+    return ('@if command -v %s >/dev/null 2>&1; then %s; '
+            'elif printenv CI >/dev/null; then echo "FAIL: %s not on PATH (CI is set): run install.sh, '
+            'or add the setup bin folder to PATH"; exit 1; '
+            'else echo "WARN: %s not on PATH: %s skipped (CI fails here)"; fi' % (tool, cmd, tool, tool, what))
+
+
+RATCHET_LINE = tool_line("ai-ratchet", "ai-ratchet", "ratchet")
+LEDGER_LINE = tool_line("ai-ledger", "ai-ledger --check", "ledger check")
+DOCS_LINE = tool_line("ai-docs-check", "ai-docs-check", "Markdown placement check")
+LIBS_LINE = tool_line("ai-libs", "ai-libs --check", "Libraries check")
+MD_LINE = tool_line("ai-docs-check", "ai-docs-check --md", "Markdown checks")
+# The silent lines of an older ai-adopt (they passed in CI with no check): a rerun replaces each with its new line.
+OLD_LINES = {
+    '@if command -v %s >/dev/null 2>&1; then %s; else echo "%s not on PATH: %s skipped"; fi' % (t, c, t, w): new
+    for t, c, w, new in (("ai-ratchet", "ai-ratchet", "ratchet", RATCHET_LINE),
+                         ("ai-ledger", "ai-ledger --check", "ledger check", LEDGER_LINE),
+                         ("ai-docs-check", "ai-docs-check", "Markdown placement check", DOCS_LINE),
+                         ("ai-libs", "ai-libs --check", "Libraries check", LIBS_LINE),
+                         ("ai-docs-check", "ai-docs-check --md", "Markdown checks", MD_LINE))}
+
+
+def upgrade_old_lines(text):
+    """text with the old silent check lines replaced by the new ones (an owner's extension of a line stays)."""
+    for old, new in OLD_LINES.items():
+        text = text.replace(old, new)
+    return text
 
 
 def main(argv):
@@ -336,7 +355,8 @@ def plan(root, info, tier):
     name = "Makefile" if runner == "make" else ("justfile" if exists(root, "justfile") else
                                                 "Justfile" if exists(root, "Justfile") else "justfile")
     path = os.path.join(root, name)
-    old = read(path)
+    orig = read(path)
+    old = upgrade_old_lines(orig) if orig is not None else None
     rest = strip_block(old or "")
     have = targets(rest, runner)
     kept = [t for t in ("check-fast", "check") if t in have]
@@ -349,7 +369,7 @@ def plan(root, info, tier):
         block = keep_owner_flags(render_block(runner, want, info["fast"], full), old or "")
         new = rest.rstrip("\n")
         new = (new + "\n\n" if new else "") + block
-        text = None if new == old else new
+        text = None if new == orig else new
     elif old is not None and rest != old:
         text = rest          # both targets are the owner's now: drop our old block
     tool = "make" if runner == "make" else "just"
