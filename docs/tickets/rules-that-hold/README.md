@@ -20,6 +20,7 @@ Nothing is merged into `ai` by these tickets. The work lands on the branch `rule
 8. Add no rule, hook or reminder that the ticket does not name.
 
 A ticket with the status `needs-owner` waits for the decision that it names. The decisions are in section 9 of the spec.
+No ticket deletes a test file before the owner gives decision D1. Until then a ticket builds the new check and leaves the old row and its case file in place.
 
 ## The tickets
 
@@ -179,6 +180,7 @@ The ruleset that M2 sends:
 ```
 
 The review count is 0, because one owner cannot approve their own pull request. The owner's merge OK stays in the session gate `merge-approval`.
+Ticket 04 sends 2 rulesets: this one for the branch that has the workflow, and one without the status checks for a default branch that has no workflow.
 
 ## The template of a ticket
 
@@ -207,7 +209,7 @@ Each ticket file has these parts, in this order:
 | Fixed cost of a new Claude session | about 22,790 tokens | under 11,000 |
 | Hook processes for one Bash call, all plugins | 7 | 3 or fewer |
 | Router lines | 6,038 | under 3,000 |
-| Gate scenarios that pass on Claude | not measured | 12 of 12 |
+| Gate scenarios that pass on Claude | not measured | 9 of 9 on the `dev-mac` render, 12 of 12 on the `server` render |
 | Rules that also hold with no agent | 2 | each rule that is visible in a commit or a PR |
-| Files touched by one rule change | 9.5 | 3 or fewer |
+| Files touched by one rule change | 9.5 | 4 or fewer: 1 folder with 3 files, and 1 row |
 | Lines with a local name in tracked files | 124 | 0 outside the config file |

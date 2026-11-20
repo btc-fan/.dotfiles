@@ -296,7 +296,7 @@ The agent corrects itself when a fixed check fails and the failure text comes ba
 
 | Moment | What runs | Layer | Exists today? |
 |---|---|---|---|
-| End of a turn, when code changed | `make check-fast` (lint and unit tests), with a time limit | L4 Stop hook | Yes, as `stop-check.py`, but it is off in the `dev-mac` profile. Phase 4 checks why and turns it on |
+| End of a turn, when code changed | `make check-fast` (lint and unit tests), with a time limit | L4 Stop hook | Yes, as `stop-check.py`. The owner switched it off for the `dev-mac` profile on 2026-11-15 ("full autonomy"). Decision D5 turns only this check on again |
 | Before a commit | The pre-commit hook: lint on staged files, the secret scan, the text lint | L2 | Partly. It passes silently when `ai-precommit` is missing |
 | Before `gh pr ready` | The `ship` skill: `make check`, the verify skill, a code review, a security review | L6 with an L3 gate | Yes |
 | On the PR | `make check` and the PR text check as required checks | L1 | No. Phase 2 |
@@ -634,10 +634,10 @@ The numbers that decide if the plan worked:
 | Hard rules that are only text | 13 text rows marked MOVE-TO-CHECK | 0 | 4 |
 | Reminder rules | 27 | 0, plus 1 status line | 1 |
 | Global always-loaded words | 3,460 | under 600 | 3 |
-| Gate scenarios that pass (Claude) | Not measured | 12 of 12 | 0 |
+| Gate scenarios that pass (Claude) | Not measured | 9 of 9 on the `dev-mac` render, 12 of 12 on the `server` render | 0 |
 | Rules that also hold with no agent (git hook or CI) | 2 (the pre-commit lint and `verify-commit`) | Each rule that is visible in a commit or a PR | 4 |
 | Router lines | 6,038 | under 3,000 | 5 |
-| Files touched by one rule change | 9.5 | 3 or fewer | 7 |
+| Files touched by one rule change | 9.5 | 4 or fewer | 7 |
 | Lines with a local name in tracked files | 124 | 0 outside the config file | 6 |
 | Task success with the setup against an empty setup, on 5 to 10 real tasks | Not measured | Not lower, with fewer tokens | 0, then each phase |
 
