@@ -1,0 +1,29 @@
+{
+ "id": "behave-nav-on",
+ "fixture": "app",
+ "plugin": "checkout",
+ "steps": [
+  {
+   "git": [
+    [
+     "checkout",
+     "-q",
+     "-B",
+     "feat"
+    ]
+   ]
+  },
+  {
+   "session": "Where is the function add defined in this repo, and what calls it? Answer in two lines.",
+   "max_turns": 10,
+   "expect": {}
+  },
+  {
+   "check": {
+    "count": {
+     "tools": "^Grep |\"command\": \"[^\"]*\\b(rg|ag|ack|git grep|grep\\s+-\\w*[rR]\\w*|grep\\s+--recursive|find\\s+\\S+\\s+-(i?name|path|type))\\b"
+    }
+   }
+  }
+ ]
+}

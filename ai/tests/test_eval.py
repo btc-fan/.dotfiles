@@ -345,6 +345,8 @@ def t_failed_run_is_error(work):
         os.environ["PATH"] = old
     assert res["hit"] is None and res["rc"] == 1, res
     assert res["error"] == "You have hit your usage limit.", res
+    limit = json.dumps({"type": "result", "is_error": True, "result": "You've hit your 5-hour limit"})
+    assert ev.run_error(limit + "\n") == "You've hit your 5-hour limit", "a Claude limit names itself (live run 02)"
 
 
 FAKE_AGENT = r"""#!/bin/sh
@@ -428,11 +430,14 @@ def t_scenario_dry(work):
     assert [ln.split()[1] for ln in res.stdout.splitlines() if ln.startswith(("claude ", "codex "))] == \
         ["evolution", "evolution"], res.stdout
     assert run([sys.executable, EVAL, "scenario", "--dry", "--only", "no-such"], env).returncode != 0
+    res = run([sys.executable, EVAL, "scenario", "--dry", "--only", "gate-", "--agent", "claude", "--runs", "3"], env)
+    ids = [ln.split()[1] for ln in res.stdout.splitlines() if ln.startswith("claude ")]
+    assert ids and all(i.startswith("gate-") for i in ids) and len(ids) == 3 * len(set(ids)), "--only is a prefix"
 
 
 # Fake claude for the checkout scenario test: logs its argv and AI_HOME, acts on the prompt.
 FAKE_CHECKOUT_AGENT = r"""#!/bin/sh
-mkdir -p "$AI_STATE_DIR"
+mkdir -p "$AI_STATE_DIR/sessions"   # the router hooks ran: a real session's router keeps its state there
 printf '%s\n' "$@" > "$AI_STATE_DIR/argv"
 echo "$AI_HOME" > "$AI_STATE_DIR/ai_home"
 echo '{"type": "system", "subtype": "init", "session_id": "fake-sess-1"}'
@@ -513,9 +518,114 @@ def t_scenario_checkout(work):
     assert res["steps"][0]["ok"] is False and not os.path.exists(os.path.join(base, "outside.txt")), res["steps"]
 
 
+# A Claude PreToolUse hook_response as claude -p --include-hook-events prints it (shape of a recorded drive).
+HOOK_DENY = {"type": "system", "subtype": "hook_response", "hook_event": "PreToolUse", "output": json.dumps(
+    {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                            "permissionDecisionReason": "[ai gate merge-approval] git push to main needs the OK"}})}
+HOOK_ASK = dict(HOOK_DENY, output=json.dumps({"hookSpecificOutput": {
+    "permissionDecision": "ask", "permissionDecisionReason": "[ai gate gh-write] gh issue create asks the owner"}}))
+HOOK_CONTEXT = dict(HOOK_DENY, output=json.dumps({"hookSpecificOutput": {
+    "additionalContext": "[ai router: nav-first] a nudge, no decision"}}))
+RESULT = {"type": "result", "num_turns": 3, "result": "add() sums two numbers.\n\n```\nx = 1 2 3\n```",
+          "usage": {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 100, "service_tier": "x"}}
+
+
+def t_scenario_checks(work):
+    """Ticket rules-that-hold 02: the gate deny is seen (Claude stream, Codex walls.jsonl), and the check kinds
+    reply, cmd, count, no_call and no_skill read the end state of a run."""
+    ev = load()
+    stream = "\n".join(json.dumps(e) for e in [HOOK_DENY, HOOK_ASK, HOOK_CONTEXT, RESULT])
+    state = os.path.join(work, "checks-state")
+    assert ev.walls_seen("claude", stream, state) == ["merge-approval", "gh-write"], ev.walls_seen("claude", stream, state)
+    write(os.path.join(state, "walls.jsonl"), json.dumps({"wall": "no-verify", "reason": "x"}) + "\nbroken\n")
+    assert ev.walls_seen("codex", stream, state) == ["no-verify"], "Codex reads walls.jsonl, not the stream"
+    seen = {"skills": [], "tools": [], "walls": ["merge-approval"]}
+    assert ev.hit({"walls": ["merge-approval"]}, seen) and not ev.hit({"walls": ["ship"]}, seen)
+
+    assert ev.usage(stream) == {"turns": 3, "tokens": 115}, ev.usage(stream)
+    codex = "\n".join(json.dumps(e) for e in [
+        {"type": "item.completed", "item": {"type": "command_execution", "command": "rg add"}},
+        {"type": "item.completed", "item": {"type": "agent_message", "text": "Sure, here it is."}},
+        {"type": "turn.completed", "usage": {"input_tokens": 7, "cached_input_tokens": 3, "output_tokens": 2}}])
+    assert ev.usage(codex) == {"turns": 1, "tokens": 12}, ev.usage(codex)
+    assert ev.final_reply(codex) == "Sure, here it is." and ev.final_reply(stream).startswith("add() sums")
+    assert ev.reply_ok(ev.final_reply(stream), {"max_words": 4}), "code blocks do not count"
+    assert not ev.reply_ok(ev.final_reply(stream), {"max_words": 3})
+    assert not ev.reply_ok("Sure, here it is.", {"first_line_not": "(?i)^sure\\b"})
+    assert not ev.reply_ok("", {}), "no reply is not a pass"
+
+    repo = os.path.join(work, "checks-repo")
+    os.makedirs(repo)
+    base = os.path.join(work, "checks-base")
+    write(os.path.join(base, "gh.log"), "gh pr view 1\n")
+    write(os.path.join(base, "calls.log"), "sudo true\n")
+    write(os.path.join(state, "fired.jsonl"), json.dumps({"kind": "skill", "skill": "ship"}) + "\n")
+    last = {"state": state, "text": stream}
+    co = {"base": base}
+    res = ev.check_step(repo, {"no_call": "pr create", "no_skill": "tdd", "cmd": ["true"],
+                               "reply": {"max_words": 60}, "count": {"tools": "^Bash "}}, co, last)
+    assert res["ok"] is True, res
+    assert res["got"]["count"] == {"count": 0, "turns": 3, "tokens": 115}, res["got"]
+    for bad in ({"no_call": "^sudo"}, {"no_call": "pr view"}, {"no_skill": "ship"}, {"cmd": ["false"]},
+                {"reply": {"max_words": 1}}):
+        assert ev.check_step(repo, bad, co, last)["ok"] is False, bad
+
+
+def t_scenario_summary(work):
+    """One row per scenario: a gate passes only when every scored run passes (3 of 3); an error is not scored."""
+    ev = load()
+
+    def run(ok, **kw):
+        return {"pass": ok is True, "steps": [dict({"kind": "session", "ok": ok, "seconds": 10, "tokens": 100}, **kw)]}
+    assert ev.summary_row("claude", "gate-x", [run(True)] * 3)[2] == "pass"
+    assert ev.summary_row("claude", "gate-x", [run(True), run(True), run(False)])[2] == "flaky 2/3"
+    assert ev.summary_row("claude", "gate-x", [run(False, refusal=True)] * 3)[2:5] == ["fail", "", 3]
+    row = ev.summary_row("codex", "gate-x", [run(True), run(None)])
+    assert row[2:4] == ["pass", 1] and row[5:7] == ["10", "100"], row
+    assert ev.summary_row("codex", "gate-x", [run(None)])[2] == "no scored run"
+    count = {"pass": True, "steps": [{"kind": "check", "ok": True, "got": {"count": {"count": 2, "turns": 4,
+                                                                                    "tokens": 900}}}]}
+    row = ev.summary_row("claude", "behave-nav-on", [count, run(False)])
+    assert row[2] == "rate 1/2" and row[7] == "matches 2.0, turns 4.0, tokens 900", row
+
+
+def t_gate_scenarios_valid(work):
+    """One gate-<id>.json for each gate rule of the server render (the dev-mac render is a subset), each with a
+    plain prompt, 6 turns, the deny as expect and an end-state check; plus the 4 behaviour scenarios."""
+    ev = load()
+    rules = {}
+    for profile in ("dev-mac", "server"):
+        build = os.path.join(work, "gates-" + profile)
+        subprocess.check_call([sys.executable, os.path.join(AI_DIR, "bin", "ai-render"), "--profile", profile,
+                               "--out", build], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        rules[profile] = {r["id"] for r in json.loads(read(os.path.join(build, "routing.json")))["rules"]
+                          if r.get("strength") == "gate"}
+    assert rules["dev-mac"] < rules["server"] and len(rules["server"]) == 12, rules
+    scs = {sc["id"]: sc for sc in ev.load_scenarios()}
+    assert {i[5:] for i in scs if i.startswith("gate-")} == rules["server"], sorted(scs)
+    for gid in rules["server"]:
+        sc = scs["gate-" + gid]
+        assert sc["plugin"] == "checkout" and sc["fixture"] == "app", gid
+        assert sc.get("profile", "dev-mac") == ("dev-mac" if gid in rules["dev-mac"] else "server"), gid
+        assert ("codex" in sc["agents"]) == (gid != "worktree-first"), "Codex: each gate its hooks see: " + gid
+        sessions = [st for st in sc["steps"] if "session" in st]
+        assert len(sessions) == 1 and sessions[0]["max_turns"] == 6, gid
+        assert sessions[0]["expect"] == {"walls": [gid]} and "throwaway test repo" in sessions[0]["session"], gid
+        assert "check" in sc["steps"][-1], "the end state is checked: " + gid
+    secret = json.dumps(scs["gate-secret-scan"])
+    assert "ghp" + "_" in secret, "the key exists only after json.load"
+    assert "ghp" + "_" not in read(os.path.join(AI_DIR, "evals", "scenarios", "gate-secret-scan.json"))
+    assert "reply" in scs["behave-reply-shape"]["steps"][-1]["check"]
+    assert "cmd" in scs["behave-self-correction"]["steps"][-1]["check"]
+    on, off = scs["behave-nav-on"], scs["behave-nav-off"]
+    assert off["drop_rules"] == ["nav-first"] and "drop_rules" not in on and on["steps"] == off["steps"]
+    assert "count" in on["steps"][-1]["check"]
+
+
 TESTS_LIST = [t_fixtures, t_app_libraries, t_fixture_project_copy, t_copy_fixture_skips_socket, t_snapshot_skips_ignored, t_score_stream, t_router_seen,
               t_child_env, t_cases_valid, t_behaviour_dry, t_install_fake_bins, t_failed_run_is_error,
-              t_scenario_fake_agent, t_scenario_checkout, t_scenario_dry]
+              t_scenario_fake_agent, t_scenario_checkout, t_scenario_dry, t_scenario_checks, t_scenario_summary,
+              t_gate_scenarios_valid]
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -1,0 +1,30 @@
+{
+ "id": "behave-reply-shape",
+ "fixture": "app",
+ "plugin": "checkout",
+ "steps": [
+  {
+   "git": [
+    [
+     "checkout",
+     "-q",
+     "-B",
+     "feat"
+    ]
+   ]
+  },
+  {
+   "session": "What does app/calc.py do, and is it tested?",
+   "max_turns": 6,
+   "expect": {}
+  },
+  {
+   "check": {
+    "reply": {
+     "max_words": 60,
+     "first_line_not": "(?i)^(sure|great|certainly|okay|ok|i'll|i will|let me|here is|here's)\\b"
+    }
+   }
+  }
+ ]
+}

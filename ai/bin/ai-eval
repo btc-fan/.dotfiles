@@ -13,7 +13,9 @@
   ai-eval scenario [--agent claude|codex|both] [--runs N] [--only ID] [--dry] [--out DIR]
                                         multi-session runs on ONE repo copy (ai/evals/scenarios/*.json): each step
                                         is a session (scored like a case), a harness git or write step, or a state
-                                        check. --only runs one scenario id.
+                                        check. --only runs the scenarios whose id starts with ID (gate-: the gate
+                                        set). The summary has one row per scenario: a gate- scenario passes only
+                                        when every run passes ("flaky" when some do); the others print a rate.
 
 Fixtures: empty-git (git init only), docs-only (README.md, docs/*.md), no-git (a plain folder), app (Python package,
 pytest test, Makefile with check, .claude/skills/verify-app/SKILL.md, AGENTS.md with a Libraries block for
@@ -38,7 +40,15 @@ under test that is not installed); "allow" (more Claude allowed tools). Session 
 "says": [regex, ...] on the raw transcript. Write step: {"write": {path: text}} inside the repo. Checks with a
 checkout plugin: "hook": {"event", "payload", "where": "repo"|"worktree", "decision"} replays this checkout's
 router on the end state, with the turn start of the last session (no loop counts); "git_out": {"args", "match"};
-"gh_log": regex.
+"gh_log": regex; "no_call": regex (absent from gh.log and calls.log); "no_skill": name (no skill proof in the
+router state of the last session); "reply": {"max_words", "first_line_not"} on the last reply; "cmd": [arg, ...]
+must exit 0 in the repo; "count": {"tools": regex} (a number, not a pass: tool calls that match, turns, tokens).
+Session expect "walls": [gate id, ...]: the deny (or Claude ask) of each gate is seen. Claude: a hook_response in
+the stream (--include-hook-events). Codex: a row in walls.jsonl of the run's AI_STATE_DIR (codex exec --json has
+no hook events). With a checkout plugin, a session whose hooks never ran (no router session state) is an error.
+More scenario options with a checkout plugin: "profile" (the ai-render profile, default dev-mac); "fakes" (fake
+programs on the session PATH that log to <run>/calls.log, for example sudo, npm, systemctl); "drop_rules" (rule
+ids left out of routing.json, to compare a session with and without a rule).
 Reports: a table on stdout and <level>.json in --out (default: a new temp folder; never inside this repo).
 """
 import glob
@@ -256,7 +266,7 @@ def behaviour(opts):
 
 def scenario(opts):
     agents = ["claude", "codex"] if opts["agent"] == "both" else [opts["agent"]]
-    scs = [sc for sc in load_scenarios() if opts["only"] in (None, sc["id"])]
+    scs = [sc for sc in load_scenarios() if sc["id"].startswith(opts["only"] or "")]
     if not scs:
         sys.exit("ai-eval: no scenario %s" % opts["only"])
     plan = [(agent, sc, n) for agent in agents for sc in scs for n in range(1, opts["runs"] + 1)
@@ -291,8 +301,36 @@ def scenario(opts):
             rows.append([agent, sc["id"], "all", "run passes", "%d/%d" % (sum(1 for r in mine if r["pass"]),
                                                                          len(mine)), ""])
     print_table(["agent", "scenario", "step", "expected", "ok/runs", "errors"], rows)
+    print()
+    print_table(["agent", "scenario", "result", "errors", "refusals", "seconds/run", "tokens/run", "numbers"],
+                [summary_row(agent, sc["id"], [r for r in results if r["agent"] == agent and r["scenario"] == sc["id"]])
+                 for agent in agents for sc in scs if any(r["agent"] == agent and r["scenario"] == sc["id"]
+                                                          for r in results)])
     write_report(out, "scenario", {"runs": results})
     return 0
+
+
+def summary_row(agent, sid, runs):
+    """One row per scenario. A gate holds only when every scored run passes; a run with an error is not scored."""
+    errors = sum(1 for r in runs if any(st.get("ok") is None for st in r["steps"]))
+    scored = [r for r in runs if not any(st.get("ok") is None for st in r["steps"])]
+    passes = sum(1 for r in scored if r["pass"])
+    if not sid.startswith("gate-"):
+        result = "rate %d/%d" % (passes, len(scored))
+    elif not scored:
+        result = "no scored run"
+    else:
+        result = "pass" if passes == len(scored) else ("flaky %d/%d" % (passes, len(scored)) if passes else "fail")
+    sessions = [st for r in runs for st in r["steps"] if st.get("kind") == "session"]
+    refusals = sum(1 for st in sessions if st.get("refusal"))
+    counts = [st["got"]["count"] for r in scored for st in r["steps"] if "count" in st.get("got", {})]
+    numbers = ""
+    if counts:
+        numbers = "matches %.1f, turns %.1f, tokens %d" % tuple(
+            sum(c[k] for c in counts) / len(counts) for k in ("count", "turns", "tokens"))
+    return [agent, sid, result, errors or "", refusals or "",
+            "%d" % (sum(st.get("seconds", 0) for st in sessions) / max(len(runs), 1)),
+            "%d" % (sum(st.get("tokens", 0) for st in sessions) / max(len(runs), 1)), numbers]
 
 
 def load_scenarios():
@@ -338,6 +376,7 @@ def session_step(base, repo, agent, step, i, checkout=None, last=None):
     if checkout:
         cmd, env = checkout_session(agent, cmd, env, repo, checkout)
     turns = int(step.get("max_turns") or 40)
+    t0 = time.time()
     rc, text = call(cmd, env, repo, max(RUN_TIMEOUT, 20 * turns))
     write(os.path.join(base, "stream-%d.jsonl" % i), text)
     seen = score_stream(text)
@@ -345,12 +384,19 @@ def session_step(base, repo, agent, step, i, checkout=None, last=None):
     seen["skills"] += router["skills"]
     seen["rules"] = router["rules"]
     seen["said"] = [rx for rx in step["expect"].get("says", []) if re.search(rx, text)]
+    seen["walls"] = walls_seen(agent, text, state)
     if last is not None:
-        last["session_id"] = next((e.get("session_id") or e.get("thread_id") for e in json_lines(text)
-                                   if e.get("subtype") == "init" or e.get("type") == "thread.started"), None)
-    if rc != 0 and not seen["tools"]:
-        return {"ok": None, "rc": rc, "error": run_error(text), "seen": seen}
-    return {"ok": hit(step["expect"], seen), "rc": rc, "seen": seen}
+        last.update(state=state, text=text, session_id=next(
+            (e.get("session_id") or e.get("thread_id") for e in json_lines(text)
+             if e.get("subtype") == "init" or e.get("type") == "thread.started"), None))
+    res = dict(usage(text), rc=rc, seen=seen, seconds=int(time.time() - t0))
+    if (rc != 0 or '"terminal_reason": "api_error"' in text.replace('":"', '": "')) and not seen["tools"]:
+        return dict(res, ok=None, error=run_error(text))
+    if checkout and not os.path.isdir(os.path.join(state, "sessions")):
+        # Codex: an untrusted hook never runs (edge case 6); Claude: the plugin did not load.
+        return dict(res, ok=None, error="the router hooks did not run in this session")
+    ok = hit(step["expect"], seen)
+    return dict(res, ok=ok, refusal=agent == "claude" and not ok and not seen["tools"])
 
 
 def write_step(repo, files):
@@ -389,6 +435,18 @@ def check_step(repo, check, checkout=None, last=None):
         got["git_out"] = bool(re.search(check["git_out"]["match"], text))
     if "gh_log" in check:
         got["gh_log"] = bool(re.search(check["gh_log"], read_file(os.path.join(checkout["base"], "gh.log"))))
+    if "no_call" in check:
+        calls = read_file(os.path.join(checkout["base"], "gh.log")) + read_file(os.path.join(checkout["base"], "calls.log"))
+        got["no_call"] = not re.search(check["no_call"], calls, re.M)
+    if "no_skill" in check:
+        got["no_skill"] = check["no_skill"] not in router_seen((last or {}).get("state", ""))["skills"]
+    if "cmd" in check:
+        got["cmd"] = call(list(check["cmd"]), dict(os.environ), repo, 600)[0] == 0
+    if "reply" in check:
+        got["reply"] = reply_ok(final_reply((last or {}).get("text", "")), check["reply"])
+    if "count" in check:
+        got["count"] = dict(usage((last or {}).get("text", "")), count=sum(
+            1 for t in score_stream((last or {}).get("text", ""))["tools"] if re.search(check["count"]["tools"], t)))
     if "map_contains" in check:
         got["map_contains"] = check["map_contains"] in map_section(repo)
     if "branch" in check:
@@ -398,7 +456,7 @@ def check_step(repo, check, checkout=None, last=None):
         sys.path.insert(0, os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks"))
         import hooklib
         got["graph"] = hooklib.graph_status(repo, hooklib.git_history(repo)) == check["graph"]
-    ok = all(v is True or (k == "hook" and v == check["hook"]["decision"]) for k, v in got.items())
+    ok = all(v is True or (k == "hook" and v == check["hook"]["decision"]) or k == "count" for k, v in got.items())
     return {"ok": ok, "got": got}
 
 
@@ -410,6 +468,53 @@ def map_section(repo):
         return ""
     m = re.search(r"^## Map\n(.*?)(?=^## |\Z)", text, re.S | re.M)
     return m.group(1) if m else ""
+
+
+def walls_seen(agent, text, state):
+    """Gate ids whose deny (or Claude ask) this session saw: Claude hook_response events, Codex walls.jsonl rows."""
+    if agent == "codex":
+        return [row["wall"] for row in json_lines(read_file(os.path.join(state, "walls.jsonl"))) if row.get("wall")]
+    walls = []
+    for event in json_lines(text):
+        if event.get("subtype") != "hook_response":
+            continue
+        out = str(event.get("output") or event.get("stdout") or "")
+        if re.search(r'"permissionDecision":\s*"(deny|ask)"', out):
+            walls += re.findall(r"\[ai (?:gate |router: )([\w.-]+)\]", out)
+    return walls
+
+
+def usage(text):
+    """Turns and tokens of one session: the Claude result event, or the Codex turn.completed events."""
+    turns = tokens = 0
+    for event in json_lines(text):
+        if event.get("type") == "result":
+            turns = event.get("num_turns") or 0
+            tokens = sum(v for k, v in (event.get("usage") or {}).items() if k.endswith("tokens") and isinstance(v, int))
+        elif event.get("type") == "turn.completed":
+            tokens += sum(v for k, v in (event.get("usage") or {}).items() if k.endswith("tokens") and isinstance(v, int))
+    if not turns:   # shortcut: Codex has no turn count in --json; its tool calls stand in until it reports one
+        turns = len(score_stream(text)["tools"])
+    return {"turns": turns, "tokens": tokens}
+
+
+def final_reply(text):
+    """The last reply text: the Claude result, else the last Codex agent_message."""
+    reply = ""
+    for event in json_lines(text):
+        item = event.get("item") or {}
+        if event.get("type") == "result" and isinstance(event.get("result"), str):
+            reply = event["result"]
+        elif event.get("type") == "item.completed" and item.get("type") == "agent_message":
+            reply = item.get("text") or ""
+    return reply
+
+
+def reply_ok(reply, spec):
+    lines = [ln for ln in reply.splitlines() if ln.strip()]
+    words = len(re.findall(r"\S+", re.sub(r"```.*?```", "", reply, flags=re.S)))   # code blocks do not count
+    return (bool(lines) and words <= spec.get("max_words", words)
+            and not (spec.get("first_line_not") and re.search(spec["first_line_not"], lines[0])))
 
 
 def step_text(step):
@@ -485,6 +590,8 @@ def run_error(text):
     for event in reversed(json_lines(text)):
         if event.get("type") == "error" and event.get("message"):
             return event["message"][:200]
+        if event.get("type") == "result" and event.get("is_error") and isinstance(event.get("result"), str):
+            return event["result"][:200]
     return last_line(text)
 
 
@@ -568,6 +675,7 @@ def hit(expect, seen):
             and all(any(re.search(rx, t) for t in seen["tools"]) for rx in expect.get("tools", []))
             and all(r in seen.get("rules", []) for r in expect.get("rules", []))
             and all(rx in seen.get("said", []) for rx in expect.get("says", []))
+            and all(w in seen.get("walls", []) for w in expect.get("walls", []))
             and not any(s in seen["skills"] for s in expect.get("not_skills", []))
             and not any(r in seen.get("rules", []) for r in expect.get("not_rules", []))
             and not any(re.search(rx, t) for rx in expect.get("not_tools", []) for t in seen["tools"]))
@@ -577,6 +685,7 @@ def expected_text(case):
     exp = case["expect"]
     parts = ["skill " + s for s in exp.get("skills", [])] + ["tool /%s/" % t for t in exp.get("tools", [])]
     parts += ["rule " + r for r in exp.get("rules", [])] + ["says /%s/" % t for t in exp.get("says", [])]
+    parts += ["deny " + w for w in exp.get("walls", [])]
     parts += ["not " + s for s in exp.get("not_skills", [])]
     parts += ["not rule " + r for r in exp.get("not_rules", [])] + ["not tool /%s/" % t for t in exp.get("not_tools", [])]
     return ", ".join(parts)
@@ -594,6 +703,11 @@ case "$1 $2" in
   "pr list"|"pr view"|"api "*) echo '[]' ;;
   "auth status") echo 'Logged in to github.com (fake)' ;;
 esac
+exit 0
+"""
+FAKE_CALL = """#!/bin/sh
+# fake program (ai-eval scenario "fakes"): logs the call, changes nothing
+echo "%s $*" >> '%s'
 exit 0
 """
 
@@ -614,8 +728,17 @@ def checkout_setup(out, base, repo, sc):
             fh.write("\n".join(exclude) + "\n")
     write(os.path.join(base, "bin", "gh"), FAKE_GH % os.path.join(base, "gh.log"))
     os.chmod(os.path.join(base, "bin", "gh"), 0o755)
+    for name in sc.get("fakes", []):
+        write(os.path.join(base, "bin", name), FAKE_CALL % (name, os.path.join(base, "calls.log")))
+        os.chmod(os.path.join(base, "bin", name), 0o755)
+    routing = render_routing(out, sc.get("profile", "dev-mac"))
+    if sc.get("drop_rules"):
+        data = json.loads(read_file(routing))
+        data["rules"] = [r for r in data["rules"] if r.get("id") not in sc["drop_rules"]]
+        routing = os.path.join(base, "routing.json")
+        write(routing, json.dumps(data))
     env = {"PATH": os.pathsep.join([os.path.join(base, "bin"), BIN, os.environ.get("PATH", "")]),
-           "AI_HOME": AI_HOME, "AI_ROUTING_JSON": render_routing(out), "AI_NOTIFY_DRY": "1"}
+           "AI_HOME": AI_HOME, "AI_ROUTING_JSON": routing, "AI_NOTIFY_DRY": "1"}
     return {"base": base, "env": env, "allow": sc.get("allow", [])}
 
 
@@ -626,8 +749,13 @@ def checkout_session(agent, cmd, env, repo, checkout):
         i = cmd.index("--allowedTools") + 1
         cmd[i:i] = ["Bash(gh *)"] + list(checkout["allow"])
         settings = {"enabledPlugins": NO_INSTALLED_CORE, "env": env_list()}
-        return cmd + ["--plugin-dir", PLUGIN, "--settings", json.dumps(settings), "--strict-mcp-config"], env
+        return cmd + ["--plugin-dir", PLUGIN, "--settings", json.dumps(settings), "--strict-mcp-config",
+                      "--include-hook-events"], env
     env.update(env_list(), CODEX_HOME=codex_home(os.path.join(checkout["base"], "codex-home")))
+    # the run folder is writable too: the fake gh and fakes log there, and a bare remote there takes a push,
+    # so the end state shows the hook, not the sandbox
+    i = cmd.index("-c") + 1
+    cmd[i] = 'sandbox_workspace_write.writable_roots=["%s", "%s"]' % (os.path.join(repo, ".git"), checkout["base"])
     return cmd, env
 
 
@@ -661,11 +789,11 @@ def replay_hook(repo, spec, checkout, last):
     return "allow"
 
 
-def render_routing(out):
-    """routing.json of this checkout (ai-render --profile dev-mac), once per out folder."""
-    build = os.path.join(out, "build")
+def render_routing(out, profile="dev-mac"):
+    """routing.json of this checkout (ai-render --profile PROFILE), once per out folder and profile."""
+    build = os.path.join(out, "build" if profile == "dev-mac" else "build-" + profile)
     if not os.path.isfile(os.path.join(build, "routing.json")):
-        call([sys.executable, os.path.join(BIN, "ai-render"), "--profile", "dev-mac", "--out", build],
+        call([sys.executable, os.path.join(BIN, "ai-render"), "--profile", profile, "--out", build],
              dict(os.environ), AI_HOME, 120)
     return os.path.join(build, "routing.json")
 
