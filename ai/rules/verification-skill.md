@@ -40,8 +40,11 @@ the app changes."
 
 ## Evidence log contract (read by the hooks of tickets 02 to 05)
 - One folder per run: `.verify/evidence/<run>/` in the root of the checkout that ran it (a linked worktree: the
-  worktree root). `<run>` is the UTC start time and a label, for example `20261118T143005Z-checkout`. The project
-  `.gitignore` has `.verify/`. Cleanup keeps the evidence.
+  worktree root). `<run>` is `<branch>_<feature>_<DD-MM-YYYY>_<HH-MM-SS>` (UTC), for example
+  `fix-cart-total_checkout_18-11-2026_14-30-05`. The project
+  `.gitignore` ignores `.verify/` except `.verify/evidence/` (the `ai-adopt` block). Cleanup keeps the evidence.
+- Each run folder is committed on the feature branch with the change it proves, with a `summary.md` and no secrets
+  (verify-evidence-in-git, owner 2026-11-19). The owner reads it on GitHub from any machine.
 - The project helper writes `run.log` in the run folder: plain text, one `key: value` line per key, lower-case
   keys, other lines ignored.
   - `commit: <sha>`: the full 40-character `git rev-parse HEAD` of the checkout at the start of the run.
@@ -60,7 +63,9 @@ test. The owner does not check this by hand, so a hook must check it. A hook can
 session. It can only read files and git. So the verify tool leaves one small trace on disk: `run.log`. The 4 lines
 answer one question: "did the agent run the verify tool on this code, on a healthy app, without faked steps,
 after its last change?" The evidence itself (response bodies, screenshots, DB reads) stays next to the log for a
-reviewer. The log is gitignored and local; it never enters a commit.
+reviewer. The run folder, the log included, is
+committed with the PR. A commit that changes only `.verify/evidence/` does not move the proven code:
+`hooklib.code_head` skips it for hooks 3 and 4.
 
 How the 4 hooks use it (the walls in `ai/marketplace/plugins/ai-core/hooks/README.md`):
 1. Hook 1, `verify-tool-exists` (Stop, SubagentStop): app code changed in the turn, and the project has no verify
@@ -155,9 +160,17 @@ passes the hooks, and the hooks never judge if the drive was good; code review a
   Hermes: not wired (UNVERIFIED for Hermes).
 - Keys, telemetry, network: none (the generated project skill may start the app locally).
 - Per project: nothing for the owner. The agent runs `create-verification-skill` at the first feature task,
-  commits `.agents/skills/verify-<app>/` and `.verify/` in `.gitignore`, and runs `ai-adopt` (the `.claude`
-  link). The `.gitignore` block shares `.claude/skills/verify-*`.
+  commits `.agents/skills/verify-<app>/`, and runs `ai-adopt` (the `.claude` link and the `.gitignore` block,
+  which also drops an old bare `.verify/` line). The `.gitignore` block shares `.claude/skills/verify-*`.
 - Verify: `ls ~/.claude/skills/create-verification-skill/SKILL.md ~/.agents/skills/maintain-verification-skill/SKILL.md`;
   `ai-doctor --project <repo>` shows the verify skill line.
 - Cleanup: remove the two links; delete `<plugin src>/pstack-verification`; per project delete
   `.agents/skills/verify-<app>/` and the `.claude` link.
+
+## Evidence cleanup (verify-evidence-in-git)
+- `ai-evidence-prune` removes committed run folders older than 7 days and keeps the newest run of each feature.
+  It refuses main and master. It does not commit.
+- Trigger: the `merge-review` session-start note, when the repo tracks `.verify/evidence/`. The agent runs it on a
+  branch `chore-prune-evidence-<date>` and opens a PR. The owner merges.
+- Git history keeps the removed files (about 1 MB per run). Tests: `ai/tests/test_evidence.py`,
+  `test_commands.py` (`t_merged_branches_note`).

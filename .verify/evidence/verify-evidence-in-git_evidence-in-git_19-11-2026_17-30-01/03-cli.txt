@@ -1,0 +1,9 @@
+/Users/python-qa/work/dotfiles-verify-evidence/ai/bin/ai-evidence-prune
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-2zxqqp3x/python-with-tests
+rc: 0
+--- transcript
+ai-evidence-prune: removed 1 run folders older than 7 days:
+  .verify/evidence/20261101T100000Z-cart
+
+--- git status --short after
+D  .verify/evidence/20261101T100000Z-cart/run.log

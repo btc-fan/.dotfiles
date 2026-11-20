@@ -638,6 +638,10 @@ def t_pstack_adapt_ours(work):
                  "db_writes: yes", "db_writes: no", "finished: ", "first feature task", "one real run"):
         assert want in ours, "Our additions lacks %r" % want
     assert ".verify/evidence/<run>/" in maintain.split("\n## Our additions\n", 1)[1], "maintain: evidence note"
+    for want in ("Commit each run folder", "summary.md", "Never write secrets"):   # verify-evidence-in-git
+        assert want in ours, "Our additions lacks %r" % want
+    assert "Add `.verify/` to the repo `.gitignore`" not in ours, "evidence is committed now"
+    assert "Commit each run folder" in maintain.split("\n## Our additions\n", 1)[1], "maintain: commit note"
     drift = os.path.join(work, "pstack-drift")
     shutil.copytree(vendor, drift)
     path = os.path.join(drift, "skills", "create-verification-skill", "SKILL.md")
@@ -664,6 +668,21 @@ def t_adopt_verify_link(work):
     assert ".claude/skills/verify-shop" in files, "the verify link is committed: %s" % files
     agents = read(os.path.join(repo, "AGENTS.md"))
     assert "then verify-shop on the changed feature" in agents and "only then add e2e tests" in agents, agents
+    assert "nothing to change" in adopt(repo, env).stdout
+
+
+def t_adopt_verify_evidence_shared(work):
+    """verify-evidence-in-git: the managed block ignores .verify/ except .verify/evidence/, and adopt drops the old
+    bare .verify/ line (git cannot re-include a file inside an ignored folder). Other owner lines stay."""
+    repo, env = adopt_repo(work, "verify-evidence", dict(verify_files(), **{".gitignore": "node_modules/\n.verify/\n"}))
+    res = adopt(repo, env)
+    assert res.returncode == 0, res.stdout
+    gi = read(os.path.join(repo, ".gitignore"))
+    assert "node_modules/" in gi and "\n.verify/\n" not in gi and ".verify/*" in gi and "!.verify/evidence/" in gi, gi
+    write(os.path.join(repo, ".verify", "evidence", "r1", "run.log"), "doctor: PASS\n")
+    write(os.path.join(repo, ".verify", "data", "app.db"), "x")
+    ign = run(["git", "-C", repo, "check-ignore", ".verify/evidence/r1/run.log", ".verify/data/app.db"]).stdout
+    assert ".verify/data/app.db" in ign and "run.log" not in ign, ign
     assert "nothing to change" in adopt(repo, env).stdout
 
 
@@ -1460,7 +1479,7 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
     return res
 
 
-TESTS_LIST = [t_verify_skills_copy, t_pstack_adapt_ours, t_adopt_verify_link, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_skills_none, t_detect_python_uv, t_detect_python_pip, t_detect_python_no_manifest, t_detect_node, t_detect_go_rust, t_detect_monorepo, t_detect_missing_dir,
+TESTS_LIST = [t_verify_skills_copy, t_pstack_adapt_ours, t_adopt_verify_link, t_adopt_verify_evidence_shared, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_skills_none, t_detect_python_uv, t_detect_python_pip, t_detect_python_no_manifest, t_detect_node, t_detect_go_rust, t_detect_monorepo, t_detect_missing_dir,
               t_detect_probe_drops_missing_tool, t_detect_safe_probe_for_dry_run, t_adopt_failing_check_turns_stop_off, t_adopt_leaves_tree_clean, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
               t_adopt_branch_exists_main_clean, t_adopt_old_branch, t_adopt_unborn_main, t_typed_only_skill_paths,
               t_plan_keeps_targets, t_plan_keeps_owner_flags, t_plan_keeps_target_comments, t_adopt_owner_text_survives_rerun, t_adopt_gitignore_makefile_owner_lines,
