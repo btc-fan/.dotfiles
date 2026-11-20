@@ -4,10 +4,10 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done (2026-11-20)
 
-- [ ] Deny: `ssh h 'journalctl -n 5; git status; sync; sudo systemctl reboot'` (hidden at the end)
-- [ ] Deny: `ssh h 'sudo bash -s' < script.sh` with `userdel -r` in the script; the heredoc form too
-- [ ] Deny: `ssh h 'sudo apt-get -y full-upgrade'` when h is live
-- [ ] Pass: `ssh h 'uptime; systemctl is-active x; journalctl -n 20'`
-- [ ] `bash ai/tests/run.sh` 0 failed
+- [x] Deny: `ssh h 'journalctl -n 5; git status; sync; sudo systemctl reboot'` (hidden at the end)
+- [x] Deny: `ssh h 'sudo bash -s' < script.sh` with `userdel -r` in the script; the heredoc form too
+- [x] Deny: `ssh h 'sudo apt-get -y full-upgrade'` when h is live
+- [x] Pass: `ssh h 'uptime; systemctl is-active x; journalctl -n 20'`
+- [x] `bash ai/tests/run.sh` 0 failed
