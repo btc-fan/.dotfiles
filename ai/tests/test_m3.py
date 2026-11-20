@@ -671,7 +671,7 @@ def t_doctor(work):
     write(os.path.join(home, ".codex", "config.toml"), '[mcp_servers.byterover-mcp]\nurl = "u"\n')
     write(os.path.join(home, ".codex", "hooks.json"), json.dumps({"hooks": {"Stop": [{"hooks": [
         {"type": "command", "command": omx_hook("/opt/homebrew/Cellar/node/26.5.0_1/bin/node")}]}]}}))
-    out = doctor_run(env)
+    out = doctor_run(env, linux=False)       # the dev-mac rule; the runner OS must not pick it
     fails = [ln for ln in out.splitlines() if ln.startswith("FAIL")]
     for want in ("dropped Claude plugins gone", "dropped hooks gone", "dropped MCP servers gone", "one Serena",
                  "one rtk on PATH", "OMX Codex hooks start node", "last30days installed and on"):
@@ -690,7 +690,7 @@ def t_doctor(work):
     write(os.path.join(home, ".codex", "config.toml"), 'model = "x"\n')
     write(os.path.join(home, ".codex", "hooks.json"), json.dumps({"hooks": {"Stop": [{"hooks": [
         {"type": "command", "command": omx_hook("/opt/homebrew/opt/node/bin/node")}]}]}}))
-    out = doctor_run(env)
+    out = doctor_run(env, linux=False)
     bad = [ln for ln in out.splitlines() if ln.startswith(("FAIL", "WARN"))]
     assert not bad, out
     assert "PASS OMX Codex hooks do not use a versioned Cellar node" in out and "PASS one rtk on PATH" in out, out
