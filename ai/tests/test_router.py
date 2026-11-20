@@ -141,6 +141,95 @@ def check_fail_closed(work):
     return []
 
 
+FAIL_CLOSED_UNITS = r"""
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import hooklib, router
+
+tmp = tempfile.mkdtemp()
+good, bad, folder, empty = (os.path.join(tmp, n) for n in ("good.json", "bad.json", "folder.json", "empty.json"))
+open(good, "w").write(json.dumps({"rules": [{"id": "x"}]}))
+open(bad, "w").write("{not json")
+open(empty, "w").write("{}")
+os.mkdir(folder)
+
+def load(*paths):
+    router.routing_candidates = lambda: list(paths)
+    routing = router.load_routing()
+    return [len(routing["rules"]), bool(routing.get("broken"))]
+
+res = {"bad then good": load(bad, good), "bad": load(bad), "folder": load(folder), "no rules list": load(empty),
+       "missing": load(os.path.join(tmp, "none.json"))}
+
+tok = "ghp" + "_" + "aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC2eF4hJ6"
+value = "s3cR3t" + "V4lu3XYZ123q"
+res["cut keeps part of a key"] = tok[:10] in hooklib.redact("x " * (hooklib.REDACT_MAX // 2 - 25) + "y" * 40 + " " + tok + " and more text")
+res["long name in clear text"] = value in hooklib.redact("x" * 80 + "_tok" + "en=" + value)
+print(json.dumps(res))
+"""
+
+
+def check_fail_closed_inputs(work, build):
+    """R-017: rules or a payload that the router cannot read must deny a shell command.
+    A long denied command must not hold the hook until its timeout, because a timed-out hook does not block."""
+    hooks = os.path.dirname(ROUTER)
+    good = os.path.join(build, "routing.json")
+    bad = os.path.join(work, "bad-routing.json")
+    write(bad, "{not json")
+
+    base = {"hook_event_name": "PreToolUse", "cwd": work, "session_id": "fail-closed-inputs"}
+    tool = lambda name, tin: json.dumps(dict(base, tool_name=name, tool_input=tin))
+    bash = lambda cmd: tool("Bash", {"command": cmd})
+    probes = [      # name, agent, routing.json, event, stdin, wanted decision
+        ("corrupt routing.json, Bash", "claude", bad, "PreToolUse", bash("gh pr merge 5 --squash"), "deny"),
+        ("corrupt routing.json, Bash, Codex", "codex", bad, "PreToolUse", bash("gh pr merge 5 --squash"), "deny"),
+        ("corrupt routing.json, Read", "claude", bad, "PreToolUse", tool("Read", {"file_path": "/tmp/x"}), None),
+        ("payload is a JSON list", "claude", good, "PreToolUse", "[]", "deny"),
+        ("payload is cut short", "claude", good, "PreToolUse", bash("echo hi")[:40], "deny"),
+        ("payload is not UTF-8", "claude", good, "PreToolUse", b"\xff\xfe" + bash("echo hi").encode(), "deny"),
+        ("payload is nested too deep", "claude", good, "PreToolUse", "[" * 200000, "deny"),
+        ("Bash tool_input is a string", "claude", good, "PreToolUse", tool("Bash", "git commit --no-verify"), "deny"),
+        ("Bash tool_input is an empty list", "claude", good, "PreToolUse", tool("Bash", []), "deny"),
+        ("exec_command tool_input is a string", "codex", good, "PreToolUse", tool("exec_command", "git push"), "deny"),
+        ("Bash without tool_input", "claude", good, "PreToolUse", json.dumps(dict(base, tool_name="Bash")), None),
+        ("empty payload", "claude", good, "PreToolUse", "", None),
+        ("SessionStart, payload is a JSON list", "claude", good, "SessionStart", "[]", None),
+        ("16 KB denied command", "claude", good, "PreToolUse", bash("git commit --no-verify -m " + "a-" * 8000), "deny"),
+    ]
+
+    failures = []
+    home = os.path.join(work, "home-fail-closed-inputs")
+    for name, agent, routing, event, stdin, want in probes:
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home, "LANG": "C.UTF-8",
+               "AI_STATE_DIR": os.path.join(home, "state"), "AI_ROUTING_JSON": routing,
+               "AI_CLAUDE_MANAGED_SETTINGS": os.path.join(work, "no-managed-settings.json")}
+        start = time.time()
+        res = subprocess.run([sys.executable, ROUTER, "--agent", agent, event],
+                             input=stdin if isinstance(stdin, bytes) else stdin.encode(),
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+        elapsed = time.time() - start
+
+        got = decision_of(res.stdout.decode(), res.returncode, agent)
+        if res.returncode != 0:
+            failures.append("fail-closed input (%s): exit %d: %s" % (name, res.returncode, short(res.stderr.decode())))
+        elif got != want:
+            failures.append("fail-closed input (%s): got %s, want %s" % (name, got, want))
+        elif elapsed > 3:
+            failures.append("fail-closed input (%s): took %.1f s, want under 3 s" % (name, elapsed))
+
+    res = subprocess.run([sys.executable, "-c", FAIL_CLOSED_UNITS, hooks], stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, env=dict(os.environ, HOME=home))
+    want = {"bad then good": [1, False], "bad": [0, True], "folder": [0, True], "no rules list": [0, True],
+            "missing": [0, False], "cut keeps part of a key": False, "long name in clear text": False}
+    try:
+        got = json.loads(res.stdout.decode().strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return failures + ["fail-closed units gave no result: " + short(res.stderr.decode())]
+    failures.extend("fail-closed unit (%s): got %s, want %s" % (k, got.get(k), v) for k, v in want.items()
+                    if got.get(k) != v)
+    return failures
+
+
 def check_coverage(routing, coverage):
     errs = []
     for rule in routing["rules"]:
@@ -157,48 +246,6 @@ def check_tiebreak_regex(routing):
 
 
 # ---------------------------------------------------------------- one case
-
-def check_fail_closed_inputs(work, build):
-    """R-017: rules or a payload that the router cannot read must deny a shell command, and a long denied
-    command must not hold the hook until its timeout (a timed-out hook does not block)."""
-    hooks = os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks")
-    good = os.path.join(build, "routing.json")
-    bad = os.path.join(work, "bad-routing.json")
-    write(bad, "{not json")
-    base = {"hook_event_name": "PreToolUse", "cwd": work, "session_id": "fci"}
-    bash = lambda cmd: json.dumps(dict(base, tool_name="Bash", tool_input={"command": cmd}))
-    read_file = json.dumps(dict(base, tool_name="Read", tool_input={"file_path": "/tmp/x"}))
-    probes = [      # name, agent, routing.json, event, stdin, wanted decision
-        ("corrupt routing.json, Bash", "claude", bad, "PreToolUse", bash("gh pr merge 5 --squash"), "deny"),
-        ("corrupt routing.json, Bash, Codex", "codex", bad, "PreToolUse", bash("gh pr merge 5 --squash"), "deny"),
-        ("corrupt routing.json, Read", "claude", bad, "PreToolUse", read_file, None),
-        ("payload is a JSON list", "claude", good, "PreToolUse", "[]", "deny"),
-        ("payload is cut short", "claude", good, "PreToolUse", bash("echo hi")[:40], "deny"),
-        ("Bash tool_input is a string", "claude", good, "PreToolUse",
-         json.dumps(dict(base, tool_name="Bash", tool_input="git commit --no-verify")), "deny"),
-        ("empty payload", "claude", good, "PreToolUse", "", None),
-        ("SessionStart, payload is a JSON list", "claude", good, "SessionStart", "[]", None),
-        ("16 KB denied command", "claude", good, "PreToolUse", bash("git commit --no-verify -m " + "a-" * 8000), "deny"),
-    ]
-    failures = []
-    for name, agent, routing, event, stdin, want in probes:
-        home = os.path.join(work, "home-fci")
-        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home, "LANG": "C.UTF-8",
-               "AI_STATE_DIR": os.path.join(home, "state"), "AI_ROUTING_JSON": routing,
-               "AI_CLAUDE_MANAGED_SETTINGS": os.path.join(work, "no-managed-settings.json")}
-        start = time.time()
-        res = subprocess.run([sys.executable, os.path.join(hooks, "router.py"), "--agent", agent, event],
-                             input=stdin.encode(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
-        elapsed = time.time() - start
-        got = decision_of(res.stdout.decode(), res.returncode, agent)
-        if res.returncode != 0:
-            failures.append("fail-closed input (%s): exit %d: %s" % (name, res.returncode, short(res.stderr.decode())))
-        elif got != want:
-            failures.append("fail-closed input (%s): got %s, want %s" % (name, got, want))
-        elif elapsed > 3:
-            failures.append("fail-closed input (%s): took %.1f s, want under 3 s" % (name, elapsed))
-    return failures
-
 
 def run_case(rule_id, case, work, build):
     tmp = tempfile.mkdtemp(dir=work)

@@ -49,6 +49,8 @@ L0_RESEND_SOURCES = ("compact", "clear")    # SessionStart sources that get the 
 L1_HEADER = "[ai router L1] Routing table (also in your root rules):\n"
 DAY = 86400
 CODEX_HINTS = ("turn_id", "tool_use_id")
+SHELL_TOOLS = ("Bash", "shell", "exec_command", "local_shell")
+NO_CHECK_MSG = "[ai router: %s] %s, so no gate can check this tool call. Stop and tell the owner%s."
 CODE_EXT = {
     ".py", ".pyi", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".kt", ".kts",
     ".rb", ".php", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".cs", ".swift", ".scala", ".sh", ".bash",
@@ -68,12 +70,13 @@ def main(argv):
         # hooks, "--managed"). The plugin copy in ~/.claude/plugins/cache is user-writable, so it steps aside:
         # the gates never depend on a file the user (or anything running as the user) can change.
         return 0
-    raw = sys.stdin.read() if not sys.stdin.isatty() else ""
+    raw, payload = "", None
     try:
+        raw = sys.stdin.read() if not sys.stdin.isatty() else ""
         payload = json.loads(raw) if raw.strip() else {}
-    except ValueError:
-        payload = None
-    unreadable = not isinstance(payload, dict)       # cut short, or not a JSON object
+    except (ValueError, RecursionError):        # cut short, bad UTF-8 or nested too deep
+        pass
+    unreadable = not isinstance(payload, dict)
     if unreadable:
         payload = {}
     event = event or payload.get("hook_event_name", "")
@@ -84,15 +87,17 @@ def main(argv):
     if handler is None:
         return 0
     try:
-        if unreadable and event == "PreToolUse":
-            raise ValueError("the hook payload is not a JSON object")
-        handler(ctx)
+        if unreadable and event == "PreToolUse":        # no tool name and no command: nothing to check (R-017)
+            log_error(event, ValueError("the hook payload is not a JSON object"))
+            ctx.decide("deny", NO_CHECK_MSG % ("payload", "The hook payload is not a JSON object", ""))
+        else:
+            handler(ctx)
     except Exception as exc:  # never break the session; a decision made before the error still counts
         log_error(event, exc)
         # Fail closed for shell commands: the gates (secret-scan, no-sudo, audit-before-install, pr-rules)
         # may not have run, so the command must not run either. Other tools keep fail-open (nudges only).
         tool = str(payload.get("tool_name") or "")
-        if event == "PreToolUse" and ctx.decision is None and (unreadable or tool == "Bash" or ctx.stages):
+        if event == "PreToolUse" and ctx.decision is None and (tool in SHELL_TOOLS or ctx.stages):
             ctx.decision = "deny"
             ctx.reasons.append("A safety gate failed with an internal error (logged), so this command was not "
                                "run. Retry once; if it repeats, stop and tell the owner (ai-doctor shows the error).")
@@ -307,14 +312,19 @@ def remember_merge_ok(ctx, prompt):
 def on_pre_tool(ctx):
     tool = ctx.payload.get("tool_name") or ""
     tin = tool_input(ctx.payload)
-    if tool == "Bash" and not isinstance(ctx.payload.get("tool_input") or {}, dict):
-        raise ValueError("the Bash tool_input is not an object")      # main() fails closed
     cmd = "" if tool == "apply_patch" else command_of(tin)     # a Codex patch is not a shell command
     ctx.set_command(cmd)
-    if ctx.routing.get("broken") and (tool == "Bash" or ctx.stages):
-        ctx.decide("deny", "[ai router: routing] %s does not load, so no gate can check this command. "
-                           "Stop and tell the owner: run ai-sync, then try again." % ctx.routing["broken"])
+
+    # R-017: a shell command that the gates cannot read or cannot check does not run.
+    raw_tin = ctx.payload.get("tool_input")
+    if tool in SHELL_TOOLS and raw_tin is not None and not isinstance(raw_tin, dict):
+        ctx.decide("deny", NO_CHECK_MSG % ("payload", "The tool_input of %s is not a JSON object" % tool, ""))
         return
+    if ctx.routing.get("broken") and (tool in SHELL_TOOLS or ctx.stages):
+        ctx.decide("deny", NO_CHECK_MSG % ("routing", ctx.routing["broken"] + " does not load",
+                                           ": run ai-sync, then try again"))
+        return
+
     home = session_in_home(ctx)
     if home and tool in HOME_TOOLS:
         ctx.decide("deny", "[ai router: home-folder] " + HOME_MSG % home)
@@ -983,7 +993,7 @@ def conditions_match(rule, tool, tin, cmd, ctx):
         if trig.get("command") and not search(trig["command"], ctx.cmd_text or cmd):
             return False
         return True
-    if trig.get("command") and tool in ("Bash", "shell", "exec_command", "local_shell"):
+    if trig.get("command") and tool in SHELL_TOOLS:
         return False
     if paths:
         return any(f and glob_match(paths, f, ctx.cwd) for f in edited_files(tool, tin, ctx))
@@ -1857,11 +1867,12 @@ class SessionState(object):
 # ---------------------------------------------------------------- helpers
 
 def load_routing():
-    """The first routing.json that loads. When a file exists and none loads, the result names it under
-    "broken": on_pre_tool then denies shell commands, because no gate can run (R-017)."""
+    """The first routing.json that loads: a JSON object with a rules list.
+    When a path exists and none loads, the result names the path under "broken".
+    on_pre_tool then denies shell commands, because no gate can run (R-017)."""
     out = {"rules": [], "tiebreaks": [], "layers": {}}
     for path in routing_candidates():
-        if not os.path.isfile(path):
+        if not os.path.exists(path):
             continue
         try:
             with open(path) as fh:
