@@ -99,12 +99,12 @@ Change `ai/agents-md/55-git-workflow.md`: open the draft PR only when the owner 
 - The same rules apply on every host. There is no host list.
 - These pass: `systemctl status|show|cat|is-active|list-*`, `journalctl`, `docker ps|logs|inspect`, `crontab -l`, `ssh <host> 'uptime'`, reads over ssh, `--dry-run` forms.
 
-### Part 3: typed OK, bound to the plan (owner only)
+### Part 3: typed OK for the turn (owner only)
 
-- When the gate stops a command, it stores the command as pending for this session.
-- The owner's next typed prompt with "go", "ok", "yes", "approve" or "do it" approves every high-impact step for the rest of that turn (owner 2026-11-20). A negation ("don't", "wait", "no") or a question is not an OK.
-- An OK counts only from a prompt the owner typed. A pasted block, an `<agent-message>`, a subagent hand-back or a scheduled prompt never counts (same source check as merge-approval).
-- An approved command passes for the rest of that turn. A high-impact command that was not pending still stops. The next prompt without an OK clears the approval.
+- The owner's typed prompt with "go", "ok", "yes", "approve" or "do it" (RO "da", "fa-l"; RU "да", "давай") lets every high-impact step pass for the rest of that turn (owner 2026-11-20). The agent shows the whole plan first.
+- A negation, a question, a pasted block, an `<agent-message>` or a subagent hand-back is not an OK (same source check as merge-approval, one shared helper).
+- The next prompt without an OK ends it.
+- `gh pr`, `issue` or `release create` also stop when no owner prompt in the session asked for a PR, a feature or a fix.
 
 ### Part 4: read-only turns
 

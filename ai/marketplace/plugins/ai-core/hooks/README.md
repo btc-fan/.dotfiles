@@ -162,7 +162,15 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   with a changing verb; `reboot`, `shutdown`; container stop, restart, rm, down, `up -d`; `crontab` (not `-l`);
   `kill`, `pkill`, `tmux kill-session`; package changes; user and access tools; force push, `reset --hard`;
   deploys (not `--dry-run`); SQL writes; `rm -r` outside temp, scratch, rebuildable and repo folders; shell writes
-  to unit, cron, sudoers, PAM, fstab and GRUB files; an unknown program with a start or stop verb. Reads pass.
+  to unit, cron, sudoers, PAM, fstab and GRUB files; an unknown program with a start or stop verb. Also
+  `gh pr`, `issue` or `release create` when no owner prompt in the session asked for a PR, feature or fix. Reads pass.
+  The owner's typed go, ok, yes, approve or do it (RO da, fa-l; RU да, давай) lets every high-impact step pass
+  for the rest of that turn. A negation, a question, pasted text or an agent message does not.
+  A prompt that audits, checks, reviews or explains, or asks a question, with no change verb, makes a read-only
+  turn. Then every host change also stops: a write over ssh (redirect, `tee`, `sed -i`, `cp`, `mv`) and a local
+  write outside the repo, the scratchpad and `/tmp`. The router note says "read-only turn".
+  At Stop (Claude and Codex), the reply must name each approved step that ran in the turn ("systemctl
+  restart"). Else the hook blocks one time with the list.
   ssh: the same rules apply to the remote text and to the local script or heredoc that `bash -s` reads. A script
   that the gate cannot read (`ssh host ./x.sh`, a missing local file) passes, as a local `bash x.sh` does.
   Attack table: `ai/tests/cases/ask-first.json`.

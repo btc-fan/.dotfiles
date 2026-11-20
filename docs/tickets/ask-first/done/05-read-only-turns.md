@@ -4,9 +4,9 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done (2026-11-20)
 
-- [ ] Replay: prompt "audit how the bots come back after a power outage" plus the reboot chain: deny
-- [ ] Replay: prompt "how is the migration going?" plus a migration cut-over command: deny
-- [ ] A normal build prompt ("add a button") is not read-only
-- [ ] `bash ai/tests/run.sh` 0 failed
+- [x] Replay: prompt "audit how the bots come back after a power outage" plus the reboot chain: deny
+- [x] Replay: prompt "how is the migration going?" plus a migration cut-over command: deny
+- [x] A normal build prompt ("add a button") is not read-only
+- [x] `bash ai/tests/run.sh` 0 failed

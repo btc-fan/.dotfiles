@@ -2223,13 +2223,114 @@ SQL_WRITE = re.compile(r"\b(drop|delete\s+from|update\s+[\w.\"`]+\s+set|truncate
 
 
 def gate_ask_first(ctx, cmd, stages):
-    why = ask_first_reason(stages, cmd, ctx.cwd or ".")
+    d = ctx.state.load()
+    cwd = ctx.cwd or "."
+    why = ask_first_reason(stages, cmd, cwd) or gh_create_reason(stages, d)
+    if not why and d.get("read_only"):
+        why = read_only_reason(stages, cmd, cwd)
     if not why:
         return None
-    return ("deny", "High-impact step: %s. Stop here. Show the owner the plan (the exact commands), the risk (what "
-            "runs there and what can break) and the undo. Then wait for the owner's typed OK. Never restart a "
-            "service or a server only to test your own work: test with a dry run or a config check first. Do not "
-            "rephrase the command or try another way." % why)
+
+    # Ticket 04: the owner's typed OK covers every high-impact step for the rest of that turn.
+    if d.get("ask_ok"):
+        # Ticket 06: the Stop check asks the reply to name it.
+        # shortcut: "ran" means the gate let it pass; a later permission refusal still counts. Upgrade at PostToolUse.
+        ran = d.setdefault("ask_ran", [])
+        if ask_name(why) not in ran:
+            ran.append(ask_name(why))
+            ctx.state.dirty = True
+        return None
+
+    return ("deny", "High-impact step: %s. Stop here. Show the owner the whole plan (every command of it), the risk "
+            "(what runs there and what can break) and the undo. Then wait until the owner types go (or ok) once; it "
+            "covers the plan for that turn. Never restart a service or a server only to test your own work: test with a dry "
+            "run or a config check first. Do not rephrase the command or try another way." % why)
+
+
+def ask_first_prompt(d, prompt):
+    """UserPromptSubmit, the owner's typed text only: an OK lets every high-impact step pass for this turn; any
+    other prompt ends it and tags the turn read-only or not. Records whether the owner asked for a PR, feature or
+    fix. Returns the router note ("" for none)."""
+    d["ask_ok"] = owner_ask_ok(prompt)
+    d["ask_ran"] = []
+    d["prompted"] = True
+    if ASKED_CHANGE_RX.search(prompt or ""):
+        d["asked_change"] = True
+    d["read_only"] = read_only_prompt(prompt)
+    return "read-only turn: report, then ask." if d["read_only"] else ""
+
+
+ASK_OK_RX = re.compile(r"^\W*(go|ok(ay)?|yes|yep|da|fa-?l|да|давай|proceed|approved?)(?!\w)"
+                       r"|\b(go\s+ahead|do\s+it|approved?|proceed)\b|(?<!\w)(давай|fa-l)(?!\w)", re.I)
+NO_ASK_RX = re.compile(r"(?<!\w)(don'?t|do\s+not|not|no|never|wait|stop|hold|nu|нет|не)(?!\w)", re.I)
+ASKED_CHANGE_RX = re.compile(r"\b(prs?|pull\s+requests?|features?|fix\w*|bugs?|issues?|release|implement\w*|build|"
+                             r"add|ship)\b|(?<!\w)(repar\w*|adaug\w*|func[tț]i\w*|исправ\w*|добав\w*|фич\w*|"
+                             r"релиз\w*)", re.I)
+
+
+def owner_ask_ok(prompt):
+    """True for a typed go, ok, yes, approve, do it, proceed (RO da, fa-l; RU да, давай). A negation or a question
+    is not an OK."""
+    text = (prompt or "").strip()
+    return bool(text) and not text.endswith("?") and not NO_ASK_RX.search(text) and bool(ASK_OK_RX.search(text))
+
+
+def ask_name(why):
+    """How a reply names the step: the program and its main verb ("systemctl restart"), or the object of a
+    reason that starts with "a " ("a write to /etc/x" gives "/etc/x")."""
+    label = why.split(" (")[0].replace(":", "")
+    return label.split()[-1] if label.startswith("a ") else " ".join(label.split()[:2])
+
+
+def ask_first_unnamed(d, reply):
+    """Stop: the approved high-impact steps of this turn that the reply does not name. Clears the list, so a
+    turn blocks once."""
+    ran, d["ask_ran"] = d.get("ask_ran") or [], []
+    return [n for n in ran if n.lower() not in reply.lower()]
+
+
+READ_VERB_RX = re.compile(r"^\W*(please\s+)?(audit|check|research|look\s+(at|into)|review|explain|investigate|"
+                          r"verific\w*|analiz\w*|проверь|посмотри)(?!\w)", re.I)
+QUESTION_RX = re.compile(r"\?\s*$")
+CHANGE_VERB_RX = re.compile(r"\b(fix|add|build|install|deploy|restart|update|implement|change|remove)\b"
+                            r"|(?<!\w)(repar\w*|adaug\w*|instaleaz\w*|исправ\w*|добав\w*|установ\w*|"
+                            r"перезапуст\w*)", re.I)
+
+
+def read_only_prompt(prompt):
+    """Audit, check, research, look at, review, explain, investigate, or a question, with no change verb."""
+    text = (prompt or "").strip()
+    return bool(READ_VERB_RX.search(text) or QUESTION_RX.search(text)) and not CHANGE_VERB_RX.search(text)
+
+
+def read_only_reason(stages, cmd, cwd):
+    """In a read-only turn every host change stops, also outside the classes: a write over ssh (redirect, tee,
+    sed -i, cp, mv) and a local write outside the repo, the scratchpad and /tmp."""
+    for st in stages:
+        for remote in (remote_texts(st, cmd, cwd) if st.exe == "ssh" else []):
+            rs = parse_command(remote or "")
+            why = ask_first_reason(rs, remote, "/") or next(
+                (t for t in write_targets(rs, "/", remote) if not t.startswith("/dev/")), None)
+            if why:
+                return "%s over ssh (a host change in a read-only turn)" % why
+    for target in write_targets(stages, cwd, cmd):
+        if not target.startswith("/dev/") and not safe_rm_target(target, cmd, cwd):
+            return "a write to %s (outside the repo in a read-only turn)" % target
+    return None
+
+
+GH_CREATE = {("pr", "create"), ("issue", "create"), ("release", "create")}
+
+
+def gh_create_reason(stages, d):
+    """gh pr, issue or release create when the owner did not ask for a PR, feature or fix in this session."""
+    # shortcut: a session with no prompt seen yet (no state) passes, as the old gates did; upgrade if one shows up.
+    if d.get("asked_change") or not d.get("prompted"):
+        return None
+    for st in stages:
+        if st.exe == "gh" and tuple(st.args[:2]) in GH_CREATE:
+            return "gh %s %s (the owner did not ask for a PR, feature or fix in this session)" % tuple(st.args[:2])
+    return None
 
 
 def probe_ask_first(stages, cmd=""):

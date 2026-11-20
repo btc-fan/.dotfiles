@@ -4,8 +4,8 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done (2026-11-20)
 
-- [ ] Stop test: an approved `systemctl restart x` ran and the reply does not name it: block with the list
-- [ ] The reply names it: pass
-- [ ] `bash ai/tests/run.sh` 0 failed
+- [x] Stop test: an approved `systemctl restart x` ran and the reply does not name it: block with the list
+- [x] The reply names it: pass
+- [x] `bash ai/tests/run.sh` 0 failed
