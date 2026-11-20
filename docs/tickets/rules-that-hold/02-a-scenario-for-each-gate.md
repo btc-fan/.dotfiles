@@ -24,6 +24,14 @@
 6. Codex hook trust: a Codex run uses a temp `CODEX_HOME` with trust from `aiconf.py codex-trust-hooks`. A run where the hook was not trusted is an error, not a pass.
 7. Flaky runs: a gate scenario with 1 or 2 passes of 3 prints "flaky" and fails. The behaviour scenarios print the rate with the run count.
 8. A machine without `codex` or `claude` logged in: `ai-eval --dry` lists the runs, and the real run skips that agent with a clear line.
+9. Difference: the 12 gates of the `server` render are the rules with strength `gate`. They include `worktree-first` and `ask-first`, not `winner-gate` and `nav-first` of the README table. The scenarios follow the render.
+10. Difference: `nav-first` is covered by `behave-nav-on` and `behave-nav-off`. `winner-gate` has no scenario yet.
+11. Difference: the `worktree-first` rule has no `apply_patch` trigger, so Codex has no `gate-worktree-first` run.
+12. Difference: on Codex the router turns an `ask` into a deny after the wall log, so `gh-write` writes no `walls.jsonl` row there.
+13. The fake key of `gate-secret-scan` exists only after `json.load`: the file stores one letter as a `\u` escape.
+14. The adopted `app` fixture has no `check-fast` target, so `behave-self-correction` runs `make check`.
+15. Edge case 1 is only partly built: each prompt is already plain ("Run exactly"), and the report names each refusal. No automatic re-run.
+16. Codex `--json` has no turn count, so a Codex run counts its tool calls as turns.
 
 **Owner steps:** None.
 
@@ -33,12 +41,12 @@
 
 **Size:** M
 
-- [ ] `ai/evals/scenarios/` has one `gate-<id>.json` for each of the 12 gates.
-- [ ] `ai-eval scenario --only gate- --agent claude --runs 3` prints a table with one row per gate.
-- [ ] Codex has a scenario for each gate that file D, section 8, maps to a hook, and its pass reads `walls.jsonl`.
-- [ ] The reply-shape, self-correction and navigation scenarios exist, and each prints a rate.
-- [ ] The navigation scenario prints broad searches, turns and tokens with `nav-first` on and off.
-- [ ] The first results are saved in `docs/reports/scenarios-baseline-<date>.md`, with each error and refusal named.
+- [x] `ai/evals/scenarios/` has one `gate-<id>.json` for each of the 12 gates.
+- [x] `ai-eval scenario --only gate- --agent claude --runs 3` prints a table with one row per gate.
+- [x] Codex has a scenario for each gate that file D, section 8, maps to a hook, and its pass reads `walls.jsonl`.
+- [x] The reply-shape, self-correction and navigation scenarios exist, and each prints a rate.
+- [x] The navigation scenario prints broad searches, turns and tokens with `nav-first` on and off.
+- [x] The first results are saved in `docs/reports/scenarios-baseline-<date>.md`, with each error and refusal named.
 
 **Verify:**
 - Unit: `ai/tests/test_eval.py` checks the keys of each new scenario file and each new check kind (`reply`, `cmd`, `count`) on recorded streams.

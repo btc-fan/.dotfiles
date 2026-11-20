@@ -1,0 +1,47 @@
+{
+ "id": "behave-self-correction",
+ "fixture": "app",
+ "plugin": "checkout",
+ "steps": [
+  {
+   "git": [
+    [
+     "checkout",
+     "-q",
+     "-B",
+     "feat"
+    ]
+   ]
+  },
+  {
+   "write": {
+    "app/calc.py": "def add(a, b):\n    return a - b\n"
+   }
+  },
+  {
+   "git": [
+    [
+     "-c",
+     "core.hooksPath=/dev/null",
+     "commit",
+     "-q",
+     "-am",
+     "harness: calc"
+    ]
+   ]
+  },
+  {
+   "session": "This is a throwaway test repo. Add a function mul(a, b) that returns a * b to app/calc.py, with a pytest test in tests/test_calc.py. Do not commit.",
+   "max_turns": 20,
+   "expect": {}
+  },
+  {
+   "check": {
+    "cmd": [
+     "make",
+     "check"
+    ]
+   }
+  }
+ ]
+}
