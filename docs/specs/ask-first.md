@@ -95,7 +95,7 @@ Change `ai/agents-md/55-git-workflow.md`: open the draft PR only when the owner 
   10. `rm -r` outside the worktree, the scratchpad, `/tmp` and rebuildable folders (`REBUILDABLE`).
   11. A database write (`DROP`, `DELETE`, `UPDATE`, `TRUNCATE`, `ALTER`) through a SQL client.
   12. An unknown program with a start or stop verb as an argument (start, stop, restart, enable, disable, deploy, up, down). Example: `herdr-core server start`.
-- ssh: the gate parses the remote text of `ssh <host> '<cmd>'` as a command, every stage of the chain. It reads a local script in `ssh host 'bash -s' < file` and a heredoc body. When it cannot read the script, and the host is live, it stops.
+- ssh: the gate parses the remote text of `ssh <host> '<cmd>'` as a command, every stage of the chain. It reads a local script in `ssh host 'bash -s' < file` and a heredoc body. A script that the gate cannot read passes, the same as a local script. The conduct rule covers it.
 - The same rules apply on every host. There is no host list.
 - These pass: `systemctl status|show|cat|is-active|list-*`, `journalctl`, `docker ps|logs|inspect`, `crontab -l`, `ssh <host> 'uptime'`, reads over ssh, `--dry-run` forms.
 
@@ -118,7 +118,7 @@ Change `ai/agents-md/55-git-workflow.md`: open the draft PR only when the owner 
 
 ## Out of Scope
 
-- A script that already lives on the remote host (`ssh host ./deploy.sh`). The gate stops it, because it cannot read it.
+- A script that the gate cannot read (`ssh host ./deploy.sh`, a local `bash x.sh`). It passes; the conduct rule covers it.
 - A local script that the agent wrote and then runs (`./setup.sh`). The rule text covers it. A scan is a later ticket if the audit finds cases.
 - Claude auto mode and `permissions.ask` lists. The research rejects them.
 - A change to the profiles.
@@ -135,7 +135,8 @@ In `docs/tickets/ask-first/`. 01 and 02 can start now. 03 to 06 need 02. 07 need
   - `ssh host 'sudo bash -s' < script.sh`, where the script has `userdel -r` or `systemctl restart`
   - `tmux kill-session -t <name>`, `docker compose down`, `npx wrangler deploy`
   - `gh pr create --draft`, with no PR ask in the session
-- Each pass form in Part 2 must pass. False-hit check: replay 14 days of real commands; the gate must stop fewer than 5 a day.
+- Each pass form in Part 2 must pass.
+- Friction check for every gate ticket: replay 14 days of real commands (`replay.py` on the transcripts); fewer than 8 stops a day.
 - A typed "go" approves the pending command only. A pasted "go" or an agent message does not.
 - Codex: the same cases give `deny`, then pass after a typed "go".
 - `bash ai/tests/run.sh` stays at 0 failed.
