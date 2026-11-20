@@ -2202,6 +2202,10 @@ PACKAGE_CHANGE = {"install", "remove", "purge", "upgrade", "full-upgrade", "dist
                   "refresh", "erase"}
 ACCESS_TOOLS = {"useradd", "userdel", "usermod", "groupdel", "groupmod", "passwd", "chpasswd", "ufw", "iptables",
                 "ip6tables", "nft", "chattr", "visudo", "adduser", "deluser"}
+# shortcut: a read flag passes even when a change flag is also given; split the flags when an agent does that.
+ACCESS_READS = {"ufw": {"status", "show", "version"}, "passwd": {"-S", "--status"}, "nft": {"list"},
+                "iptables": {"-L", "-S", "-nL", "-nvL", "-vnL", "-vL", "--list", "--list-rules"},
+                "ip6tables": {"-L", "-S", "-nL", "-nvL", "-vnL", "-vL", "--list", "--list-rules"}}
 DEPLOY_VERBS = {"wrangler": {"deploy", "publish"}, "fly": {"deploy"}, "flyctl": {"deploy"},
                 "vercel": {"--prod", "deploy"}, "netlify": {"deploy"}, "kubectl": {"apply", "delete", "rollout", "scale"},
                 "terraform": {"apply", "destroy"}, "helm": {"upgrade", "install", "uninstall"}}
@@ -2247,6 +2251,8 @@ def ask_first_reason(stages, cmd, cwd):
 def ask_first_stage(st, cmd, cwd):
     exe, args = st.exe, st.args
     words = [a for a in args if not a.startswith("-")]
+    if exe == "ssh":
+        return ssh_reason(st, cmd, cwd)
     if exe in SERVICE_TOOLS:
         verbs = [a for a in args if a in SERVICE_CHANGE]
         if exe == "service":
@@ -2269,7 +2275,7 @@ def ask_first_stage(st, cmd, cwd):
         return "%s %s (a package change)" % (exe, " ".join(words[:2]))
     if exe == "brew" and words[:1] == ["services"] and any(w in START_VERBS for w in words[1:3]):
         return "brew %s (a service change)" % " ".join(words[:2])
-    if exe in ACCESS_TOOLS:
+    if exe in ACCESS_TOOLS and not ACCESS_READS.get(exe, set()) & set(args):
         return "%s (a user or access change)" % exe
     if exe == "git":
         why = git_high_impact(args)
@@ -2288,6 +2294,52 @@ def ask_first_stage(st, cmd, cwd):
     if exe and exe not in VERB_SKIP and any(w in START_VERBS for w in words[:3]) and not local_test_program(st, cmd):
         return "%s %s (a program start or stop)" % (exe, " ".join(words[:3]))
     return None
+
+
+def ssh_reason(st, cmd, cwd):
+    """The same rules as a local command, for each text an ssh stage runs on the other host that the gate can read.
+    A script it cannot read passes, as a local `bash x.sh` does."""
+    for text in remote_texts(st, cmd, cwd):
+        # The remote folder is unknown: "/" makes a relative rm -r count as outside the repo.
+        why = text and ask_first_reason(parse_command(text), text, "/")
+        if why:
+            return why + " over ssh"
+    return None
+
+
+SSH_VALUE_OPTS = set("BbcDEeFIiJLlmOoPpQRSWw")      # ssh options that take the next word as their value
+# A heredoc and the line text before it: the body feeds the stage that starts after the last ; & or |.
+HEREDOC = re.compile(r"^([^\n]*?)(?<!<)<<(?!<)-?[ \t]*(['\"]?)([\w.-]+)\2[^\n]*\n(.*?)^[ \t]*\3[ \t]*$",
+                     re.S | re.M)
+
+
+def remote_texts(st, cmd, cwd):
+    """The command texts of `ssh [opts] host <words>`: the words ssh joins with spaces, and the local text that a
+    remote `bash -s` reads (None when the gate cannot read it). [] for an interactive login."""
+    args, i = st.args, 0
+    while i < len(args) and args[i].startswith("-"):
+        if args[i] == "--":
+            i += 1
+            break
+        i += 2 if len(args[i]) == 2 and args[i][1] in SSH_VALUE_OPTS else 1
+    remote = " ".join(args[i + 1:])
+    if not remote:
+        return []
+    if not any(SHELLS.match(s.exe) and runs_stdin_as_code(s) for s in parse_command(remote)):
+        return [remote]
+    return [remote, stdin_text(st, cmd, cwd)]
+
+
+def stdin_text(st, cmd, cwd):
+    for op, target in st.redirs:
+        if op == "<<<":
+            return target
+        if op == "<":
+            path = os.path.expanduser(expand_vars(target, cmd))
+            return None if "$" in path or "`" in path else read_text(os.path.join(cwd, path))
+    # shortcut: a heredoc counts when an ssh stage starts it; with two ssh heredocs, both bodies count for each.
+    bodies = [m.group(4) for m in HEREDOC.finditer(cmd) if re.search(r"\bssh\b", re.split(r"[;&|]", m.group(1))[-1])]
+    return "\n".join(bodies) or None
 
 
 def local_test_program(st, cmd):
