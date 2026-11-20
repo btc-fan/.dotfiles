@@ -162,7 +162,10 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   with a changing verb; `reboot`, `shutdown`; container stop, restart, rm, down, `up -d`; `crontab` (not `-l`);
   `kill`, `pkill`, `tmux kill-session`; package changes; user and access tools; force push, `reset --hard`;
   deploys (not `--dry-run`); SQL writes; `rm -r` outside temp, scratch, rebuildable and repo folders; shell writes
-  to unit, cron, sudoers, PAM, fstab and GRUB files; an unknown program with a start or stop verb. Reads pass.
+  to unit, cron, sudoers, PAM, fstab and GRUB files; an unknown program with a start or stop verb. Also
+  `gh pr`, `issue` or `release create` when no owner prompt in the session asked for a PR, feature or fix. Reads pass.
+  A denied command waits as pending. The owner's next typed go, ok, yes, approve or do it (RO da, fa-l; RU
+  да, давай) approves it for that turn only. A negation, a question, pasted text or an agent message does not.
   Attack table: `ai/tests/cases/ask-first.json`.
 - winner-gate: a Skill tool call of a loser in `winners` of `ai/routing.yaml` (the overlap table of the skills
   guide, section 5) is denied with the winner's name, also in a subagent; a typed-only winner gets "read <its

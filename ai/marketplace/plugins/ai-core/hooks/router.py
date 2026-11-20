@@ -39,7 +39,7 @@ from hooklib import (FILE_GATES, GATES, GATE_PROBES, ai_home, append_jsonl, comm
                      origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
                      state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
                      graph_status, git_history, git_out, short_skill, write_targets,
-                     owner_merge_ok, merge_review_note, nav_note, upgrade_note, legacy_memory_note, probe_pr,
+                     owner_merge_ok, ask_first_prompt, merge_review_note, nav_note, upgrade_note, legacy_memory_note, probe_pr,
                      session_line, log_wall, verify_proof, verify_steps, app_code_state, head_at, git_quick)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -211,6 +211,7 @@ def on_user_prompt(ctx):
         return
     prompt = owner_text(prompt)
     remember_merge_ok(ctx, prompt)      # only the owner's typed lines can say merge, never pasted ones
+    remember_ask_ok(ctx, prompt)        # the same for the ask-first OK
     if not prompt.strip():
         return
     routing = ctx.routing
@@ -297,6 +298,15 @@ def remember_merge_ok(ctx, prompt):
             ctx.state.dirty = True
     except Exception as exc:
         log_error("merge_ok", exc)
+
+
+def remember_ask_ok(ctx, prompt):
+    """The ask-first gate reads this: approved and pending commands, and whether the owner asked for a change."""
+    try:
+        if ask_first_prompt(ctx.state.load(), prompt):
+            ctx.state.dirty = True
+    except Exception as exc:
+        log_error("ask_ok", exc)
 
 
 def on_pre_tool(ctx):
@@ -1598,6 +1608,8 @@ def run_gate(rule, ctx, cmd):
            if os.path.exists("/usr/local/sbin/ai-gate-skip") else "by running the command")
     if rule["id"] == "merge-approval":
         how = "by saying merge (or approve) in the next message, or by merging on GitHub"
+    elif rule["id"] == "ask-first":
+        how = "when the owner types go (or ok) in the next message"
     ctx.decide(decision, "[ai gate %s] %s\nOnly the owner can let it through, %s. Do not try to get around "
                "the gate." % (rule["id"], msg, how), wall=wall)
     log_line("gates.log", "%s %s %s session=%s cmd=%s" % (

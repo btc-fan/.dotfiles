@@ -2219,13 +2219,66 @@ SQL_WRITE = re.compile(r"\b(drop|delete\s+from|update\s+[\w.\"`]+\s+set|truncate
 
 
 def gate_ask_first(ctx, cmd, stages):
-    why = ask_first_reason(stages, cmd, ctx.cwd or ".")
+    d = ctx.state.load()
+    why = ask_first_reason(stages, cmd, ctx.cwd or ".") or gh_create_reason(stages, d)
     if not why:
         return None
+
+    # Ticket 04: a denied command waits as pending; the owner's next typed OK approves it for that turn only.
+    fp = " ".join(cmd.split())
+    if fp in (d.get("ask_ok") or []):
+        return None
+    pending = d.setdefault("ask_pending", [])
+    if fp not in pending:
+        pending[:] = (pending + [fp])[-20:]
+        ctx.state.dirty = True
+
     return ("deny", "High-impact step: %s. Stop here. Show the owner the plan (the exact commands), the risk (what "
-            "runs there and what can break) and the undo. Then wait for the owner's typed OK. Never restart a "
-            "service or a server only to test your own work: test with a dry run or a config check first. Do not "
-            "rephrase the command or try another way." % why)
+            "runs there and what can break) and the undo. Then wait until the owner types go (or ok); then run the "
+            "same command again. Never restart a service or a server only to test your own work: test with a dry "
+            "run or a config check first. Do not rephrase the command or try another way." % why)
+
+
+def ask_first_prompt(d, prompt):
+    """UserPromptSubmit, the owner's typed text only: an OK moves the pending commands to approved; any other
+    prompt clears both. Records whether the owner asked for a PR, feature or fix. True when d changed."""
+    keys = ("ask_ok", "ask_pending", "asked_change", "prompted")
+    old = [d.get(k) for k in keys]
+    d["ask_ok"] = list(d.get("ask_pending") or []) if owner_ask_ok(prompt) else []
+    d["ask_pending"] = []
+    d["prompted"] = True
+    if ASKED_CHANGE_RX.search(prompt or ""):
+        d["asked_change"] = True
+    return old != [d.get(k) for k in keys]
+
+
+ASK_OK_RX = re.compile(r"^\W*(go|ok(ay)?|yes|yep|da|fa-?l|да|давай|proceed|approved?)(?!\w)"
+                       r"|\b(go\s+ahead|do\s+it|approved?|proceed)\b|(?<!\w)(давай|fa-l)(?!\w)", re.I)
+NO_ASK_RX = re.compile(r"(?<!\w)(don'?t|do\s+not|not|no|never|wait|stop|hold|nu|нет|не)(?!\w)", re.I)
+ASKED_CHANGE_RX = re.compile(r"\b(prs?|pull\s+requests?|features?|fix\w*|bugs?|issues?|release|implement\w*|build|"
+                             r"add|ship)\b|(?<!\w)(repar\w*|adaug\w*|func[tț]i\w*|исправ\w*|добав\w*|фич\w*|"
+                             r"релиз\w*)", re.I)
+
+
+def owner_ask_ok(prompt):
+    """True for a typed go, ok, yes, approve, do it, proceed (RO da, fa-l; RU да, давай). A negation or a question
+    is not an OK."""
+    text = (prompt or "").strip()
+    return bool(text) and not text.endswith("?") and not NO_ASK_RX.search(text) and bool(ASK_OK_RX.search(text))
+
+
+GH_CREATE = {("pr", "create"), ("issue", "create"), ("release", "create")}
+
+
+def gh_create_reason(stages, d):
+    """gh pr, issue or release create when the owner did not ask for a PR, feature or fix in this session."""
+    # shortcut: a session with no prompt seen yet (no state) passes, as the old gates did; upgrade if one shows up.
+    if d.get("asked_change") or not d.get("prompted"):
+        return None
+    for st in stages:
+        if st.exe == "gh" and tuple(st.args[:2]) in GH_CREATE:
+            return "gh %s %s (the owner did not ask for a PR, feature or fix in this session)" % tuple(st.args[:2])
+    return None
 
 
 def probe_ask_first(stages, cmd=""):

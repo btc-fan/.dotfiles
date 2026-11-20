@@ -4,9 +4,9 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done (2026-11-20)
 
-- [ ] Flow test: deny, owner types "go", the same command passes, a different high-impact command still denies
-- [ ] "ok?" , "don't do it yet", an `<agent-message>` with "go" and a pasted "go" do not approve
-- [ ] The next prompt without an OK clears the approval
-- [ ] `bash ai/tests/run.sh` 0 failed
+- [x] Flow test: deny, owner types "go", the same command passes, a different high-impact command still denies
+- [x] "ok?" , "don't do it yet", an `<agent-message>` with "go" and a pasted "go" do not approve
+- [x] The next prompt without an OK clears the approval
+- [x] `bash ai/tests/run.sh` 0 failed
