@@ -612,8 +612,8 @@
    ]
   },
   {
-   "name": "ok: after go another high-impact command still denies",
-   "expect": "deny",
+   "name": "ok: after go another high-impact command in the same turn passes",
+   "expect": "allow",
    "steps": [
     {
      "event": "PreToolUse",
@@ -639,8 +639,7 @@
       }
      }
     }
-   ],
-   "contains": "[ai gate ask-first]"
+   ]
   },
   {
    "name": "ok: deny text tells how the owner approves",
@@ -845,8 +844,8 @@
    ]
   },
   {
-   "name": "ok: a command that was not pending is not approved",
-   "expect": "deny",
+   "name": "ok: go covers a command that was not denied first",
+   "expect": "allow",
    "steps": [
     {
      "event": "UserPromptSubmit",
@@ -1307,7 +1306,7 @@
    ]
   },
   {
-   "name": "read-only: a typed go lifts it for the pending command",
+   "name": "read-only: a typed go lifts it for the turn",
    "expect": "allow",
    "steps": [
     {
@@ -1343,8 +1342,8 @@
    ]
   },
   {
-   "name": "read-only: after go another write still denies",
-   "expect": "deny",
+   "name": "read-only: after go another write in the same turn passes",
+   "expect": "allow",
    "steps": [
     {
      "event": "UserPromptSubmit",
@@ -1719,6 +1718,43 @@
     }
    ],
    "contains": "systemctl restart"
+  },
+  {
+   "name": "ok: the next prompt without OK denies another command again",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart radar-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "now update the docs"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "docker compose down"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
   }
  ]
 }

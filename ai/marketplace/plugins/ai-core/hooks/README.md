@@ -164,8 +164,8 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   deploys (not `--dry-run`); SQL writes; `rm -r` outside temp, scratch, rebuildable and repo folders; shell writes
   to unit, cron, sudoers, PAM, fstab and GRUB files; an unknown program with a start or stop verb. Also
   `gh pr`, `issue` or `release create` when no owner prompt in the session asked for a PR, feature or fix. Reads pass.
-  A denied command waits as pending. The owner's next typed go, ok, yes, approve or do it (RO da, fa-l; RU
-  да, давай) approves it for that turn only. A negation, a question, pasted text or an agent message does not.
+  The owner's typed go, ok, yes, approve or do it (RO da, fa-l; RU да, давай) lets every high-impact step pass
+  for the rest of that turn. A negation, a question, pasted text or an agent message does not.
   A prompt that audits, checks, reviews or explains, or asks a question, with no change verb, makes a read-only
   turn. Then every host change also stops: a write over ssh (redirect, `tee`, `sed -i`, `cp`, `mv`) and a local
   write outside the repo, the scratchpad and `/tmp`. The router note says "read-only turn".

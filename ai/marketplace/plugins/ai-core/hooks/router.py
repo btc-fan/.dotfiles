@@ -288,8 +288,8 @@ def is_notification(prompt):
 
 
 def remember_owner_ok(ctx, prompt):
-    """The owner's typed OKs, read by the gates: merge_ok (merge-approval) and the ask-first state (approved and
-    pending commands, a read-only turn). The caller passes only the owner's own lines, never pasted ones."""
+    """The owner's typed OKs, read by the gates: merge_ok (merge-approval) and the ask-first state (ask_ok for
+    this turn, a read-only turn). The caller passes only the owner's own lines, never pasted ones."""
     try:
         d = ctx.state.load()
         d["merge_ok"] = owner_merge_ok(prompt)

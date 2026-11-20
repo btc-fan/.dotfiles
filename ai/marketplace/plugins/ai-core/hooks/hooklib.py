@@ -2227,9 +2227,8 @@ def gate_ask_first(ctx, cmd, stages):
     if not why:
         return None
 
-    # Ticket 04: a denied command waits as pending; the owner's next typed OK approves it for that turn only.
-    fp = " ".join(cmd.split())
-    if fp in (d.get("ask_ok") or []):
+    # Ticket 04: the owner's typed OK covers every high-impact step for the rest of that turn.
+    if d.get("ask_ok"):
         # Ticket 06: the Stop check asks the reply to name it.
         # shortcut: "ran" means the gate let it pass; a later permission refusal still counts. Upgrade at PostToolUse.
         ran = d.setdefault("ask_ran", [])
@@ -2237,30 +2236,22 @@ def gate_ask_first(ctx, cmd, stages):
             ran.append(ask_name(why))
             ctx.state.dirty = True
         return None
-    pending = d.setdefault("ask_pending", [])
-    if fp not in pending:
-        pending[:] = (pending + [fp])[-20:]
-        ctx.state.dirty = True
 
-    return ("deny", "High-impact step: %s. Stop here. Show the owner the plan (the exact commands), the risk (what "
-            "runs there and what can break) and the undo. Then wait until the owner types go (or ok); then run the "
-            "same command again. Never restart a service or a server only to test your own work: test with a dry "
+    return ("deny", "High-impact step: %s. Stop here. Show the owner the whole plan (every command of it), the risk "
+            "(what runs there and what can break) and the undo. Then wait until the owner types go (or ok) once; it "
+            "covers the plan for that turn. Never restart a service or a server only to test your own work: test with a dry "
             "run or a config check first. Do not rephrase the command or try another way." % why)
 
 
 def ask_first_prompt(d, prompt):
-    """UserPromptSubmit, the owner's typed text only: an OK moves the pending commands to approved; any other
-    prompt clears both and tags the turn read-only or not. Records whether the owner asked for a PR, feature or
+    """UserPromptSubmit, the owner's typed text only: an OK lets every high-impact step pass for this turn; any
+    other prompt ends it and tags the turn read-only or not. Records whether the owner asked for a PR, feature or
     fix. Returns the router note ("" for none)."""
-    ok = owner_ask_ok(prompt)
-    d["ask_ok"] = list(d.get("ask_pending") or []) if ok else []
-    d["ask_pending"] = []
+    d["ask_ok"] = owner_ask_ok(prompt)
     d["ask_ran"] = []
     d["prompted"] = True
     if ASKED_CHANGE_RX.search(prompt or ""):
         d["asked_change"] = True
-    if ok:
-        return ""       # the OK continues the turn: a read-only tag stays, the approved commands pass
     d["read_only"] = read_only_prompt(prompt)
     return "read-only turn: report, then ask." if d["read_only"] else ""
 
