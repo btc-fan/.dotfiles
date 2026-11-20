@@ -1,6 +1,6 @@
 # verify-ai-setup run: hook-copy-and-block
 
-Features: `ai-sync` (R-018) and the router hook wiring (ticket setup-audit 14). Code commit: `8309fd3`.
+Features: `ai-sync` (R-018) and the router hook wiring (ticket setup-audit 14). Code commit: `921baea`.
 Fixtures: `empty`, `docs-only`, `python-with-tests`, `dotfiles-worktrees`.
 
 | Step | Result | File |
@@ -9,7 +9,7 @@ Fixtures: `empty`, `docs-only`, `python-with-tests`, `dotfiles-worktrees`.
 | Real Claude session with a stand-in gate that sleeps 8 s, timeout 2 s, no `onFailure` | The command ran: `probe-file.txt` exists. This is the old behaviour | `01-session.txt` |
 | The same session with `"onFailure": "block"` on the stand-in gate | Blocked: `probe-file.txt` does not exist | `02-session.txt` |
 | Real Claude session with the plugin of this checkout, `git push origin main` | Denied by `merge-approval`, remote heads did not change | `03-session.txt` |
-| Real `git merge` in the installed copy of the `dotfiles-worktrees` fixture, with an old Claude hook copy | The post-merge hook ran `ai-sync`; the copy is equal to the merged `router.py` | `04-merge.txt` |
+| Real `git merge` in the installed copy of the `dotfiles-worktrees` fixture, with 2 old hook copies (`1.0.0` is the installPath, `0.9.0` is not) | The post-merge hook ran `ai-sync`; the `1.0.0` copy is equal to the merged `router.py`, and `0.9.0` is unchanged | `04-merge.txt` |
 
 Notes:
 

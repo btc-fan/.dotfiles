@@ -1,7 +1,7 @@
 {
- "run": "rules-as-checks_hook-copy-and-block_20-11-2026_14-04-41",
+ "run": "rules-as-checks_hook-copy-and-block_20-11-2026_14-12-41",
  "root": "/Users/python-qa/work/dotfiles-rules-as-checks",
- "tmp": "/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-i2vl1f9_",
+ "tmp": "/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-2ghvjhin",
  "fixtures": [
   "empty",
   "docs-only",
