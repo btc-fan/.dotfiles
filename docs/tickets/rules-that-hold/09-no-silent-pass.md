@@ -22,6 +22,9 @@
 6. An agent sets `ai.precommit=optional` to pass the hook. The setting is visible in `git config --list`, and `ai-doctor --project` reports it as WARN.
 7. An old adopted project with the silent hook: the next `ai-adopt` run updates it. `ai-doctor` names each project that still has it.
 8. Linux and macOS: the hook uses `/bin/sh` and `command -v` only.
+9. Code fact: the old Makefile lines stayed after a rerun, because the block merge kept them as owner lines. `ai-check-detect` now maps each old line to its new line.
+10. Code fact: the Makefile lines read `CI` with `printenv CI`, not `$CI`. The same text then works in a Makefile and a justfile.
+11. Code fact: the commit of `ai-adopt` runs the new hook. That commit puts the bin folder of `ai-adopt` first in PATH.
 
 **Owner steps:** None.
 
@@ -31,14 +34,14 @@
 
 **Size:** S
 
-- [ ] In a fixture with PATH that has no `ai-precommit`, `git commit` exits 1, and the message names `install.sh`.
-- [ ] With `git config ai.precommit optional`, the same commit passes with one warning line.
-- [ ] `CI=1 make check` fails in a fixture where `ai-docs-check` is not on PATH.
-- [ ] `make check` without `CI` prints a `WARN` line for the missing tool and passes.
-- [ ] `ai-doctor --project` names a project with the old silent hook.
+- [x] In a fixture with PATH that has no `ai-precommit`, `git commit` exits 1, and the message names `install.sh`.
+- [x] With `git config ai.precommit optional`, the same commit passes with one warning line.
+- [x] `CI=1 make check` fails in a fixture where `ai-docs-check` is not on PATH.
+- [x] `make check` without `CI` prints a `WARN` line for the missing tool and passes.
+- [x] `ai-doctor --project` names a project with the old silent hook.
 
 **Verify:**
-- Unit: `ai/tests/test_tier1.py` gets `t_precommit_hook_missing_tool`, `t_precommit_optional_key` and `t_make_check_ci_missing_tool`.
+- Unit: `ai/tests/test_tier1.py` gets `t_precommit_hook_missing_tool`, `t_precommit_optional_key`, `t_make_check_ci_missing_tool` and `t_adopt_upgrades_silent_checks`.
 - Drive: `$H drive cli --fixture python-with-tests ai-adopt`, then a real `git commit` with a short PATH, and `CI=1 make check` in the fixture.
 - Behaviour scenario: `gate-secret-scan` and `gate-no-verify` of ticket 02 still pass.
 

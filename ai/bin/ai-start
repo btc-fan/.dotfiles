@@ -246,7 +246,9 @@ def main(argv):
         if on_main:
             subprocess.check_call(["git", "-C", root, "switch", "-q", "-c", ADOPT_BRANCH])
         subprocess.check_call(["git", "-C", root, "add", "-A", "--"] + paths)
-        subprocess.check_call(["git", "-C", root, "commit", "-m", msg, "--"] + paths)
+        # The hook just installed runs on this commit: it finds the ai-precommit next to this ai-adopt (ticket 09).
+        env = dict(os.environ, PATH=BIN + os.pathsep + os.environ.get("PATH", ""))
+        subprocess.check_call(["git", "-C", root, "commit", "-m", msg, "--"] + paths, env=env)
     except subprocess.CalledProcessError as exc:
         print("ai-%s: files written, git %s failed (exit %d): see the git message above"
               % (mode, exc.cmd[3] if len(exc.cmd) > 3 else "", exc.returncode))
@@ -425,6 +427,8 @@ def owner_text_refusals(root, plan):
         if rel == ".gitignore":
             # the unmarked block of an older ai-adopt run and the old generator line .verify/ are ours
             old = drop_old_verify(drop_old_block(old))
+        elif rel in ("Makefile", "justfile", "Justfile"):
+            old = check_detect_module().upgrade_old_lines(old)     # the old silent check lines are ours (ticket 09)
         out.append(ownertext.lost(old, text, ENABLED_GENERATED if rel == os.path.join(".ai", "enabled") else (), rel))
     return [d for d in out if d]
 
@@ -1481,12 +1485,21 @@ def docs_strays(root):
         return []
 
 
-PRECOMMIT_MARK ="# ai-adopt pre-commit (ai-precommit)"
+PRECOMMIT_MARK = "# ai-adopt pre-commit (ai-precommit)"
+# The fail line also goes into a repo's own hook (husky, lefthook): ai-adopt prints it there (ticket 09).
+PRECOMMIT_FAIL = ('echo "FAIL: ai-precommit not on PATH ($PATH). Run install.sh, or add the setup bin folder to PATH '
+                  'for this git client. Only a person may set: git config ai.precommit optional" >&2; exit 1')
+PRECOMMIT_LINE = "command -v ai-precommit >/dev/null 2>&1 || { %s; }; ai-precommit" % PRECOMMIT_FAIL
 PRECOMMIT_HOOK = """#!/bin/sh
 %s: lint and format check on the staged files. Local, not committed.
-command -v ai-precommit >/dev/null 2>&1 || { echo "ai-precommit not on PATH: pre-commit check skipped"; exit 0; }
+if ! command -v ai-precommit >/dev/null 2>&1; then
+  if [ "$(git config --get ai.precommit)" = optional ]; then
+    echo "WARN: ai-precommit not on PATH: pre-commit check skipped (git config ai.precommit is optional)"; exit 0
+  fi
+  %s
+fi
 exec ai-precommit
-""" % PRECOMMIT_MARK
+""" % (PRECOMMIT_MARK, PRECOMMIT_FAIL)
 
 
 def precommit_steps(root, checks):
@@ -1495,6 +1508,7 @@ def precommit_steps(root, checks):
     hooks_path = (git(root, "config", "--get", "core.hooksPath") or "").strip()
     if hooks_path:
         print("keep: core.hooksPath is %s (the repo's own hooks); no ai pre-commit hook" % hooks_path)
+        print("  add this line to your pre-commit hook: " + PRECOMMIT_LINE)
         return []
     git_dir = (git(root, "rev-parse", "--git-path", "hooks") or "").strip()
     if not git_dir:
@@ -1504,6 +1518,7 @@ def precommit_steps(root, checks):
     cur = read(path)
     if cur is not None and PRECOMMIT_MARK not in cur:
         print("keep: .git/hooks/pre-commit is the repo's own; no ai pre-commit hook")
+        print("  add this line to your pre-commit hook: " + PRECOMMIT_LINE)
         return []
     if cur == PRECOMMIT_HOOK:
         return []
