@@ -1,0 +1,10 @@
+router.py --agent codex PreToolUse
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-rw5cafph/empty
+payload: {"tool_name": "Bash", "tool_input": {"command": "git push origin main"}, "session_id": "verify-fix-gates-fail-closed_gates-fail-closed_20-11-2026_12-06-21", "cwd": "/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-rw5cafph/empty", "hook_event_name": "PreToolUse"}
+decision: deny
+rules fired: merge-approval
+router errors: none
+rc: 0
+
+--- output
+{"decision": "block", "reason": "[ai gate merge-approval] git push to main/master needs the owner's OK. Every PR goes through the owner: run the ship skill, then ask the owner. Merge only after the owner's latest message says merge (or approve). A push to main or master skips the PR: push the feature branch and open a PR instead.\nOnly the owner can let it through, by saying merge (or approve) in the next message, or by merging on GitHub. Do not try to get around the gate.", "hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "[ai gate merge-approval] git push to main/master needs the owner's OK. Every PR goes through the owner: run the ship skill, then ask the owner. Merge only after the owner's latest message says merge (or approve). A push to main or master skips the PR: push the feature branch and open a PR instead.\nOnly the owner can let it through, by saying merge (or approve) in the next message, or by merging on GitHub. Do not try to get around the gate."}}

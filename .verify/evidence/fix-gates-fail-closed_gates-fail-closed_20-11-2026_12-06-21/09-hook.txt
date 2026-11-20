@@ -1,0 +1,9 @@
+router.py --agent claude PreToolUse
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-rw5cafph/empty
+payload: {"tool_name": "Read", "tool_input": {"file_path": "/tmp/x"}, "session_id": "verify-fix-gates-fail-closed_gates-fail-closed_20-11-2026_12-06-21", "cwd": "/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-rw5cafph/empty", "hook_event_name": "PreToolUse"}
+decision: allow
+rules fired: none
+router errors: 2026-11-20T12:06:49Z routing JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+rc: 0
+
+--- output
