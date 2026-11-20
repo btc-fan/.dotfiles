@@ -75,15 +75,15 @@ Default rules on this install (`claude auto-mode defaults`, VERIFIED): 16 allow,
 - "Remote Shell Writes": writes "to running production or shared hosts via remote shell access (e.g. ... `ssh`)".
 - "Interfere With Workloads": killing a job "the agent did not create this session".
 - "Production Deploy", "Git Destructive" (force push), "Irreversible Local Destruction", "Merge Without Review".
-- A host is a sensitive remote target only when `prod` or `production` is a whole word in its name. `ubuntu01` does not match. It must go into `autoMode.environment`. VERIFIED, <https://code.claude.com/docs/en/auto-mode-config>
-- A starting `herdr-core server start` on the local host has no clear default rule. Whether the classifier blocks it is UNVERIFIED.
+- A host is a sensitive remote target only when `prod` or `production` is a whole word in its name. The name of server A does not match. It must go into `autoMode.environment`. VERIFIED, <https://code.claude.com/docs/en/auto-mode-config>
+- A starting `myd server start` on the local host has no clear default rule. Whether the classifier blocks it is UNVERIFIED.
 - An unrequested `gh pr create` in the own repo: auto mode "can also open pull requests there when your task asks for one". Whether "prepare" counts as a request is UNVERIFIED.
 
 Custom rules (VERIFIED, <https://code.claude.com/docs/en/auto-mode-config>):
 
 - `autoMode.environment`, `allow`, `soft_deny`, `hard_deny` are prose rules. Put `"$defaults"` in each list to keep the built-in rules.
 - The classifier reads `autoMode` only from `~/.claude/settings.json`, managed settings or `--settings`. It ignores project `.claude/settings.json`.
-- The owner already has an `autoMode` block in `~/.claude/settings.json` (radar999 entries). VERIFIED (file read).
+- The owner already has an `autoMode` block in `~/.claude/settings.json` (entries for a crawler project). VERIFIED (file read).
 - A boundary said in chat ("don't push") blocks matching actions, but "can be lost if context compaction removes the message".
 
 What happens on a block (VERIFIED, <https://code.claude.com/docs/en/permission-modes>):
@@ -162,7 +162,7 @@ Not recommended as the main layer:
 - A SessionStart conduct reminder: CLAUDE.md already reloads after compaction (Q1). The router already re-sends its table after `compact` (`router.py:48`). A just-in-time text in the gate message is more useful.
 - Auto mode as the only layer: it blocks instead of asking, and it misses 17% of overeager actions (Q3).
 
-Option for live servers (UNVERIFIED benefit): run Claude on ubuntu01 in auto mode, with the gate still on. Add `"Sensitive remote targets: ubuntu01, ubuntu02, oldmac"` to `autoMode.environment`. The classifier then also catches actions the gate list misses, and the gate still forces the plan.
+Option for live servers (UNVERIFIED benefit): run Claude on server A in auto mode, with the gate still on. Add `"Sensitive remote targets: server A, server B, old Mac"` to `autoMode.environment`. The classifier then also catches actions the gate list misses, and the gate still forces the plan.
 
 ### Prompt frequency
 
@@ -172,7 +172,7 @@ Data (VERIFIED, scan of `~/.claude/projects/*/*.jsonl`, files changed in the las
 - A rough regex for the high-impact list matched 374 calls (about 22 per day).
 - Top classes: `rm -r` 141 (34 of them in tmp, scratch or build paths), `gh pr create` 81, service verbs 75.
 - Other classes: `kill` 29, force push 26, `reboot`/`shutdown` 24.
-- Samples show real hits, for example `ssh ubuntu02 'sudo systemctl reboot'` and `launchctl kickstart -k gui/$(id -u)/com.md999.crawler`.
+- Samples show real hits, for example `ssh host-b 'sudo systemctl reboot'` and `launchctl kickstart -k gui/$(id -u)/com.example.crawler`.
 - Samples also show false matches, for example `grep ... shutdown` in a log search. The real rate is lower than 22 per day.
 
 Estimates (UNVERIFIED, from the scan and the gate's pass list):
@@ -191,7 +191,7 @@ On a normal dev day most gate hits are `gh pr create` without an ask and `rm -r`
 ## Not verified
 
 - How the owner's sessions start in `bypassPermissions` (no `defaultMode` in settings).
-- Whether auto mode blocks `herdr-core server start` or an unrequested draft PR.
+- Whether auto mode blocks `myd server start` or an unrequested draft PR.
 - The Codex `prompt` + `never` behaviour in the 0.170.0 binary (source read on main only; no live `codex exec` run).
 - The prompt estimates. They come from one machine and a rough regex.
 - Whether the typed "go" scope (until the next owner prompt) is too wide for a long autonomous turn.

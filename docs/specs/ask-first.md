@@ -7,8 +7,8 @@ Research: `docs/research/agent-risk-confirmation.md`, `docs/research/autonomy-vs
 
 On 2026-11-20 the owner asked an agent on a server (a crawler project) to "prepare" a power-cut setup. The agent did these steps without an OK:
 
-1. It made and enabled `~/.config/systemd/user/herdr-core-boot.service`.
-2. It ran `herdr-core server start` on the live server.
+1. It made and enabled `~/.config/systemd/user/myd-boot.service`.
+2. It ran `myd server start` on the live server.
 3. It opened a draft PR in the project repo.
 
 When asked why, it cited the "Standing permission" rule. The causes are:
@@ -94,7 +94,7 @@ Change `ai/agents-md/55-git-workflow.md`: open the draft PR only when the owner 
   9. Deploys: `wrangler deploy`, `fly deploy`, `vercel --prod`, `kubectl apply`, `terraform apply`, `helm upgrade`. A `--dry-run` passes.
   10. `rm -r` outside the worktree, the scratchpad, `/tmp` and rebuildable folders (`REBUILDABLE`).
   11. A database write (`DROP`, `DELETE`, `UPDATE`, `TRUNCATE`, `ALTER`) through a SQL client.
-  12. An unknown program with a start or stop verb as an argument (start, stop, restart, enable, disable, deploy, up, down). Example: `herdr-core server start`.
+  12. An unknown program with a start or stop verb as an argument (start, stop, restart, enable, disable, deploy, up, down). Example: `myd server start`.
 - ssh: the gate parses the remote text of `ssh <host> '<cmd>'` as a command, every stage of the chain. It reads a local script in `ssh host 'bash -s' < file` and a heredoc body. A script that the gate cannot read passes, the same as a local script. The conduct rule covers it.
 - The same rules apply on every host. There is no host list.
 - These pass: `systemctl status|show|cat|is-active|list-*`, `journalctl`, `docker ps|logs|inspect`, `crontab -l`, `ssh <host> 'uptime'`, reads over ssh, `--dry-run` forms.
@@ -130,7 +130,7 @@ In `docs/tickets/ask-first/`. 01 and 02 can start now. 03 to 06 need 02. 07 need
 ## Tests
 
 - Replay every incident from `docs/research/agent-behaviour-audit.md`. Each one must stop:
-  - `systemctl --user enable herdr-core-boot.service`, `herdr-core server start`
+  - `systemctl --user enable myd-boot.service`, `myd server start`
   - `ssh host 'journalctl ...; git status; sync; sudo systemctl reboot'` (hidden at the end of a read chain)
   - `ssh host 'sudo bash -s' < script.sh`, where the script has `userdel -r` or `systemctl restart`
   - `tmux kill-session -t <name>`, `docker compose down`, `npx wrangler deploy`

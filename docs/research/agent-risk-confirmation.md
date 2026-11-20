@@ -17,10 +17,10 @@ Add a router gate `ask-first` that reuses the merge-approval mechanism. Keep the
 
 ## The incident
 
-On ubuntu01 (project radar999, with Postgres, the md999 crawler, the Hermes gateway, trading bots and Docker), the owner said "prepare" a plug-and-play power-cut setup. The agent did not ask. It made these changes:
+On server A (a crawler project, with Postgres, the crawler, a bot gateway, trading bots and Docker), the owner said "prepare" a plug-and-play power-cut setup. The agent did not ask. It made these changes:
 
-- It created and enabled `~/.config/systemd/user/herdr-core-boot.service`.
-- It ran `herdr-core server start` on the live server.
+- It created and enabled `~/.config/systemd/user/myd-boot.service`.
+- It ran `myd server start` on the live server.
 - It opened draft PR #12.
 
 Asked why, it cited the rule "Standing permission".
@@ -29,11 +29,11 @@ Three rules in the setup pushed it forward, and none held it back:
 
 - `ai/agents-md/00-owner.md:13-14`: "You have my standing permission to run every command the task needs ... Keep going until a real block stops you."
 - `ai/agents-md/55-git-workflow.md:5`: "After the first ticket commit: push the branch and open a draft PR". The agent followed this rule for PR #12.
-- `ai/agents-md/40-audit-before-use.md:8`: "Never deploy to production or touch a production host without my explicit OK". The rule does not say which hosts are production. The agent did not treat ubuntu01 as one.
+- `ai/agents-md/40-audit-before-use.md:8`: "Never deploy to production or touch a production host without my explicit OK". The rule does not say which hosts are production. The agent did not treat server A as one.
 
 No gate fired:
 
-- `no-sudo` and `no-destroy` have `profiles: [server]` (`ai/routing.yaml:118`, `ai/routing.yaml:126`). The comment says dev-mac is used on "all 3 machines". So ubuntu01 probably had both gates off (not verified on the host).
+- `no-sudo` and `no-destroy` have `profiles: [server]` (`ai/routing.yaml:118`, `ai/routing.yaml:126`). The comment says dev-mac is used on "all 3 machines". So server A probably had both gates off (not verified on the host).
 - `systemctl --user` needs no sudo. So `no-sudo` does not catch it on any profile.
 - `PROFILE_GUARDS=0` on dev-mac (`ai/profiles/dev-mac.env:15`) removes all Claude ask and deny rules (`ai/adapters/claude.sh:801`, `ai/adapters/claude.sh:817`).
 - `gh pr create` passes `gh-write`, because `GH_OWN_GATES` hands it to `pr-rules` (`hooklib.py:1612`). `pr-rules` checks the body only, not the owner's request.
@@ -175,7 +175,7 @@ Before a high-impact step, stop and ask me. High-impact steps are:
 - A force push, a history rewrite or another destructive git command.
 - A deletion of data, or a database write outside a test database.
 
-A live host is a machine with services that run for me. ubuntu01 and oldmac are live hosts.
+A live host is a machine with services that run for me. Server A and the old Mac are live hosts.
 
 For a high-impact step, show me this, then wait:
 1. The plan: the exact commands and files.
@@ -203,14 +203,14 @@ Option B, with Option A as the second layer.
 
 Add Option C only for the few forms with no read variant, for example `Bash(reboot*)` and `Bash(shutdown*)`. An ask rule prompts even in `bypassPermissions` (Fact 2). Do not use D: it is Claude only, and it replaces "ask me" with a deny.
 
-Test plan for B (before a PR): replay the incident commands. That is `systemctl --user enable herdr-core-boot.service`, `herdr-core server start`, an ssh with `bash -s < script.sh` that has `systemctl restart`, and `gh pr create --draft`. Each must stop. `systemctl status`, `docker ps` and `ssh host 'uptime'` must pass.
+Test plan for B (before a PR): replay the incident commands. That is `systemctl --user enable myd-boot.service`, `myd server start`, an ssh with `bash -s < script.sh` that has `systemctl restart`, and `gh pr create --draft`. Each must stop. `systemctl status`, `docker ps` and `ssh host 'uptime'` must pass.
 
 ## Not verified
 
 - The text "actions that are hard to reverse" in the Claude Code system prompt. No public primary source was found. This file cites the Anthropic posts in Fact 4 instead.
 - A PreToolUse hook `ask` in `bypassPermissions` mode. The docs confirm that an explicit ask rule prompts there. They do not state the same for a hook `ask`. Test it before relying on it.
 - Codex execpolicy `prompt` with `approval_policy = "never"` (the `codex exec` setting). The page read does not cover it.
-- The active profile on ubuntu01. The comment in `ai/routing.yaml:118` says dev-mac is on all 3 machines. The host was not checked.
+- The active profile on server A. The comment in `ai/routing.yaml:118` says dev-mac is on all 3 machines. The host was not checked.
 - Whether the auto mode classifier reads a script piped to `bash -s`.
 - The Codex pages were read at the redirect target `learn.chatgpt.com`. The redirect came from `developers.openai.com`.
-- `herdr-core` was not inspected. Whether `herdr-core server start` restarts other services is not known.
+- `myd` was not inspected. Whether `myd server start` restarts other services is not known.

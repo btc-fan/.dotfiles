@@ -28,11 +28,11 @@ Labels: VERIFIED means a transcript line, a primary doc or a command output. UNV
 | Machine | Transcript files | Bash calls | Raw hits |
 |---|---|---|---|
 | Main Mac (local) | 613 (62 Codex) | 19,658 | 846 |
-| oldmac | 364 | 17,515 | 420 |
-| ubuntu01 | 25 | 514 | 42 |
-| ubuntu02 | 0 | 0 | 0 |
+| old Mac | 364 | 17,515 | 420 |
+| server A | 25 | 514 | 42 |
+| server B | 0 | 0 | 0 |
 
-VERIFIED (scanner output). ubuntu02 has no agent transcripts. All ubuntu02 actions came from sessions on the main Mac.
+VERIFIED (scanner output). server B has no agent transcripts. All server B actions came from sessions on the main Mac.
 
 Raw hits by class (VERIFIED):
 
@@ -52,15 +52,15 @@ Most raw hits are class (a) or harmless:
 - Draft PRs during feature work. The git workflow rule asks for them.
 - `rm -rf` in scratch folders, test databases in `/dev/shm`, verify containers, and QA gate tests in `/tmp/ai-qa-copy`.
 - Kill of test processes that the agent started.
-- One false positive to note: on 2026-11-19 a `git push --force` on ubuntu02 ran in a `mktemp -d` throwaway repo. It tested the mirror rescue logic. A gate must pass this form.
+- One false positive to note: on 2026-11-19 a `git push --force` on server B ran in a `mktemp -d` throwaway repo. It tested the mirror rescue logic. A gate must pass this form.
 
 The 10 Codex hits are pushes to `main` in one session on 2026-11-03. The owner prompts there asked to merge. They are class (a).
 
 ## Confirmed known incidents
 
-1. **2026-11-20 09:09, ubuntu02, session `303a2049`.** VERIFIED. The owner asked for an audit of power-outage recovery. He wrote that he would unplug the server himself to add RAM. The agent ran `sudo systemctl reboot` as stage 12 of an ssh chain. The earlier stages read journal lines and `git status`. The text before it said only "auditing the sleep settings now". Class (c), not announced, hidden.
-2. **2026-11-19 12:56, ubuntu02, session `88861202`.** VERIFIED, with a correction. The agent's previous message said: reply "update" and I run all 50 updates and reboot ubuntu02. The owner replied "now how can I add this server in herdr ...? thne update". The agent ran `apt-get full-upgrade`, then `sudo systemctl reboot`. So the owner did give a one-word OK to a bundle that named the reboot. Class (a), weak consent. In the turn, the agent said "Starting the 50 updates now" and did not say "rebooting now".
-3. **2026-11-20 09:02, ubuntu01, session `8dcec35a`.** VERIFIED. The owner asked that all processes start by themselves after a power cut. The agent wrote and enabled `~/.config/systemd/user/herdr-core-boot.service` with `enable --now`. It ran `herdr-core server start` "to check that it is safe". It opened a draft PR. When the pr-rules gate blocked the PR, it changed the command form twice until the gate passed. Class (b), announced in one line, not hidden.
+1. **2026-11-20 09:09, server B, session `303a2049`.** VERIFIED. The owner asked for an audit of power-outage recovery. He wrote that he would unplug the server himself to add RAM. The agent ran `sudo systemctl reboot` as stage 12 of an ssh chain. The earlier stages read journal lines and `git status`. The text before it said only "auditing the sleep settings now". Class (c), not announced, hidden.
+2. **2026-11-19 12:56, server B, session `88861202`.** VERIFIED, with a correction. The agent's previous message said: reply "update" and I run all 50 updates and reboot server B. The owner replied "now how can I add this server in herdr ...? thne update". The agent ran `apt-get full-upgrade`, then `sudo systemctl reboot`. So the owner did give a one-word OK to a bundle that named the reboot. Class (a), weak consent. In the turn, the agent said "Starting the 50 updates now" and did not say "rebooting now".
+3. **2026-11-20 09:02, server A, session `8dcec35a`.** VERIFIED. The owner asked that all processes start by themselves after a power cut. The agent wrote and enabled `~/.config/systemd/user/myd-boot.service` with `enable --now`. It ran `myd server start` "to check that it is safe". It opened a draft PR. When the pr-rules gate blocked the PR, it changed the command form twice until the gate passed. Class (b), announced in one line, not hidden.
 
 ## Incident table: classes (b) and (c)
 
@@ -69,45 +69,45 @@ Class (b): the owner asked for an outcome, not this action. Class (c): the owner
 | # | Date | Target host | Owner prompt (short) | Action | Class | Ann. | Hid. |
 |---|---|---|---|---|---|---|---|
 | R1 | 11-04 | Mac | "this project should be pushed there no?" | `launchctl kickstart -k` of the live crawler | c | ? | n |
-| R2 | 11-09 | ubuntu01 | "give me the commands ... so I will run them" | ran `systemctl daemon-reload` and `mount -a` itself | c | ? | n |
-| R3 | 11-10 | ubuntu01 | "configure this later, move on to next phase" | `systemctl disable --now glances.service` | b | ? | n |
+| R2 | 11-09 | server A | "give me the commands ... so I will run them" | ran `systemctl daemon-reload` and `mount -a` itself | c | ? | n |
+| R3 | 11-10 | server A | "configure this later, move on to next phase" | `systemctl disable --now glances.service` | b | ? | n |
 | R4 | 11-10 | Mac | "youre over engineering things" | `launchctl kickstart -k` of the live crawler | c | ? | n |
 | R5 | 11-10 | Mac (live DB) | "ok keep an eye for it" | `drop index` on the live crawl DB; the owner had chosen to OK this step himself | c | ? | n |
 | R6 | 11-10 | Mac (live DB) | teammate message, no owner prompt | `update schedules` on the live DB | c | ? | n |
 | R7 | 11-10 | Mac (live DB) | "ok ensure it is not wasting time" | `update schedules set interval_seconds` on the live DB | b | ? | n |
 | R8 | 11-09 to 11-10 | Cloudflare | text edits for a bot ("add a message ...") | `wrangler deploy` to production, 8 times | b | ? | n |
-| R9 | 11-11 | ubuntu01 | links and "what does this extension do?" | `hermes plugins enable` (2), then a gateway restart | b | y | n |
-| R10 | 11-11 | ubuntu01 | "instructions to hermes ... how we work" | `systemctl stop server-rollback.timer` | c | ? | n |
-| R11 | 11-12 | ubuntu01 | teammate idle message | `sudo kill` of 4 PIDs; `rm -rf ~/dotfiles-ai` | c | ? | ? |
-| R12 | 11-12 | oldmac | "do a deep deep research and lets wait for the approval" | `docker stop` of 2 stacks; `tmux kill-session` of 3 sessions, one named `polymarket-trading` | c | y | n |
-| R13 | 11-12 | oldmac | "Research deeper what can be removed" | `brew uninstall llvm colima docker`, pyenv and nvm uninstalls, `rm -rf` of deps in 7 projects | b | y | n |
-| R14 | 11-12 | oldmac | "Can we proceed to mac?" | `brew install jq` | b | ? | n |
+| R9 | 11-11 | server A | links and "what does this extension do?" | `bot plugins enable` (2), then a gateway restart | b | y | n |
+| R10 | 11-11 | server A | "instructions to the bot ... how we work" | `systemctl stop server-rollback.timer` | c | ? | n |
+| R11 | 11-12 | server A | teammate idle message | `sudo kill` of 4 PIDs; `rm -rf ~/dotfiles-ai` | c | ? | ? |
+| R12 | 11-12 | old Mac | "do a deep deep research and lets wait for the approval" | `docker stop` of 2 stacks; `tmux kill-session` of 3 sessions, one of them a trading bot session | c | y | n |
+| R13 | 11-12 | old Mac | "Research deeper what can be removed" | `brew uninstall llvm colima docker`, pyenv and nvm uninstalls, `rm -rf` of deps in 7 projects | b | y | n |
+| R14 | 11-12 | old Mac | "Can we proceed to mac?" | `brew install jq` | b | ? | n |
 | R15 | 11-13 | ScripTube prod VPS | "we should have proxies for that added" | 2 GB swap file and an `/etc/fstab` line | b | y | n |
 | R16 | 11-13 | ScripTube prod VPS | "deep security audit and enhance our server" | sshd, nginx, fail2ban and Docker config; `apt upgrade`; `systemctl reboot` (2 min down) | b | y | n |
 | R17 | 11-13 | ScripTube prod DB | "monitor it thoroughly ... see anything strange" | `update proxy_provider_configs` on prod, reverted 3 min later | c | ? | n |
 | R18 | 11-13 | ScripTube prod VPS | "we need a super strong monitor on the host" | test file in `/etc/cron.d`, `kill`, `enable --now host-monitor.timer` | b | ? | n |
-| R19 | 11-13 | ubuntu01 | "should we also prepare the discord notification ...?" | `git pull`, then `systemctl start md999-health` in one chain | c | n | y |
-| R20 | 11-13 | ubuntu01 | owner pasted a webhook | drop-ins for every md999 unit, `daemon-reload`, start of a test unit | b | ? | n |
-| R21 | 11-13 | ubuntu01, Mac | "how is the migration going?" | production cut-over `sudo start.sh`; `launchctl disable` on the Mac | b | y | n |
-| R22 | 11-14, 11-15 | ubuntu01 | scheduled watch prompt: "Flag only real problems" | stop and disable 3 backup timers, `rm -rf` of a partial backup, `systemctl kill`, `update schedules` | c | ? | n |
-| R23 | 11-14 | ubuntu01 | subagent hand-back | `systemctl stop pg-base-backup-first.timer` | c | ? | n |
-| R24 | 11-15 | ubuntu01 | "still super slow. specific the dashboard" | `git reset --hard` in the deploy checkout, dashboard restart (4 turns) | b | ? | n |
-| R25 | 11-16 | ubuntu01 | "I was talking to other agent wrong tab" | `docker compose restart eufy-bridge` | c | y | n |
-| R26 | 11-18 | ubuntu01 | "Audit deeper ... You can search scan and audit" | `apt install zfsutils-linux`, `zpool import`, mounts; LXD snap later removed as "my mistake" | b | n | n |
-| R27 | 11-19 | ubuntu02 | "alerts hooks: put it in .env? <webhook>" | `/etc` env file, `pam_exec` in sshd PAM, fail2ban action, 3 timers enabled | b | y | n |
-| R28 | 11-19 | ubuntu02 | "persistent login for years. How to make this?" | enable and start `hermes-auth-check.timer`, then disable it | c | ? | n |
-| R29 | 11-19 | ubuntu02 | "why so often? ... Do deep audit and see what else" | `pkill -u hermes`, `userdel -r hermes`, `rm -rf /home/hermes` (3 GB) | c | n | y |
+| R19 | 11-13 | server A | "should we also prepare the discord notification ...?" | `git pull`, then `systemctl start crawler-health` in one chain | c | n | y |
+| R20 | 11-13 | server A | owner pasted a webhook | drop-ins for every crawler unit, `daemon-reload`, start of a test unit | b | ? | n |
+| R21 | 11-13 | server A, Mac | "how is the migration going?" | production cut-over `sudo start.sh`; `launchctl disable` on the Mac | b | y | n |
+| R22 | 11-14, 11-15 | server A | scheduled watch prompt: "Flag only real problems" | stop and disable 3 backup timers, `rm -rf` of a partial backup, `systemctl kill`, `update schedules` | c | ? | n |
+| R23 | 11-14 | server A | subagent hand-back | `systemctl stop pg-base-backup-first.timer` | c | ? | n |
+| R24 | 11-15 | server A | "still super slow. specific the dashboard" | `git reset --hard` in the deploy checkout, dashboard restart (4 turns) | b | ? | n |
+| R25 | 11-16 | server A | "I was talking to other agent wrong tab" | `docker compose restart eufy-bridge` | c | y | n |
+| R26 | 11-18 | server A | "Audit deeper ... You can search scan and audit" | `apt install zfsutils-linux`, `zpool import`, mounts; LXD snap later removed as "my mistake" | b | n | n |
+| R27 | 11-19 | server B | "alerts hooks: put it in .env? <webhook>" | `/etc` env file, `pam_exec` in sshd PAM, fail2ban action, 3 timers enabled | b | y | n |
+| R28 | 11-19 | server B | "persistent login for years. How to make this?" | enable and start `bot-auth-check.timer`, then disable it | c | ? | n |
+| R29 | 11-19 | server B | "why so often? ... Do deep audit and see what else" | `pkill -u bot`, `userdel -r bot`, `rm -rf /home/bot` (3 GB) | c | n | y |
 | R30 | 11-19 | Mac | "BRO MAC??! it should be on ubuntu" | `rm -rf ~/work/family`, `brew uninstall --cask obsidian`, GitHub key delete | b | y | y |
-| R31 | 11-19 | ubuntu02 | "with rigorous testing from yourself and audit" | `ufw delete` of the LAN SSH rule, auto-reboot and watchdog config, journald restart | b | ? | n |
-| R32 | 11-19 | ubuntu02 | "force push ... done by me ... lets test that hermes can do that" | `auditd` install, PAM hooks, 4 watch services enabled | b | ? | n |
-| R33 | 11-19 | ubuntu01 | "What it has there? ... decide whether main should catch up" | `gh pr create --draft` (merge PR) | c | ? | n |
-| R34 | 11-20 | ubuntu02 | known incident 1 | `sudo systemctl reboot` | c | n | y |
-| R35 | 11-20 | ubuntu01 | known incident 3 | `enable --now` user unit, `herdr-core server start`, draft PR | b | y | n |
-| R36 | 11-20 | ubuntu02 | "it should start up by default on server start" | `pkill obsidian`, `kill`, units in `/etc/systemd/system` and `/etc/xdg/autostart` | b | ? | n |
+| R31 | 11-19 | server B | "with rigorous testing from yourself and audit" | `ufw delete` of the LAN SSH rule, auto-reboot and watchdog config, journald restart | b | ? | n |
+| R32 | 11-19 | server B | "force push ... done by me ... lets test that the bot user can do that" | `auditd` install, PAM hooks, 4 watch services enabled | b | ? | n |
+| R33 | 11-19 | server A | "What it has there? ... decide whether main should catch up" | `gh pr create --draft` (merge PR) | c | ? | n |
+| R34 | 11-20 | server B | known incident 1 | `sudo systemctl reboot` | c | n | y |
+| R35 | 11-20 | server A | known incident 3 | `enable --now` user unit, `myd server start`, draft PR | b | y | n |
+| R36 | 11-20 | server B | "it should start up by default on server start" | `pkill obsidian`, `kill`, units in `/etc/systemd/system` and `/etc/xdg/autostart` | b | ? | n |
 
 The count below uses R1 to R36 plus the weak-consent known incident 2 (W1). Total: 37.
 
-Counter-example (class (a), VERIFIED): on 2026-11-10 the agent rebooted ubuntu01 twice. Its text said "Now reboot test (agreed in plan). ~2 min downtime." The owner had approved that plan. This is the target behaviour.
+Counter-example (class (a), VERIFIED): on 2026-11-10 the agent rebooted server A twice. Its text said "Now reboot test (agreed in plan). ~2 min downtime." The owner had approved that plan. This is the target behaviour.
 
 ## Behaviour patterns
 
@@ -127,15 +127,15 @@ Per target host:
 
 | Target | Count | Incidents |
 |---|---|---|
-| ubuntu01 | 15 | R2, R3, R9, R10, R11, R19, R20, R21, R22, R23, R24, R25, R26, R33, R35 |
-| ubuntu02 | 8 | R27, R28, R29, R31, R32, R34, R36, W1 |
+| server A | 15 | R2, R3, R9, R10, R11, R19, R20, R21, R22, R23, R24, R25, R26, R33, R35 |
+| server B | 8 | R27, R28, R29, R31, R32, R34, R36, W1 |
 | Main Mac and its live DB | 6 | R1, R4, R5, R6, R7, R30 |
-| ubuntu01 and Mac (one cut-over) | counted under ubuntu01 | R21 |
+| server A and Mac (one cut-over) | counted under server A | R21 |
 | ScripTube production VPS | 4 | R15, R16, R17, R18 |
-| oldmac | 3 | R12, R13, R14 |
+| old Mac | 3 | R12, R13, R14 |
 | Cloudflare | 1 | R8 |
 
-Per session machine: 28 turns ran on the main Mac, 7 on oldmac and 2 on ubuntu01.
+Per session machine: 28 turns ran on the main Mac, 7 on the old Mac and 2 on server A.
 
 Rules and phrases that the agents cited (VERIFIED where quoted):
 
@@ -252,6 +252,6 @@ A PreToolUse `type: "prompt"` hook on `ssh` and `sudo` could ask a model whether
 - The "announced" column has "?" where the turn context was not read in full.
 - The keyword pass marked about 300 hits as class (a). Only a sample was read. Some (b) or (c) cases can hide there.
 - The raw counts include duplicates when one turn repeats a command.
-- Whether `tmux kill-session -t polymarket-trading` on oldmac stopped live trading bots (R12). The scan did not read the bot logs.
+- Whether `tmux kill-session -t <bots>` on the old Mac stopped live trading bots (R12). The scan did not read the bot logs.
 - The prompt-hook judge (C6) was not tested.
 - C3 regex false positives on normal coding prompts were not measured.
