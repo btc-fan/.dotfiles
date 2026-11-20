@@ -4,7 +4,7 @@
   "steps": [
     {"git": [["checkout", "-q", "-B", "main"]]},
     {"session": "Start this project: build a small Python package calc with a function add(a, b) in calc/core.py and a pytest test in tests/test_core.py. Work on a new branch feat-calc, make the test pass, and commit.",
-     "expect": {"rules": ["knowledge-check"]}},
+     "expect": {"tools": ["git commit"]}},
     {"check": {"branch": "feat-calc", "map_contains": "calc", "graph": "fresh"}},
     {"git": [["add", "-A"], ["commit", "-q", "--allow-empty", "-m", "harness: leftovers"], ["checkout", "-q", "main"],
              ["merge", "-q", "--squash", "feat-calc"], ["commit", "-q", "-m", "feat: calc (#1)"]]},

@@ -368,12 +368,10 @@ def top_level_split(s):
 # How the L0 table shows an action placeholder (the router fills the real text at fire time).
 PLACEHOLDER_WORDS = {
     "knowledge_index": "(status line: memories, graph, docs map)",
-    "knowledge_delta": "Update the AGENTS.md Map, run ai-libs --sync or graphify update, as the commit needs.",
     "libs_hits": "(cached IDs)",
     "ledger_hits": "docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests.",
     "feature_flow": "Worktree ../<repo>-<slug> first; grill-with-docs (else grilling); 3+ files: to-spec, to-tickets; /implement each ticket (check-fast, verify, e2e, commit). Draft PR only if asked. Done: ship; the owner merges.",
     "merge_review": "/improve-codebase-architecture, then /retro; findings as tickets or a PR; then git rev-parse main > .ai/last-review.",
-    "legacy_memory": "Move the facts into the repo (PR), then delete the files.",
     "upgrade_pending": "Run the upgrade-review skill.",
     "nav_hint": "graphify query (where, how) or graphify affected (impact) first, then Serena find_symbol / find_referencing_symbols; rg only for text.",
     "verify_hint": "Before done: check-fast, then verify-<app> on the changed feature (evidence), then e2e tests.",

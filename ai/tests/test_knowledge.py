@@ -81,7 +81,8 @@ def main():
         for test in (t_minitoml, t_libs_offline, t_libs_cache_and_notes, t_libs_online_fake, t_libs_check_stale,
                      t_libs_private_sources, t_libs_check_refuses_sync, t_libs_old_file_migrates, t_adopt_knowledge,
                      t_adopt_optin_serena_graph, t_adopt_gitignore_block, t_adopt_secret_in_map, t_optin_claude_plugins,
-                     t_map_tools_read_only, t_libs_freeze_keeps_imported):
+                     t_map_tools_read_only, t_libs_freeze_keeps_imported, t_map_path_missing, t_map_non_paths,
+                     t_libs_check_in_make):
             try:
                 test(work, server)
                 print("ok   " + test.__name__)
@@ -316,6 +317,87 @@ def t_libs_check_stale(work, server):
         fh.write('\n[[package]]\nname = "rich"\nversion = "13.9.4"\n')
     res = libs(work, repo, "--check", url=DEAD_URL)
     assert res.returncode == 1 and "uv.lock changed" in res.stdout, res.stdout
+
+
+def t_libs_check_in_make(work, server):
+    """Ticket rules-that-hold 08: make check runs ai-libs --check; a repo with no dependency files passes it."""
+    bare = os.path.join(work, "no-deps")
+    os.makedirs(bare)
+    run(["git", "init", "-q", bare])
+    res = libs(work, bare, "--check")
+    assert res.returncode == 0 and "no dependency files" in res.stdout, res.stdout
+    repo, env = adopt_repo(work, "libs-make")
+    res = run([sys.executable, os.path.join(BIN, "ai-adopt"), "--dir", repo, "--yes", "--no-onboard"], env=env, cwd=repo)
+    assert res.returncode == 0, res.stdout
+    mk = open(os.path.join(repo, "Makefile")).read()
+    check = mk[mk.index("\ncheck:"):]
+    assert "ai-libs --check" in check, mk
+    assert "ai-libs --check" not in mk[mk.index("check-fast:"):mk.index("\ncheck:")], "check-fast stays fast: " + mk
+
+
+# ---------------------------------------------------------------- ai-docs-check: the Map names real paths
+
+MAP_FILES = ("src/app.py", "src/pkg/mod.py", "docs/GUIDE.md", "ai/rules/winner-gate.json", "CLAUDE.md")
+# 10 real Map lines and the expected result of each (True = passes).
+MAP_LINES = [
+    ("- Entry: `src/app.py` (main).", True),
+    ("- Code: `src/**/*.py` (2 code files).", True),
+    ("- Check: `make check-fast` (lint + unit tests; measured 0 s); `make check` (everything).", True),
+    ("- Design: `design-system/<app>/MASTER.md` (read it before UI work).", True),
+    ("- Rules: `@AGENTS.md` is imported by `CLAUDE.md`.", True),
+    ("- Version: `v2.1`, guide in `docs/GUIDE.md`.", True),
+    ("- Contracts: `ai/rules/` (for example `winner-gate.json`).", True),
+    ("- State: `~/.local/state/ai/projects` (machine only).", True),
+    ("- Old: `src/gone.py` (removed last week).", False),
+    ("- Tests: `tests/**/*.py`.", False),
+]
+
+
+def t_map_path_missing(work, server):
+    repo = docs_repo(work, "map-missing", "## Map\n- Entry: `src/app.py`.\n- Old: `src/gone.py` (removed).\n\n## Done\n")
+    res = docs_check(repo)
+    assert res.returncode == 1, res.stdout
+    assert "AGENTS.md:3:" in res.stdout and "src/gone.py" in res.stdout and "src/app.py" not in res.stdout, res.stdout
+    # Edge case 7: a gitignored file that exists on disk is not in a clean clone, so it fails too.
+    repo = docs_repo(work, "map-ignored", "<!-- AI:map START -->\n## Map\n- Env: `.env`.\n<!-- AI:map END -->\n")
+    open(os.path.join(repo, ".env"), "w").write("X=1\n")
+    open(os.path.join(repo, ".gitignore"), "w").write(".env\n")
+    res = docs_check(repo)
+    assert res.returncode == 1 and "AGENTS.md:3:" in res.stdout and ".env" in res.stdout, res.stdout
+    repo = docs_repo(work, "map-none", "# Demo\n\nNo map here.\n")
+    res = docs_check(repo)
+    assert res.returncode == 0 and "no Map: skipped" in res.stdout, res.stdout
+
+
+def t_map_non_paths(work, server):
+    text = "<!-- AI:map START -->\n## Map\n" + "\n".join(ln for ln, _ in MAP_LINES) + "\n<!-- AI:map END -->\n"
+    repo = docs_repo(work, "map-lines", text)
+    res = docs_check(repo)
+    for n, (line, ok) in enumerate(MAP_LINES, 3):
+        named = ("AGENTS.md:%d:" % n) in res.stdout
+        assert named != ok, "line %d %r: expected %s:\n%s" % (n, line, "pass" if ok else "fail", res.stdout)
+    assert res.returncode == 1, res.stdout
+    # Monorepo (edge case 6): a nested AGENTS.md Map is read against its own folder.
+    os.makedirs(os.path.join(repo, "web", "src"))
+    open(os.path.join(repo, "web", "src", "main.ts"), "w").write("x\n")
+    open(os.path.join(repo, "web", "AGENTS.md"), "w").write("## Map\n- Entry: `src/main.ts`; `src/app.py`.\n")
+    res = docs_check(repo)
+    assert "web/AGENTS.md:2:" in res.stdout and "src/app.py" in res.stdout.split("web/AGENTS.md:2:")[1], res.stdout
+
+
+def docs_repo(work, name, agents):
+    repo = os.path.join(work, name)
+    os.makedirs(repo)
+    run(["git", "init", "-q", repo])
+    for rel in MAP_FILES:
+        os.makedirs(os.path.dirname(os.path.join(repo, rel)), exist_ok=True)
+        open(os.path.join(repo, rel), "w").write("x\n")
+    open(os.path.join(repo, "AGENTS.md"), "w").write(agents)
+    return repo
+
+
+def docs_check(repo):
+    return run([sys.executable, os.path.join(BIN, "ai-docs-check"), "--dir", repo])
 
 
 # ---------------------------------------------------------------- ai-adopt knowledge steps

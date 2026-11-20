@@ -10,7 +10,6 @@ Copied from the proof sections of `ai/rules/<tool>.md`. Change both places toget
 - graphify (default on; not in a project with `no-graph`) | "where is the price drop alert computed?" ; "unde se calculeaza istoricul de pret in proiectul asta?" | NOT the same prompt with `no-graph` | signal: Bash `graphify query` first
 - docs (context7) | "how do I use the FastAPI dependency system?" ; "cum configurez Tailwind v4 in Vite?" ; "как в pydantic v2 сделать валидатор поля?" | NOT "refactor this function to be shorter" ; "why does my loop run twice" | signal: `query-docs`; `resolve-library-id` only when the Libraries section has no ID; no web search
 - docs by library name (httpx in the Libraries section) | "write httpx code with retries" ; "scrie cod httpx cu reincercari" ; "напиши код на httpx с повторами" | NOT "rename this variable" ; "fix the typo in the README" | signal: `docs-lookup` fired; `query-docs` with the cached ID
-- knowledge-check | commit that adds `src/app/retry.py` ; commit that changes `uv.lock` | NOT a commit that only edits README.md | signal: "Update the Map section" / "Run ai-libs --sync" after the commit
 
 ## Output and code style
 - i-have-adhd | "How do I rotate the JWT secret in this repo?" ; "Cum adaug o coloana noua in tabelul listings?" | NOT "walk me through how the diff engine works" (long body allowed) | signal: SessionStart context has `ADHD MODE ACTIVE (always-on)`; first line is an action; last line starts with `Next:`

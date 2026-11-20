@@ -9,7 +9,7 @@
                                              (ai-adopt writes it; existing targets are never changed)
 
 check-fast: lint + unit tests, no network, no services, target under 60 s (the Stop hook runs it).
-check:      everything (full tests, type check where configured; long tier: ledger and ratchet too).
+check:      everything (full tests, type check where configured; long tier: ledger, ratchet, ai-libs --check too).
 
 Detection (stack from lockfiles and manifests, the nixpacks ladder; the test and lint part is ours):
   Python  pyproject.toml / requirements*.txt / setup.py / Pipfile, or no manifest and a tests/ (or test/) folder
@@ -49,6 +49,8 @@ LEDGER_LINE = ('@if command -v ai-ledger >/dev/null 2>&1; then ai-ledger --check
                'else echo "ai-ledger not on PATH: ledger check skipped"; fi')
 DOCS_LINE = ('@if command -v ai-docs-check >/dev/null 2>&1; then ai-docs-check; '
              'else echo "ai-docs-check not on PATH: Markdown placement check skipped"; fi')
+LIBS_LINE = ('@if command -v ai-libs >/dev/null 2>&1; then ai-libs --check; '
+             'else echo "ai-libs not on PATH: Libraries check skipped"; fi')
 MD_LINE = ('@if command -v ai-docs-check >/dev/null 2>&1; then ai-docs-check --md; '
            'else echo "ai-docs-check not on PATH: Markdown checks skipped"; fi')
 
@@ -340,7 +342,7 @@ def plan(root, info, tier):
     kept = [t for t in ("check-fast", "check") if t in have]
     full = list(info["full"])
     if tier == "long":
-        full += [LEDGER_LINE, RATCHET_LINE] + ([] if MD_LINE in full else [DOCS_LINE])
+        full += [LEDGER_LINE, RATCHET_LINE, LIBS_LINE] + ([] if MD_LINE in full else [DOCS_LINE])
     want = [t for t in ("check-fast", "check") if t not in have]
     text = None
     if want:

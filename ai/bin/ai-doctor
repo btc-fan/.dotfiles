@@ -115,6 +115,8 @@ def main(argv):
     check_hermes()
     check_omc()
     check_claude_cleanup()
+    if "--project" not in argv:
+        check_legacy_memory()
     check_handoff()
     check_gate_smoke()
     proj = argv[argv.index("--project") + 1] if "--project" in argv and argv.index("--project") + 1 < len(argv) \
@@ -1744,6 +1746,8 @@ def check_project(path, explicit=False):
     if not has_code:
         return
     print("\nproject %s:" % root)
+    if explicit:
+        check_legacy_memory(root)
     mp = hl.map_block(root)
     if mp is None:
         say("WARN", "AGENTS.md Map section", "owner step: ai-adopt (writes the Map and Libraries sections)")
@@ -1790,6 +1794,27 @@ def check_project(path, explicit=False):
     if need:
         say("PASS" if not miss else "WARN", ".gitignore keeps tool caches out of git",
             ("missing: " + ", ".join(miss)) if miss else "")
+
+
+def check_legacy_memory(root=None):
+    """Old Claude auto memory files (auto memory is off since 2026-11-16, so they no longer load). Machine mode: every
+    project folder; with a root: only that project. Claude only: Codex has no memory folder."""
+    if root:
+        dirs = [hooklib_module().legacy_memory_dir(root)]
+    else:
+        base = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+        dirs = sorted(os.path.join(base, "projects", d, "memory") for d in list_dir(os.path.join(base, "projects")))
+    full = [d for d in dirs if any(os.path.isfile(os.path.join(d, f)) for f in list_dir(d))]
+    say("PASS" if not full else "FAIL", "no old Claude memory files (Claude only; Codex has no memory folder)",
+        "" if not full else "move the facts of each folder into its repo with a PR (Map, Project rules, docs/adr), "
+        "then delete the files:\n" + "\n".join(full))
+
+
+def list_dir(path):
+    try:
+        return os.listdir(path)
+    except OSError:
+        return []
 
 
 # ---------------------------------------------------------------- Tier 1 project checks (own block: easy to rebase)

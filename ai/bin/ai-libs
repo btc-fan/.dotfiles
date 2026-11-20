@@ -84,7 +84,9 @@ def main(argv):
     problems = status(root, deps, current)
     for line in problems:
         print("ai-libs: " + line)
-    if not problems:
+    if not problems and not deps and not current["exists"]:
+        print("ai-libs: no dependency files: nothing to check")
+    elif not problems:
         print("ai-libs: the Libraries section of AGENTS.md matches the lockfiles (%d libraries)" % len(current["rows"]))
     return 1 if (problems and opts["check"]) else 0
 

@@ -27,7 +27,7 @@ Quotes read at the repo head on 2026-11-10 and 2026-11-11, not at the 4.6.0 tag:
 
 ## Enforcement
 - L0: AGENTS.md "Code navigation" and the `docs-lookup` row (fires only when the prompt names a library, from the Libraries section, the manifests or a short known list, or before an edit of a dependency file; it shows the cached IDs).
-- Row `knowledge-check` after a commit asks for `ai-libs --sync` when a manifest changed or a new ID was used.
+- `make check` runs `ai-libs --check`: it fails when a manifest or lockfile changed since the last `ai-libs --sync`.
 - L4: none. Nudges only.
 
 ## Proof

@@ -34,6 +34,7 @@ if [ $# -eq 0 ] || [ "$1" = "-v" ]; then
     python3 "$here/test_eval.py" || rc=1
     python3 "$here/test_skills.py" || rc=1
     python3 "$here/test_verify.py" || rc=1
+    python3 "$here/../bin/ai-libs" --dir "$here/../.." --check || rc=1    # the Libraries section matches the lockfiles
     if [ "${AI_TESTS_NO_AGENT:-}" != 1 ]; then
         for t in $agent_tests; do python3 "$here/$t" || rc=1; done
     fi

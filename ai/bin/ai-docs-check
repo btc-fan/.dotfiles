@@ -18,10 +18,16 @@ Allowed places:
   extra           one glob per line in .ai/docs-allow (committed; add a line only with the owner's OK)
 Only files git sees are checked (tracked, or new and not ignored).
 
+Map paths (every mode but --init): each code span in the Map of each AGENTS.md (between the AI:map markers, else
+under "## Map") that holds a "/" or a file extension and no space must name a file or folder git sees, below the
+folder of that AGENTS.md. A span with * or ? is a glob and must match at least one file. Commands, placeholders
+(<app>), imports (@AGENTS.md), home paths (~/...) and versions (v2.1) are skipped. No Map: "no Map: skipped".
+
 Also (a warning, never a failure): a docs/research/*.md file without the lines Date:, Sources: and Status: in
 its first 20 lines. Status is current, superseded (by what) or decided (ADR NNNN).
 """
 import fnmatch
+import glob
 import os
 import re
 import subprocess
@@ -50,6 +56,7 @@ def main(argv):
     for f in research_without_header(root, files):
         print("ai-docs-check: WARN %s: add Date:, Sources: and Status: lines at the top" % f)
     problems = md_problems(root, [f for f in files if is_md(f)]) if "--md" in argv else []
+    problems += map_problems(root, files)
     for p in problems:
         print("ai-docs-check: " + p)
     if not stray:
@@ -157,6 +164,85 @@ def link_ok(root, md_file, target):
         return True
     base = root if path.startswith("/") else os.path.join(root, os.path.dirname(md_file))
     return os.path.exists(os.path.normpath(os.path.join(base, path.lstrip("/"))))
+
+
+MAP_MARK_RX = re.compile(r"<!-- AI:map START[^>]*-->")
+MAP_END = "<!-- AI:map END -->"
+EXT_RX = re.compile(r"\.[A-Za-z][A-Za-z0-9]{0,7}$")
+NOT_PATH_START = ("@", "~", "$", "/", "-")
+NOT_PATH_CHARS = set("<>:={}()|&;'\"")
+
+
+def map_problems(root, files):
+    """file:line findings: a Map code span names a path that a clean clone does not have. Each AGENTS.md is read
+    against its own folder (a monorepo package has its own Map)."""
+    seen = set(files)
+    for f in files:
+        parts = f.split("/")
+        seen.update("/".join(parts[:i]) for i in range(1, len(parts)))
+    names = {os.path.basename(f) for f in seen}
+    out = []
+    agents = [f for f in files if os.path.basename(f) == "AGENTS.md"]
+    if not agents:
+        print("ai-docs-check: git sees no AGENTS.md: Map check skipped (track AGENTS.md to check its Map)")
+    for f in agents:
+        lines = map_lines(read_text(os.path.join(root, f)))
+        if lines is None:
+            print("ai-docs-check: %s: no Map: skipped" % f)
+            continue
+        base = os.path.dirname(f)
+        for n, line in lines:
+            for span in CODE_SPAN_RX.findall(line):
+                path = map_path(span.strip("`").strip())
+                if path and not map_path_ok(root, base, path, seen, names):
+                    what = "glob %s matches no file" % path if "*" in path or "?" in path else \
+                        "%s does not exist in a clean clone" % path
+                    out.append("%s:%d: Map %s. Fix the path in the Map or drop the line." % (f, n, what))
+    return out
+
+
+def map_lines(text):
+    """(line number, text) of the Map section: between the AI:map markers, else under "## Map"; None when absent."""
+    lines = text.splitlines()
+    start = next((i for i, ln in enumerate(lines) if MAP_MARK_RX.search(ln)), None)
+    if start is None:
+        start = next((i for i, ln in enumerate(lines) if ln.strip() == "## Map"), None)
+        if start is None:
+            return None
+        end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith(("# ", "## "))), len(lines))
+    else:
+        end = next((i for i in range(start + 1, len(lines)) if MAP_END in lines[i]), len(lines))
+    return [(i + 1, lines[i]) for i in range(start + 1, end)]
+
+
+def map_path(span):
+    """The span as a repo path, or None when it is a command, placeholder, import, home path, URL or version."""
+    if not span or any(c.isspace() for c in span) or span.startswith(NOT_PATH_START) or NOT_PATH_CHARS & set(span):
+        return None
+    span = span[2:] if span.startswith("./") else span
+    if "/" in span or EXT_RX.search(span):
+        return span.rstrip("/")
+    return None
+
+
+def map_path_ok(root, base, path, seen, names):
+    rel = os.path.normpath(os.path.join(base, path)) if base else os.path.normpath(path)
+    if "*" in path or "?" in path:
+        hits = glob.glob(os.path.join(root, rel), recursive=True)
+        return any(os.path.relpath(h, root) in seen for h in hits)
+    if rel in seen:
+        return True
+    # shortcut: a bare name (`router.py` or `done/` after its parent folder) passes when any file or folder has that
+    # name; upgrade to a folder-aware lookup when two files of one name hide a stale Map line.
+    return "/" not in path and path in names
+
+
+def read_text(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+    except OSError:
+        return ""
 
 
 def research_without_header(root, files):
