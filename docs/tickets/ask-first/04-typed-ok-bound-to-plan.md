@@ -1,0 +1,12 @@
+# 04: Typed OK, bound to the plan, from the owner only
+
+**What to build:** a stopped command becomes pending. The owner's next typed "go", "ok", "yes", "approve" or "do it" approves the pending commands for that turn. Other high-impact commands still stop. A negation, a question, a pasted block, an agent message, a subagent hand-back or a scheduled prompt never approves.
+
+**Blocked by:** 02
+
+**Status:** ready-for-agent
+
+- [ ] Flow test: deny, owner types "go", the same command passes, a different high-impact command still denies
+- [ ] "ok?" , "don't do it yet", an `<agent-message>` with "go" and a pasted "go" do not approve
+- [ ] The next prompt without an OK clears the approval
+- [ ] `bash ai/tests/run.sh` 0 failed
