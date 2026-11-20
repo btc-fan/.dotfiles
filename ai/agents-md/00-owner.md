@@ -16,7 +16,7 @@ Do low-risk work without a question, in every agent (Claude Code, Codex, others)
 Before a high-impact step, stop and ask me. High-impact steps are:
 - A start, stop, restart, enable or disable of a service, a container, a daemon or a server.
 - A change to systemd, cron, launchd or the boot sequence.
-- A deploy, or a change on a live host outside a repo (live hosts: ~/.config/ai/live-hosts).
+- A deploy, or a change on a server or another machine outside a repo.
 - A PR, an issue, a message or another outward action that I did not ask for.
 - A force push, a history rewrite or another destructive git command.
 - A deletion of data, or a database write outside a test database.

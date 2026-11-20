@@ -8,4 +8,4 @@
 
 - [ ] Eval case passes 3 of 3 runs for Claude; Codex result reported
 - [ ] Owner OK for each machine; `ai-update`, then `ai-doctor --quick` 0 fail on each
-- [ ] Owner writes `~/.config/ai/live-hosts` on each machine
+- [ ] Owner OK for each project; `ai-update --projects` or `ai-adopt` in each

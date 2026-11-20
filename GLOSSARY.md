@@ -13,7 +13,7 @@ A step that can stop a running service, change how a machine boots, reach other 
 _Avoid_: critical step, dangerous command, serious thing
 
 **Live host**:
-A machine with services that run for the owner. Each machine lists its live hosts in `~/.config/ai/live-hosts`.
+A machine with services that run for the owner. Every remote machine and the owner's own machine count as live hosts.
 _Avoid_: production host, server (when it means any machine)
 
 **Typed OK**:

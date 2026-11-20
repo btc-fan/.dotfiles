@@ -27,7 +27,7 @@ When asked why, it cited the "Standing permission" rule. The causes are:
 | OK scope | An OK covers the shown plan only. A new step needs a new OK. |
 | Draft PR | Open a PR only when the owner asked for feature or fix work in this session. |
 | Unknown commands | A command with a start or stop verb asks, also for unknown programs. |
-| Live hosts | The owner's 4 machines today. The repo is generic, so each machine lists them in `~/.config/ai/live-hosts` (one ssh alias per line; `localhost` for the machine itself). |
+| Live hosts | Every remote machine and the owner's machine. No host list: the same rules apply everywhere (owner: keep it generic). |
 | "Prepare", "plan", "set up" | Write the files and the plan. Do not start, enable, deploy or open a PR. |
 | Delivery | This spec, then tickets, then one PR per ticket. |
 | This repo's rollout | Middle way. Commit and push to a feature branch freely. A merge to `ai` and each machine install wait for the owner's OK. The project rule "full rights ... without a stop for an OK" changes to match. |
@@ -53,7 +53,7 @@ You can do low-risk work without a question. Low-risk work is reads, tests, and 
 Before a high-impact step, stop and ask me. High-impact steps are:
 - A start, stop, restart, enable or disable of a service, a container, a daemon or a server.
 - A change to systemd, cron, launchd or the boot sequence.
-- A deploy, or a change on a live host outside a repo. The live hosts are in ~/.config/ai/live-hosts.
+- A deploy, or a change on a server or another machine outside a repo.
 - A PR, an issue, a message or another outward action that I did not ask for.
 - A force push, a history rewrite or another destructive git command.
 - A deletion of data, or a database write outside a test database.
@@ -96,7 +96,7 @@ Change `ai/agents-md/55-git-workflow.md`: open the draft PR only when the owner 
   11. A database write (`DROP`, `DELETE`, `UPDATE`, `TRUNCATE`, `ALTER`) through a SQL client.
   12. An unknown program with a start or stop verb as an argument (start, stop, restart, enable, disable, deploy, up, down). Example: `herdr-core server start`.
 - ssh: the gate parses the remote text of `ssh <host> '<cmd>'` as a command, every stage of the chain. It reads a local script in `ssh host 'bash -s' < file` and a heredoc body. When it cannot read the script, and the host is live, it stops.
-- Live hosts: `~/.config/ai/live-hosts` (one ssh alias per line). No file: every ssh host is live. Classes 1 to 5, 7 and 11 stop on any host, local or remote.
+- The same rules apply on every host. There is no host list.
 - These pass: `systemctl status|show|cat|is-active|list-*`, `journalctl`, `docker ps|logs|inspect`, `crontab -l`, `ssh <host> 'uptime'`, reads over ssh, `--dry-run` forms.
 
 ### Part 3: typed OK, bound to the plan (owner only)
@@ -118,7 +118,7 @@ Change `ai/agents-md/55-git-workflow.md`: open the draft PR only when the owner 
 
 ## Out of Scope
 
-- A script that already lives on the remote host (`ssh host ./deploy.sh`). The gate stops it on a live host, but it cannot read it.
+- A script that already lives on the remote host (`ssh host ./deploy.sh`). The gate stops it, because it cannot read it.
 - A local script that the agent wrote and then runs (`./setup.sh`). The rule text covers it. A scan is a later ticket if the audit finds cases.
 - Claude auto mode and `permissions.ask` lists. The research rejects them.
 - A change to the profiles.
@@ -142,4 +142,4 @@ In `docs/tickets/ask-first/`. 01 and 02 can start now. 03 to 06 need 02. 07 need
 
 ## Rollout
 
-After the owner merges both PRs: `ai-update` on each machine, and the owner writes `~/.config/ai/live-hosts` on each one. Each step waits for the owner's OK.
+After the owner merges the PR: `ai-update` on each machine, then `ai-adopt` in each project. Each step waits for the owner's OK.
