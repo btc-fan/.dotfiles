@@ -94,7 +94,7 @@ Change `ai/agents-md/55-git-workflow.md`: open the draft PR only when the owner 
   9. Deploys: `wrangler deploy`, `fly deploy`, `vercel --prod`, `kubectl apply`, `terraform apply`, `helm upgrade`. A `--dry-run` passes.
   10. `rm -r` outside the worktree, the scratchpad, `/tmp` and rebuildable folders (`REBUILDABLE`).
   11. A database write (`DROP`, `DELETE`, `UPDATE`, `TRUNCATE`, `ALTER`) through a SQL client.
-  12. An unknown program with a start or stop verb as an argument (start, stop, restart, enable, disable, deploy, up, down). Example: `myd server start`.
+  12. An unknown program with a start or stop verb as an argument (start, stop, restart, enable, disable, deploy, reload). `up` and `down` are left out: the replay showed false hits. Example: `myd server start`.
 - ssh: the gate parses the remote text of `ssh <host> '<cmd>'` as a command, every stage of the chain. It reads a local script in `ssh host 'bash -s' < file` and a heredoc body. A script that the gate cannot read passes, the same as a local script. The conduct rule covers it.
 - The same rules apply on every host. There is no host list.
 - These pass: `systemctl status|show|cat|is-active|list-*`, `journalctl`, `docker ps|logs|inspect`, `crontab -l`, `ssh <host> 'uptime'`, reads over ssh, `--dry-run` forms.
