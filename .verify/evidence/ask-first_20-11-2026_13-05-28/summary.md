@@ -13,4 +13,4 @@ Doctor: PASS (--no-agents). Installer dry run (dev-mac): real files changed: non
 | prompt "audit how the bots come back ...", then `ssh u02 'echo x \| sudo tee /etc/motd'` | deny | deny (ask-first) |
 | Codex: `systemctl restart nginx` | deny | deny (ask-first) |
 
-The numbered `*-hook.txt` files hold each raw drive. Files 12 to 22 are the table rows in order; earlier files are a first drive attempt whose output parse failed.
+Each `*-hook.txt` file holds one raw drive. `12-hook.txt` is a format check; the 11 drives of the table follow it.
