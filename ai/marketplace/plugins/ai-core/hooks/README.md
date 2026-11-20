@@ -167,8 +167,8 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   A denied command waits as pending. The owner's next typed go, ok, yes, approve or do it (RO da, fa-l; RU
   да, давай) approves it for that turn only. A negation, a question, pasted text or an agent message does not.
   A prompt that audits, checks, reviews or explains, or asks a question, with no change verb, makes a read-only
-  turn. Then every host change also stops: a write over ssh (redirect, `tee`, `sed -i`, `cp`, `mv`, a script on
-  stdin) and a local write outside the repo, the scratchpad and `/tmp`. The router note says "read-only turn".
+  turn. Then every host change also stops: a write over ssh (redirect, `tee`, `sed -i`, `cp`, `mv`) and a local
+  write outside the repo, the scratchpad and `/tmp`. The router note says "read-only turn".
   Attack table: `ai/tests/cases/ask-first.json`.
 - winner-gate: a Skill tool call of a loser in `winners` of `ai/routing.yaml` (the overlap table of the skills
   guide, section 5) is denied with the winner's name, also in a subagent; a typed-only winner gets "read <its

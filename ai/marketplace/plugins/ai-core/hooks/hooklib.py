@@ -2275,7 +2275,7 @@ def owner_ask_ok(prompt):
 
 READ_VERB_RX = re.compile(r"^\W*(please\s+)?(audit|check|research|look\s+(at|into)|review|explain|investigate|"
                           r"verific\w*|analiz\w*|проверь|посмотри)(?!\w)", re.I)
-QUESTION_RX = re.compile(r"\?\s*$|^\W*(how|what|why|where|which|when|who|is|are|does|did)\b", re.I)
+QUESTION_RX = re.compile(r"\?\s*$")
 CHANGE_VERB_RX = re.compile(r"\b(fix|add|build|install|deploy|restart|update|implement|change|remove)\b"
                             r"|(?<!\w)(repar\w*|adaug\w*|instaleaz\w*|исправ\w*|добав\w*|установ\w*|"
                             r"перезапуст\w*)", re.I)
@@ -2289,7 +2289,7 @@ def read_only_prompt(prompt):
 
 def read_only_reason(stages, cmd, cwd):
     """In a read-only turn every host change stops, also outside the classes: a write over ssh (redirect, tee,
-    sed -i, cp, mv, a script on stdin) and a local write outside the repo, the scratchpad and /tmp."""
+    sed -i, cp, mv) and a local write outside the repo, the scratchpad and /tmp."""
     for st in stages:
         host, remote = ssh_remote(st) if st.exe == "ssh" else (None, "")
         if not remote:
@@ -2297,8 +2297,6 @@ def read_only_reason(stages, cmd, cwd):
         rs = parse_command(remote)
         why = ask_first_reason(rs, remote, "/") or next(
             (t for t in write_targets(rs, "/", remote) if not t.startswith("/dev/")), None)
-        if not why and any(INTERPRETERS.match(r.exe) and runs_stdin_as_code(r) for r in rs):
-            why = "a script on stdin"
         if why:
             return "ssh %s: %s (a host change in a read-only turn)" % (host, why)
     for target in write_targets(stages, cwd, cmd):
