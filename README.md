@@ -367,7 +367,7 @@ You open a new Claude or Codex session and type: "add retries to the price fetch
 2. **Locate.** The Map says HTTP calls go through `src/app/http.py`. The agent runs one narrow search (`rg -n "def fetch_price" src/`) and reads only the located lines. No folder scan.
 3. **Library docs.** The Libraries row gives `/encode/httpx/0.28.1`. The agent calls context7 `query-docs` with that ID: no `resolve-library-id`, no web search.
 4. **Edit, test.** The Map names the test command.
-5. **Commit.** Row `knowledge-check` reads the commit. No module was added or moved and no lockfile changed, so it says nothing. Had the agent added `src/app/retry.py`, it would say "Update the Map section in AGENTS.md."
+5. **Commit.** No reminder fires. `make check` runs `ai-docs-check` and `ai-libs --check`, so a Map path that is gone or a stale Libraries section fails there.
 
 What it costs: the two sections are about 1,000 to 2,000 tokens, loaded every session with the rest of AGENTS.md. One narrow search plus a few located lines is about 1,000; one docs call about 2,000. The same task from zero (list folders, grep, read 5 to 10 files, resolve the library) is often 25,000 tokens or more, in every session. ACCEPTANCE T1 measures the always-on budget with `/context`.
 
