@@ -1,0 +1,9 @@
+/Users/python-qa/work/dotfiles-rth-04/ai/bin/ai-github-wall --apply
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-hsw6k8kx/empty
+rc: 0
+--- transcript
+made: pull request and green checks
+made: pull request on the default branch
+Note: bypass_actors is empty, but an admin token can still edit or delete these rulesets.
+
+--- git status --short after

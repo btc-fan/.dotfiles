@@ -1,0 +1,7 @@
+/Users/python-qa/work/dotfiles-rth-04/ai/bin/ai-github-wall --apply
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-hsw6k8kx/empty
+rc: 1
+--- transcript
+ai-github-wall: the remote origin of this folder is not a GitHub remote
+
+--- git status --short after

@@ -8,6 +8,7 @@
 - Installer: `install.sh` and `ai/adapters/*.sh`. Project layer: `ai/bin/ai-start` (`ai-adopt` is a link to it); add-only updates and the owner-text guard: `ai/lib/ownertext.py`. One-command update of a machine and its adopted projects: `ai/bin/ai-update` (project list: `~/.local/state/ai/projects`).
 - Our skills: `ai/skills/<name>/SKILL.md`, linked into `~/.claude/skills` and `~/.agents/skills`.
 - Check: `bash ai/tests/run.sh` (everything; about 10 min).
+- CI: `.github/workflows/tests.yml` (required check `tests` on pull requests to `ai`). GitHub rulesets and push protection: `ai/bin/ai-github-wall`.
 - Evals: `ai/bin/ai-eval` (fixture repos, install level, headless behaviour level); cases in `ai/evals/cases/*.json`.
 - Verify tool of this repo: `.agents/skills/verify-ai-setup/` (helper `verify`: launch, doctor, drive, cleanup on temp fixtures; evidence in `.verify/evidence/<run>/`). Run it before a PR that changes a gate, a stop rule, a CLI or the installer.
 - Work files: specs `docs/specs/`, tickets `docs/tickets/<slug>/` (finished ones in `done/`), reports `docs/reports/`, research `docs/research/`, the setup-shape map and its issues `docs/maps/setup-shape/`.
