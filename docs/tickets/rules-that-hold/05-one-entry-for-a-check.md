@@ -24,6 +24,11 @@
 6. The cwd is not a git repo, or the repo has no commit: `--staged` exits 2 with "not a git repo" or reads an empty diff and passes. It never crashes.
 7. A monorepo: the root is the git top level. Paths in the reason are relative to it.
 8. Codex: the hook keeps its own call. The commit hook now covers Codex sessions too, because git runs it for each agent.
+9. Found in the code: the router has no em dash function. `no-em-dash` is a content trigger in `routing.yaml`, so `text` is a new `hooklib.em_dash_lines`; the row stays.
+10. Found in the code: the hook says nothing when `gitleaks` is missing. Only `ai-check` and `ai-precommit` print the note, so the hook output stays the same.
+11. The `main: unknown` check needs the session id. `ai-check` has no session, so it does not refuse that line. Ticket 06 must solve this for CI.
+12. `ai-check` reads no owner skip. `ai-precommit` reads the root-owned skip file for `secret-scan`, as it does for `verify-commit`.
+13. `ai-check pr-rules --pr-body` takes no `--title`, so the fix-PR test-file check does not run there. Ticket 06 can add it.
 
 **Owner steps:** None.
 
@@ -33,11 +38,11 @@
 
 **Size:** M
 
-- [ ] `ai-check secret-scan --staged` refuses a staged fake key in a plain terminal, with no agent running.
-- [ ] `ai-check pr-rules --pr-body body.md` refuses a body with no Mermaid block and names the missing field.
-- [ ] One test sends the same input to the router hook, to `ai-precommit` and to `ai-check`, and gets the same decision from each.
+- [x] `ai-check secret-scan --staged` refuses a staged fake key in a plain terminal, with no agent running.
+- [x] `ai-check pr-rules --pr-body body.md` refuses a body with no Mermaid block and names the missing field.
+- [x] One test sends the same input to the router hook, to `ai-precommit` and to `ai-check`, and gets the same decision from each.
 - [ ] `grep` proof in the PR: the secret patterns and the PR field list exist in one module only.
-- [ ] `ai-check --list` names each gate that is not offered, with the reason.
+- [x] `ai-check --list` names each gate that is not offered, with the reason.
 
 **Verify:**
 - Unit: `ai/tests/cases/secret-scan.json` and `ai/tests/cases/pr-rules.json` run through `ai-check` too (a new loop in `ai/tests/test_router.py`); add `t_check_three_callers` to `ai/tests/test_flow.py`.

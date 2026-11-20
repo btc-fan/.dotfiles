@@ -27,6 +27,8 @@ Placeholders: {{PROJ}} {{HOME}} {{NOW}} {{OLD}} {{TRANSCRIPT}} and fake secrets 
 {{SK_LIVE_SAMPLE}} {{ADMINPASS}} {{AIZA_TEST}} {{ZPS_FAKE}} {{JWT_REAL}} {{DBURL_TEST}}
 (fake secrets are built here at run time, so no secret-looking string is stored in the repo).
 Every run uses a throwaway HOME and state dir. Nothing touches the real home.
+The one-step Bash cases of secret-scan and pr-rules also run through `ai-check <rule> --command` (ticket 05):
+the exit code must match the hook decision.
 """
 import glob
 import json
@@ -97,7 +99,8 @@ def main(argv):
             failures.extend(check_tiebreak_regex(routing))
             failures.extend(check_fail_closed(work))
             failures.extend(check_fail_closed_inputs(work, build))
-        print("\n%d cases, %d failed" % (total, len(failures)))
+        print("\nai-check: %d cases gave the same decision as the hook" % len(CHECKED))
+        print("%d cases, %d failed" % (total, len(failures)))
         for f in failures:
             if "->" not in f:
                 print("FAIL " + f)
@@ -325,7 +328,41 @@ def run_case(rule_id, case, work, build):
         return "router error: " + errors.strip().splitlines()[-1]
     if steps[-1]["event"] == "UserPromptSubmit" and elapsed > 1.0:
         return "UserPromptSubmit took %.2f s (limit 1 s)" % elapsed
-    return judge(sub(case, subs), rule_id, agent, out, code, state, fired_before, misses_before)
+    return (judge(sub(case, subs), rule_id, agent, out, code, state, fired_before, misses_before)
+            or check_cli_same(rule_id, case, steps, payload, agent, env, proj, out, code, state))
+
+
+# ---------------------------------------------------------------- ai-check gives the hook's decision (ticket 05)
+
+CHECK_CLI = os.path.join(AI_DIR, "bin", "ai-check")
+CHECK_RULES = ("secret-scan", "pr-rules")
+CHECKED = []
+
+
+def check_cli_same(rule_id, case, steps, payload, agent, env, proj, out, code, state):
+    """The same command through `ai-check <rule> --command` must give the decision of the hook.
+    Only one-step Bash cases without an owner skip compare: ai-check has no session and reads no skip."""
+    cmd = (payload.get("tool_input") or {}).get("command") if isinstance(payload.get("tool_input"), dict) else None
+    if rule_id not in CHECK_RULES or len(steps) != 1 or steps[0]["event"] != "PreToolUse" or not isinstance(cmd, str) \
+            or case.get("gate_skip"):
+        return None
+    decision = decision_of(out, code, agent)
+    if decision and not mentions(out, rule_id):
+        return None         # another gate decided first: nothing to compare
+    if "(this session: main:" in out:
+        return None         # the main: line check needs the session id; ai-check has none (ticket 05, edge case 9)
+
+    want = 1 if decision in ("deny", "deny-without-block") else 0
+    res = subprocess.run([sys.executable, CHECK_CLI, rule_id, "--command", cmd, "--dir", payload["cwd"]],
+                         env=env, cwd=proj, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+    CHECKED.append(rule_id)
+    errors = read(os.path.join(state, "router-errors.log"))
+    if errors:
+        return "ai-check error: " + errors.strip().splitlines()[-1]
+    if res.returncode != want:
+        return "ai-check exit %d, the hook gave %s; output: %s" % (res.returncode, decision or "allow",
+                                                                   short(res.stdout.decode()))
+    return None
 
 
 def judge(case, rule_id, agent, out, code, state, fired_before, misses_before):

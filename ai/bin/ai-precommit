@@ -15,6 +15,9 @@ It checks only staged files, with the tools the repo already has (nothing is ins
   Shell         shellcheck                        (when installed)
 A tool that is not there is skipped and named once. It never changes a file: the message says how to fix.
 
+Secret scan (rules-that-hold 05): the secret-scan gate of the agent hook runs on the staged diff, in this process
+(hooklib.run_check, the same function as ai-check). A hit blocks the commit.
+
 Verify gate (verify-enforcement 04): in a project with a verify-<app> skill, a commit whose staged diff adds a test
 (Python `def test_...(`; `test(` or `it(` in a JS or TS spec file) needs a valid run.log in .verify/evidence/ of
 this checkout (a linked worktree: its own) that finished after the commit time of the newest commit that changes
@@ -33,8 +36,8 @@ import time
 BIN = os.path.dirname(os.path.realpath(__file__))
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(os.path.dirname(BIN), "marketplace", "plugins", "ai-core", "hooks"))
-from hooklib import (code_head, gate_skips, iso_now, log_line, log_wall, redact, verify_proof, verify_skill,  # noqa: E402
-                     verify_steps)
+from hooklib import (code_head, gate_skips, iso_now, log_line, log_wall, redact, run_check, verify_proof,  # noqa: E402
+                     verify_skill, verify_steps)
 
 GROUPS = [
     # (extensions, [(label, argv builder, fix hint)])
@@ -56,6 +59,7 @@ def main(argv):
     files = staged(root)
     if not files:
         return 0
+    secret = secret_gate(root)
     refusal = verify_gate(root)
     skip = gate_skips(env_ok=False)[0].get("verify-commit") if refusal else None
     if skip is not None:        # the git env comes from the agent's command: only the root-owned file counts
@@ -80,7 +84,26 @@ def main(argv):
         log_wall("verify-commit", refusal.split(": ", 1)[-1], root)
     if failed:
         print("ai-precommit: blocked the commit: %s. Fix the files, git add them, commit again." % "; ".join(failed))
-    return 1 if failed or refusal else 0
+    return 1 if failed or refusal or secret else 0
+
+
+# ---------------------------------------------------------------- secret scan (the hook's gate, rules-that-hold 05)
+
+def secret_gate(root):
+    """The secret-scan gate of the agent hook on the staged diff, in this process. Prints a refusal; True = refused."""
+    found, notes = run_check("secret-scan", root, staged=True)
+    for note in notes:
+        print("ai-precommit: secret-scan: %s" % note)
+    if not found:
+        return False
+    skip = gate_skips(env_ok=False)[0].get("secret-scan")
+    if skip is not None:        # the same owner skip as in the session (root-owned file only), logged
+        log_line("gates.log", "%s SKIP secret-scan dir=%s reason=%s" % (iso_now(), root, redact(skip)))
+        print("ai-precommit: the secret scan was skipped by the owner (/etc/ai/gate-skip, logged): %s" % skip)
+        return False
+    print("ai-precommit: blocked the commit: [secret-scan] %s" % found)
+    log_wall("secret-scan", found, root)
+    return True
 
 
 # ---------------------------------------------------------------- verify gate (hook 3)

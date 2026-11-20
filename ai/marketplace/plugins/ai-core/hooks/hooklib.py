@@ -2526,6 +2526,89 @@ GATE_PROBES = {"audit-before-install": probe_audit, "secret-scan": probe_secrets
                "no-verify": probe_no_verify, "gh-write": probe_gh, "ask-first": probe_ask_first}
 
 
+# ---------------------------------------------------------------- one entry for a check (rules-that-hold 05)
+# ai-check, ai-precommit and CI call run_check. It calls the gate function of the agent hook (GATES) with a
+# context that has no session. The input (a command line, the staged diff, a PR body file) is data: it is
+# parsed, never run.
+
+CHECK_INPUTS = {"secret-scan": ("command", "staged"), "pr-rules": ("command", "pr-body"),
+                "text": ("command", "staged", "pr-body")}
+CHECK_NOT_OFFERED = {
+    "merge-approval": "the owner's OK lives in the agent session",
+    "writing-for-agents": "the proof is a skill load in the agent session",
+    "ship": "the proof is a skill run in the agent session",
+    "ask-first": "it asks the owner in the agent session",
+    "gh-write": "it asks the owner in the agent session",
+    "no-verify": "it judges an agent command; git skips its own hooks under --no-verify, so CI checks again",
+    "no-sudo": "it judges an agent command before it runs; git and CI see no command",
+    "no-destroy": "it judges an agent command before it runs; git and CI see no command",
+    "audit-before-install": "it judges an agent install command before it runs; git and CI see no command",
+    "worktree-first": "it judges an agent file edit before it happens; git and CI see no edit",
+}
+EM_DASH = "\u2014"      # the escape, never the character: the lint reads this file too
+
+
+class CheckCtx(object):
+    """The part of the router context that the offered gates read, for a run with no agent session."""
+
+    def __init__(self, cwd):
+        self.cwd = cwd
+        self.session = "nosession"
+        self.contexts = []
+
+    def add_context(self, text):
+        self.contexts.append(text)
+
+
+def run_check(gate, cwd, cmd=None, staged=False, body=None):
+    """(problem or None, notes) of one gate on one input. A problem means fail."""
+    import shlex
+    import shutil
+    ctx = CheckCtx(cwd)
+    if gate == "text":
+        return text_problem(cwd, cmd, staged, body), ctx.contexts
+
+    if staged:
+        cmd = "git commit"
+    elif body is not None:
+        cmd = "gh pr create --body-file " + shlex.quote(os.path.abspath(body))
+    if gate == "secret-scan" and not shutil.which("gitleaks"):
+        ctx.add_context("gitleaks not found: built-in patterns only.")
+    verdict = GATES[gate](ctx, cmd, parse_command(cmd))
+    return (verdict[1] if verdict else None), ctx.contexts
+
+
+def text_problem(cwd, cmd, staged, body):
+    """The em dash check on the added lines of the staged diff, on a PR body file, or on a command line."""
+    if staged:
+        diff = scan_git(cwd, ["diff", "--cached", "--no-color", "-U0"], Budget())
+    elif body is not None:
+        diff = "+++ b/%s\n" % os.path.basename(body) + as_added(read_text(body) or "")
+    else:
+        diff = "+++ b/command\n" + as_added(cmd or "")
+    hits = em_dash_lines(diff)
+    if not hits:
+        return None
+    return ("the em dash character (U+2014) at %s. Use '-', ':' or a new sentence."
+            % ", ".join(hits[:10]) + (" (%d more)" % (len(hits) - 10) if len(hits) > 10 else ""))
+
+
+def em_dash_lines(diff):
+    """["path:line"] of the added lines in a -U0 diff that hold the em dash."""
+    out, path, line_no = [], "", 1
+    for line in diff.splitlines():
+        if is_diff_header(line):
+            path, line_no = (line[6:] if line.startswith("+++ b/") else ""), 1
+        elif line.startswith("@@"):
+            m = re.match(r"^@@ -\S+ \+(\d+)", line)
+            line_no = int(m.group(1)) if m else 1
+        elif line.startswith("+"):
+            if EM_DASH in line:
+                out.append("%s:%d" % (path, line_no))
+            line_no += 1
+    return out
+
+
 # ---------------------------------------------------------------- regression ledger (docs/REGRESSIONS.md)
 # One row per bug that reached main (Tier 1 T3, long tier):
 #   R-012 | 2026-11-12 | area: crawler/gone | symptom: ... | cause: ... | test: tests/regressions/test_r012_x.py |
