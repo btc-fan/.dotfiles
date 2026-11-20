@@ -1,6 +1,6 @@
 ## Appendix 2. claude-blog eval prompts (expected Skill = `claude-blog:<skill>`; the router `claude-blog:blog` first, then the sub-skill, counts as a pass)
 
-Run these in a project where claude-blog is on (`ai-adopt --tools blog`). In Claude, in a project without it, every FIRE prompt must instead get the one-line `blog-not-enabled` suggestion and no claude-blog skill call. Codex, opencode and Hermes: the pack counts as on everywhere (they read the skill files).
+Run these in a project where claude-blog is on (`ai-adopt --tools blog`). In Claude, in a project without it, `ai-info` lists it as off here, and no FIRE prompt gets a claude-blog skill call. Codex, opencode and Hermes: the pack counts as on everywhere (they read the skill files).
 
 Same format as Appendix 1. Post file placeholder: posts/esim.md. blog-chart is internal only (vendor: "Agents cannot call it"), so it has no should-fire.
 

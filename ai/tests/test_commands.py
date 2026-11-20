@@ -26,7 +26,7 @@ def main():
                      t_ai_start, t_router_speed, t_ai_sync, t_ai_sync_links_skills, t_ai_sync_keeps_pstack, t_ai_sync_claude_plugin_copy, t_merged_branches_note, t_sync_hooks, t_dev_worktree_no_sync, t_hermes_plugin, t_playwright,
                      t_state_mode, t_skill_scanner_reject, t_winners_table, t_github_wall_dry_run,
                      t_github_wall_apply, t_tests_workflow_shape, t_pr_text_workflow_shape, t_ai_checks_template,
-                     t_doctor_legacy_memory_fail):
+                     t_doctor_legacy_memory_fail, t_doctor_no_ai_base):
             try:
                 test(work)
                 print("ok   " + test.__name__)
@@ -858,6 +858,25 @@ def t_doctor_legacy_memory_fail(work):
     res = subprocess.run(doctor + ["--quick"], env=env, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     line = memory_line(res.stdout.decode())
     assert line.startswith("PASS"), res.stdout.decode()[-1500:]
+
+
+def t_doctor_no_ai_base(work):
+    """Ticket rules-that-hold 11: ai-doctor WARNs in a repo without .ai/base-version, also when it has no code yet."""
+    home = os.path.join(work, "home-no-base")
+    repo = os.path.join(work, "no-base-repo")
+    os.makedirs(home)
+    subprocess.run(["git", "init", "-q", repo], check=True)
+    env = dict(os.environ, HOME=home, AI_STATE_DIR=os.path.join(home, "state"))
+    env.pop("CLAUDE_CONFIG_DIR", None)
+    doctor = [sys.executable, os.path.join(BIN, "ai-doctor"), "--project-only", repo]
+
+    out = subprocess.run(doctor, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout.decode()
+    assert "WARN" in out and "no AI setup here: run ai-adopt" in out, out[-1500:]
+
+    os.makedirs(os.path.join(repo, ".ai"))
+    open(os.path.join(repo, ".ai", "base-version"), "w").write("4\n")
+    out = subprocess.run(doctor, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout.decode()
+    assert "no AI setup here" not in out, out[-1500:]
 
 
 def memory_line(out):

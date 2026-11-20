@@ -112,8 +112,6 @@ passes the hooks, and the hooks never judge if the drive was good; code review a
   maintain-verification-skill now", or "missing. Agent task: build verify-<app> with create-verification-skill at
   the first feature task, and prove it with one real run." A copy that is still typed-only on a machine adds
   "(typed-only; agent: read <path>/SKILL.md and follow it)".
-- L3: row `verify-before-done` after the first code edit of each agent: the main agent and each subagent
-  (`once_per: agent`, keyed on the payload's `agent_id`; only with a verify skill).
 - L3: `ai-adopt` writes the Done order into every project. A project with its own Done section gets one managed
   `AI:verify` line at the end of that section; the owner text stays byte for byte.
 - L3: the `release` skill runs `maintain-verification-skill` when the project has a verify skill.
@@ -144,9 +142,9 @@ passes the hooks, and the hooks never judge if the drive was good; code review a
 - Should fire (RO): "verifica schimbarea de la cos cu skill-ul de verificare inainte sa termini".
 - Should fire (RU): "проверь изменение корзины навыком проверки, прежде чем закончить".
 - Should not fire: "fix the typo in the README" (no code edit, no hint); a library-only repo.
-- Signal: Skill or Read of `create-verification-skill` or `verify-<app>`, `.verify/evidence/<run>/run.log`,
-  `[ai router: verify-before-done]`. Tests: `ai/tests/test_tier1.py` (`t_verify_*`, `t_pstack_adapt_ours`,
-  `t_adopt_verify_link`, `t_typed_only_skill_paths`), `ai/tests/cases/verify-before-done.json`, `pr-rules.json`,
+- Signal: Skill or Read of `create-verification-skill` or `verify-<app>`, `.verify/evidence/<run>/run.log`.
+  Tests: `ai/tests/test_tier1.py` (`t_verify_*`, `t_pstack_adapt_ours`,
+  `t_adopt_verify_link`, `t_typed_only_skill_paths`), `pr-rules.json`,
   `test_resolve.py` (`t_bash_pstack`), `cases/verify-tool-exists.json`, `cases/verify-tool-used.json`, `test_flow.py`
   (`t_vh_*`: the hooks and the commit gate, the worktree regression; `t_pr_gate_*`: the PR gate), `test_skills.py`
   (`t_release_runs_maintain`).
@@ -170,7 +168,7 @@ passes the hooks, and the hooks never judge if the drive was good; code review a
 ## Evidence cleanup (verify-evidence-in-git)
 - `ai-evidence-prune` removes committed run folders older than 7 days and keeps the newest run of each feature.
   It refuses main and master. It does not commit.
-- Trigger: the `merge-review` session-start note, when the repo tracks `.verify/evidence/`. The agent runs it on a
+- Trigger: after a merge, when the repo tracks `.verify/evidence/`. The `merge-review` row that said so is gone (ticket rules-that-hold 11). The agent runs it on a
   branch `chore-prune-evidence-<date>` and opens a PR. The owner merges.
 - Git history keeps the removed files (about 1 MB per run). Tests: `ai/tests/test_evidence.py`,
   `test_commands.py` (`t_merged_branches_note`).

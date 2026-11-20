@@ -203,8 +203,6 @@ def validate(data):
         bad = [p for p in (r.get("profiles") or []) if p not in ai_profile.names()]
         if "profiles" in r and (not isinstance(r["profiles"], list) or not r["profiles"] or bad):
             errors.append("%s: profiles must be a non-empty list of known profiles (%s)" % (rid, ", ".join(ai_profile.names())))
-        if "prompt_libs" in trig and not isinstance(trig["prompt_libs"], bool):
-            errors.append("%s: prompt_libs must be true/false" % rid)
     for tb in data.get("tiebreaks", []):
         rx = tb.get("match")
         if not rx:
@@ -368,13 +366,8 @@ def top_level_split(s):
 # How the L0 table shows an action placeholder (the router fills the real text at fire time).
 PLACEHOLDER_WORDS = {
     "knowledge_index": "(status line: memories, graph, docs map)",
-    "libs_hits": "(cached IDs)",
-    "ledger_hits": "docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests.",
     "feature_flow": "Worktree ../<repo>-<slug> first; grill-with-docs (else grilling); 3+ files: to-spec, to-tickets; /implement each ticket (check-fast, verify, e2e, commit). Draft PR only if asked. Done: ship; the owner merges.",
-    "merge_review": "/improve-codebase-architecture, then /retro; findings as tickets or a PR; then git rev-parse main > .ai/last-review.",
-    "upgrade_pending": "Run the upgrade-review skill.",
     "nav_hint": "graphify query (where, how) or graphify affected (impact) first, then Serena find_symbol / find_referencing_symbols; rg only for text.",
-    "verify_hint": "Before done: check-fast, then verify-<app> on the changed feature (evidence), then e2e tests.",
     "origin_slug": "(repo from origin)",
     "claude_handoff": "Other agents: hand off to Claude if it is logged in, else follow the skill files.",
 }

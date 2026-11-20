@@ -241,16 +241,11 @@ Global rules (every repo):
 | Rule | Kind | Fires when | Says |
 |---|---|---|---|
 | project-knowledge | nudge | session start in a code repo | Read the Map and Libraries of AGENTS.md first, then search narrowly. Plus the status line. |
-| no-ai-base | nudge | session start, repo without `.ai/base-version` | Suggest `ai-adopt`. |
 | secret-scan | **gate** | before `git commit` or `git push` | Remove the secret first. |
 | pr-rules | **gate** | before `gh pr create` or `gh pr edit` with a body | The PR body template (section 11). |
-| ledger-nudge | nudge | before an edit in a file that `docs/REGRESSIONS.md` covers | Keep its R-IDs green, run their tests. |
 | no-em-dash | nudge | after a write that contains U+2014 | Use "-", ":" or a new sentence. |
 | ste-sentence | nudge | after an Edit, MultiEdit or Write of a Markdown file with a new sentence over 25 words | The writing style rule (ASD-STE100): split the sentence. Code, tables, headings and front matter do not count. A sentence that the old text already had does not count. |
-| docs-lookup | nudge | a prompt about a library, SDK or API | context7 with the Libraries ID first. |
 | feature-grill | nudge | a feature request prompt (EN, RO, RU) | Grill first, then to-spec and to-tickets for 3+ files. |
-| verify-before-done | nudge | after the first code edit of each agent (main and each subagent), project with a `verify-<app>` skill | check-fast, then verify-<app> evidence, then e2e. |
-| seo-, blog-, browser-not-enabled | nudge | SEO, blog or browser prompt in a project without that tool | Suggest `ai-adopt --tools <id>`. Do not install it. |
 | merge-approval, no-verify | **gate** | `gh pr merge` or a push to main; `--no-verify` | Wait for your "merge"; fix what the git hook reports. |
 | writing-for-agents | **gate** | before an edit or shell write of AGENTS.md, CLAUDE.md, CLAUDE.local.md, a SKILL.md | Load the `writing-for-agents` skill first. |
 | ship | **gate** | before `gh pr ready` | Run the `ship` skill first. |
@@ -259,13 +254,15 @@ Global rules (every repo):
 | tdd | nudge | a tests-first prompt | Use Matt's `tdd` skill. A hint: the turn end is not blocked. |
 
 Opt-in rows (only where the project turned the tool on): serena, graph (both on by default), omc, seo, blog,
-browser, ui, tracker-flow, domain-docs, knowledge-wiki.
+browser, ui, knowledge-wiki.
 
 Rows that exist but are off on `dev-mac` (server profile only): `no-sudo`, `no-destroy`, `audit-before-install`.
 
-The `docs-lookup` row fires only when the prompt names a library of the repo's Libraries block, or before an edit
-of a dependency file (`package.json`, `pyproject.toml`, `requirements*.txt`, `go.mod`, `Cargo.toml`, `Gemfile`,
-`composer.json`). A prompt that only says "docs" stays quiet: it was missed 72 of 88 times before.
+Rules without a router row (ticket rules-that-hold 11): library docs come from the context7 server instructions.
+`ai-doctor --project` says "no AI setup here: run ai-adopt". `ai-info` lists the opt-in tools that are off here.
+`ai-ledger --check` runs in `make check`. The verify walls hold the Done order. The `ship` skill holds the
+after-merge review. `ai-versions --record` prints the upgrade line. The table of homes is in
+`docs/tickets/rules-that-hold/CHANGED-GUARDS.md`.
 
 ### 3.4 Fixed stale text (2026-11-15)
 
@@ -536,7 +533,7 @@ and OMC orchestration (autopilot, ralph, team, ultragoal, ask, babysit, fix-ci, 
 | Progress | `docs/tickets/<feature>/NN-*.md`, closed in `done/` | to-tickets, implement, you | Next session |
 | Big unclear efforts | `docs/maps/<effort>/map.md` | wayfinder | Each wayfinder session |
 | Facts from outside | `docs/research/<topic>.md` | research | grill-with-docs |
-| Bugs that came back | `docs/REGRESSIONS.md` (R-NNN rows) | you, agents (`ai-ledger`) | Before an edit in that area (ledger-nudge) |
+| Bugs that came back | `docs/REGRESSIONS.md` (R-NNN rows) | you, agents (`ai-ledger`) | `make check` (`ai-ledger --check`) |
 | Test, skip, lint counts | `.ai/ratchet.json` | `ai-ratchet` | `make check` |
 | Code structure | graphify graph (`graphify-out/`, gitignored) | rebuilds after commit, checkout, merge | Wide questions: `graphify query "<question>" --budget 1500`, impact: `graphify affected "<path>::<symbol>"` |
 | Symbols | Serena (live, from the code) | nobody (always current) | Exact symbol, callers, edits: find_symbol, find_referencing_symbols, replace_symbol_body |
@@ -730,8 +727,6 @@ When you start Claude in a repo, the router sends this (real, demo repo before `
 narrowly. tier: none (not adopted; ai-adopt sets it). Map: missing (ai-adopt writes it). Libraries: no lockfile.
 Serena on. Graph: missing, run GRAPHIFY_BACKEND=none graphify extract . --code-only. Verify skill: missing. Agent
 task: build verify-<app> with create-verification-skill at the first feature task, and prove it with one real run.
-
-[ai router: no-ai-base] No AI base or Map here. Suggest the owner runs ai-adopt.
 
 [ai router: serena] Serena is on here (no memories, the Map is the knowledge place): get_symbols_overview /
 find_symbol for definitions, find_referencing_symbols for users, replace_symbol_body for edits.
@@ -1351,7 +1346,7 @@ Agent:  Ticket: "Create a note offline".
         [typecheck: npx tsc --noEmit] [single test files] [full suite once: npm test]
         [Skill: code-review]  Standards: 1 finding (naming). Spec: matches the ticket.
         [fixes the finding] [commit: feat(notes): create a note offline]
-        [verify-before-done nudge] check-fast green; verify-tripnotes create-note: evidence in
+        [Done order] check-fast green; verify-tripnotes create-note: evidence in
         .verify/evidence/<run>/; then e2e: flows/create-note.yaml added.
         [moves the ticket to docs/tickets/tripnotes-v1/done/]
 You:    /clear
@@ -1373,7 +1368,7 @@ You:    /implement docs/tickets/tripnotes-v1/02-sync-note-up.md
 
 1. `cd ~/work/<repo> && claude`.
 2. Read the status line (section 7.1). Act on "missing" or "stale".
-3. Say what you want. The router adds nudges (feature-grill, docs-lookup) when they fit.
+3. Say what you want. The router adds nudges (feature-grill) when they fit.
 
 #### Which agent, which machine
 
@@ -1443,7 +1438,7 @@ R-014 | 2026-11-15 | app/pricing/** | tests/regressions/test_r014_coupon_roundin
 ```
 
 `ai-ledger --check` (part of `make check`) fails if the test file is missing or its name does not carry the id.
-From now on, an edit in `app/pricing/**` gets the ledger-nudge: keep R-014 green.
+From now on, `make check` keeps R-014 green.
 
 The PR (section 11) for a fix: title `fix(pricing): ...`, a test file in the diff (the gate checks it), Evidence
 with Before (the red run) and After (the green run), and `Ledger: R-014`.
@@ -1850,9 +1845,9 @@ flowchart TD
 | `git commit` | lint and format check on the staged files (`ai-precommit`); with a `verify-<app>` skill, a commit that adds a test needs a valid verify run newer than HEAD | `.git/hooks/pre-commit` (ai-adopt; a repo with its own hooks keeps them) |
 | Feature done | `ship` skill | you say "ship it", or the feature flow nudge |
 | Before a merge | your word: "merge" or "approve" | `merge-approval` gate |
-| main moved | `/improve-codebase-architecture` and `/retro` on the changed area | `merge-review` rule at session start (`.ai/last-review` holds main at the last review) |
+| main moved | `/improve-codebase-architecture` and `/retro` on the changed area | the `ship` skill, after the owner says merge (`.ai/last-review` holds main at the last review) |
 | You say release | `release` skill: security, architecture, web performance, SEO, blog, UI and accessibility, mobile, API, migrations, tests | you |
-| A tool changed version | `upgrade-review` skill: release notes, what breaks, what to use, a dotfiles PR | `upgrade-review` rule at session start (install.sh runs `ai-versions --record`) |
+| A tool changed version | `upgrade-review` skill: release notes, what breaks, what to use, a dotfiles PR | `install.sh` and `ai-sync` run `ai-versions --record` and print one line; `--upgrade-review` runs the skill headless |
 | First broad code search in a session | the navigation order | `nav-first` rule (once per session) |
 | A repo with old Claude memory | move the facts into the repo, through a PR | `ai-doctor` FAILs while the files exist |
 | A good approach in one repo | `promote-skill`: generalize it, dotfiles PR | you |
@@ -1981,17 +1976,12 @@ graph-first (section 3.5).
 
 ### 16.3 How it behaves: what the agent sees
 
-**Session start in an adopted repo where main moved** (the agent gets these lines before your first prompt):
+**After a merge and after a tool upgrade** (no router row since ticket rules-that-hold 11): the `ship` skill
+runs `/improve-codebase-architecture`, then `/retro`, then records `.ai/last-review`. `install.sh` and `ai-sync`
+print the upgrade line:
 
 ```text
-[ai router: merge-review] main moved since the last architecture review (some new commits after 0123abc).
-Before new work: /improve-codebase-architecture on the area that changed, then /retro on the merged work.
-Findings become tickets or a PR for the owner, not direct edits on main. Then record it: git rev-parse main >
-.ai/last-review. The owner may say skip (record it the same way). Typed-only skills (no Skill tool call): read
-the file, follow it, and tell the owner the typed form: /retro = ~/.claude/skills/retro/SKILL.md.
-
-[ai router: upgrade-review] Tools upgraded: graphify 0.9.111 -> 0.9.120. When the owner's task allows, run the
-upgrade-review skill (release notes -> what breaks, what to use -> a dotfiles PR).
+ai-versions: graphify 0.9.111 -> 0.9.130 (upgrade-review pending)
 ```
 
 **The first broad search of a session** (Grep, `rg`, `grep -r`, `find`; once per session):

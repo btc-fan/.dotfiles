@@ -7,6 +7,7 @@
 #                                 $AI_HOME), so `git -C ~/.dotfiles-ai pull` runs ai-sync
 #   ai-sync --uninstall-hook [dir]
 #   ai-sync --dry-run             print what would change
+#   ai-sync --upgrade-review      also run the upgrade-review skill once after tool upgrades (or AI_UPGRADE_REVIEW=1)
 #
 # Only the installed copy changes the machine: ~/.dotfiles-ai (install.sh links it) or a root-owned admin
 # copy (/opt/ai-setup). From any other checkout (a dev worktree) ai-sync prints one line and exits 0.
@@ -38,8 +39,9 @@ main() {
         --uninstall-hook) uninstall_hooks "${2:-$AI_HOME}"; return ;;
         --check) check_copies; return ;;
         --dry-run) export AI_DRY_RUN=1 ;;
+        --upgrade-review) export AI_UPGRADE_REVIEW=1 ;;
         --quiet|"") ;;
-        -h|--help) sed -n '2,19p' "$SELF" | sed 's/^# \{0,1\}//'; return 0 ;;
+        -h|--help) sed -n '2,20p' "$SELF" | sed 's/^# \{0,1\}//'; return 0 ;;
         *) echo "unknown option: $1" >&2; return 2 ;;
     esac
     if [ "${AI_DRY_RUN:-0}" != 1 ] && ! installed_copy; then
@@ -53,6 +55,7 @@ main() {
     claude_omc_companion_block
     sync_skill_links
     sync_claude_plugin_copy
+    record_versions
     if [ -d "$CODEX_DIR" ]; then
         local tmp; tmp=$(rules_text_file)
         aiconf block-upsert "$CODEX_DIR/AGENTS.md" core 1 "$tmp"
@@ -89,6 +92,14 @@ main() {
 
 # R-018: the hook code that Claude runs is a copy in its plugin cache. Only install.sh refreshed it, so a
 # gate that came with a pull stayed off. No copy yet: install.sh makes it, ai-sync makes none.
+# Tool versions since the last install or sync: ai-versions prints each change (and runs the review on request).
+record_versions() {
+    [ "${AI_DRY_RUN:-0}" = 1 ] && return 0
+    local review=()
+    [ "${AI_UPGRADE_REVIEW:-0}" = 1 ] && review=(--upgrade-review)
+    "$AI_HOME/ai/bin/ai-versions" --record ${review[@]+"${review[@]}"} || warn "ai-versions --record failed (no upgrade-review note)"
+}
+
 sync_claude_plugin_copy() {
     local p hash cache
     cache=$(claude_ai_core_cache)

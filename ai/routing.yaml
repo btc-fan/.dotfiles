@@ -14,10 +14,11 @@ version: 4
 # opt-in catalog. Removed (logs showed them ignored or unmeasured): kickoff, no-memories, no-graph, graph-first,
 # serena-first, graph-update, docs-on-dependency, github, prompting-others, agent-docs, wait-what, toolbox.
 # Serena and graphify are opt-in per project. Grounded Docs and the GitHub MCP are dropped (context7, gh).
+# Ticket rules-that-hold 11 (2026-11-20, owner D1): 11 reminder rows left the router; each rule has a home in a
+# check, a skill or a tool list (docs/tickets/rules-that-hold/CHANGED-GUARDS.md).
 # Fields: proof = regex over the session's tool/skill calls for the Stop miss log; once_per = session | agent
-# (the main agent and each subagent by its agent_id) | library_per_session; prompt_libs = also fire when the prompt
-# names a library from the Libraries block.
-# Action placeholders the router fills at fire time: {knowledge_index} {libs_hits}
+# (the main agent and each subagent by its agent_id).
+# Action placeholders the router fills at fire time: {knowledge_index} {feature_flow} {nav_hint}
 # {claude_handoff}. Each value is a full phrase; an empty value disappears; an empty action sends nothing.
 
 layers:
@@ -40,33 +41,6 @@ rules:
     summary: 'session start in a code repo'
     action: "Read the Map and Libraries of this repo's AGENTS.md first, then search narrowly. {knowledge_index}"
     strength: nudge   # {knowledge_index}: one status line (Map, Libraries, opt-in tools), never file content
-
-  - id: no-ai-base
-    scope: global
-    summary: 'session start: repo without .ai/base-version'
-    trigger: {state: 'git repo without .ai/base-version'}
-    when: session_start
-    action: "No AI base or Map here. Suggest the owner runs ai-adopt."
-    proof: 'ai-adopt'
-    strength: nudge
-
-  - id: merge-review
-    scope: global
-    trigger: {state: 'git repo with code'}
-    when: session_start
-    summary: 'session start: main moved since the last review'
-    action: "{merge_review}"   # .ai/last-review holds main at the last review; empty when unchanged or not adopted
-    proof: 'improve-codebase-architecture|retro|last-review'
-    strength: nudge
-
-  - id: upgrade-review
-    scope: global
-    trigger: {state: 'any session'}
-    when: session_start
-    summary: 'session start: AI tools upgraded since the last review'
-    action: "{upgrade_pending}"   # from ~/.local/state/ai/upgrades.json (ai-versions --record in install.sh)
-    proof: 'upgrade-review'
-    strength: nudge
 
   - id: nav-first
     scope: global
@@ -185,13 +159,6 @@ rules:
     action: "gh reads run freely; other gh writes ask the owner first."
     strength: gate    # ask (Codex: deny); the PR commands keep their own gates (pr-rules, merge-approval, ship)
 
-  - id: ledger-nudge
-    scope: global
-    summary: 'before an edit in a regression-ledger area'
-    trigger: {tool_before: 'Edit|Write|MultiEdit|NotebookEdit'}
-    action: "{ledger_hits}"   # empty outside ledger areas; once per area per session
-    strength: nudge
-
   # ---------- lint and docs ----------
   - id: no-em-dash
     scope: global
@@ -207,16 +174,6 @@ rules:
     action: "STE: 25 words max per sentence. Split it."   # short: the L0 table has a size cut
     strength: nudge
 
-  - id: docs-lookup
-    scope: global
-    summary: 'prompt names a library listed in Libraries, or before a dependency-file edit'
-    # Only a named library or a dependency change: the old "docs|sdk|library" words fired on every docs task
-    # and were ignored 72 of 88 times (owner 2026-11-16).
-    trigger: {prompt_libs: true, tool_before: 'Edit|Write|MultiEdit|apply_patch', paths: 'package.json|pyproject.toml|requirements*.txt|go.mod|Cargo.toml|Gemfile|composer.json'}
-    action: "context7 query-docs with the Libraries ID (resolve only if missing), then the official docs site. {libs_hits}"
-    proof: 'tool:mcp__\S*context7'
-    strength: nudge
-
   - id: feature-grill
     scope: global
     summary: 'feature request (add, build ...; RO, RU)'
@@ -224,40 +181,6 @@ rules:
     action: "{feature_flow}"   # grill-with-docs, to-spec, to-tickets, Done order where linked; else plain grilling
     proof: 'skill:\S*grill|grill[\w-]*/SKILL\.md'
     strength: nudge   # strict regex: a verb plus a feature noun; "new app" stays with the kickoff tie-break
-
-  - id: verify-before-done
-    scope: global
-    summary: 'after a code edit where a verify-<app> skill exists'
-    trigger: {tool_after: 'Edit|Write|MultiEdit|NotebookEdit'}
-    action: "{verify_hint}"   # empty without a verify skill or for a non-code file
-    once_per: 'agent'         # ticket 06: the main agent and each subagent get it once
-    proof: 'verify-[\w-]+'
-    strength: nudge
-
-  # ---------- opt-in tool is off here: suggest it, never install it ----------
-  - id: seo-not-enabled
-    scope: global
-    summary: 'SEO prompt, project without claude-seo'
-    trigger: {prompt: '\b(seo|serp|rank(ing|s)?|meta (title|description)|schema markup|structured data|sitemap|core web vitals|cwv|hreflang|backlinks?|ai overviews?|geo audit|search console)\b', state: 'project without claude-seo'}
-    action: "claude-seo is off here. Suggest: ai-adopt --tools seo. Do not enable it yourself."
-    proof: 'ai-adopt'
-    strength: nudge
-
-  - id: blog-not-enabled
-    scope: global
-    summary: 'blog prompt, project without claude-blog'
-    trigger: {prompt: '\b(blog|blog post|article|write a post|rewrite (the|this) post|newsletter)\b', state: 'project without claude-blog'}
-    action: "claude-blog is off here. Suggest: ai-adopt --tools blog. Do not enable it yourself."
-    proof: 'ai-adopt'
-    strength: nudge
-
-  - id: browser-not-enabled
-    scope: global
-    summary: 'browser prompt, project without Playwright MCP'
-    trigger: {prompt: '\b(screenshot|open the page|click|e2e|end to end|browser test|playwright)\b', state: 'project without Playwright MCP'}
-    action: "No Playwright MCP here. Suggest: ai-adopt --tools browser. Do not install a browser tool yourself."
-    proof: 'ai-start'
-    strength: nudge
 
   # ---------- opt-in per project (catalog for ai-adopt --tools) ----------
   # serena and graph are ON BY DEFAULT (owner 2026-11-12 evening): they fire in every code repo unless
@@ -325,24 +248,6 @@ rules:
     proof: 'skill:\S*ui-ux-pro-max'
     strength: nudge
 
-  - id: tracker-flow
-    scope: opt-in
-    summary: 'tickets, spec, triage, backlog prompt'
-    tool: mattpocock tracker skills
-    trigger: {prompt: '\b(ticket|tickets|spec|triage|backlog|roadmap|wayfinder)\b'}
-    action: "to-spec, then to-tickets. Tickets go in docs/tickets/<feature>/ (docs/agents/issue-tracker.md); no GitHub issues or labels without the owner.{tracker_flow}"
-    proof: 'skill:\S*(to-spec|to-tickets)|(to-spec|to-tickets)/SKILL\.md'
-    strength: nudge
-
-  - id: domain-docs
-    scope: opt-in
-    summary: 'glossary, domain model, ADR prompt'
-    tool: mattpocock grill-with-docs + domain-modeling
-    trigger: {prompt: '\b(glossary|domain model|ubiquitous language|adr|decision record)\b'}
-    action: "Use grill-with-docs / domain-modeling (GLOSSARY.md, docs/adr/).{domain_docs}"
-    proof: 'skill:\S*(grill-with-docs|domain-model)|(grill-with-docs|domain-modeling)/SKILL\.md'
-    strength: nudge
-
 # ---------- tie-breaks (single source for L0, L2, L3) ----------
 # trigger -> winner; losers named so the router never suggests both.
 tiebreaks:
@@ -350,7 +255,6 @@ tiebreaks:
   - {trigger: 'URL, domain, whole site', winner: 'claude-seo:seo-*', loser: 'claude-blog:blog-*', match: 'https?://|\bwww\.|\b(whole|entire|full) (site|website)\b|\bdomain\b'}
   - {trigger: 'new app or project (kickoff)', winner: 'grilling (grill-with-docs where linked; typed: /grill-me)', loser: 'OMC deep-interview (fallback)', match: '\bnew (app|project)\b|\bkick ?off\b'}
   - {trigger: 'deep interview, ambiguity score', winner: 'OMC deep-interview', loser: 'matt grilling', match: '\bdeep interview\b|\bambiguity score\b'}
-  - {trigger: 'library API docs', winner: 'context7 with the Libraries ID', loser: 'web search', match: '\b(api docs|library docs|docs for)\b'}
 
 # ---------- winner gate (the overlap table of ai/skills/skills-guide/SKILL.md section 5, as data) ----------
 # PreToolUse on the Skill tool (Codex: a shell read of the skill file): a name in `losers` is denied and the

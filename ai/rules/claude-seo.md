@@ -15,7 +15,7 @@ No user-facing CLAUDE.md or AGENTS.md block exists. Closest routing text:
 - Ask the owner first: `indexnow_submit`, `indexing_notify`, image generation, DataForSEO, any Google sign-in.
 - Opt-in per project (owner decision 2026-11-12: off by default, saves about 12k tokens per session with claude-blog). Turn it on for one project: `ai-adopt --tools seo` (or `ai-start --tools seo`). It adds `seo` to `.ai/enabled` and sets `"enabledPlugins": {"claude-seo@agricidaniel-claude-seo": true}` in the project `.claude/settings.json` (either one alone also counts as on). Off again: remove both. Install writes `enabledPlugins` false at user scope; project and local settings win over user.
 - The opt-in is for Claude only (plugin skill listing costs tokens). Codex, opencode and Hermes read the skill files on demand, which costs no listing tokens, so for them the pack counts as on everywhere.
-- Claude in a project without it: the router row `seo-not-enabled` says so in one line. Suggest the command to the owner. Do not install or enable it yourself.
+- Claude in a project without it: `ai-info` lists it as off here. Suggest the command to the owner. Do not install or enable it yourself.
 - Hermes: never hand off to Claude. Follow the skill files directly.
 - Codex: hand off (`claude -p "<task with absolute path>" --output-format stream-json --verbose`, no `--bare`) only when `claude` is usable: logged in for that user and network allowed (the default Codex sandbox has none; the owner must approve an escalated run). Else follow the skill files directly.
 - opencode: hand off as above when `claude` is logged in for that user (or `omc ask claude`), else follow the skill files. On a hand-off, ask for the result file path and the Skill names back.

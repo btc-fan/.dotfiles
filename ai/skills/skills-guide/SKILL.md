@@ -140,7 +140,7 @@ Decide only at a boundary. Mid-phase: continue, or split the rest into subagents
   no GitHub issues or labels without the owner.
 - **improve-codebase-architecture** (typed, project default). A survey: finds "deepening" chances (shallow
   modules, bad seams), shows an HTML report, then grills through the one the owner picks. Runs after each merge
-  to main (the merge-review rule at session start), focused on the area that changed. Record it with
+  to main (the ship skill names it after the merge), focused on the area that changed. Record it with
   `git rev-parse main > .ai/last-review`.
 
 ### Our own flow skills

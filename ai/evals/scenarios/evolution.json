@@ -9,7 +9,7 @@
     {"git": [["add", "-A"], ["commit", "-q", "--allow-empty", "-m", "harness: leftovers"], ["checkout", "-q", "main"],
              ["merge", "-q", "--squash", "feat-calc"], ["commit", "-q", "-m", "feat: calc (#1)"]]},
     {"session": "Where is add defined in this repo, and what calls it? Answer in two lines.",
-     "expect": {"rules": ["merge-review"], "tools": ["graphify (query|affected|explain|path)|find_symbol|find_referencing_symbols|get_symbols_overview"]}},
+     "expect": {"tools": ["graphify (query|affected|explain|path)|find_symbol|find_referencing_symbols|get_symbols_overview"]}},
     {"check": {"map_contains": "calc", "graph": "fresh"}}
   ]
 }

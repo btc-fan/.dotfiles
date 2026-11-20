@@ -44,5 +44,7 @@ commands, paths and quoted output stay as they are.
 ## After the owner says merge
 
 `gh pr merge <n> --squash --delete-branch`, then `git switch main && git pull --prune`. Remove the branch's worktree
-(`git worktree remove <path>`) and any local branch that is left (`git branch -D <branch>`). The next session start asks for
-`/improve-codebase-architecture` and `/retro` (merge-review rule).
+(`git worktree remove <path>`) and any local branch that is left (`git branch -D <branch>`). Then run
+`/improve-codebase-architecture`, then `/retro`. Their findings become tickets or a PR. Then run
+`git rev-parse main > .ai/last-review`.
+When the repo has committed verify evidence, run `ai-evidence-prune` on a branch `chore-prune-evidence-<date>` and open a PR.

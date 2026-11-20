@@ -24,7 +24,7 @@ def main():
     work = tempfile.mkdtemp(prefix="ai-info-tests-")
     try:
         home, fake, repo = setup(work)
-        for test in (t_full, t_short, t_project_state, t_outside_repo, t_no_secrets_fast, t_devmac,
+        for test in (t_full, t_short, t_project_state, t_off_here, t_outside_repo, t_no_secrets_fast, t_devmac,
                      t_numbers_fixture_logs, t_numbers_temp_rows_left_out, t_numbers_no_logs, t_numbers_json_schema):
             try:
                 test(home, fake, repo)
@@ -80,6 +80,15 @@ def t_project_state(home, fake, repo):
     out = run(home, fake, repo).stdout
     assert "Libraries missing (ai-libs --sync)" in out, out
     os.remove(os.path.join(repo, "pyproject.toml"))
+
+
+def t_off_here(home, fake, repo):
+    """Ticket rules-that-hold 11: an adopted project lists the opt-in tools it did not enable."""
+    line = next((ln for ln in run(home, fake, repo).stdout.splitlines() if ln.startswith("  Off here: ")), "")
+    off = line[len("  Off here: "):].split(" (")[0].split(", ")
+    assert "blog" in off and "browser" in off, line
+    assert "seo" not in off and "serena" not in off and "graph" not in off, line
+    assert line.endswith("(ai-adopt --tools <id> turns one on)."), line
 
 
 def t_outside_repo(home, fake, repo):

@@ -9,6 +9,7 @@
 #
 #   options: [--dry-run] [--agents claude,codex,hermes,opencode,herdr] [--skip-packages] [--profile server|dev-mac]
 #            [--allow-dirty] [--yes] [--keep-claudeai-connectors] [--skip-scan <tool,...|all>]   env: AI_OMC_WIRING=plugin|cli|keep|remove
+#            [--upgrade-review]   (after tool upgrades: run the upgrade-review skill once, headless)
 #   profile: --profile NAME > ~/.config/ai/profile > OS default (Linux server, macOS dev-mac); saved there.
 #
 # Distribution = each agent's own extension points (plugins, `mcp add`, `config set`). Our own merge
@@ -23,10 +24,10 @@ AI_HOME=$(cd "$(dirname "$0")" && pwd -P)
 AI_SRC_HOME=${AI_SRC_HOME:-$AI_HOME}   # the user's work tree (set by the system part)
 export AI_HOME AI_SRC_HOME
 
-usage() { sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 AI_DRY_RUN=0 AI_YES=0 AI_SKIP_PACKAGES=0 AI_DOCS_SERVER=0 AI_ALLOW_DIRTY=0 AGENTS=""
-AI_MODE=all AI_FOR_USER="" AI_UPDATE=0 AI_PROFILE_ARG="" AI_SKIP_SCAN=""
+AI_MODE=all AI_FOR_USER="" AI_UPDATE=0 AI_PROFILE_ARG="" AI_SKIP_SCAN="" AI_UPGRADE_REVIEW=${AI_UPGRADE_REVIEW:-0}
 AI_ARGS=("$@")
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -37,6 +38,7 @@ while [ $# -gt 0 ]; do
         --allow-dirty) AI_ALLOW_DIRTY=1 ;;
         --update) AI_UPDATE=1 ;;
         --keep-claudeai-connectors) AI_CLAUDEAI_CONNECTORS=keep ;;
+        --upgrade-review) AI_UPGRADE_REVIEW=1 ;;
         --user) AI_MODE=user ;;
         --for-user) [ $# -ge 2 ] || usage 1; AI_MODE=system; AI_FOR_USER=$2; shift ;;
         --for-user=*) AI_MODE=system; AI_FOR_USER=${1#--for-user=} ;;
@@ -52,7 +54,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 AI_CLAUDEAI_CONNECTORS=${AI_CLAUDEAI_CONNECTORS:-}
-export AI_DRY_RUN AI_YES AI_SKIP_PACKAGES AI_ALLOW_DIRTY AI_MODE AI_FOR_USER AI_CLAUDEAI_CONNECTORS AI_SKIP_SCAN
+export AI_DRY_RUN AI_YES AI_SKIP_PACKAGES AI_ALLOW_DIRTY AI_MODE AI_FOR_USER AI_CLAUDEAI_CONNECTORS AI_SKIP_SCAN AI_UPGRADE_REVIEW
 
 # Root never runs code from a tree another user can change. This first check uses no file of the tree;
 # ai/lib/root-guard.sh (sourced only after it passed) adds the file, clean-tree and pushed-commit checks.
@@ -223,6 +225,7 @@ run_user_part() {
     [ "$AI_CLAUDEAI_CONNECTORS" = keep ] && args="$args --keep-claudeai-connectors"
     args="$args --profile $AI_PROFILE"
     [ -n "$AI_SKIP_SCAN" ] && args="$args --skip-scan $AI_SKIP_SCAN"
+    [ "$AI_UPGRADE_REVIEW" = 1 ] && args="$args --upgrade-review"
     [ -n "$AGENTS" ] && args="$args --agents $(printf '%s' "$AGENTS" | sed 's/,*hermes//; s/^,//')"
     info "running as $AI_FOR_USER: $AI_HOME/install.sh $args"
     # shellcheck disable=SC2086
@@ -395,10 +398,12 @@ do_verify() {
     for t in claude codex opencode omc serena graphify rtk herdr gh; do
         if has "$t"; then info "$t: $("$t" --version 2>/dev/null | head -n1)"; fi
     done
-    # Version changes since the last install go into ~/.local/state/ai/upgrades.json: the next session start asks
-    # for the upgrade-review skill (release notes -> what breaks, what to use -> a dotfiles PR).
+    # Version changes since the last install go into ~/.local/state/ai/upgrades.json, and ai-versions prints them.
+    # With --upgrade-review it runs the upgrade-review skill once (release notes -> a dotfiles PR).
+    local review=()
+    [ "$AI_UPGRADE_REVIEW" = 1 ] && review=(--upgrade-review)
     if [ -x "$AI_HOME/ai/bin/ai-versions" ]; then
-        "$AI_HOME/ai/bin/ai-versions" --record || warn "ai-versions --record failed (no upgrade-review note)"
+        "$AI_HOME/ai/bin/ai-versions" --record ${review[@]+"${review[@]}"} || warn "ai-versions --record failed (no upgrade-review note)"
     fi
     return 0
 }

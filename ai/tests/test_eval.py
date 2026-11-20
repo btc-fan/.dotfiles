@@ -65,7 +65,7 @@ def t_fixtures(work):
 
 
 def t_app_libraries(work):
-    """The app fixture has the Libraries block ai-libs writes, so the docs-lookup case prompt fires the rule."""
+    """The app fixture has the Libraries block ai-libs writes, with the context7 ID of the docs-lookup case library."""
     ev = load()
     root = os.path.join(work, "fx-libs")
     ev.make_fixtures(root)
@@ -78,22 +78,8 @@ def t_app_libraries(work):
     assert want in read(os.path.join(app, "AGENTS.md")), "app AGENTS.md: not the ai-libs block: " + want
     check = run([sys.executable, os.path.join(AI_DIR, "bin", "ai-libs"), "--check", "--dir", app], None)
     assert check.returncode == 0, "ai-libs --check must pass, so ai-adopt keeps the block: " + check.stdout
-
-    build = os.path.join(work, "libs-build")
-    subprocess.check_call([sys.executable, os.path.join(AI_DIR, "bin", "ai-render"), "--out", build],
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     case = [c for c in ev.load_cases() if c["id"] == "docs-lookup"][0]
-    assert case["fixture"] == "app", case
-    payload = {"hook_event_name": "UserPromptSubmit", "session_id": "t-libs", "cwd": app, "prompt": case["prompt"]}
-    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.path.join(work, "home-libs"),
-           "AI_STATE_DIR": os.path.join(work, "state-libs"), "AI_ROUTING_JSON": os.path.join(build, "routing.json"),
-           "AI_NOTIFY_DRY": "1", "LANG": "C.UTF-8", "AI_GRAPHIFY_BIN": os.path.join(work, "no-graphify")}
-    router = os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks", "router.py")
-    res = subprocess.run([sys.executable, router, "--agent", "claude", "UserPromptSubmit"], cwd=app, env=env,
-                         input=json.dumps(payload).encode(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    out = res.stdout.decode()
-    assert "docs-lookup" in out and "/pytest-dev/pytest" in out, "docs-lookup did not fire: " + out
-    assert load().router_seen(env["AI_STATE_DIR"])["rules"] == ["docs-lookup"], "no docs-lookup row in fired.jsonl"
+    assert case["fixture"] == "app" and "pytest" in case["prompt"], case
 
 
 def t_fixture_project_copy(work):
@@ -184,13 +170,13 @@ def t_score_stream(work):
     assert seen["skills"] == ["tdd", "writing-for-agents", "oh-my-claudecode:tdd", "diagnosing-bugs"], seen["skills"]
     assert len(seen["tools"]) == 7, "item.started is not counted twice: %s" % seen["tools"]
     assert "Bash {\"command\": \"cat x\"}" not in seen["tools"], seen["tools"]
-    seen["rules"] = ["docs-lookup"]
+    seen["rules"] = ["feature-grill"]
     assert ev.hit({"skills": ["tdd"]}, seen)
     assert not ev.hit({"skills": ["tdd"], "not_skills": ["oh-my-claudecode:tdd"]}, seen), "a losing skill is a miss"
     assert not ev.hit({"skills": ["ship"]}, seen), "an Edit of a SKILL.md is not a use"
-    assert ev.hit({"tools": ["graphify (query|affected)", "context7"], "rules": ["docs-lookup"]}, seen)
+    assert ev.hit({"tools": ["graphify (query|affected)", "context7"], "rules": ["feature-grill"]}, seen)
     assert not ev.hit({"rules": ["nav-first"]}, seen)
-    assert not ev.hit({"skills": ["tdd"], "not_rules": ["docs-lookup"]}, seen), "a rule that must not fire fired"
+    assert not ev.hit({"skills": ["tdd"], "not_rules": ["feature-grill"]}, seen), "a rule that must not fire fired"
     assert not ev.hit({"not_tools": ["graphify (query|affected)"]}, seen), "a tool that must not run ran"
     assert ev.hit({"not_rules": ["nav-first"], "not_tools": ["^Write "], "not_skills": ["ship"]}, seen)
 
@@ -199,11 +185,11 @@ def t_router_seen(work):
     ev = load()
     state = os.path.join(work, "state-router")
     write(os.path.join(state, "fired.jsonl"), "\n".join([
-        json.dumps({"kind": "rule", "rule": "docs-lookup", "event": "UserPromptSubmit"}),
-        json.dumps({"kind": "rule", "rule": "docs-lookup", "event": "PreToolUse"}),
+        json.dumps({"kind": "rule", "rule": "feature-grill", "event": "UserPromptSubmit"}),
+        json.dumps({"kind": "rule", "rule": "feature-grill", "event": "PreToolUse"}),
         json.dumps({"kind": "skill", "via": "tool", "skill": "ship"}),
         "broken line", "[1, 2]"]) + "\n")
-    assert ev.router_seen(state) == {"rules": ["docs-lookup"], "skills": ["ship"]}
+    assert ev.router_seen(state) == {"rules": ["feature-grill"], "skills": ["ship"]}
     assert ev.router_seen(os.path.join(work, "no-state")) == {"rules": [], "skills": []}
 
 
@@ -361,7 +347,7 @@ case "$2" in
     echo '{"kind": "rule", "rule": "feature-grill"}' >> "$AI_STATE_DIR/fired.jsonl"
     echo '{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "git commit"}}]}}' ;;
   *where*)
-    echo '{"kind": "rule", "rule": "merge-review"}' >> "$AI_STATE_DIR/fired.jsonl"
+    echo '{"kind": "rule", "rule": "nav-first"}' >> "$AI_STATE_DIR/fired.jsonl"
     echo '{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "graphify query where is add"}}]}}' ;;
 esac
 """
@@ -395,7 +381,7 @@ def t_scenario_fake_agent(work):
         {"check": {"map_contains": "calc/core.py", "branch": "feat-calc"}},
         {"git": [["checkout", "-q", "main"], ["merge", "-q", "--squash", "feat-calc"],
                  ["commit", "-q", "-m", "feat: calc (#1)"]]},
-        {"session": "where is add?", "expect": {"rules": ["merge-review"], "tools": ["graphify (query|affected)"]}},
+        {"session": "where is add?", "expect": {"rules": ["nav-first"], "tools": ["graphify (query|affected)"]}},
         {"check": {"map_contains": "calc/core.py", "branch": "main"}}]}
     res = ev.run_scenario(out, {"empty-git": ""}, "claude", sc, 1)
     assert res["pass"] is True, json.dumps(res, indent=1)[:1500]

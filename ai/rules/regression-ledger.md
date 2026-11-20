@@ -15,8 +15,6 @@ NOT FOUND (our own tool).
 - Not for bugs found before merge, and not a task list.
 
 ## Enforcement
-- L3 nudge (router PreToolUse, Edit/Write/MultiEdit/NotebookEdit): one line with the R-IDs and their tests,
-  once per area per session (`ledger-nudge`).
 - Stop: `stop-check` adds one note for areas that Bash changed (no Edit hook saw it).
 - `ai-ledger --check` (in `make check`, long tier; `ai-doctor --project`): fields complete, test files exist and
   carry the id, no regression test without a row, rows never removed, `reopened` never down, quarantine only
@@ -24,12 +22,9 @@ NOT FOUND (our own tool).
 - PR gate (long tier): a `fix:` PR needs `Ledger: R-NNN` and a test file in its diff.
 
 ## Proof
-- Should fire (EN): an Edit of `src/billing/refund.py` where R-012 has `area: src/billing/`.
-- Should fire (RO): "modifica functia de refund din src/billing" (the edit gets the R-012 line).
-- Should fire (RU): "поправь расчёт возврата в src/billing" (the edit gets the R-012 line).
-- Should not fire: a second file in the same area in the same session; an edit outside every area; tier `mvp`.
-- Signal: `[ai router: ledger-nudge]` in the context; `fired.jsonl`. Tests: `ai/tests/cases/ledger-nudge.json`,
-  `ai/tests/test_tier1.py` (`t_ledger_*`).
+- `ai-ledger --check` fails on a missing test file or a removed row (long tier, `make check`).
+- `stop-check` adds the R-IDs note when the session changed a file in a regression area.
+- Tests: `ai/tests/test_tier1.py` (`t_ledger_*`).
 
 ## Setup checklist
 - Install: nothing extra (`ai/bin/ai-ledger`, parser in `hooklib.py`).
