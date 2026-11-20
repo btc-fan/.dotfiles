@@ -34,12 +34,12 @@ import time
 sys.dont_write_bytecode = True      # no __pycache__ inside the (possibly read-only) plugin dir
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from hooklib import (FILE_GATES, GATES, GATE_PROBES, ai_home, append_jsonl, command_text, gate_skips,  # noqa: E402
-                     iso_now, knowledge_index, ledger_hits, ledger_note, libs_hits, log_error,
-                     log_line, one_line, project_skills, project_tier, verify_skill, is_code_file, skill_md,
-                     origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
+                     iso_now, knowledge_index, log_error,
+                     log_line, one_line, project_skills, verify_skill, skill_md,
+                     origin_slug, parse_command, redact, project_root, read_text,
                      state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
                      graph_status, git_history, git_out, short_skill, write_targets,
-                     owner_merge_ok, ask_first_prompt, ask_first_unnamed, merge_review_note, nav_note, upgrade_note,
+                     owner_merge_ok, ask_first_prompt, ask_first_unnamed, nav_note,
                      probe_pr,
                      session_line, log_wall, verify_proof, verify_steps, app_code_state, head_at, git_quick)
 
@@ -209,9 +209,6 @@ def on_session_start(ctx):
         ctx.add_context("\n\n".join(parts))
 
 
-EXPLICIT_DOCS = re.compile(r"\b(docs|documentation|api reference|changelog|release notes)\b", re.I)
-
-
 def on_user_prompt(ctx):
     try:
         verify_turn_start(ctx)
@@ -230,19 +227,16 @@ def on_user_prompt(ctx):
     for rule in routing.get("rules", []):
         trig = rule.get("trigger", {})
         rx = trig.get("prompt")
-        if not rx and not trig.get("prompt_libs"):
+        if not rx:
             continue
-        hit = search_owner_words(rx, prompt) if rule["id"] in NAME_SENSITIVE else rx and search(rx, prompt)
+        hit = search_owner_words(rx, prompt) if rule["id"] in NAME_SENSITIVE else search(rx, prompt)
         if not hit:
-            if not trig.get("prompt_libs") or not ctx.prompt_libs(prompt):
-                continue
+            continue
         if not rule_enabled(rule, ctx):
             continue
         state = rule["trigger"].get("state")
         if state and not check_state(state, ctx):
             continue
-        if rule["id"] == "docs-lookup" and not EXPLICIT_DOCS.search(prompt) and repo_symbol(prompt, ctx.root):
-            continue        # the prompt is about code in this repo (Fable readiness: a false docs nudge)
         matched.append(rule)
     ties = match_tiebreaks(routing.get("tiebreaks", []), prompt)
     if not matched and not ties:
@@ -561,22 +555,9 @@ class Ctx(object):
         self.stages = []          # parsed shell stages of the Bash command (hooklib.parse_command)
         self.cmd_text = ""        # the command with quoted words removed, for rule regexes
         self._skips = None
-        self.named_libs = None    # libraries named by the prompt or the dependency change ({libs_hits})
         self.updated_input = None  # PreToolUse rewrite to an absolute program path (abs_rewrite)
         self.updated_decision = ("allow", "")
-        self._prompt_libs = None
         self.stop_block = []      # Stop: reasons of the stop rules that block the end of the turn
-
-    def prompt_libs(self, prompt):
-        if self._prompt_libs is None:
-            try:
-                self._prompt_libs = prompt_libs(prompt, self.root)
-            except Exception as exc:
-                log_error("prompt_libs", exc)
-                self._prompt_libs = set()
-            if self.named_libs is None:
-                self.named_libs = set(self._prompt_libs)
-        return self._prompt_libs
 
     def set_command(self, cmd):
         if cmd:
@@ -1230,9 +1211,6 @@ def pack_enabled(tool, ctx):
     return short in names or tool in names or project_plugin_enabled(ctx.root, plugin_id)
 
 
-# Opt-in rows that a project's mattpocock skills line (`skills:` in .ai/enabled, linked by ai-adopt) turns on.
-SKILL_ROWS = {"tracker-flow": ("to-spec", "to-tickets"), "domain-docs": ("grill-with-docs", "domain-modeling")}
-
 # Opt-in plugins of our own marketplace: ON when the project enables them (ai-adopt --tools serena writes it).
 PROJECT_PLUGINS = {"serena": "ai-serena@ai", "browser": "ai-playwright@ai"}
 
@@ -1248,28 +1226,10 @@ def rule_enabled(rule, ctx):
     names = enabled_tools(ctx.root)
     if rule["id"].lower() in names or tool in names:
         return True
-    if set(SKILL_ROWS.get(rule["id"], ())) & set(project_skills(ctx.root)):
-        return True
     pid = PROJECT_PLUGINS.get(rule["id"].lower())
     if pid and ctx.agent == "claude" and project_plugin_enabled(ctx.root, pid):
         return True
     return rule["id"] == "browser" and playwright_enabled(ctx.root)
-
-
-def _state_no_base(ctx):
-    return ctx.root is not None and not os.path.exists(os.path.join(ctx.root, ".ai", "base-version"))
-
-
-def _state_no_playwright(ctx):
-    return not playwright_enabled(ctx.root or ctx.cwd)
-
-
-def _state_no_seo(ctx):
-    return not pack_enabled("claude-seo", ctx)
-
-
-def _state_no_blog(ctx):
-    return not pack_enabled("claude-blog", ctx)
 
 
 def _state_code_repo(ctx):
@@ -1365,12 +1325,7 @@ def set_flag(ctx, key):
 
 # routing.yaml `state:` strings -> predicates. ai-render fails on a state string not listed here.
 STATE_PREDICATES = {
-    "git repo without .ai/base-version": _state_no_base,
-    "project without Playwright MCP": _state_no_playwright,
     "git repo with code": _state_code_repo,
-    "project without claude-seo": _state_no_seo,
-    "project without claude-blog": _state_no_blog,
-    "any session": lambda ctx: True,
 }
 
 
@@ -1410,32 +1365,6 @@ def graph_build(ctx):
     return set_flag(ctx, "graph_build") and start_graph_refresh(root, build=True)
 
 
-def _ph_libs_hits(ctx):
-    if ctx.named_libs is None and ctx.event == "UserPromptSubmit":
-        ctx.prompt_libs(ctx.payload.get("prompt") or "")
-    return libs_hits(ctx.root, ctx.named_libs or ())
-
-
-def _ph_ledger_hits(ctx):
-    """Before an edit in a regression-ledger area (long tier): one reminder per area per session."""
-    if ctx.event != "PreToolUse" or not ctx.root or project_tier(ctx.root) != "long":
-        return ""
-    path = file_of(tool_input(ctx.payload))
-    if not path:
-        return ""
-    rel = os.path.relpath(os.path.realpath(os.path.join(ctx.cwd, path)), os.path.realpath(ctx.root))
-    if rel.startswith(".."):
-        return ""
-    hits = ledger_hits(ctx.root, rel)
-    seen = ctx.state.load().setdefault("ledger_areas", [])
-    new = [h for h in hits if h[1] not in seen]
-    if not new:
-        return ""
-    seen.extend(sorted({h[1] for h in new}))
-    ctx.state.dirty = True
-    return ledger_note(new)
-
-
 WORKTREE_STEP = ("First a worktree for the job (worktree-first gate): git worktree add ../<repo>-<slug> -b <slug> "
                  "origin/<main> (main or master, or the base the owner names); work only there. ")
 
@@ -1461,34 +1390,6 @@ def _ph_feature_flow(ctx):
             "change is trivial (typo, rename, one-line fix, a config value).")
 
 
-def _ph_tracker_flow(ctx):
-    return typed_skills_note(ctx.root, ["to-spec", "to-tickets", "wayfinder"], ctx.agent)
-
-
-def _ph_domain_docs(ctx):
-    return typed_skills_note(ctx.root, ["grill-with-docs", "domain-modeling"], ctx.agent)
-
-
-def _ph_verify_hint(ctx):
-    """After a code edit in a project with a verify skill (tier mvp or long): the Done order, once per session."""
-    if ctx.event != "PostToolUse" or not ctx.root or project_tier(ctx.root) == "try":
-        return ""
-    path = file_of(tool_input(ctx.payload))
-    info = verify_skill(ctx.root)
-    if not info or not path or not is_code_file(path):
-        return ""
-    return ("Before done: check-fast green, then %s on the changed feature (launch, doctor, drive every entry point "
-            "its feature file lists, keep the evidence), then add or extend e2e tests for the proven journey. The PR "
-            "Evidence section names the evidence path and the test." % info["name"])
-
-
-def _ph_merge_review(ctx):
-    """Session start: main moved since the last architecture review and retro (.ai/last-review)."""
-    if ctx.event != "SessionStart" or not ctx.root:
-        return ""
-    return merge_review_note(ctx.root, ctx.agent)
-
-
 def _ph_nav_hint(ctx):
     """Before the first broad code search of a session: graphify and Serena first."""
     if ctx.event != "PreToolUse" or not ctx.root:
@@ -1509,17 +1410,10 @@ def _ph_claude_handoff(ctx):
 
 PLACEHOLDERS = {
     "knowledge_index": _ph_knowledge_index,
-    "libs_hits": _ph_libs_hits,
-    "ledger_hits": _ph_ledger_hits,
     "feature_flow": _ph_feature_flow,
-    "verify_hint": _ph_verify_hint,
-    "tracker_flow": _ph_tracker_flow,
-    "domain_docs": _ph_domain_docs,
     "origin_slug": _ph_origin_slug,
     "claude_handoff": _ph_claude_handoff,
-    "merge_review": _ph_merge_review,
     "nav_hint": _ph_nav_hint,
-    "upgrade_pending": lambda ctx: upgrade_note() if ctx.event == "SessionStart" else "",
 }
 PLACEHOLDER_RX = re.compile(r"\{([a-z_]+)\}")
 

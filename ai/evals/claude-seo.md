@@ -1,6 +1,6 @@
 ## Appendix 1. claude-seo eval prompts (3 should-fire: EN, RO, RU; 2 should-not-fire; expected Skill = `claude-seo:<skill>`)
 
-Run these in a project where claude-seo is on (`ai-adopt --tools seo`). In Claude, in a project without it, every FIRE prompt must instead get the one-line `seo-not-enabled` suggestion and no claude-seo skill call. Codex, opencode and Hermes: the pack counts as on everywhere (they read the skill files).
+Run these in a project where claude-seo is on (`ai-adopt --tools seo`). In Claude, in a project without it, `ai-info` lists it as off here, and no FIRE prompt gets a claude-seo skill call. Codex, opencode and Hermes: the pack counts as on everywhere (they read the skill files).
 
 Format: skill | FIRE (EN ; RO ; RU) | NOT (a ; b) with the skill that should win in brackets. URLs are placeholders (example.com). Hub `seo` firing first, then the specific skill, counts as a pass; the hub alone for a specific ask is a soft fail.
 

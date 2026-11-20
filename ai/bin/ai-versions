@@ -5,21 +5,29 @@ Usage:
   ai-versions            print the versions (JSON)
   ai-versions --record   compare with ~/.local/state/ai/versions.json; each changed tool goes into
                          ~/.local/state/ai/upgrades.json "pending" (old, new, ts); then save the new versions.
-                         install.sh runs this at the end. The first run only records (no pending rows).
+                         install.sh and ai-sync run this at the end. The first run only records (no pending rows).
+  ai-versions --record --upgrade-review
+                         also run the upgrade-review skill once, headless, while "pending" has rows.
 
-The session start (routing rule upgrade-review) reads upgrades.json and asks for the upgrade-review skill
-while "pending" has rows. The skill clears the rows it reviewed. Python stdlib only; each probe has a timeout.
+install.sh and ai-sync print one line per changed tool. With --upgrade-review they run the skill once
+(claude -p in the dotfiles checkout). When that fails, the output names the command for the owner.
+The skill clears the rows it reviewed. Python stdlib only; each probe has a timeout.
 """
 import glob
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
 
 STATE = os.environ.get("AI_STATE_DIR") or os.path.expanduser("~/.local/state/ai")
 HOME = os.path.expanduser("~")
+# the user's own dotfiles work tree (install.sh sets AI_SRC_HOME; the root-owned clone is AI_HOME)
+AI_HOME = os.environ.get("AI_SRC_HOME") or os.environ.get("AI_HOME") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+REVIEW = ["claude", "-p", "/upgrade-review"]
+REVIEW_TIMEOUT = 1800
 
 COMMANDS = {
     "claude-code": ["claude", "--version"],
@@ -40,7 +48,24 @@ def main(argv):
     changed = record(found)
     for row in changed:
         print("ai-versions: %s %s -> %s (upgrade-review pending)" % (row["tool"], row["old"], row["new"]))
+    if "--upgrade-review" in argv and (load(os.path.join(STATE, "upgrades.json")) or {}).get("pending"):
+        upgrade_review()
     return 0
+
+
+def upgrade_review():
+    """Run the upgrade-review skill once. No claude, no login or a usage limit: name the command and go on."""
+    hint = 'ai-versions: upgrade-review did not run. Owner step: cd %s && claude -p "/upgrade-review"' % AI_HOME
+    if not shutil.which("claude"):
+        print(hint)
+        return
+    try:
+        res = subprocess.run(REVIEW, cwd=AI_HOME, stdin=subprocess.DEVNULL, timeout=REVIEW_TIMEOUT)
+    except (OSError, subprocess.SubprocessError):
+        print(hint)
+        return
+    if res.returncode != 0:
+        print(hint)
 
 
 def collect():

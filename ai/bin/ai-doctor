@@ -1737,6 +1737,8 @@ def check_project(path, explicit=False):
         if explicit:
             say("FAIL", "project %s is a git repo" % path)
         return
+    if not os.path.isfile(os.path.join(root, ".ai", "base-version")):
+        say("WARN", "project %s: no AI setup here: run ai-adopt" % root)
     has_code = False
     for dirpath, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "graphify-out", "venv")]

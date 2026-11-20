@@ -588,9 +588,29 @@ def t_versions_record(work):
     run([sys.executable, v, "--record"], env=env)
     pend = json.load(open(os.path.join(state, "upgrades.json")))["pending"]
     assert pend == [dict(pend[0], tool="graphify", old="0.9.111", new="0.9.130")], pend
-    # the session start says so, once per session start, until the skill clears it
-    out = hook("SessionStart", {"session_id": "s1", "cwd": work, "source": "startup"}, env)
-    assert "graphify 0.9.111 -> 0.9.130" in out and "upgrade-review" in out, out
+
+
+def t_versions_upgrade_review(work):
+    """Ticket rules-that-hold 11: --upgrade-review runs the skill once while rows are pending. Without claude the
+    output names the command for the owner, and the exit code stays 0."""
+    state, log = os.path.join(work, "state"), os.path.join(work, "claude.log")
+    bindir = fake_tool(work, "graphify", "echo graphify 0.9.111")
+    fake_tool(work, "claude", 'case "$1" in --version) echo "2.1.5 (Claude Code)";; '
+                              '*) echo "$(pwd) $*" >> %s;; esac' % log)
+    env = env_for(work, AI_STATE_DIR=state, AI_SRC_HOME=work, PATH=bindir + os.pathsep + "/usr/bin:/bin")
+    rec = [sys.executable, os.path.join(BIN, "ai-versions"), "--record", "--upgrade-review"]
+    run(rec, env=env)
+    assert not os.path.exists(log), "no pending row: no review"
+
+    fake_tool(work, "graphify", "echo graphify 0.9.120")
+    res = run(rec, env=env)
+    assert res.returncode == 0 and "graphify 0.9.111 -> 0.9.120" in res.text, res.text
+    assert read(log) == "%s -p /upgrade-review\n" % os.path.realpath(work), read(log)
+
+    os.remove(os.path.join(bindir, "claude"))
+    fake_tool(work, "graphify", "echo graphify 0.9.130")
+    res = run(rec, env=env)
+    assert res.returncode == 0 and 'cd %s && claude -p "/upgrade-review"' % work in res.text, res.text
 
 
 # ---------------------------------------------------------------- scenarios: ai-adopt
@@ -679,14 +699,12 @@ def t_scenario_mobile_no_serena(work):
 
 
 def t_scenario_long_evolution(work):
-    """Many merges over time: each move of main asks for the review once; recording it quiets it."""
+    """Many merges over time: the session start no longer asks for the review (the ship skill names it)."""
     repo, env = new_repo(work, "evolve", dict(PY_APP))
     assert adopt(repo, env).returncode == 0
     git(repo, "switch", "-q", "main", env=env)      # the owner merges the ai-adopt branch (owner 2026-11-16)
     git(repo, "merge", "-q", "ai-adopt", env=env)
     start = {"session_id": "e0", "cwd": repo, "source": "startup"}
-    out = hook("SessionStart", start, env)
-    assert "moved since the last architecture review" not in out, "first session only sets the mark"
     for i in range(3):      # three features merged into main
         git(repo, "switch", "-q", "-c", "feat-%d" % i, env=env)
         write(os.path.join(repo, "src", "app", "f%d.py" % i), "x = %d\n" % i)
@@ -695,12 +713,7 @@ def t_scenario_long_evolution(work):
         git(repo, "switch", "-q", "main", env=env)
         git(repo, "merge", "-q", "--no-ff", "-m", "merge %d" % i, "feat-%d" % i, env=env)
     out = hook("SessionStart", dict(start, session_id="e1"), env)
-    assert "main moved since the last architecture review (6 new commits" in out, out
-    assert "/improve-codebase-architecture" in out and "/retro" in out, out
-    git(repo, "rev-parse", "main", env=env)
-    write(os.path.join(repo, ".ai", "last-review"), git(repo, "rev-parse", "main", env=env).text.strip() + "\n")
-    out = hook("SessionStart", dict(start, session_id="e2"), env)
-    assert "moved since" not in out, out
+    assert "moved since the last architecture review" not in out, out
 
 
 # ---------------------------------------------------------------- negative: trying to get around the rules

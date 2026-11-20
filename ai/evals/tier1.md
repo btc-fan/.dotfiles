@@ -2,7 +2,7 @@
 
 Run method: `HOWTO.md`. Format: tool | FIRE (EN ; RO ; RU) | NOT (a ; b) | signal. Pass bar: fire 3 of 3, NOT 0 of 2.
 Copied from the proof sections of `ai/rules/<tool>.md`. Change both places together. The automatic proof is
-`ai/tests/test_tier1.py` and the router cases (`no-destroy`, `pr-rules`, `ledger-nudge`, `feature-grill`).
+`ai/tests/test_tier1.py` and the router cases (`no-destroy`, `pr-rules`, `feature-grill`).
 
 ## Project checks
 - check-command | `ai-adopt --dry-run` in a uv + pytest repo ; "configureaza comanda de verificare pentru proiectul asta" ; "настрой команду проверки для этого репо" | NOT a pnpm workspace (refused) ; a Makefile that already has both targets | signal: Makefile block, Map line `- Check: ... measured N s`
@@ -11,7 +11,6 @@ Copied from the proof sections of `ai/rules/<tool>.md`. Change both places toget
 - agents-md Done | `ai-adopt` in a repo without Done ; "adauga sectiunea Done in AGENTS.md" ; "добавь раздел Done в AGENTS.md" | NOT a repo with its own `## Done` ; a rerun | signal: `<!-- AI:done START` block, `ai-doctor --project` Done and Lessons lines
 
 ## Ledger and PRs
-- ledger-nudge (long tier, R-012 area src/billing/) | Edit of `src/billing/refund.py` ; "modifica functia de refund din src/billing" ; "поправь расчёт возврата в src/billing" | NOT a second file in the same area ; an edit in `src/web/` | signal: `[ai router: ledger-nudge]` with R-012 and its test
 - pr-rules tier fields | `gh pr create --title x --body "fix"` ; "deschide un PR cu titlul fix: rotunjire" (no test in the diff) ; "создай PR" with `Verify: TODO` | NOT a body with mermaid, Verify, Risk and author-sessions (mvp) ; `gh pr edit 12 --add-label bug` | signal: `DENY pr-rules` in gates.log
 
 ## Gates
@@ -22,4 +21,3 @@ Copied from the proof sections of `ai/rules/<tool>.md`. Change both places toget
 
 ## Feature flow (mattpocock opt-in skills, project with grill-with-docs, to-spec, to-tickets linked)
 - feature-grill flow | "implement a discount code option at checkout" ; "adaugă o funcționalitate de export în CSV" ; "добавь функцию экспорта в CSV" | NOT "fix the typo in the README" ; the same prompt in tier try (plain grilling) | signal: L2 text "grill-with-docs first ... to-spec, then to-tickets ... check-fast, verify-<app>, then e2e" and "Typed-only skills (no Skill tool call): read the file ... /grill-with-docs = <repo>/.claude/skills/grill-with-docs/SKILL.md" (Codex: .agents/skills); a Read of that SKILL.md (grill-with-docs, to-spec, to-tickets are `disable-model-invocation: true`, so no Skill call), the owner told the typed form /grill-with-docs; tickets as files in docs/tickets/<feature>/, no `gh issue create`
-- tracker-flow (to-tickets linked) | "split the spec into tickets" ; "imparte specificatia in tichete" ; "разбей спецификацию на тикеты" | NOT a project whose skills line has no to-tickets ; "what is a ticket?" in a project without links | signal: `- tracker-flow:` with docs/tickets/ and the to-spec / to-tickets SKILL.md paths; a Read of one of them

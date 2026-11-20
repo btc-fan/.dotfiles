@@ -165,9 +165,6 @@ opt-in = only where the project enabled the tool (ai-start, ai-adopt).
 | Rule | When | Do |
 |---|---|---|
 | project-knowledge | session start in a code repo | Read the Map and Libraries of this repo's AGENTS.md first, then search narrowly. (status line: memories, graph, docs map) |
-| no-ai-base | session start: repo without .ai/base-version | No AI base or Map here. Suggest the owner runs ai-adopt. |
-| merge-review | session start: main moved since the last review | /improve-codebase-architecture, then /retro; findings as tickets or a PR; then git rev-parse main > .ai/last-review. |
-| upgrade-review | session start: AI tools upgraded since the last review | Run the upgrade-review skill. |
 | nav-first | broad search (Grep, rg); with a graph: denied once, and once per graph symbol | graphify query (where, how) or graphify affected (impact) first, then Serena find_symbol / find_referencing_symbols; rg only for text. |
 | secret-scan (gate) | before git commit or push | Secret scan found a key, token or password. Remove it before commit or push. |
 | pr-rules (gate) | before gh pr create, edit or ready | PR body (pr skill template): Summary with a Mermaid diagram, Evidence (Before, After), Merge Danger (Door: one-way or two-way; Blast Radius), Docs, Changed guards (Ledger on fix PRs), author-sessions block last. |
@@ -180,15 +177,9 @@ opt-in = only where the project enabled the tool (ai-start, ai-adopt).
 | tdd | test-first prompt (tests first, tdd, red-green, failing test first; RO, RU) | Use the tdd skill (Skill tool) and follow its red-green slices before you end the turn. |
 | ship (gate) | before gh pr ready | Run the ship skill first (checks, review, Evidence), then gh pr ready. |
 | gh-write (gate) | gh write other than the PR commands | gh reads run freely; other gh writes ask the owner first. |
-| ledger-nudge | before an edit in a regression-ledger area | docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests. |
 | no-em-dash | after a write with U+2014 | Remove the em dash (U+2014). Use '-', ':' or a new sentence. |
 | ste-sentence | Markdown sentence over 25 words | STE: 25 words max per sentence. Split it. |
-| docs-lookup | prompt names a library listed in Libraries, or before a dependency-file edit | context7 query-docs with the Libraries ID (resolve only if missing), then the official docs site. (cached IDs) |
 | feature-grill | feature request (add, build ...; RO, RU) | Worktree ../<repo>-<slug> first; grill-with-docs (else grilling); 3+ files: to-spec, to-tickets; /implement each ticket (check-fast, verify, e2e, commit). Draft PR only if asked. Done: ship; the owner merges. |
-| verify-before-done | after a code edit where a verify-<app> skill exists | Before done: check-fast, then verify-<app> on the changed feature (evidence), then e2e tests. |
-| seo-not-enabled | SEO prompt, project without claude-seo | claude-seo is off here. Suggest: ai-adopt --tools seo. Do not enable it yourself. |
-| blog-not-enabled | blog prompt, project without claude-blog | claude-blog is off here. Suggest: ai-adopt --tools blog. Do not enable it yourself. |
-| browser-not-enabled | browser prompt, project without Playwright MCP | No Playwright MCP here. Suggest: ai-adopt --tools browser. Do not install a browser tool yourself. |
 | serena (opt-in) | session start, Serena on (default) | Serena is on here (no memories; the Map holds knowledge): get_symbols_overview / find_symbol for definitions, find_referencing_symbols for callers, replace_symbol_body to edit. |
 | graph (opt-in) | session start, graphify on (default) | graphify is on here: graphify query for structure before rg (auto-refresh after commits, merges, checkouts). |
 | omc (opt-in) | session start, oh-my-claudecode on here | oh-my-claudecode is on here (/oh-my-claudecode:... skills and agents). Keep .omc/ out of commits, except .omc/skills/. |
@@ -196,15 +187,12 @@ opt-in = only where the project enabled the tool (ai-start, ai-adopt).
 | blog (opt-in) | blog prompt | claude-blog first (claude-blog:blog routes). Post file: blog-*. Site: seo-*. Other agents: hand off to Claude if it is logged in, else follow the skill files. |
 | browser (opt-in) | browser prompt (screenshot, click, e2e) | Playwright MCP (headless, isolated on servers). |
 | ui (opt-in) | UI prompt or UI file | ui-ux-pro-max. Read design-system/<app>/MASTER.md (and page override) first. None: 3 to 5 --design-system variants (?variant=); the owner picks, then --persist. Ask before paid images or npx ...@latest. |
-| tracker-flow (opt-in) | tickets, spec, triage, backlog prompt | to-spec, then to-tickets. Tickets go in docs/tickets/<feature>/ (docs/agents/issue-tracker.md); no GitHub issues or labels without the owner. |
-| domain-docs (opt-in) | glossary, domain model, ADR prompt | Use grill-with-docs / domain-modeling (GLOSSARY.md, docs/adr/). |
 
 Tie-breaks (use the first, not the second):
 - one post file, or a post to be written: claude-blog:blog-*, not claude-seo:seo-*
 - URL, domain, whole site: claude-seo:seo-*, not claude-blog:blog-*
 - new app or project (kickoff): grilling (grill-with-docs where linked; typed: /grill-me), not OMC deep-interview (fallback)
 - deep interview, ambiguity score: OMC deep-interview, not matt grilling
-- library API docs: context7 with the Libraries ID, not web search
 
 
 Tools

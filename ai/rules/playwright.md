@@ -8,7 +8,7 @@ No rule text. README: "coding agents increasingly favor CLI-based workflows expo
 ## When / when not
 - Per project only. NOT registered at user scope. Claude has no default-off switch for user servers.
 - Use for screenshots, clicking through pages, e2e checks.
-- Outside a project that enabled it, the `browser-not-enabled` row says: ask the owner to run `ai-adopt --tools browser`. Do not install a browser tool yourself.
+- Outside a project that enabled it, `ai-info` lists it as off here: ask the owner to run `ai-adopt --tools browser`. Do not install a browser tool yourself.
 - On servers: `--headless --isolated`.
 
 ## Knowledge home, freshness, maintenance
@@ -16,7 +16,7 @@ No rule text. README: "coding agents increasingly favor CLI-based workflows expo
 - Maintain: when the start command or the port changes, update the Map.
 
 ## Enforcement
-- L3: opt-in row `browser` (in enabled projects). Global row `browser-not-enabled` elsewhere.
+- L3: opt-in row `browser` (in enabled projects). Elsewhere, `ai-info` lists it as off here.
 - On for one project: `ai-adopt --tools browser`. Claude: `"enabledPlugins": {"ai-playwright@ai": true}` in the project `.claude/settings.json` (the plugin holds only `ai-playwright-mcp --headless --isolated`, installed but off at user scope; managed settings block project `.mcp.json` servers). Codex: `[mcp_servers.playwright]` in the project `.codex/config.toml` (trusted projects). `ai-playwright-mcp` runs the pinned package installed once per machine; no npx at runtime.
 
 ## Proof

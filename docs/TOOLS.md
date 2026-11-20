@@ -128,7 +128,7 @@ MCP servers give agents extra tools, and each one costs context in every session
 
 - **What.** A browser the agent can drive: open a page, click, take a screenshot.
 - **Why.** End-to-end checks and screenshots. The vendor itself says CLI skills are cheaper than an always-on MCP, so we do not keep it always on.
-- **How it works here.** Opt-in per project. `ai-adopt --tools browser` turns on the plugin `ai-playwright@ai` for that project (and writes the Codex project config), headless and isolated. Outside such a project, the rule `browser-not-enabled` tells the agent to suggest `ai-adopt --tools browser`. The agent must not install a browser tool itself.
+- **How it works here.** Opt-in per project. `ai-adopt --tools browser` turns on the plugin `ai-playwright@ai` for that project (and writes the Codex project config), headless and isolated. Outside such a project, `ai-info` lists it as off here; the agent suggests `ai-adopt --tools browser`. The agent must not install a browser tool itself.
 - **Scope.** Opt-in per project.
 - **Pin.** `@playwright/mcp` 0.0.85.
 - **Contract.** `ai/rules/playwright.md`.
@@ -370,7 +370,7 @@ One chain, from prompt to proof.
 1. **The prompt.** You type "write a post about X for my site".
 2. **Router (L3 and L2).** The regex rules match. The tie-break says: a post file, so `claude-blog:blog`, not `seo-*`. The hook adds a forced-evaluation text. The agent answers YES for claude-blog.
 3. **The skill fires.** The agent calls the `Skill` tool with `claude-blog:blog`. A PostToolUse hook records it in `~/.local/state/ai/fired.jsonl`. A typed `/skill` is recorded the same way (UserPromptExpansion).
-4. **Other tools join.** While writing, Ponytail keeps diffs small, i-have-adhd keeps replies short, RTK shortens command output. If the post needs a library fact, `docs-lookup` points to context7 with the cached ID.
+4. **Other tools join.** While writing, Ponytail keeps diffs small, i-have-adhd keeps replies short, RTK shortens command output. If the post needs a library fact, the context7 server instructions point to context7 with the cached ID.
 5. **Gates.** If the agent runs `npm install`, the audit gate checks `audit.log`. If it commits, the secret gate scans.
 6. **Stop.** When the turn ends, the Stop hook compares: which rules fired, and did a matching tool or skill call follow (the `proof` regex of each rule)? If not, it writes a line to `~/.local/state/ai/misses.jsonl`.
 7. **ai-doctor.** It reads the miss log and the gate log of the last 7 days. It also checks that each tool still has its contract and that the versions equal the pins. A rule that misses often needs a better regex, a clearer skill description, or an eval.

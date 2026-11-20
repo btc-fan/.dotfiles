@@ -216,7 +216,7 @@ def render_full(f):
     out += ["", "On by default in every project: serena, graph, ui (a project turns one off: no-serena / no-graph / no-ui in .ai/enabled).",
             "Opt-in tools (run in the repo):"]
     for rid, tool in f["optin"]:
-        if rid not in ("serena", "graph", "tracker-flow", "domain-docs"):   # those two: nudges of default skills
+        if rid not in ("serena", "graph"):   # on by default, listed above
             out.append("  ai-adopt --tools %-14s %s" % (rid, tool))
     p = f["project"]
     out += [""]
@@ -224,12 +224,23 @@ def render_full(f):
         out.append("This project (%s): %s" % (p["name"], project_line(p)))
         if not p["adopted"]:
             out.append("  Not adopted yet: ai-adopt writes the Map and Libraries sections.")
+        else:
+            off = off_here(f["optin"], p["enabled"])
+            if off:
+                out.append("  Off here: %s (ai-adopt --tools <id> turns one on)." % ", ".join(off))
     else:
         out.append("Not inside a git repo: run ai-info in a project to see its state.")
     out += ["", "Docs:"] + ["  " + tilde(os.path.join(f["docs_home"], d)) for d in DOCS
                             if os.path.isfile(os.path.join(f["docs_home"], d))]
     out.append("  Rules per tool: ~/.config/ai/rules/<tool>.md. Ready tools not installed: ~/.config/ai/TOOLBOX.md")
     return out
+
+
+def off_here(optin, enabled):
+    """Opt-in ids the project did not enable. A default-on tool is off only with its no-<id> line."""
+    default_on = ("serena", "graph", "ui")
+    return [rid for rid, _t in optin
+            if ("no-" + rid in enabled if rid in default_on else rid not in enabled)]
 
 
 def project_line(p):

@@ -29,6 +29,12 @@
 7. A second machine that is one commit behind keeps the old rows until its `ai-sync` runs. Nothing breaks: the router and the render come from one checkout.
 8. A session that is open during the change: the router reads `routing.json` on each event, so the reminders stop at once. The L0 text already in that context stays until a compaction.
 9. `upgrade-review` as a headless job needs a login and can hit a usage limit. The step then prints the command for the owner and exits 0.
+10. `nav-first` stays: the same task cost 78,169 tokens with it on and 97,965 with it off (docs/reports/scenarios-baseline-2026-11-20.md).
+11. `omc` and `browser` stay: their opt-in rows are also the catalog of `ai-adopt --tools`, and no other catalog exists yet.
+12. Only the tie-break `library API docs` goes. The other 4 serve the kept rows `seo`, `blog` and `feature-grill`; ticket 12 removes them.
+13. `ai-doctor` checks `.ai/base-version`, not the `.ai/` folder: ai-adopt writes that file, and the removed rule used it.
+14. The merge OK case already exists: `ai/tests/cases/merge-approval.json` "owner said merge it: allowed".
+15. `merge_review_note` also named `ai-evidence-prune`; the `ship` skill now names it after the merge.
 
 **Owner steps:** None after D1.
 
@@ -39,11 +45,11 @@
 **Size:** M
 
 - [ ] `ai/routing.yaml` has none of the 14 ids and no `tiebreaks` key.
-- [ ] `ai-doctor --project` in a repo with no `.ai/` prints the `ai-adopt` line.
-- [ ] `ai-info` in an adopted project lists the opt-in tools that are off.
-- [ ] The `ship` skill names the after-merge step.
-- [ ] A prompt "merge" still opens the merge gate (test case).
-- [ ] `nav-first` is gone with both numbers in the PR, or it stays with both numbers in the PR.
+- [x] `ai-doctor --project` in a repo with no `.ai/` prints the `ai-adopt` line.
+- [x] `ai-info` in an adopted project lists the opt-in tools that are off.
+- [x] The `ship` skill names the after-merge step.
+- [x] A prompt "merge" still opens the merge gate (test case).
+- [x] `nav-first` is gone with both numbers in the PR, or it stays with both numbers in the PR.
 - [ ] `ai-doctor --numbers` shows 0 fires of the removed ids in a new session.
 
 **Verify:**
