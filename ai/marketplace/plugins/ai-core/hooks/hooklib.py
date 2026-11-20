@@ -1509,13 +1509,17 @@ NO_MERGE_RX = re.compile(
 
 def owner_merge_ok(prompt):
     """True when the owner's prompt gives the OK to merge. A question ("is it approved?") or a negation
-    ("don't merge yet") is not an OK."""
+    ("don't merge yet") is not an OK; "merge it?" is."""
     text = (prompt or "").strip()
-    if not text or NO_MERGE_RX.search(text) or not MERGE_OK_RX.search(text):
-        return False
-    if text.endswith("?") and not re.search(r"\bmerge\s+(it|this|them|now)\b", text, re.I):
-        return False
-    return True
+    if re.search(r"\bmerge\s+(it|this|them|now)\b", text, re.I):
+        text = text.rstrip("?")
+    return owner_said(text, MERGE_OK_RX, NO_MERGE_RX)
+
+
+def owner_said(prompt, ok_rx, no_rx):
+    """The owner's prompt matches ok_rx, has no negation (no_rx) and is not a question."""
+    text = (prompt or "").strip()
+    return bool(text) and not text.endswith("?") and not no_rx.search(text) and bool(ok_rx.search(text))
 
 
 def merge_calls(stages, cwd):
@@ -2213,12 +2217,11 @@ START_VERBS = {"start", "stop", "restart", "enable", "disable", "deploy", "reloa
 # Programs whose own "start" or "stop" word is local work (dev servers, tests) or only text; shells and wrappers.
 VERB_SKIP = {"git", "gh", "grep", "rg", "egrep", "echo", "printf", "cat", "sed", "awk", "npm", "npx", "pnpm", "yarn",
              "bun", "make", "uv", "cargo", "go", "pytest", "ls", "find", "head", "tail", "wc", "less", "jq", "test",
-             "true", "false", "cd", "export", "read", "herdr", "tmux", "claude", "codex", "graphify", "serena", "rtk",
+             "true", "false", "cd", "export", "read", "tmux", "claude", "codex", "graphify", "serena", "rtk",
              "docker", "podman", "brew", "pip", "pip3", "python", "python3", "node", "ruby", "perl", "deno", "bash",
              "sh", "zsh", "dash", "fish", "eval", "env", "nohup", "time", "timeout", "nice", "ssh", "xargs"}
 UNIT_DIRS = re.compile(r"(^|/)(systemd/(system|user)|LaunchAgents|LaunchDaemons|cron\.d|crontabs)(/|$)"
                        r"|^/etc/(sudoers|pam\.d|fstab|ssh/|crontab|rc\.local|default/grub)")
-SAFE_RM_PREFIXES = ("/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/")
 SQL_WRITE = re.compile(r"\b(drop|delete\s+from|update\s+[\w.\"`]+\s+set|truncate|alter\s+table)\b", re.I)
 
 
@@ -2247,6 +2250,18 @@ def gate_ask_first(ctx, cmd, stages):
             "run or a config check first. Do not rephrase the command or try another way." % why)
 
 
+def ask_first_reason(stages, cmd, cwd):
+    """The first high-impact stage of the command, as a short reason, or None."""
+    for st in stages:
+        why = ask_first_stage(st, cmd, cwd)
+        if why:
+            return why
+    for target in write_targets(stages, cwd, cmd):
+        if UNIT_DIRS.search(target or ""):
+            return "a write to %s (boot, service, cron or access config)" % target
+    return None
+
+
 def ask_first_prompt(d, prompt):
     """UserPromptSubmit, the owner's typed text only: an OK lets every high-impact step pass for this turn; any
     other prompt ends it and tags the turn read-only or not. Records whether the owner asked for a PR, feature or
@@ -2260,19 +2275,21 @@ def ask_first_prompt(d, prompt):
     return "read-only turn: report, then ask." if d["read_only"] else ""
 
 
-ASK_OK_RX = re.compile(r"^\W*(go|ok(ay)?|yes|yep|da|fa-?l|да|давай|proceed|approved?)(?!\w)"
-                       r"|\b(go\s+ahead|do\s+it|approved?|proceed)\b|(?<!\w)(давай|fa-l)(?!\w)", re.I)
-NO_ASK_RX = re.compile(r"(?<!\w)(don'?t|do\s+not|not|no|never|wait|stop|hold|nu|нет|не)(?!\w)", re.I)
+# An OK word opens a prompt of at most 5 words, or an approval phrase is anywhere: "ok, now look at the logs" is
+# a reply, not an approval.
+ASK_OK_RX = re.compile(r"^(?=\W*(\w+\W*){1,5}$)\W*(go|ok(ay)?|yes|yep|da|fa-?l|да|давай|proceed|approved?)(?!\w)"
+                       r"|\b(go\s+ahead|do\s+it|approved?|proceed)\b", re.I)
+NO_ASK_RX = re.compile(r"(?<!\w)(don'?t|do\s+not|not|no|never|wait|hold\s+on|nu|нет|не|what|how|why|which|where)"
+                       r"(?!\w)", re.I)
 ASKED_CHANGE_RX = re.compile(r"\b(prs?|pull\s+requests?|features?|fix\w*|bugs?|issues?|release|implement\w*|build|"
                              r"add|ship)\b|(?<!\w)(repar\w*|adaug\w*|func[tț]i\w*|исправ\w*|добав\w*|фич\w*|"
                              r"релиз\w*)", re.I)
 
 
 def owner_ask_ok(prompt):
-    """True for a typed go, ok, yes, approve, do it, proceed (RO da, fa-l; RU да, давай). A negation or a question
-    is not an OK."""
-    text = (prompt or "").strip()
-    return bool(text) and not text.endswith("?") and not NO_ASK_RX.search(text) and bool(ASK_OK_RX.search(text))
+    """True for a short typed go, ok, yes (RO da, fa-l; RU да, давай), or approve, do it, proceed in any prompt.
+    A negation or a question is not an OK."""
+    return owner_said(prompt, ASK_OK_RX, NO_ASK_RX)
 
 
 def ask_name(why):
@@ -2291,7 +2308,6 @@ def ask_first_unnamed(d, reply):
 
 READ_VERB_RX = re.compile(r"^\W*(please\s+)?(audit|check|research|look\s+(at|into)|review|explain|investigate|"
                           r"verific\w*|analiz\w*|проверь|посмотри)(?!\w)", re.I)
-QUESTION_RX = re.compile(r"\?\s*$")
 CHANGE_VERB_RX = re.compile(r"\b(fix|add|build|install|deploy|restart|update|implement|change|remove)\b"
                             r"|(?<!\w)(repar\w*|adaug\w*|instaleaz\w*|исправ\w*|добав\w*|установ\w*|"
                             r"перезапуст\w*)", re.I)
@@ -2300,23 +2316,24 @@ CHANGE_VERB_RX = re.compile(r"\b(fix|add|build|install|deploy|restart|update|imp
 def read_only_prompt(prompt):
     """Audit, check, research, look at, review, explain, investigate, or a question, with no change verb."""
     text = (prompt or "").strip()
-    return bool(READ_VERB_RX.search(text) or QUESTION_RX.search(text)) and not CHANGE_VERB_RX.search(text)
+    return bool(READ_VERB_RX.search(text) or text.endswith("?")) and not CHANGE_VERB_RX.search(text)
 
 
 def read_only_reason(stages, cmd, cwd):
     """In a read-only turn every host change stops, also outside the classes: a write over ssh (redirect, tee,
     sed -i, cp, mv) and a local write outside the repo, the scratchpad and /tmp."""
     for st in stages:
-        for remote in (remote_texts(st, cmd, cwd) if st.exe == "ssh" else []):
-            rs = parse_command(remote or "")
-            why = ask_first_reason(rs, remote, "/") or next(
-                (t for t in write_targets(rs, "/", remote) if not t.startswith("/dev/")), None)
-            if why:
-                return "%s over ssh (a host change in a read-only turn)" % why
+        why = st.exe == "ssh" and ssh_reason(st, cmd, cwd, remote_write)
+        if why:
+            return why + " (a host change in a read-only turn)"
     for target in write_targets(stages, cwd, cmd):
         if not target.startswith("/dev/") and not safe_rm_target(target, cmd, cwd):
             return "a write to %s (outside the repo in a read-only turn)" % target
     return None
+
+
+def remote_write(stages, cmd, cwd):
+    return next((t for t in write_targets(stages, cwd, cmd) if not t.startswith("/dev/")), None)
 
 
 GH_CREATE = {("pr", "create"), ("issue", "create"), ("release", "create")}
@@ -2337,23 +2354,19 @@ def probe_ask_first(stages, cmd=""):
     return bool(stages)
 
 
-def ask_first_reason(stages, cmd, cwd):
-    """The first high-impact stage of the command, as a short reason, or None."""
-    for st in stages:
-        why = ask_first_stage(st, cmd, cwd)
-        if why:
-            return why
-    for target in write_targets(stages, cwd, cmd):
-        if UNIT_DIRS.search(target or ""):
-            return "a write to %s (boot, service, cron or access config)" % target
-    return None
-
-
 def ask_first_stage(st, cmd, cwd):
     exe, args = st.exe, st.args
     words = [a for a in args if not a.startswith("-")]
     if exe == "ssh":
         return ssh_reason(st, cmd, cwd)
+    if exe in ("npx", "bunx", "uvx") or (exe in ("pnpm", "yarn") and args[:1] == ["dlx"]):
+        # shortcut: a runner option with a value (npx -p x) hides the program; split them when agents use it.
+        rest = [a for a in (args[1:] if exe in ("pnpm", "yarn") else args) if not a.startswith("-")][:1]
+        if rest:
+            i = args.index(rest[0])
+            st = Stage([(re.sub(r"(.)@[^/]*$", r"\1", rest[0]), False)] + [(a, False) for a in args[i + 1:]], "")
+            return ask_first_stage(st, cmd, cwd)
+        return None
     if exe in SERVICE_TOOLS:
         verbs = [a for a in args if a in SERVICE_CHANGE]
         if exe == "service":
@@ -2374,6 +2387,9 @@ def ask_first_stage(st, cmd, cwd):
         return "tmux %s (it stops a session and its processes)" % words[0]
     if exe in PACKAGE_TOOLS and any(w in PACKAGE_CHANGE for w in words[:2]):
         return "%s %s (a package change)" % (exe, " ".join(words[:2]))
+    # brew install already waits for the owner in audit-before-install.
+    if exe == "brew" and words[:1] in (["uninstall"], ["remove"], ["upgrade"], ["reinstall"]):
+        return "brew %s (a package change)" % words[0]
     if exe == "brew" and words[:1] == ["services"] and any(w in START_VERBS for w in words[1:3]):
         return "brew %s (a service change)" % " ".join(words[:2])
     if exe in ACCESS_TOOLS and not ACCESS_READS.get(exe, set()) & set(args):
@@ -2383,7 +2399,7 @@ def ask_first_stage(st, cmd, cwd):
         if why:
             return why
     if exe in DEPLOY_VERBS:
-        if "--dry-run" not in args and any(a in DEPLOY_VERBS[exe] for a in args):
+        if not any(a.split("=")[0] == "--dry-run" for a in args) and any(a in DEPLOY_VERBS[exe] for a in args):
             return "%s %s (a deploy)" % (exe, " ".join(words[:2]))
         return None
     if exe in SQL_CLIENTS and SQL_WRITE.search(" ".join(args)):
@@ -2397,12 +2413,12 @@ def ask_first_stage(st, cmd, cwd):
     return None
 
 
-def ssh_reason(st, cmd, cwd):
-    """The same rules as a local command, for each text an ssh stage runs on the other host that the gate can read.
-    A script it cannot read passes, as a local `bash x.sh` does."""
+def ssh_reason(st, cmd, cwd, judge=None):
+    """The same rules as a local command (or judge), for each text an ssh stage runs on the other host that the
+    gate can read. A script it cannot read passes, as a local `bash x.sh` does."""
     for text in remote_texts(st, cmd, cwd):
         # The remote folder is unknown: "/" makes a relative rm -r count as outside the repo.
-        why = text and ask_first_reason(parse_command(text), text, "/")
+        why = text and (judge or ask_first_reason)(parse_command(text), text, "/")
         if why:
             return why + " over ssh"
     return None
@@ -2448,13 +2464,13 @@ def local_test_program(st, cmd):
     folder (a throwaway database in the scratchpad): its start or stop touches nothing that runs for the owner."""
     if st.exe.startswith("$") or re.search(r"(^|[\s;{(])%s\s*\(\)" % re.escape(st.exe), cmd):
         return True
-    return any(a.startswith(SAFE_RM_PREFIXES) or "/scratchpad" in a for a in st.args)
+    return any(temp_path(a) for a in st.args)
 
 
 def git_high_impact(args):
     words = [a for a in args if not a.startswith("-")]
-    if "push" in words and (any(a in ("-f", "--force", "--force-with-lease") or a.startswith("--force-with-lease=")
-                                 for a in args) or any(w.startswith("+") for w in words)):
+    if "push" in words and ("f" in short_flags(args) or any(a == "--force" or a.startswith("--force-with-lease")
+                                                          for a in args) or any(w.startswith("+") for w in words)):
         return "git push --force (it rewrites the remote history)"
     if "reset" in words and "--hard" in args:
         return "git reset --hard (it drops local changes)"
@@ -2479,12 +2495,15 @@ def safe_rm_target(target, cmd, cwd):
     if "$" in path or "`" in path:
         return True     # shortcut: an unresolved variable passes (agents keep scratch paths in $S); the rule covers it
     path = os.path.normpath(os.path.join(cwd, os.path.expanduser(path)))
-    if path.startswith(SAFE_RM_PREFIXES) or "/scratchpad" in path:
-        return True
-    if os.path.basename(path) in REBUILDABLE or path.endswith(".egg-info"):
+    if temp_path(path) or rebuildable_name(path):
         return True
     root = project_root(cwd)
     return bool(root) and path.startswith(root.rstrip("/") + "/") and "/.git" not in path[len(root):]
+
+
+def temp_path(path):
+    """A path inside a temp root (the roots of no-destroy) or a scratchpad, not the root itself."""
+    return "/scratchpad" in path or any(path.startswith(r.rstrip("/") + "/") for r in temp_roots())
 
 
 FILE_GATES = {"worktree-first"}      # gates that judge the file of an Edit or Write, not a shell command

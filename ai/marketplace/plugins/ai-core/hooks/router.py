@@ -39,7 +39,8 @@ from hooklib import (FILE_GATES, GATES, GATE_PROBES, ai_home, append_jsonl, comm
                      origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
                      state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
                      graph_status, git_history, git_out, short_skill, write_targets,
-                     owner_merge_ok, ask_first_prompt, ask_first_unnamed, merge_review_note, nav_note, upgrade_note, legacy_memory_note, probe_pr,
+                     owner_merge_ok, ask_first_prompt, ask_first_unnamed, merge_review_note, nav_note, upgrade_note,
+                     legacy_memory_note, probe_pr,
                      session_line, log_wall, verify_proof, verify_steps, app_code_state, head_at, git_quick)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -292,9 +293,11 @@ def remember_owner_ok(ctx, prompt):
     this turn, a read-only turn). The caller passes only the owner's own lines, never pasted ones."""
     try:
         d = ctx.state.load()
+        before = dict(d)
         d["merge_ok"] = owner_merge_ok(prompt)
         note = ask_first_prompt(d, prompt)
-        ctx.state.dirty = True
+        if d != before:
+            ctx.state.dirty = True
         if note:
             ctx.add_context("[ai router: ask-first] " + note)
     except Exception as exc:

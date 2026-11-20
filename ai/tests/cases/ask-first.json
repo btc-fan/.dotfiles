@@ -8,7 +8,7 @@
    "payload": {
     "tool_name": "Bash",
     "tool_input": {
-     "command": "systemctl --user enable herdr-core-boot.service"
+     "command": "systemctl --user enable myd-boot.service"
     }
    },
    "contains": [
@@ -25,7 +25,7 @@
    "payload": {
     "tool_name": "Bash",
     "tool_input": {
-     "command": "herdr-core server start"
+     "command": "myd server start"
     }
    },
    "contains": [
@@ -76,7 +76,7 @@
    "payload": {
     "tool_name": "Bash",
     "tool_input": {
-     "command": "tmux kill-session -t polymarket-trading"
+     "command": "tmux kill-session -t bots"
     }
    },
    "contains": [
@@ -229,7 +229,7 @@
    "payload": {
     "tool_name": "Bash",
     "tool_input": {
-     "command": "userdel -r hermes"
+     "command": "userdel -r bot"
     }
    },
    "contains": [
@@ -297,7 +297,7 @@
    "payload": {
     "tool_name": "Bash",
     "tool_input": {
-     "command": "rm -rf /home/hermes"
+     "command": "rm -rf /home/bot"
     }
    },
    "contains": [
@@ -353,7 +353,7 @@
    "payload": {
     "tool_name": "Bash",
     "tool_input": {
-     "command": "systemctl --user -M hermes@ is-active hermes-gateway"
+     "command": "systemctl --user -M bot@ is-active bot-gateway"
     }
    }
   },
@@ -364,7 +364,7 @@
    "payload": {
     "tool_name": "Bash",
     "tool_input": {
-     "command": "journalctl -u md999 -n 50"
+     "command": "journalctl -u crawler -n 50"
     }
    }
   },
@@ -606,7 +606,7 @@
    "payload": {
     "tool_name": "Bash",
     "tool_input": {
-     "command": "ssh -o BatchMode=yes ubuntu02 'for u in a b; do echo $u; done; cd ~/work/hub && git status -s | head -3; sync; date +%T; sudo systemctl reboot'"
+     "command": "ssh -o BatchMode=yes h 'for u in a b; do echo $u; done; cd ~/work/hub && git status -s | head -3; sync; date +%T; sudo systemctl reboot'"
     }
    },
    "contains": [
@@ -657,7 +657,7 @@
    "payload": {
     "tool_name": "Bash",
     "tool_input": {
-     "command": "ssh ubuntu01 'sudo bash -s' <<'EOF'\nid hermes\nuserdel -r hermes\nEOF"
+     "command": "ssh h 'sudo bash -s' <<'EOF'\nid bot\nuserdel -r bot\nEOF"
     }
    },
    "contains": [
@@ -703,7 +703,7 @@
    },
    "project": {
     "files": {
-     "script.sh": "#!/bin/bash\nset -e\nuserdel -r hermes\n"
+     "script.sh": "#!/bin/bash\nset -e\nuserdel -r bot\n"
     }
    },
    "contains": [
@@ -844,7 +844,7 @@
    "payload": {
     "tool_name": "Bash",
     "tool_input": {
-     "command": "ssh -t ubuntu01"
+     "command": "ssh -t h"
     }
    }
   },
@@ -899,7 +899,7 @@
    "payload": {
     "tool_name": "Bash",
     "tool_input": {
-     "command": "ssh h 'sudo ufw status | grep 22; sudo passwd -S ubuntu01; sudo iptables -nvL'"
+     "command": "ssh h 'sudo ufw status | grep 22; sudo passwd -S admin; sudo iptables -nvL'"
     }
    }
   },
@@ -2094,6 +2094,333 @@
     }
    ],
    "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "deny: force push with combined short flags",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push -fu origin x"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]"
+   ]
+  },
+  {
+   "name": "allow: rm in /var/tmp",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf /var/tmp/build-123"
+    }
+   }
+  },
+  {
+   "name": "ok: stop inside an approval is still an OK",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go, stop the old worker"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: a reply that starts with ok is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "ok, now look at the server logs"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: a thanks with a question word is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "yes thanks. what next"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: hold on is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go, but hold on a moment"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "deny: deploy through npx",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "npx wrangler deploy"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]"
+   ]
+  },
+  {
+   "name": "deny: deploy through npx --yes",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "npx --yes wrangler deploy"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]"
+   ]
+  },
+  {
+   "name": "deny: deploy through pnpm dlx",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "pnpm dlx vercel --prod"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]"
+   ]
+  },
+  {
+   "name": "deny: deploy through bunx",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "bunx wrangler deploy"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]"
+   ]
+  },
+  {
+   "name": "deny: deploy through uvx",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "uvx myd server start"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]"
+   ]
+  },
+  {
+   "name": "allow: npx deploy dry run",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "npx wrangler deploy --dry-run"
+    }
+   },
+   "project": {
+    "files": {
+     "node_modules/.bin/wrangler": ""
+    }
+   }
+  },
+  {
+   "name": "allow: npx test runner",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "npx vitest run"
+    }
+   },
+   "project": {
+    "files": {
+     "node_modules/.bin/vitest": ""
+    }
+   }
+  },
+  {
+   "name": "allow: kubectl dry run with a value",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "kubectl apply --dry-run=client -f app.yaml"
+    }
+   }
+  },
+  {
+   "name": "deny: brew upgrade",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "brew upgrade"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]"
+   ]
+  },
+  {
+   "name": "deny: brew uninstall",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "brew uninstall wget"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]"
+   ]
+  },
+  {
+   "name": "allow: brew list",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "brew list"
+    }
+   }
+  },
+  {
+   "name": "ok: a long prompt that only starts with go is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go, stop the old worker and start the new one"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    }
+   ]
   }
  ]
 }
