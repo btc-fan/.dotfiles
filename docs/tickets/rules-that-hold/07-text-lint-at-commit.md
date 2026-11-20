@@ -23,6 +23,14 @@
 6. Codex `apply_patch` and Claude `Write` no longer get feedback at write time. The agent learns at commit time, and the refusal names each file and line. This is the accepted cost of the move.
 7. An existing file that already holds the character: only added lines are checked, so an old line does not block an unrelated commit.
 8. `--no-verify` skips both hooks. The `no-verify` gate denies it in a session, and CI (ticket 06) checks the PR text.
+9. Difference: `pstack_adapt.py` held the literal character, not the escape. It now imports `hooklib.EM_DASH`. `.verify/evidence/` (captured tool output) holds it too: it is in the default allow list.
+10. Difference: the default globs live in `hooklib.TEXT_LINT_DEFAULT`, so a project needs no file. `.ai/text-lint-allow` only adds globs. Defaults: `vendor/`, `node_modules/`, `graphify-out/`, `.verify/evidence/`, lock files.
+11. Difference: binary files have no added lines in `git diff --cached -U0`, so no `--numstat` call is needed. A rename adds no line either.
+12. Difference: `long_sentences` moved from `router.py` to `hooklib`. The sentence check reads each run of added lines alone, so a new line inside an old paragraph is read without its old part.
+13. Difference: `ai-docs-check --md` now also refuses an em dash inside a Markdown code block, because it calls the same function as the commit hook. It uses the same allow list.
+14. Difference: the commit message check cuts the text at the `git commit -v` scissors line. It keeps the `#` lines, because `git commit -F` keeps them in the message.
+15. A file that must hold the character on purpose: add its glob to `.ai/text-lint-allow`. Code builds it from the code point (`chr(0x2014)`).
+16. Difference: the PR title and body go into one file, and the job `pr-text` runs `ai-check text --pr-body` on it after `pr-rules`.
 
 **Owner steps:** None.
 
@@ -32,12 +40,12 @@
 
 **Size:** S
 
-- [ ] `git commit` in a plain terminal refuses a staged line with the em dash and names the file and line.
-- [ ] A commit message with the em dash is refused by the `commit-msg` hook.
-- [ ] A Markdown sentence of 30 words gives a warning, and the commit passes.
-- [ ] `ai/routing.yaml` has no row `no-em-dash` and no row `ste-sentence`.
-- [ ] `grep` proof in the PR: one em dash pattern in code, in `hooklib`.
-- [ ] A file glob in `.ai/text-lint-allow` lets a quote pass.
+- [x] `git commit` in a plain terminal refuses a staged line with the em dash and names the file and line.
+- [x] A commit message with the em dash is refused by the `commit-msg` hook.
+- [x] A Markdown sentence of 30 words gives a warning, and the commit passes.
+- [x] `ai/routing.yaml` has no row `no-em-dash` and no row `ste-sentence`.
+- [x] `grep` proof in the PR: one em dash pattern in code, in `hooklib`.
+- [x] A file glob in `.ai/text-lint-allow` lets a quote pass.
 
 **Verify:**
 - Unit: `ai/tests/test_flow.py` gets `t_precommit_em_dash`, `t_commit_msg_em_dash`, `t_ste_warning_only` and `t_text_lint_allow`. Remove `ai/tests/cases/no-em-dash.json` and `ai/tests/cases/ste-sentence.json`.

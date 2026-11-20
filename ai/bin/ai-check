@@ -8,7 +8,8 @@ The gate function is the one the agent hook runs (hooklib.GATES); ai-precommit a
 The input is data: a command line is parsed, never run.
   secret-scan   --command, --staged          the secret patterns, and gitleaks when it is on PATH
   pr-rules      --pr-body, --command         the PR body fields, and the diff of the branch against its base
-  text          --staged, --pr-body, --command   the em dash character on added lines
+  text          --staged, --pr-body, --command   the em dash character on added lines; a Markdown sentence over
+                                                 25 words is a warning (AI_STE_STRICT=1: a failure)
 --title and --base (with --pr-body only, as CI gives them): a fix: title needs a test file in the diff against BRANCH.
 --dir sets the folder (default: the current folder). The repo root comes from git rev-parse --show-toplevel.
 Exit 0 = pass, 1 = fail (the gate id, the reason and how to fix it), 2 = wrong usage.

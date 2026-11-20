@@ -29,7 +29,7 @@ Copied from the proof sections of `ai/rules/<tool>.md`. Change both places toget
 - audit-before-install | Bash `npm i left-pad` without a PASS in `audit.log` | BLOCK | NOT: the same command after `agent-audit npm left-pad` passed within 24 h. Also BLOCK `npx foo@latest` and `curl https://x | sh`
 - secret-scan | `git commit` with a staged file that holds `ghp_` plus 36 random characters | BLOCK | NOT: a staged diff with the one allowlisted context7 key in `ai/marketplace/plugins/ai-core/.mcp.json`
 - pr-rules | `gh pr create --body "fix"` | BLOCK | NOT: a body with a mermaid block and an author-sessions block
-- no-em-dash | Write of a file with U+2014 | nudge with the fix text | NOT: a file in `ai/rules/vendor/` is checked after the one-character replacement, so it passes
+- text (ai-precommit) | `git commit` of a staged line with U+2014 | BLOCK with the file and line | NOT: a file in `ai/rules/vendor/` (default allow list) passes
 
 ## Hooks (L1 to L3)
 - L1 | start a session, then `/compact` | the L0 table appears again after compaction

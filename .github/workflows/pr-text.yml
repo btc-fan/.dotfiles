@@ -1,5 +1,5 @@
 # The PR text check on each pull request to ai (ticket rules-that-hold 06). The required check is the job `pr-text`.
-# It runs the pr-rules gate of the agent hook through ai-check: the same code as the session gate.
+# It runs the pr-rules and text gates of the agent hook through ai-check: the same code as the session gate.
 # pull_request_target runs this file and ai-check from the BASE branch, so a PR cannot weaken its own check.
 # SECURITY: this job never checks out or runs code of the PR. It reads the PR as data only:
 #   the title and body through env and a file, and the PR commits as git objects (a diff, the verify run.log files).
@@ -37,6 +37,8 @@ jobs:
           persist-credentials: false    # the token never sits in a file that the PR files could point to
       - name: PR body to a file
         run: printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
+      - name: PR title and body to a file (the text check)
+        run: printf '%s\n\n%s\n' "$PR_TITLE" "$PR_BODY" > "$RUNNER_TEMP/pr-text.md"
       - name: PR files as data
         # A separate folder that holds the PR files for the gate to read. Nothing in it runs.
         run: |
@@ -45,3 +47,5 @@ jobs:
           git worktree add -q --detach "$RUNNER_TEMP/pr-files" "$HEAD_SHA"
       - name: PR text check (ai-check of the base branch)
         run: ai/bin/ai-check pr-rules --pr-body "$RUNNER_TEMP/pr-body.md" --title "$PR_TITLE" --base "$BASE_REF" --dir "$RUNNER_TEMP/pr-files"
+      - name: No em dash in the PR title and body
+        run: ai/bin/ai-check text --pr-body "$RUNNER_TEMP/pr-text.md"

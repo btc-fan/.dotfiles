@@ -1535,35 +1535,50 @@ if ! command -v ai-precommit >/dev/null 2>&1; then
 fi
 exec ai-precommit
 """ % (PRECOMMIT_MARK, PRECOMMIT_FAIL)
+# The commit message gets the text gate (no em dash) under the same conditions as the pre-commit hook (rth-07).
+# With ai.precommit optional it exits quietly: the pre-commit hook already printed the one WARN line.
+COMMIT_MSG_LINE = PRECOMMIT_LINE + ' --commit-msg "$1"'
+COMMIT_MSG_HOOK = PRECOMMIT_HOOK.replace("pre-commit (ai-precommit): lint and format check on the staged files",
+                                         "commit-msg (ai-precommit): the text gate on the commit message") \
+    .replace('echo "WARN: ai-precommit not on PATH: pre-commit check skipped (git config ai.precommit is optional)"; ',
+             "") \
+    .replace("exec ai-precommit\n", 'exec ai-precommit --commit-msg "$1"\n')
+GIT_HOOKS = (("pre-commit", PRECOMMIT_HOOK, PRECOMMIT_LINE, "ai-precommit: lint, format and text check on staged files"),
+             ("commit-msg", COMMIT_MSG_HOOK, COMMIT_MSG_LINE, "ai-precommit --commit-msg: no em dash in the message"))
 
 
 def precommit_steps(root, checks):
-    """.git/hooks/pre-commit runs ai-precommit, when the repo has no hook of its own and no core.hooksPath
-    (husky, lefthook, pre-commit keep theirs: printed)."""
+    """.git/hooks/pre-commit and commit-msg run ai-precommit, when the repo has no hook of its own there and no
+    core.hooksPath (husky, lefthook, pre-commit keep theirs: the line to add is printed)."""
     hooks_path = (git(root, "config", "--get", "core.hooksPath") or "").strip()
     if hooks_path:
-        print("keep: core.hooksPath is %s (the repo's own hooks); no ai pre-commit hook" % hooks_path)
-        print("  add this line to your pre-commit hook: " + PRECOMMIT_LINE)
+        print("keep: core.hooksPath is %s (the repo's own hooks); no ai pre-commit or commit-msg hook" % hooks_path)
+        for name, _text, line, _what in GIT_HOOKS:
+            print("  add this line to your %s hook: %s" % (name, line))
         return []
     git_dir = (git(root, "rev-parse", "--git-path", "hooks") or "").strip()
     if not git_dir:
         return []
     hook = os.path.join(root, git_dir) if not os.path.isabs(git_dir) else git_dir
-    path = os.path.join(hook, "pre-commit")
+    return [step for name, text, line, what in GIT_HOOKS for step in hook_step(hook, name, text, line, what)]
+
+
+def hook_step(hook, name, text, line, what):
+    path = os.path.join(hook, name)
     cur = read(path)
-    if cur is not None and PRECOMMIT_MARK not in cur:
-        print("keep: .git/hooks/pre-commit is the repo's own; no ai pre-commit hook")
-        print("  add this line to your pre-commit hook: " + PRECOMMIT_LINE)
+    if cur is not None and "# ai-adopt %s (ai-precommit)" % name not in cur:
+        print("keep: .git/hooks/%s is the repo's own; no ai %s hook" % (name, name))
+        print("  add this line to your %s hook: %s" % (name, line))
         return []
-    if cur == PRECOMMIT_HOOK:
+    if cur == text:
         return []
 
     def apply():
         os.makedirs(hook, exist_ok=True)
         with open(path, "w") as fh:
-            fh.write(PRECOMMIT_HOOK)
+            fh.write(text)
         os.chmod(path, 0o755)
-    return [("install .git/hooks/pre-commit (ai-precommit: lint and format check on staged files, local)", apply)]
+    return [("install .git/hooks/%s (%s, local)" % (name, what), apply)]
 
 
 def ratchet_steps(root):

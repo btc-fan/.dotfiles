@@ -33,6 +33,10 @@ import re
 import subprocess
 import sys
 
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "marketplace", "plugins",
+                                "ai-core", "hooks"))     # hooklib: the one em dash check (rules-that-hold 07)
+
 ROOT_OK = {"README.md", "AGENTS.md", "CLAUDE.md", "GLOSSARY.md", "CODING_STANDARDS.md", "CHANGELOG.md",
            "CONTRIBUTING.md", "SECURITY.md", "LICENSE.md", "CODE_OF_CONDUCT.md"}
 ANY_DIR_OK = {"README.md", "AGENTS.md", "CLAUDE.md", "CHANGELOG.md"}
@@ -126,20 +130,24 @@ def write_baseline(root, stray):
     return 0
 
 
-EM_DASH = chr(0x2014)
 LINK_RX = re.compile(r"!?\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
 CODE_SPAN_RX = re.compile(r"`[^`]*`")
 
 
 def md_problems(root, files):
-    """file:line findings: an em dash, or a relative link whose file does not exist. Code is skipped."""
-    out = []
+    """file:line findings: an em dash (the commit hook's check, the same allow list), or a relative link whose
+    file does not exist. A link in code is skipped."""
+    from hooklib import as_added, em_dash_lines, text_lint_allow
+    allow, out = text_lint_allow(root), []
     for f in files:
         try:
             with open(os.path.join(root, f), encoding="utf-8", errors="replace") as fh:
-                lines = fh.read().splitlines()
+                text = fh.read()
         except OSError:
             continue
+        out += ["%s: em dash (U+2014): use '-', ':' or a new sentence" % hit
+                for hit in em_dash_lines("+++ b/%s\n%s" % (f, as_added(text)), allow)]
+        lines = text.splitlines()
         fenced = False
         for n, line in enumerate(lines, 1):
             if line.lstrip().startswith(("```", "~~~")):
@@ -147,8 +155,6 @@ def md_problems(root, files):
                 continue
             if fenced:
                 continue
-            if EM_DASH in line:
-                out.append("%s:%d: em dash (U+2014): use '-', ':' or a new sentence" % (f, n))
             for target in LINK_RX.findall(CODE_SPAN_RX.sub("", line)):
                 if not link_ok(root, f, target):
                     out.append("%s:%d: broken link %s" % (f, n, target))

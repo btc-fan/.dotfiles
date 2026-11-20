@@ -32,11 +32,12 @@ AI_DIR = os.path.dirname(HERE)                       # <AI_HOME>/ai
 HOOKS = os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks")
 HERMES = os.path.join(AI_DIR, "hooks", "hermes")
 AGENTS_CAP = 30 * 1024
-EM_DASH = "\u2014"
 L0_MARKER = "<!-- AI:L0 -->"
 PROFILE_LINE = re.compile(r" <!-- profiles: ([a-z0-9, -]+) -->$")
 sys.path.insert(0, os.path.join(AI_DIR, "lib"))
 import ai_profile  # noqa: E402
+sys.path.insert(0, HOOKS)
+from hooklib import EM_DASH  # noqa: E402  the one em dash constant (rules-that-hold 07)
 
 
 # ---------------------------------------------------------------- entry point

@@ -214,7 +214,7 @@ def check_agents_md():
         return
     data = open(path, "rb").read()
     say("PASS" if len(data) <= CAP else "FAIL", "AGENTS.md size %d of %d bytes" % (len(data), CAP))
-    say("PASS" if chr(0x2014).encode() not in data else "FAIL", "AGENTS.md has no em dash")
+    say("PASS" if hooklib_module().EM_DASH.encode() not in data else "FAIL", "AGENTS.md has no em dash")
     link = os.path.expanduser("~/.config/ai/AGENTS.md")
     say("PASS" if os.path.exists(link) else "WARN", "~/.config/ai/AGENTS.md present")
 

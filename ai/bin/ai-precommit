@@ -2,6 +2,7 @@
 """ai-precommit: lint and format check on the staged files (the git pre-commit hook that ai-adopt installs).
 
 Usage: ai-precommit [--dir PATH]     exit 1 when a linter or formatter reports a staged file
+       ai-precommit --commit-msg FILE  the text gate on a commit message (the commit-msg hook that ai-adopt installs)
 
 It checks only staged files, with the tools the repo already has (nothing is installed, no network):
   Python        ruff check, ruff format --check   (.venv/bin/ruff, else ruff on PATH)
@@ -17,6 +18,10 @@ A tool that is not there is skipped and named once. It never changes a file: the
 
 Secret scan (rules-that-hold 05): the secret-scan gate of the agent hook runs on the staged diff, in this process
 (hooklib.run_check, the same function as ai-check). A hit blocks the commit.
+
+Text gate (rules-that-hold 07): the text gate of ai-check on the staged added lines. An em dash (U+2014) blocks the
+commit with the file and line. A Markdown sentence over 25 words prints a warning (AI_STE_STRICT=1 in the owner
+config makes it block). Vendored and generated files and the globs in .ai/text-lint-allow are skipped.
 
 Verify gate (verify-enforcement 04): in a project with a verify-<app> skill, a commit whose staged diff adds a test
 (Python `def test_...(`; `test(` or `it(` in a JS or TS spec file) needs a valid run.log in .verify/evidence/ of
@@ -55,11 +60,14 @@ TIMEOUT = 180
 
 
 def main(argv):
+    if "--commit-msg" in argv:
+        return commit_msg_gate(argv[argv.index("--commit-msg") + 1])
     root = os.path.abspath(argv[argv.index("--dir") + 1] if "--dir" in argv else repo_root())
     files = staged(root)
     if not files:
         return 0
     secret = secret_gate(root)
+    text = text_gate(root)
     refusal = verify_gate(root)
     skip = gate_skips(env_ok=False)[0].get("verify-commit") if refusal else None
     if skip is not None:        # the git env comes from the agent's command: only the root-owned file counts
@@ -84,7 +92,7 @@ def main(argv):
         log_wall("verify-commit", refusal.split(": ", 1)[-1], root)
     if failed:
         print("ai-precommit: blocked the commit: %s. Fix the files, git add them, commit again." % "; ".join(failed))
-    return 1 if failed or refusal or secret else 0
+    return 1 if failed or refusal or secret or text else 0
 
 
 # ---------------------------------------------------------------- secret scan (the hook's gate, rules-that-hold 05)
@@ -104,6 +112,38 @@ def secret_gate(root):
     print("ai-precommit: blocked the commit: [secret-scan] %s" % found)
     log_wall("secret-scan", found, root)
     return True
+
+
+# ---------------------------------------------------------------- text gate (rules-that-hold 07)
+
+SCISSORS = re.compile(r"^\S ------------------------ >8 ------------------------$", re.M)
+
+
+def text_gate(root):
+    """The text gate of ai-check on the staged diff, in this process. Prints a refusal; True = refused."""
+    found, notes = run_check("text", root, staged=True)
+    for note in notes:
+        print("ai-precommit: text: %s" % note)
+    if found:
+        print("ai-precommit: blocked the commit: [text] %s" % found)
+    return bool(found)
+
+
+def commit_msg_gate(path):
+    """The text gate on a commit message file. The diff that git commit -v puts under the scissors line is not
+    the message. Exit 1 when it refuses."""
+    import tempfile
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        message = SCISSORS.split(fh.read())[0]
+    with tempfile.TemporaryDirectory() as tmp:
+        copy = os.path.join(tmp, os.path.basename(path))
+        with open(copy, "w", encoding="utf-8") as fh:
+            fh.write(message)
+        found, _notes = run_check("text", os.path.dirname(os.path.abspath(path)), body=copy)
+    if found:
+        print("ai-precommit: blocked the commit message: [text] %s Your message is in %s." % (found, path))
+        return 1
+    return 0
 
 
 # ---------------------------------------------------------------- verify gate (hook 3)
