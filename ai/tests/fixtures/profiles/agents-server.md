@@ -163,6 +163,7 @@ opt-in = only where the project enabled the tool (ai-start, ai-adopt).
 | pr-rules (gate) | before gh pr create, edit or ready | PR body (pr skill template): Summary with a Mermaid diagram, Evidence (Before, After), Merge Danger (Door: one-way or two-way; Blast Radius), Docs, Changed guards (Ledger on fix PRs), author-sessions block last. |
 | merge-approval (gate) | before gh pr merge, or a git push to main or master | Merge only after the ship skill and when the owner's latest message says merge or approve. No push to main or master. |
 | worktree-first (gate) | edit on main or master | git worktree add ../<repo>-<slug> -b <slug> origin/<main> |
+| ask-first (gate) | restart, boot, deploy, kill, delete | Plan, risk, undo. Wait for a typed OK. |
 | no-verify (gate) | git commit or push with --no-verify (or commit -n) | Never skip git hooks: fix what pre-commit reports, then commit again. |
 | writing-for-agents (gate) | before an edit of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md | Load the writing-for-agents skill first (Skill tool, or read its SKILL.md), then edit. |
 | diagnosing-bugs | bug or performance prompt (slow, perf, broken, debug, crash, regression; RO, RU) | Use the diagnosing-bugs skill (Skill tool) and follow its loop before you end the turn. |
@@ -173,7 +174,7 @@ opt-in = only where the project enabled the tool (ai-start, ai-adopt).
 | no-em-dash | after a write with U+2014 | Remove the em dash (U+2014). Use '-', ':' or a new sentence. |
 | ste-sentence | Markdown sentence over 25 words | STE: 25 words max per sentence. Split it. |
 | docs-lookup | prompt names a library listed in Libraries, or before a dependency-file edit | context7 query-docs with the Libraries ID (resolve only if missing), then the official docs site. (cached IDs) |
-| feature-grill | feature request (add, build ...; RO, RU) | Worktree ../<repo>-<slug> first; grill-with-docs (else grilling); 3+ files: to-spec, to-tickets; /implement each ticket (check-fast, verify, e2e, commit; draft PR after #1). Done: ship, then the owner merges. Trivial: no grill. |
+| feature-grill | feature request (add, build ...; RO, RU) | Worktree ../<repo>-<slug> first; grill-with-docs (else grilling); 3+ files: to-spec, to-tickets; /implement each ticket (check-fast, verify, e2e, commit). Draft PR only if asked. Done: ship; the owner merges. |
 | verify-before-done | after a code edit where a verify-<app> skill exists | Before done: check-fast, then verify-<app> on the changed feature (evidence), then e2e tests. |
 | seo-not-enabled | SEO prompt, project without claude-seo | claude-seo is off here. Suggest: ai-adopt --tools seo. Do not enable it yourself. |
 | blog-not-enabled | blog prompt, project without claude-blog | claude-blog is off here. Suggest: ai-adopt --tools blog. Do not enable it yourself. |
@@ -184,8 +185,8 @@ opt-in = only where the project enabled the tool (ai-start, ai-adopt).
 | seo (opt-in) | SEO prompt | claude-seo first (/seo audit <url>, /seo page <url>). Other agents: hand off to Claude if it is logged in, else follow the skill files. |
 | blog (opt-in) | blog prompt | claude-blog first (claude-blog:blog routes). Post file: blog-*. Site: seo-*. Other agents: hand off to Claude if it is logged in, else follow the skill files. |
 | browser (opt-in) | browser prompt (screenshot, click, e2e) | Playwright MCP (headless, isolated on servers). |
-| ui (opt-in) | UI prompt or UI file | ui-ux-pro-max. Read design-system/<app>/MASTER.md (and the page override) first. None yet: 3 to 5 --design-system directions as variants (?variant=); the owner picks one, then --persist. Ask before paid image generation or npx ...@latest. |
-| tracker-flow (opt-in) | tickets, spec, triage, backlog prompt | to-spec, then to-tickets (where the skills line lists them). Tickets go in docs/tickets/<feature>/ (docs/agents/issue-tracker.md); no GitHub issues or labels without the owner. |
+| ui (opt-in) | UI prompt or UI file | ui-ux-pro-max. Read design-system/<app>/MASTER.md (and page override) first. None: 3 to 5 --design-system variants (?variant=); the owner picks, then --persist. Ask before paid images or npx ...@latest. |
+| tracker-flow (opt-in) | tickets, spec, triage, backlog prompt | to-spec, then to-tickets. Tickets go in docs/tickets/<feature>/ (docs/agents/issue-tracker.md); no GitHub issues or labels without the owner. |
 | domain-docs (opt-in) | glossary, domain model, ADR prompt | Use grill-with-docs / domain-modeling (GLOSSARY.md, docs/adr/). |
 
 Tie-breaks (use the first, not the second):

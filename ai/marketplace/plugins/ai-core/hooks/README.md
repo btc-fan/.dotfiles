@@ -157,6 +157,13 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   root, `compose down -v`, `docker volume rm|prune`; per repo `.ai/destructive.txt` (`db:` protected databases
   for SQL DROP/TRUNCATE/DELETE without WHERE and `dropdb`; `cmd:` extra prefixes). Attack table:
   `ai/tests/cases/no-destroy.json`.
+- ask-first (every profile, owner 2026-11-20): a high-impact step is denied until the owner gives a typed OK.
+  The deny tells the agent to show the plan, the risk and the undo. Classes: `systemctl`, `service`, `launchctl`
+  with a changing verb; `reboot`, `shutdown`; container stop, restart, rm, down, `up -d`; `crontab` (not `-l`);
+  `kill`, `pkill`, `tmux kill-session`; package changes; user and access tools; force push, `reset --hard`;
+  deploys (not `--dry-run`); SQL writes; `rm -r` outside temp, scratch, rebuildable and repo folders; shell writes
+  to unit, cron, sudoers, PAM, fstab and GRUB files; an unknown program with a start or stop verb. Reads pass.
+  Attack table: `ai/tests/cases/ask-first.json`.
 - winner-gate: a Skill tool call of a loser in `winners` of `ai/routing.yaml` (the overlap table of the skills
   guide, section 5) is denied with the winner's name, also in a subagent; a typed-only winner gets "read <its
   SKILL.md> and follow it". A typed /name never reaches the Skill tool. Codex has no Skill tool: there a shell
@@ -237,3 +244,5 @@ sources. What we took from each: `ai/rules/verification-skill.md`. Speed, and ot
 - Builtin secret patterns are a fixed list; new token formats need a new pattern or gitleaks.
 - no-destroy cannot see through a script file, `find -delete` or `xargs rm`; the sandbox, branch protection
   and a database role without DROP/TRUNCATE are the real boundary.
+- ask-first cannot see into a script file, a `make` target or an npm script, and an unresolved variable in
+  `rm -r` passes. The conduct rule in AGENTS.md covers these cases.

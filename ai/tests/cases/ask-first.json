@@ -1,0 +1,585 @@
+{
+ "rule": "ask-first",
+ "cases": [
+  {
+   "name": "deny: incident: enable a user unit",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "systemctl --user enable herdr-core-boot.service"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: incident: unknown program with start verb",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "herdr-core server start"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: incident: reboot",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "sudo systemctl reboot"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: reboot command",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "reboot"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: incident: kill a tmux session",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "tmux kill-session -t polymarket-trading"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: compose down",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd /work/cam && docker compose down"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: docker restart",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "docker restart frigate"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: deploy",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "wrangler deploy"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: force push",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push -f origin main"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: hard reset",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git reset --hard origin/main"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: launchd unload",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "launchctl unload ~/Library/LaunchAgents/com.x.plist"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: crontab install",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "crontab /tmp/new-cron"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: pkill",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "pkill -f bot.py"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: incident: delete a user",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "userdel -r hermes"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: SQL write",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "psql -d app -c 'DROP TABLE listings'"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: restart inside bash -c",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "bash -c 'systemctl restart nginx'"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: hidden at the end of a read chain",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "journalctl -n 5; git status; sync; systemctl reboot"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: rm -r of a home folder",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf /home/hermes"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: package upgrade",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "apt-get -y full-upgrade"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "allow: status read",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "systemctl status nginx"
+    }
+   }
+  },
+  {
+   "name": "allow: list units",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "systemctl --user list-units --type=service"
+    }
+   }
+  },
+  {
+   "name": "allow: is-active read",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "systemctl --user -M hermes@ is-active hermes-gateway"
+    }
+   }
+  },
+  {
+   "name": "allow: journal read",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "journalctl -u md999 -n 50"
+    }
+   }
+  },
+  {
+   "name": "allow: docker ps",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "docker ps -a"
+    }
+   }
+  },
+  {
+   "name": "allow: docker logs",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "docker logs --tail 20 frigate"
+    }
+   }
+  },
+  {
+   "name": "allow: crontab list",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "crontab -l"
+    }
+   }
+  },
+  {
+   "name": "allow: deploy dry run",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "wrangler deploy --dry-run --outdir /tmp/x"
+    }
+   }
+  },
+  {
+   "name": "allow: kill own background job",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "sleep 30 & p=$!; kill $p"
+    }
+   }
+  },
+  {
+   "name": "allow: rm rebuildable",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf node_modules"
+    }
+   }
+  },
+  {
+   "name": "allow: rm in tmp",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf /tmp/build-123"
+    }
+   }
+  },
+  {
+   "name": "allow: text only in grep",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "grep -n 'systemctl restart' docs/runbook.md"
+    }
+   }
+  },
+  {
+   "name": "allow: text only in echo",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "echo 'reboot later'"
+    }
+   }
+  },
+  {
+   "name": "allow: normal push",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push -u origin feature-x"
+    }
+   }
+  },
+  {
+   "name": "allow: local dev server",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "npm start"
+    }
+   }
+  },
+  {
+   "name": "allow: tests",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "python3 -m pytest -q"
+    }
+   }
+  },
+  {
+   "name": "allow: git status",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git status --short"
+    }
+   }
+  },
+  {
+   "name": "codex: restart is denied",
+   "agent": "codex",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "systemctl restart nginx"
+    }
+   },
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "codex: status passes",
+   "agent": "codex",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "systemctl status nginx"
+    }
+   }
+  },
+  {
+   "name": "allow: test helper by variable",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "V=./ai/bin/ai-x; $V start sub"
+    }
+   }
+  },
+  {
+   "name": "allow: shell function in the command",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "t() { echo \"$1\"; }; t Stop"
+    }
+   }
+  },
+  {
+   "name": "allow: temp database",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "pg_ctl -D /private/tmp/claude-501/x/scratchpad/pg -l /tmp/pg.log start"
+    }
+   }
+  },
+  {
+   "name": "deny: database server start outside temp",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "pg_ctl -D /var/lib/postgresql/16/main restart"
+    }
+   },
+   "contains": "[ai gate ask-first]"
+  }
+ ]
+}
