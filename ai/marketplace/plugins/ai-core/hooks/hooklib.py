@@ -1212,10 +1212,11 @@ def gate_pr(ctx, cmd, stages):
             missing.append("a ```mermaid diagram")
         if "<!-- author-sessions" not in text:
             missing.append("the <!-- author-sessions block")
-        if re.search(r"(?im)^\s*main:\s*unknown\b", text):     # CI has no session: the same rule, no hint
-            line = session_line(ctx)
-            missing.append("a real main: line in the author-sessions block" + (" (this session: %s)" % line
-                                                                                 if line else ""))
+        # With no session id (CI, ai-check) "main: unknown" stays allowed: the owner's rule says to write it
+        # when the id cannot be found. With a session id the agent knows its id, so "unknown" is refused.
+        line = session_line(ctx)
+        if line and re.search(r"(?im)^\s*main:\s*unknown\b", text):
+            missing.append("a real main: line in the author-sessions block (this session: %s)" % line)
         fix = bool(PR_FIX_TITLE.match(flag_value(args, ("--title", "-t")) or ""))
         for name in PR_FIELDS:
             why = pr_field_problem(name, pr_field(text, name))
