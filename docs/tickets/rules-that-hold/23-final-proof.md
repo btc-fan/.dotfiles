@@ -10,6 +10,8 @@
 - `ai-eval scenario` for each ticket 02 scenario, 3 runs, on Claude and Codex.
 - `ai-doctor --numbers --json` on the branch, compared with `docs/reports/baseline-<date>.md`, in one table.
 - A trial adopt: copy one real project into a scratch folder with no remote, run `ai-adopt`, `make check` and one Claude session there. No push.
+- A full trial on a new repo (the owner asked for it on 2026-11-20). Make a new folder and a new GitHub repo. Adopt it with this branch. Send the rulesets with `ai-github-wall`. Then one agent does 5 real tasks there, each through a branch and a pull request: a feature, a bug fix with a test, a refactor, a docs change, and one task that tries a forbidden step.
+- For each task the report says which rule acted, in which layer, and if the agent corrected itself. A rule that did not hold is a finding, with its ticket.
 - The report `docs/reports/rules-that-hold-final-<date>.md` holds all of it, plus "Not proven".
 
 **Rules kept:** No rule changes. The report proves that each of the 12 gates holds. It proves that each of the 27 reminders has the home that the README rule map names.
@@ -37,6 +39,8 @@
 - [ ] The scenario table shows each gate on Claude, and each Codex gate, with 3 runs.
 - [ ] The numbers table has 9 rows: baseline, branch and target, with each target met or marked red.
 - [ ] The trial adopt log shows `ai-adopt`, `make check` and one session, with no push.
+- [ ] The new trial repo shows 5 pull requests with green checks, and GitHub refused 1 direct push to its default branch.
+- [ ] The report names, for each of the 5 tasks, the rule that acted and its layer.
 - [ ] The report has a "Not proven" list.
 
 **Verify:**
