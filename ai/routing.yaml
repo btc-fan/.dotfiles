@@ -17,7 +17,7 @@ version: 4
 # Fields: proof = regex over the session's tool/skill calls for the Stop miss log; once_per = session | agent
 # (the main agent and each subagent by its agent_id) | library_per_session; prompt_libs = also fire when the prompt
 # names a library from the Libraries block.
-# Action placeholders the router fills at fire time: {knowledge_index} {knowledge_delta} {libs_hits}
+# Action placeholders the router fills at fire time: {knowledge_index} {libs_hits}
 # {claude_handoff}. Each value is a full phrase; an empty value disappears; an empty action sends nothing.
 
 layers:
@@ -59,15 +59,6 @@ rules:
     proof: 'improve-codebase-architecture|retro|last-review'
     strength: nudge
 
-  - id: legacy-memory
-    scope: global
-    trigger: {state: 'git repo with code'}
-    when: session_start
-    summary: 'session start: old Claude memory files exist'
-    action: "{legacy_memory}"   # ~/.claude/projects/<repo key>/memory; auto memory is off since 2026-11-16
-    proof: 'docs/agents/notes.md|Project rules'
-    strength: nudge
-
   - id: upgrade-review
     scope: global
     trigger: {state: 'any session'}
@@ -86,15 +77,6 @@ rules:
     deny_once_when: graph   # with a graph: the first search is denied once (stale: update it first), and each
                             # later search that names a code symbol of graph.json once per symbol
     proof: 'graphify (query|affected)|find_symbol|find_referencing_symbols|get_symbols_overview|find_declaration|find_implementations'   # ticket 18: initial_instructions and graphify update are not navigation
-    strength: nudge
-
-  - id: knowledge-check
-    scope: global
-    trigger: {tool_after: 'Bash', command: '\bgit commit\b'}
-    summary: 'after a git commit'
-    action: "{knowledge_delta}"   # full phrase from HEAD: update the Map, ai-libs --sync (graph: the router refreshes it); empty = silent
-    once_per: 'session'
-    proof: 'AGENTS.md|ai-libs|graphify update'
     strength: nudge
 
   # ---------- gates ----------

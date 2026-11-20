@@ -34,13 +34,13 @@ import time
 sys.dont_write_bytecode = True      # no __pycache__ inside the (possibly read-only) plugin dir
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from hooklib import (FILE_GATES, GATES, GATE_PROBES, ai_home, append_jsonl, command_text, gate_skips,  # noqa: E402
-                     iso_now, knowledge_delta, knowledge_index, ledger_hits, ledger_note, libs_hits, log_error,
+                     iso_now, knowledge_index, ledger_hits, ledger_note, libs_hits, log_error,
                      log_line, one_line, project_skills, project_tier, verify_skill, is_code_file, skill_md,
                      origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
                      state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
                      graph_status, git_history, git_out, short_skill, write_targets,
                      owner_merge_ok, ask_first_prompt, ask_first_unnamed, merge_review_note, nav_note, upgrade_note,
-                     legacy_memory_note, probe_pr,
+                     probe_pr,
                      session_line, log_wall, verify_proof, verify_steps, app_code_state, head_at, git_quick)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -1387,13 +1387,6 @@ def _ph_knowledge_index(ctx):
     return knowledge_index(ctx.root, ctx.agent)
 
 
-def _ph_knowledge_delta(ctx):
-    if ctx.event != "PostToolUse" or not commit_succeeded(ctx):
-        return ""
-    return knowledge_delta(ctx.root, bool(ctx.state.load().get("docs_ids_new")),
-                           graph_refreshing=bool(getattr(ctx, "graph_refresh", False)))
-
-
 def graph_refresh(ctx):
     """After a successful git call that changes the code: start the background graph refresh (graph on)."""
     if ctx.agent not in ("claude", "codex") or not ctx.stages or not commit_succeeded(ctx):
@@ -1516,7 +1509,6 @@ def _ph_claude_handoff(ctx):
 
 PLACEHOLDERS = {
     "knowledge_index": _ph_knowledge_index,
-    "knowledge_delta": _ph_knowledge_delta,
     "libs_hits": _ph_libs_hits,
     "ledger_hits": _ph_ledger_hits,
     "feature_flow": _ph_feature_flow,
@@ -1528,7 +1520,6 @@ PLACEHOLDERS = {
     "merge_review": _ph_merge_review,
     "nav_hint": _ph_nav_hint,
     "upgrade_pending": lambda ctx: upgrade_note() if ctx.event == "SessionStart" else "",
-    "legacy_memory": lambda ctx: legacy_memory_note(ctx.root) if ctx.event == "SessionStart" else "",
 }
 PLACEHOLDER_RX = re.compile(r"\{([a-z_]+)\}")
 
@@ -1639,7 +1630,6 @@ def log_docs_ids(ctx, tool, tin):
         return
     append_jsonl("docs-ids.jsonl", ctx.row(kind="docs-id", repo=ctx.root or "", tool=tool, lib=lib.lower(),
                                            version=version, context7=c7, grounded=grounded))
-    set_flag(ctx, "docs_ids_new")
 
 
 # ---------------------------------------------------------------- gates (L4); logic lives in hooklib.py

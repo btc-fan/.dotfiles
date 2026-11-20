@@ -330,7 +330,7 @@ The goal: an agent never explores a repo from zero. Evidence behind the design (
 | Fact | Home | Made by | Refreshed when |
 |---|---|---|---|
 | House rules | root AGENTS.md (`~/.config/ai/AGENTS.md`, short) | ai-render | rules change |
-| Where things live, how to run and test, conventions | "## Map" in the repo AGENTS.md (managed block, <= 60 lines, committed) | ai-adopt (facts from the repo, plus one read-only claude pass for conventions) | a commit adds, deletes or renames modules (`knowledge-check` says so); `ai-adopt --refresh-map` |
+| Where things live, how to run and test, conventions | "## Map" in the repo AGENTS.md (managed block, <= 60 lines, committed) | ai-adopt (facts from the repo, plus one read-only claude pass for conventions) | a commit adds, deletes or renames modules (`ai-docs-check` in `make check` fails on a path that is gone); `ai-adopt --refresh-map` |
 | Library versions and context7 IDs | "## Libraries" in the repo AGENTS.md (managed block, committed) | `ai-libs --sync` | lockfile changes or a new ID was used |
 | Code structure | `graphify-out/` (gitignored) | `ai-adopt` (unless `no-graph`) | git hooks after commit, checkout, merge, rebase; after agent git calls the router starts `graphify update` in the background |
 | Session notes | OMC notepad | the agent | never project truth |

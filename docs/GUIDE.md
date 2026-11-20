@@ -242,7 +242,6 @@ Global rules (every repo):
 |---|---|---|---|
 | project-knowledge | nudge | session start in a code repo | Read the Map and Libraries of AGENTS.md first, then search narrowly. Plus the status line. |
 | no-ai-base | nudge | session start, repo without `.ai/base-version` | Suggest `ai-adopt`. |
-| knowledge-check | nudge | after `git commit` | Update the Map, run `ai-libs --sync`, as the commit needs. |
 | secret-scan | **gate** | before `git commit` or `git push` | Remove the secret first. |
 | pr-rules | **gate** | before `gh pr create` or `gh pr edit` with a body | The PR body template (section 11). |
 | ledger-nudge | nudge | before an edit in a file that `docs/REGRESSIONS.md` covers | Keep its R-IDs green, run their tests. |
@@ -549,7 +548,7 @@ What is **not** knowledge storage:
 - Serena memories: off on purpose. The Map is the one place. Serena is for its code tools (exact symbols, callers,
   safe edits), not for notes.
 - Claude auto memory: off since 2026-11-16 (`autoMemoryEnabled: false`). A repo that still has old memory files
-  gets one session-start note (rule `legacy-memory`): move the durable facts into the repo through a PR.
+  makes `ai-doctor` FAIL until the durable facts move into the repo through a PR and the files are deleted.
 - Navigation order in a big repo: the Map, then graphify (where, how, impact), then Serena (exact), then a narrow
   `rg` for text only. A once-per-session reminder (rule `nav-first`) fires on the first broad search.
 - `/handoff` files: they go to `$TMPDIR`. They carry work to another place. They are not kept.
@@ -1124,7 +1123,7 @@ Agent:  [L2: feature-grill: NO (no new feature)]
 You:    go
 Agent:  [runs uv run rtk ruff check --fix --select I,F401,F841]
         [commit 1 of 4] ... [check-fast green]
-        [router after git commit: knowledge-check: update the Map if modules changed]
+        [make check: ai-docs-check fails if the Map names a path that is gone]
 ```
 
 Rule from the global rules: a failing test is a blocker, never "pre-existing". The agent fixes the code; it
@@ -1855,7 +1854,7 @@ flowchart TD
 | You say release | `release` skill: security, architecture, web performance, SEO, blog, UI and accessibility, mobile, API, migrations, tests | you |
 | A tool changed version | `upgrade-review` skill: release notes, what breaks, what to use, a dotfiles PR | `upgrade-review` rule at session start (install.sh runs `ai-versions --record`) |
 | First broad code search in a session | the navigation order | `nav-first` rule (once per session) |
-| A repo with old Claude memory | move the facts into the repo, through a PR | `legacy-memory` rule at session start |
+| A repo with old Claude memory | move the facts into the repo, through a PR | `ai-doctor` FAILs while the files exist |
 | A good approach in one repo | `promote-skill`: generalize it, dotfiles PR | you |
 
 ### 15.3 The gates on dev-mac

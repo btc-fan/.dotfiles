@@ -25,7 +25,7 @@ def main():
         for test in (t_hook_files, t_no_em_dash, t_render_cap, t_pr_resume, t_notify, t_agent_audit,
                      t_ai_start, t_router_speed, t_ai_sync, t_ai_sync_links_skills, t_ai_sync_keeps_pstack, t_ai_sync_claude_plugin_copy, t_merged_branches_note, t_sync_hooks, t_dev_worktree_no_sync, t_hermes_plugin, t_playwright,
                      t_state_mode, t_skill_scanner_reject, t_winners_table, t_github_wall_dry_run,
-                     t_github_wall_apply, t_tests_workflow_shape):
+                     t_github_wall_apply, t_tests_workflow_shape, t_doctor_legacy_memory_fail):
             try:
                 test(work)
                 print("ok   " + test.__name__)
@@ -819,6 +819,55 @@ def t_github_wall_apply(work):
 
     res = wall(repo, env, "--check")
     assert res.returncode == 0 and "secret push protection: enabled" in res.stdout, res.stdout
+
+
+def t_doctor_legacy_memory_fail(work):
+    """Ticket rules-that-hold 08: ai-doctor FAILs while an old Claude memory file exists, and names the folder and
+    the fix; it PASSes after the file is removed. --project-only reports only the folder of that project."""
+    home = os.path.join(work, "home-memory")
+    repo = os.path.join(work, "mem-repo")
+    os.makedirs(os.path.join(repo, "src"))
+    subprocess.run(["git", "init", "-q", repo], check=True)
+    open(os.path.join(repo, "src", "app.py"), "w").write("x = 1\n")
+    key = "".join(c if c.isalnum() else "-" for c in os.path.realpath(repo))
+    mine = os.path.join(home, ".claude", "projects", key, "memory")
+    other = os.path.join(home, ".claude", "projects", "-elsewhere", "memory")
+    for d in (mine, other):
+        os.makedirs(d)
+        open(os.path.join(d, "fact.md"), "w").write("a fact\n")
+    env = dict(os.environ, HOME=home, AI_STATE_DIR=os.path.join(home, "state"))
+    env.pop("CLAUDE_CONFIG_DIR", None)
+    doctor = [sys.executable, os.path.join(BIN, "ai-doctor")]
+
+    res = subprocess.run(doctor + ["--quick"], env=env, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out = res.stdout.decode()
+    line = memory_line(out)
+    assert res.returncode == 1 and line.startswith("FAIL"), out[-1500:]
+    assert mine in line and other in line and "then delete" in line, line
+
+    res = subprocess.run(doctor + ["--project-only", repo], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    line = memory_line(res.stdout.decode())
+    assert res.returncode == 1 and mine in line and other not in line, res.stdout.decode()
+
+    os.remove(os.path.join(mine, "fact.md"))
+    os.remove(os.path.join(other, "fact.md"))
+    res = subprocess.run(doctor + ["--quick"], env=env, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    line = memory_line(res.stdout.decode())
+    assert line.startswith("PASS"), res.stdout.decode()[-1500:]
+
+
+def memory_line(out):
+    """The ai-doctor check line about old Claude memory files, with its detail lines."""
+    lines = out.splitlines()
+    for i, ln in enumerate(lines):
+        if "old Claude memory" in ln:
+            rest = []
+            for d in lines[i + 1:]:
+                if not d.startswith("     "):
+                    break
+                rest.append(d.strip())
+            return " ".join([ln] + rest)
+    return ""
 
 
 def t_tests_workflow_shape(work):

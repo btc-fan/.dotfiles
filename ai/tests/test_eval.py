@@ -356,7 +356,7 @@ case "$2" in
     mkdir -p calc && printf 'def add(a, b):\n    return a + b\n' > calc/core.py
     sed -i.bak 's/^## Map$/## Map\n- calc\/core.py: add()/' AGENTS.md && rm -f AGENTS.md.bak
     git add -A && git -c user.name=t -c user.email=t@t commit -q -m "feat: calc"
-    echo '{"kind": "rule", "rule": "knowledge-check"}' >> "$AI_STATE_DIR/fired.jsonl"
+    echo '{"kind": "rule", "rule": "feature-grill"}' >> "$AI_STATE_DIR/fired.jsonl"
     echo '{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "git commit"}}]}}' ;;
   *where*)
     echo '{"kind": "rule", "rule": "merge-review"}' >> "$AI_STATE_DIR/fired.jsonl"
@@ -389,7 +389,7 @@ def t_scenario_fake_agent(work):
     ev.copy_fixture(scenario_fixture(work, "scen-src"), os.path.join(out, "fixtures", "empty-git"))
     sc = {"id": "evo", "fixture": "empty-git", "steps": [
         {"git": [["checkout", "-q", "-B", "main"]]},
-        {"session": "build calc", "expect": {"rules": ["knowledge-check"]}},
+        {"session": "build calc", "expect": {"rules": ["feature-grill"]}},
         {"check": {"map_contains": "calc/core.py", "branch": "feat-calc"}},
         {"git": [["checkout", "-q", "main"], ["merge", "-q", "--squash", "feat-calc"],
                  ["commit", "-q", "-m", "feat: calc (#1)"]]},

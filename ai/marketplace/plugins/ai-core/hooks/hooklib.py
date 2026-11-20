@@ -2760,24 +2760,6 @@ def legacy_memory_dir(root):
     return os.path.join(base, "projects", key, "memory")
 
 
-def legacy_memory_note(root):
-    """Session start: this repo still has Claude auto memory files. Auto memory is off (owner 2026-11-16: the
-    repo is the one knowledge store), so they no longer load: move the durable facts into the repo once."""
-    if not root:
-        return ""
-    d = legacy_memory_dir(root)
-    try:
-        files = sorted(f for f in os.listdir(d) if f.endswith(".md") and f != "MEMORY.md")
-    except OSError:
-        return ""
-    if not files:
-        return ""
-    return ("This repo has %d old Claude memory file(s) in %s that no longer load (auto memory is off). Ask the "
-            "owner, then move each durable fact into the repo on a branch with a PR: commands and paths to the Map, "
-            "rules to ## Project rules, decisions to docs/adr, project facts to docs/agents/notes.md. No secrets, "
-            "no personal data. After the merge, delete that folder." % (len(files), d))
-
-
 def upgrade_note():
     """Session start: tools changed version (ai-versions --record wrote upgrades.json "pending")."""
     try:
@@ -3011,17 +2993,11 @@ MAP_CAP_LINES = 60
 # Same list as ai/bin/ai-libs (its lock line records these, sha256 first 12 hex).
 LOCKFILES = ("uv.lock", "poetry.lock", "requirements.txt", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
              "go.sum", "Cargo.lock")
-MANIFESTS = ("pyproject.toml", "package.json", "Cargo.toml", "go.mod", "Gemfile", "composer.json")
 KNOWLEDGE_CAP = 800
 
 
 def is_code_file(path):
     return os.path.splitext((path or "").rstrip("/:"))[1].lower() in CODE_EXT
-
-
-def is_dep_file(path):
-    base = os.path.basename(path or "")
-    return base in LOCKFILES or base in MANIFESTS or re.match(r"^requirements.*\.txt$", base) is not None
 
 
 def git_quick(repo, args, timeout=2):
@@ -3187,57 +3163,6 @@ def knowledge_index(root, agent="claude"):
                     + ("" if g == "fresh" else "."))
     bits.append(verify_status_line(root, agent))
     return " ".join(bits)[:KNOWLEDGE_CAP]
-
-
-def head_commit_files(root, max_age=600):
-    """[(status, path)] of HEAD when HEAD was committed in the last max_age seconds, else None."""
-    out = git_quick(root, ["show", "-s", "--format=%ct", "HEAD"])
-    try:
-        ct = int((out or "").strip())
-    except ValueError:
-        return None
-    if time.time() - ct > max_age:
-        return None
-    names = git_quick(root, ["show", "--no-color", "--format=", "--name-status", "--no-renames", "HEAD"])
-    if names is None:
-        return None
-    files = []
-    for ln in names.splitlines():
-        parts = ln.split("\t")
-        if len(parts) >= 2:
-            files.append((parts[0][:1], parts[-1]))
-    return files
-
-
-def graphify_hook_installed(root):
-    hooks = git_quick(root, ["rev-parse", "--git-path", "hooks"])
-    if not hooks:
-        return False
-    d = hooks.strip()
-    if not os.path.isabs(d):
-        d = os.path.join(root, d)
-    return any("graphify" in (read_text(os.path.join(d, n)) or "") for n in ("post-commit", "post-checkout"))
-
-
-def knowledge_delta(root, new_docs_ids=False, graph_refreshing=False):
-    """One combined nudge after a fresh commit, or '' when nothing applies."""
-    if not root:
-        return ""
-    files = head_commit_files(root)
-    if files is None:
-        return ""
-    todo = []
-    if any(st in "AD" and is_code_file(p) for st, p in files):
-        todo.append("update the Map section in AGENTS.md (code files were added, removed or renamed)")
-    if any(is_dep_file(p) for _st, p in files) or new_docs_ids:
-        todo.append("run ai-libs --sync and commit AGENTS.md")
-    ids = enabled_ids(root)
-    if ("graph" in ids or "graphify" in ids) and any(is_code_file(p) for _st, p in files) \
-            and not graph_refreshing and not graphify_hook_installed(root):
-        todo.append("run graphify update .")
-    if not todo:
-        return ""
-    return "After this commit: " + "; ".join(todo) + "."
 
 
 # ---------------------------------------------------------------- graph refresh after agent git calls

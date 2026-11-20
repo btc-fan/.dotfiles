@@ -167,10 +167,8 @@ opt-in = only where the project enabled the tool (ai-start, ai-adopt).
 | project-knowledge | session start in a code repo | Read the Map and Libraries of this repo's AGENTS.md first, then search narrowly. (status line: memories, graph, docs map) |
 | no-ai-base | session start: repo without .ai/base-version | No AI base or Map here. Suggest the owner runs ai-adopt. |
 | merge-review | session start: main moved since the last review | /improve-codebase-architecture, then /retro; findings as tickets or a PR; then git rev-parse main > .ai/last-review. |
-| legacy-memory | session start: old Claude memory files exist | Move the facts into the repo (PR), then delete the files. |
 | upgrade-review | session start: AI tools upgraded since the last review | Run the upgrade-review skill. |
 | nav-first | broad search (Grep, rg); with a graph: denied once, and once per graph symbol | graphify query (where, how) or graphify affected (impact) first, then Serena find_symbol / find_referencing_symbols; rg only for text. |
-| knowledge-check | after a git commit | Update the AGENTS.md Map, run ai-libs --sync or graphify update, as the commit needs. |
 | secret-scan (gate) | before git commit or push | Secret scan found a key, token or password. Remove it before commit or push. |
 | pr-rules (gate) | before gh pr create, edit or ready | PR body (pr skill template): Summary with a Mermaid diagram, Evidence (Before, After), Merge Danger (Door: one-way or two-way; Blast Radius), Docs, Changed guards (Ledger on fix PRs), author-sessions block last. |
 | merge-approval (gate) | before gh pr merge, or a git push to main or master | Merge only after the ship skill and when the owner's latest message says merge or approve. No push to main or master. |

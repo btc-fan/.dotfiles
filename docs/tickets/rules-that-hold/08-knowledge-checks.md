@@ -23,6 +23,10 @@
 6. A monorepo: each nested `AGENTS.md` Map is checked against its own folder, not the repo root.
 7. A path in the Map that is gitignored on purpose (`.env.example` exists, `.env` does not): the Map names files that exist in a clean clone. The message says to drop or fix the line.
 8. Codex: it has no Claude memory folder, so the check is Claude-only and says so.
+9. Difference: `ai-doctor` did not call `legacy_memory_dir` before this ticket. The new memory check calls it now, so it stays.
+10. Difference: this repo has no Makefile. Its check is `ai/tests/run.sh`, so `ai-libs --check` runs there.
+11. Difference: a bare name (`router.py`, `done/`) passes when any file or folder has that name. The Map names files relative to the folder on the line before.
+12. A global git ignore that lists `AGENTS.md` hides it. The check then prints "git sees no AGENTS.md: Map check skipped".
 
 **Owner steps:** None.
 
@@ -32,11 +36,11 @@
 
 **Size:** S
 
-- [ ] `ai-docs-check` fails on a fixture whose Map names `src/gone.py`, and names the line.
-- [ ] `ai-docs-check` passes on a Map with a glob that matches, a command span and a placeholder.
-- [ ] The Makefile block that `ai-adopt` writes has the `ai-libs --check` line.
-- [ ] `ai-doctor` fails on a temp HOME that holds a project memory file, and passes after the file is removed.
-- [ ] `ai/routing.yaml` has no row `knowledge-check` and no row `legacy-memory`.
+- [x] `ai-docs-check` fails on a fixture whose Map names `src/gone.py`, and names the line.
+- [x] `ai-docs-check` passes on a Map with a glob that matches, a command span and a placeholder.
+- [x] The Makefile block that `ai-adopt` writes has the `ai-libs --check` line.
+- [x] `ai-doctor` fails on a temp HOME that holds a project memory file, and passes after the file is removed.
+- [x] `ai/routing.yaml` has no row `knowledge-check` and no row `legacy-memory`.
 
 **Verify:**
 - Unit: `ai/tests/test_knowledge.py` gets `t_map_path_missing`, `t_map_non_paths` and `t_libs_check_in_make`; `ai/tests/test_commands.py` gets `t_doctor_legacy_memory_fail`. Remove `ai/tests/cases/knowledge-check.json` and `ai/tests/cases/legacy-memory.json`.
