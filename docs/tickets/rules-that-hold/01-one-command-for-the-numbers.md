@@ -26,6 +26,10 @@
 6. Rotated logs: read `walls.jsonl.1`, `fired.jsonl.1` and `misses.jsonl.1` too, as `report_walls` does.
 7. A project that is not adopted: the project rows print "not adopted"; the global rows still print.
 8. Linux and macOS: word counts and file reads are in Python stdlib (3.9 works). No `wc`, no `stat` flags that differ.
+9. Found in the code: `gates.log` has no `cwd`. A deny is a temp row when its session wrote a temp row in `fired.jsonl` or `misses.jsonl`.
+10. Found in the code: a transcript names the hook command, not its plugin. Section 2 shows the command; section 3 shows the owner.
+11. Found in the code: the transcript does not hold the MCP tool schemas. The command prints "not measured" for them, so its fixed cost is lower than file I.
+12. Found in the code: a plugin can name its hook files in `plugin.json` (ponytail does). The command reads them too.
 
 **Owner steps:** None.
 
@@ -35,13 +39,13 @@
 
 **Size:** M
 
-- [ ] `ai-doctor --numbers` prints the 6 sections and exits 0, also when plain `ai-doctor` has a FAIL.
-- [ ] `ai-doctor --numbers --json` prints valid JSON with the same numbers.
-- [ ] On fixture logs, each count matches the count that the test file states.
-- [ ] Rows from temp folders are left out, and the report prints how many.
-- [ ] `docs/reports/baseline-<date>.md` exists. It names the commit, and it holds each number of the README table "Numbers that the final ticket must show" that the command can measure.
-- [ ] Each number that the command cannot measure prints "not measured" with a reason.
-- [ ] The older ticket `docs/tickets/setup-audit/04-context-budget-check.md` has one line that points to this ticket.
+- [x] `ai-doctor --numbers` prints the 6 sections and exits 0, also when plain `ai-doctor` has a FAIL.
+- [x] `ai-doctor --numbers --json` prints valid JSON with the same numbers.
+- [x] On fixture logs, each count matches the count that the test file states.
+- [x] Rows from temp folders are left out, and the report prints how many.
+- [x] `docs/reports/baseline-<date>.md` exists. It names the commit, and it holds each number of the README table "Numbers that the final ticket must show" that the command can measure.
+- [x] Each number that the command cannot measure prints "not measured" with a reason.
+- [x] The older ticket `docs/tickets/setup-audit/04-context-budget-check.md` has one line that points to this ticket.
 
 **Verify:**
 - Unit: add `t_numbers_fixture_logs`, `t_numbers_temp_rows_left_out`, `t_numbers_no_logs` and `t_numbers_json_schema` to `ai/tests/test_info.py`, with fixture log files.
