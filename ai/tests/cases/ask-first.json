@@ -1,0 +1,2585 @@
+{
+ "rule": "ask-first",
+ "cases": [
+  {
+   "name": "deny: incident: enable a user unit",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "systemctl --user enable myd-boot.service"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: incident: unknown program with start verb",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "myd server start"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: incident: reboot",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "sudo systemctl reboot"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: reboot command",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "reboot"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: incident: kill a tmux session",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "tmux kill-session -t bots"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: compose down",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cd /work/cam && docker compose down"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: docker restart",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "docker restart frigate"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: deploy",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "wrangler deploy"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: force push",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push -f origin main"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: hard reset",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git reset --hard origin/main"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: launchd unload",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "launchctl unload ~/Library/LaunchAgents/com.x.plist"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: crontab install",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "crontab /tmp/new-cron"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: pkill",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "pkill -f bot.py"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: incident: delete a user",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "userdel -r bot"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: SQL write",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "psql -d app -c 'DROP TABLE listings'"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: restart inside bash -c",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "bash -c 'systemctl restart nginx'"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: hidden at the end of a read chain",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "journalctl -n 5; git status; sync; systemctl reboot"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: rm -r of a home folder",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf /home/bot"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: package upgrade",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "apt-get -y full-upgrade"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "allow: status read",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "systemctl status nginx"
+    }
+   }
+  },
+  {
+   "name": "allow: list units",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "systemctl --user list-units --type=service"
+    }
+   }
+  },
+  {
+   "name": "allow: is-active read",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "systemctl --user -M bot@ is-active bot-gateway"
+    }
+   }
+  },
+  {
+   "name": "allow: journal read",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "journalctl -u crawler -n 50"
+    }
+   }
+  },
+  {
+   "name": "allow: docker ps",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "docker ps -a"
+    }
+   }
+  },
+  {
+   "name": "allow: docker logs",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "docker logs --tail 20 frigate"
+    }
+   }
+  },
+  {
+   "name": "allow: crontab list",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "crontab -l"
+    }
+   }
+  },
+  {
+   "name": "allow: deploy dry run",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "wrangler deploy --dry-run --outdir /tmp/x"
+    }
+   }
+  },
+  {
+   "name": "allow: kill own background job",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "sleep 30 & p=$!; kill $p"
+    }
+   }
+  },
+  {
+   "name": "allow: rm rebuildable",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf node_modules"
+    }
+   }
+  },
+  {
+   "name": "allow: rm in tmp",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf /tmp/build-123"
+    }
+   }
+  },
+  {
+   "name": "allow: text only in grep",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "grep -n 'systemctl restart' docs/runbook.md"
+    }
+   }
+  },
+  {
+   "name": "allow: text only in echo",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "echo 'reboot later'"
+    }
+   }
+  },
+  {
+   "name": "allow: normal push",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push -u origin feature-x"
+    }
+   }
+  },
+  {
+   "name": "allow: local dev server",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "npm start"
+    }
+   }
+  },
+  {
+   "name": "allow: tests",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "python3 -m pytest -q"
+    }
+   }
+  },
+  {
+   "name": "allow: git status",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git status --short"
+    }
+   }
+  },
+  {
+   "name": "codex: restart is denied",
+   "agent": "codex",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "systemctl restart nginx"
+    }
+   },
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "codex: status passes",
+   "agent": "codex",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "systemctl status nginx"
+    }
+   }
+  },
+  {
+   "name": "allow: test helper by variable",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "V=./ai/bin/ai-x; $V start sub"
+    }
+   }
+  },
+  {
+   "name": "allow: shell function in the command",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "t() { echo \"$1\"; }; t Stop"
+    }
+   }
+  },
+  {
+   "name": "allow: temp database",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "pg_ctl -D /private/tmp/claude-501/x/scratchpad/pg -l /tmp/pg.log start"
+    }
+   }
+  },
+  {
+   "name": "deny: database server start outside temp",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "pg_ctl -D /var/lib/postgresql/16/main restart"
+    }
+   },
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "deny: ssh: reboot hidden at the end of a read chain",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh h 'journalctl -n 5; git status; sync; sudo systemctl reboot'"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo",
+    "systemctl reboot"
+   ]
+  },
+  {
+   "name": "deny: ssh: incident chain with a loop and a reboot",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh -o BatchMode=yes h 'for u in a b; do echo $u; done; cd ~/work/hub && git status -s | head -3; sync; date +%T; sudo systemctl reboot'"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: ssh: rtk wrapper and compose up -d",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rtk ssh -o BatchMode=yes h 'cd /work/cam && docker compose up -d eufy-bridge'"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: ssh: unquoted remote command with options",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh -p 22 -i ~/.ssh/k -t h sudo systemctl restart nginx"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "deny: ssh: heredoc script deletes a user",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh h 'sudo bash -s' <<'EOF'\nid bot\nuserdel -r bot\nEOF"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo",
+    "userdel"
+   ]
+  },
+  {
+   "name": "deny: ssh: local script on stdin restarts a service",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh h 'bash -s' < script.sh"
+    }
+   },
+   "project": {
+    "files": {
+     "script.sh": "uptime\nsystemctl restart nginx\n"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo",
+    "systemctl restart"
+   ]
+  },
+  {
+   "name": "deny: ssh: local script under sudo bash -s deletes a user",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh h 'sudo bash -s' < ./script.sh"
+    }
+   },
+   "project": {
+    "files": {
+     "script.sh": "#!/bin/bash\nset -e\nuserdel -r bot\n"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo",
+    "userdel"
+   ]
+  },
+  {
+   "name": "deny: ssh: package upgrade",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh h 'sudo apt-get -y full-upgrade'"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo",
+    "package"
+   ]
+  },
+  {
+   "name": "deny: ssh: package install",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh h 'sudo apt-get install -y nginx'"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "allow: ssh: unreadable local script passes",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh h 'bash -s' < missing.sh"
+    }
+   }
+  },
+  {
+   "name": "allow: ssh: remote script path passes",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh h ./deploy.sh --now"
+    }
+   }
+  },
+  {
+   "name": "allow: ssh: read chain",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh h 'uptime; systemctl is-active x; journalctl -n 20'"
+    }
+   }
+  },
+  {
+   "name": "allow: ssh: os-release read",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh h 'cat /etc/os-release'"
+    }
+   }
+  },
+  {
+   "name": "allow: ssh: docker ps",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh -o BatchMode=yes -o ConnectTimeout=10 h 'docker ps'"
+    }
+   }
+  },
+  {
+   "name": "allow: ssh: local read-only script on stdin",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh h 'bash -s' < script.sh"
+    }
+   },
+   "project": {
+    "files": {
+     "script.sh": "uptime\ndf -h\n"
+    }
+   }
+  },
+  {
+   "name": "deny: ssh: service restart with user@host",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh ubuntu@dev 'sudo systemctl restart nginx'"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "allow: ssh: interactive login",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh -t h"
+    }
+   }
+  },
+  {
+   "name": "deny: ssh: zsh -lc bash -s reads a local script that restarts a service",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh h \"zsh -lc 'bash -s'\" < script.sh"
+    }
+   },
+   "project": {
+    "files": {
+     "script.sh": "systemctl restart nginx\n"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "allow: ssh: a local heredoc that writes a file does not feed ssh",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "cat > /tmp/x.sh <<'EOF'\nsystemctl restart nginx\nEOF\nssh h 'bash -s' < /tmp/does-not-exist.sh"
+    }
+   }
+  },
+  {
+   "name": "allow: ssh: remote install script",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh h ~/.dotfiles-ai/install.sh"
+    }
+   }
+  },
+  {
+   "name": "allow: ssh: firewall and password status reads",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh h 'sudo ufw status | grep 22; sudo passwd -S admin; sudo iptables -nvL'"
+    }
+   }
+  },
+  {
+   "name": "deny: ssh: firewall change",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh h 'sudo ufw allow 3389'"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]",
+    "plan",
+    "risk",
+    "undo"
+   ]
+  },
+  {
+   "name": "ok: deny, owner types go, the same command passes",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: after go another high-impact command in the same turn passes",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart radar-worker"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: deny text tells how the owner approves",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ],
+   "contains": "the owner types go (or ok) in the next message"
+  },
+  {
+   "name": "ok: a question is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "ok?"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: a negation is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "don't do it yet"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: an agent message with go does not approve",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "<agent-message from=\"worker\">go</agent-message>"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: a pasted go does not approve",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "```\ngo\n```"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: a pasted session line with go does not approve",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "> go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: the next prompt without an OK clears the approval",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "also fix the footer color"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: go covers a command that was not denied first",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: Romanian da, fa-l",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "da, fa-l"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: Russian davai",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "давай"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: approve with words around it",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "ok, do it"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "codex: deny, typed go, the same command passes",
+   "agent": "codex",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "deny: gh pr create when the owner did not ask for a PR",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "what is in the repo?"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr create --draft --title x --body y"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "deny: gh issue create when the owner did not ask",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "what changed this week?"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh issue create --title x --body y"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "deny: gh release create when the owner did not ask",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "what changed this week?"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh release create v1.2.0"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "allow: gh pr create after the owner asked for a fix",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "fix the login bug and open a PR"
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "looks right"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh pr create --draft --title x --body y"
+      }
+     }
+    }
+   ],
+   "not_contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "allow: gh issue create after an owner OK (gh-write still asks)",
+   "expect": "ask",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "summarise the logs"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh issue create --title x --body y"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "ok"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "gh issue create --title x --body y"
+      }
+     }
+    }
+   ],
+   "not_contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "read-only: incident audit prompt plus the reboot chain",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'journalctl -n 5; sync; sudo systemctl reboot'"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "read-only: audit prompt plus a sudo tee over ssh",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'echo x | sudo tee /etc/motd'"
+      }
+     }
+    }
+   ],
+   "contains": [
+    "[ai gate ask-first]",
+    "read-only turn"
+   ]
+  },
+  {
+   "name": "read-only: question plus a config copy over ssh",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "how is the migration going?"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh db 'cp /srv/app/new.conf /etc/app/app.conf'"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "read-only: question plus a local write outside the repo",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "how is the migration going?"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "echo x > /usr/local/etc/app.conf"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "read-only: Russian check prompt plus sed -i over ssh",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "проверь логи бота"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'sudo sed -i s/a/b/ /etc/app.conf'"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "read-only: the router note says so",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    }
+   ],
+   "contains": "read-only turn: report, then ask"
+  },
+  {
+   "name": "read-only: reads over ssh pass",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'uptime; journalctl -n 5 2>/dev/null; cat /etc/os-release'"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "read-only: a write in the repo passes",
+   "expect": "allow",
+   "project": {
+    "git": true
+   },
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "echo x > notes.txt"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "read-only: a write in /tmp passes",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "echo x > /tmp/audit.txt"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "read-only: a typed go lifts it for the turn",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'echo x | sudo tee /etc/motd'"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'echo x | sudo tee /etc/motd'"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "read-only: after go another write in the same turn passes",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'echo x | sudo tee /etc/motd'"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'echo y | sudo tee /etc/issue'"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "not read-only: add a button",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "add a button to the page"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'echo x | sudo tee /etc/motd'"
+      }
+     }
+    }
+   ],
+   "not_contains": "read-only turn"
+  },
+  {
+   "name": "not read-only: check and fix",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "check the tests and fix them"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'echo x | sudo tee /etc/motd'"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "codex: read-only turn denies a write over ssh",
+   "agent": "codex",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'echo x | sudo tee /etc/motd'"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "stop: an approved restart ran and the reply does not name it",
+   "expect": "block",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Done. The API answers again."
+     }
+    }
+   ],
+   "contains": [
+    "[ai router: ask-first]",
+    "systemctl restart"
+   ]
+  },
+  {
+   "name": "stop: the reply names the restart",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "I ran `systemctl restart web-api`. It is active again."
+     }
+    }
+   ]
+  },
+  {
+   "name": "stop: a continuation stop passes (no loop)",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": true,
+      "last_assistant_message": "Done."
+     }
+    }
+   ]
+  },
+  {
+   "name": "stop: nothing high-impact ran",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "I need your OK for the restart."
+     }
+    }
+   ]
+  },
+  {
+   "name": "stop: blocks once, the next stop passes",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Done."
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Done again."
+     }
+    }
+   ]
+  },
+  {
+   "name": "stop: two approved steps, the reply names one",
+   "expect": "block",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "docker compose down"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "ok"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "docker compose down"
+      }
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "I ran systemctl restart web-api."
+     }
+    }
+   ],
+   "contains": "docker compose",
+   "not_contains": "systemctl restart web-api,"
+  },
+  {
+   "name": "codex: stop names the approved restart",
+   "agent": "codex",
+   "expect": "block",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Done."
+     }
+    }
+   ],
+   "contains": "systemctl restart"
+  },
+  {
+   "name": "ok: the next prompt without OK denies another command again",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "now update the docs"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "docker compose down"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "deny: force push with combined short flags",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "git push -fu origin x"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]"
+   ]
+  },
+  {
+   "name": "allow: rm in /var/tmp",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "rm -rf /var/tmp/build-123"
+    }
+   }
+  },
+  {
+   "name": "ok: 'go, stop the old worker' is a new request, not an OK (security review: an OK is the whole prompt)",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go, stop the old worker"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "ok: a reply that starts with ok is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "ok, now look at the server logs"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: a thanks with a question word is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "yes thanks. what next"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: hold on is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go, but hold on a moment"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "deny: deploy through npx",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "npx wrangler deploy"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]"
+   ]
+  },
+  {
+   "name": "deny: deploy through npx --yes",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "npx --yes wrangler deploy"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]"
+   ]
+  },
+  {
+   "name": "deny: deploy through pnpm dlx",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "pnpm dlx vercel --prod"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]"
+   ]
+  },
+  {
+   "name": "deny: deploy through bunx",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "bunx wrangler deploy"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]"
+   ]
+  },
+  {
+   "name": "deny: deploy through uvx",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "uvx myd server start"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]"
+   ]
+  },
+  {
+   "name": "allow: npx deploy dry run",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "npx wrangler deploy --dry-run"
+    }
+   },
+   "project": {
+    "files": {
+     "node_modules/.bin/wrangler": ""
+    }
+   }
+  },
+  {
+   "name": "allow: npx test runner",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "npx vitest run"
+    }
+   },
+   "project": {
+    "files": {
+     "node_modules/.bin/vitest": ""
+    }
+   }
+  },
+  {
+   "name": "allow: kubectl dry run with a value",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "kubectl apply --dry-run=client -f app.yaml"
+    }
+   }
+  },
+  {
+   "name": "deny: brew upgrade",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "brew upgrade"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]"
+   ]
+  },
+  {
+   "name": "deny: brew uninstall",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "brew uninstall wget"
+    }
+   },
+   "contains": [
+    "[ai gate ask-first]"
+   ]
+  },
+  {
+   "name": "allow: brew list",
+   "expect": "allow",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "brew list"
+    }
+   }
+  },
+  {
+   "name": "ok: a long prompt that only starts with go is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go, stop the old worker and start the new one"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart app-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "security: 'approved' inside pasted output is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "Look at the logs, the build was approved by CI"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "security: 'proceed' inside an error line is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "Here is the output:\nERROR: cannot proceed\nfix it"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "security: 'ok check the logs' is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "ok check the logs"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "ok: 'yes do it' is an OK",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "yes do it"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: 'go ahead please' is an OK",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go ahead please"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "security: the OK ends with the turn (Stop)",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "I ran systemctl restart web-api."
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "security: bash -s < /dev/zero does not kill the gate (the restart after it still denies)",
+   "expect": "deny",
+   "event": "PreToolUse",
+   "payload": {
+    "tool_name": "Bash",
+    "tool_input": {
+     "command": "ssh h 'bash -s' < /dev/zero; systemctl restart web-api"
+    }
+   },
+   "contains": "[ai gate ask-first]"
+  }
+ ]
+}

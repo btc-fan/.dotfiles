@@ -150,6 +150,13 @@ rules:
     action: "git worktree add ../<repo>-<slug> -b <slug> origin/<main>"
     strength: gate    # owner 2026-11-19; gitignored files and repos without .ai/ pass
 
+  - id: ask-first
+    scope: global
+    summary: 'restart, boot, deploy, kill, delete'
+    trigger: {tool_before: 'Bash|shell|exec_command|local_shell'}
+    action: "Plan, risk, undo. Wait for a typed OK."
+    strength: gate    # owner 2026-11-20; every profile (dev-mac too); reads (status, logs, ps, -l, --dry-run) pass
+
   - id: no-verify
     scope: global
     summary: 'git commit or push with --no-verify (or commit -n)'
@@ -332,7 +339,7 @@ rules:
     summary: 'UI prompt or UI file'
     tool: ui-ux-pro-max
     trigger: {prompt: '\b(ui|ux|design|landing page|component|layout|color palette|typography|dark mode)\b', paths: '**/*.{tsx,jsx,vue,svelte,css,scss}'}
-    action: "ui-ux-pro-max. Read design-system/<app>/MASTER.md (and the page override) first. None yet: 3 to 5 --design-system directions as variants (?variant=); the owner picks one, then --persist. Ask before paid image generation or npx ...@latest."
+    action: "ui-ux-pro-max. Read design-system/<app>/MASTER.md (and page override) first. None: 3 to 5 --design-system variants (?variant=); the owner picks, then --persist. Ask before paid images or npx ...@latest."
     proof: 'skill:\S*ui-ux-pro-max'
     strength: nudge
 
@@ -341,7 +348,7 @@ rules:
     summary: 'tickets, spec, triage, backlog prompt'
     tool: mattpocock tracker skills
     trigger: {prompt: '\b(ticket|tickets|spec|triage|backlog|roadmap|wayfinder)\b'}
-    action: "to-spec, then to-tickets (where the skills line lists them). Tickets go in docs/tickets/<feature>/ (docs/agents/issue-tracker.md); no GitHub issues or labels without the owner.{tracker_flow}"
+    action: "to-spec, then to-tickets. Tickets go in docs/tickets/<feature>/ (docs/agents/issue-tracker.md); no GitHub issues or labels without the owner.{tracker_flow}"
     proof: 'skill:\S*(to-spec|to-tickets)|(to-spec|to-tickets)/SKILL\.md'
     strength: nudge
 

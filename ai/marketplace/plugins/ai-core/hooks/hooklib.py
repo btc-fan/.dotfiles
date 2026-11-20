@@ -1513,13 +1513,17 @@ NO_MERGE_RX = re.compile(
 
 def owner_merge_ok(prompt):
     """True when the owner's prompt gives the OK to merge. A question ("is it approved?") or a negation
-    ("don't merge yet") is not an OK."""
+    ("don't merge yet") is not an OK; "merge it?" is."""
     text = (prompt or "").strip()
-    if not text or NO_MERGE_RX.search(text) or not MERGE_OK_RX.search(text):
-        return False
-    if text.endswith("?") and not re.search(r"\bmerge\s+(it|this|them|now)\b", text, re.I):
-        return False
-    return True
+    if re.search(r"\bmerge\s+(it|this|them|now)\b", text, re.I):
+        text = text.rstrip("?")
+    return owner_said(text, MERGE_OK_RX, NO_MERGE_RX)
+
+
+def owner_said(prompt, ok_rx, no_rx):
+    """The owner's prompt matches ok_rx, has no negation (no_rx) and is not a question."""
+    text = (prompt or "").strip()
+    return bool(text) and not text.endswith("?") and not no_rx.search(text) and bool(ok_rx.search(text))
 
 
 def merge_calls(stages, cwd):
@@ -2185,15 +2189,341 @@ def gate_worktree(ctx, path, stages):
             % (root, branch, branch, root, root, repo, branch, branch), "worktree-first")
 
 
+# ---------------------------------------------------------------- ask-first (owner 2026-11-20)
+# A high-impact step waits for the owner: a service, container or server start, stop or restart; a boot, cron or
+# unit change; a deploy; user and access changes; force push and hard reset; kills; SQL writes; rm -r outside safe
+# folders. Agents restarted live servers to test their own work (docs/research/agent-behaviour-audit.md). Reads
+# pass. Every profile, dev-mac too. The deny tells the agent to show the plan, the risk and the undo, then wait.
+
+SERVICE_TOOLS = {"systemctl", "service", "launchctl"}
+SERVICE_CHANGE = {"start", "stop", "restart", "reload", "try-restart", "reload-or-restart", "try-reload-or-restart",
+                  "enable", "disable", "reenable", "mask", "unmask", "daemon-reload", "daemon-reexec", "reboot",
+                  "poweroff", "halt", "kexec", "isolate", "kill", "set-default", "edit", "link", "preset", "revert",
+                  "suspend", "hibernate", "set-property", "load", "unload", "bootstrap", "bootout", "kickstart",
+                  "remove", "soft-reboot", "rescue", "emergency"}
+POWER_TOOLS = {"reboot", "shutdown", "poweroff", "halt"}
+CONTAINER_TOOLS = {"docker", "podman", "docker-compose", "podman-compose"}
+CONTAINER_CHANGE = {"stop", "restart", "kill", "rm", "rmi", "down", "pause", "prune"}
+KILL_TOOLS = {"kill", "pkill", "killall"}
+PACKAGE_TOOLS = {"apt", "apt-get", "aptitude", "dnf", "yum", "snap", "pacman", "zypper"}
+PACKAGE_CHANGE = {"install", "remove", "purge", "upgrade", "full-upgrade", "dist-upgrade", "autoremove", "reinstall",
+                  "refresh", "erase"}
+ACCESS_TOOLS = {"useradd", "userdel", "usermod", "groupdel", "groupmod", "passwd", "chpasswd", "ufw", "iptables",
+                "ip6tables", "nft", "chattr", "visudo", "adduser", "deluser"}
+# shortcut: a read flag passes even when a change flag is also given; split the flags when an agent does that.
+ACCESS_READS = {"ufw": {"status", "show", "version"}, "passwd": {"-S", "--status"}, "nft": {"list"},
+                "iptables": {"-L", "-S", "-nL", "-nvL", "-vnL", "-vL", "--list", "--list-rules"},
+                "ip6tables": {"-L", "-S", "-nL", "-nvL", "-vnL", "-vL", "--list", "--list-rules"}}
+DEPLOY_VERBS = {"wrangler": {"deploy", "publish"}, "fly": {"deploy"}, "flyctl": {"deploy"},
+                "vercel": {"--prod", "deploy"}, "netlify": {"deploy"}, "kubectl": {"apply", "delete", "rollout", "scale"},
+                "terraform": {"apply", "destroy"}, "helm": {"upgrade", "install", "uninstall"}}
+START_VERBS = {"start", "stop", "restart", "enable", "disable", "deploy", "reload"}
+# Programs whose own "start" or "stop" word is local work (dev servers, tests) or only text; shells and wrappers.
+VERB_SKIP = {"git", "gh", "grep", "rg", "egrep", "echo", "printf", "cat", "sed", "awk", "npm", "npx", "pnpm", "yarn",
+             "bun", "make", "uv", "cargo", "go", "pytest", "ls", "find", "head", "tail", "wc", "less", "jq", "test",
+             "true", "false", "cd", "export", "read", "tmux", "claude", "codex", "graphify", "serena", "rtk",
+             "docker", "podman", "brew", "pip", "pip3", "python", "python3", "node", "ruby", "perl", "deno", "bash",
+             "sh", "zsh", "dash", "fish", "eval", "env", "nohup", "time", "timeout", "nice", "ssh", "xargs"}
+UNIT_DIRS = re.compile(r"(^|/)(systemd/(system|user)|LaunchAgents|LaunchDaemons|cron\.d|crontabs)(/|$)"
+                       r"|^/etc/(sudoers|pam\.d|fstab|ssh/|crontab|rc\.local|default/grub)")
+SQL_WRITE = re.compile(r"\b(drop|delete\s+from|update\s+[\w.\"`]+\s+set|truncate|alter\s+table)\b", re.I)
+
+
+def gate_ask_first(ctx, cmd, stages):
+    d = ctx.state.load()
+    cwd = ctx.cwd or "."
+    why = ask_first_reason(stages, cmd, cwd) or gh_create_reason(stages, d)
+    if not why and d.get("read_only"):
+        why = read_only_reason(stages, cmd, cwd)
+    if not why:
+        return None
+
+    # Ticket 04: the owner's typed OK covers every high-impact step for the rest of that turn.
+    if d.get("ask_ok"):
+        # Ticket 06: the Stop check asks the reply to name it.
+        # shortcut: "ran" means the gate let it pass; a later permission refusal still counts. Upgrade at PostToolUse.
+        ran = d.setdefault("ask_ran", [])
+        if ask_name(why) not in ran:
+            ran.append(ask_name(why))
+            ctx.state.dirty = True
+        return None
+
+    return ("deny", "High-impact step: %s. Stop here. Show the owner the whole plan (every command of it), the risk "
+            "(what runs there and what can break) and the undo. Then wait until the owner types go (or ok) once; it "
+            "covers the plan for that turn. Never restart a service or a server only to test your own work: test with a dry "
+            "run or a config check first. Do not rephrase the command or try another way." % why)
+
+
+def ask_first_reason(stages, cmd, cwd):
+    """The first high-impact stage of the command, as a short reason, or None."""
+    for st in stages:
+        why = ask_first_stage(st, cmd, cwd)
+        if why:
+            return why
+    for target in write_targets(stages, cwd, cmd):
+        if UNIT_DIRS.search(target or ""):
+            return "a write to %s (boot, service, cron or access config)" % target
+    return None
+
+
+def ask_first_prompt(d, prompt):
+    """UserPromptSubmit, the owner's typed text only: an OK lets every high-impact step pass for this turn; any
+    other prompt ends it and tags the turn read-only or not. Records whether the owner asked for a PR, feature or
+    fix. Returns the router note ("" for none)."""
+    d["ask_ok"] = owner_ask_ok(prompt)
+    d["ask_ran"] = []
+    d["prompted"] = True
+    if ASKED_CHANGE_RX.search(prompt or ""):
+        d["asked_change"] = True
+    d["read_only"] = read_only_prompt(prompt)
+    return "read-only turn: report, then ask." if d["read_only"] else ""
+
+
+# An OK word opens a prompt of at most 5 words, or an approval phrase is anywhere: "ok, now look at the logs" is
+# a reply, not an approval.
+# The whole prompt is OK words ("go", "yes do it", "go ahead please"): an OK word inside pasted output or a longer
+# request ("the build was approved", "ok check the logs") is not an approval.
+ASK_OK_RX = re.compile(r"^\W*((go|ahead|ok(ay)?|yes|yep|do|it|approved?|approve|proceed|please|now|da|fa-?l|да|"
+                       r"давай)\W*)+$", re.I)
+NO_ASK_RX = re.compile(r"(?<!\w)(don'?t|do\s+not|not|no|never|wait|hold\s+on|nu|нет|не|what|how|why|which|where)"
+                       r"(?!\w)", re.I)
+ASKED_CHANGE_RX = re.compile(r"\b(prs?|pull\s+requests?|features?|fix\w*|bugs?|issues?|release|implement\w*|build|"
+                             r"add|ship)\b|(?<!\w)(repar\w*|adaug\w*|func[tț]i\w*|исправ\w*|добав\w*|фич\w*|"
+                             r"релиз\w*)", re.I)
+
+
+def owner_ask_ok(prompt):
+    """True when the prompt is only OK words: go, ok, yes, do it, go ahead, approve, proceed (RO da, fa-l; RU да,
+    давай). A negation or a question is not an OK."""
+    return owner_said(prompt, ASK_OK_RX, NO_ASK_RX)
+
+
+def ask_name(why):
+    """How a reply names the step: the program and its main verb ("systemctl restart"), or the object of a
+    reason that starts with "a " ("a write to /etc/x" gives "/etc/x")."""
+    label = why.split(" (")[0].replace(":", "")
+    return label.split()[-1] if label.startswith("a ") else " ".join(label.split()[:2])
+
+
+def ask_first_unnamed(d, reply):
+    """Stop: the approved high-impact steps of this turn that the reply does not name. Clears the list, so a
+    turn blocks once."""
+    ran, d["ask_ran"] = d.get("ask_ran") or [], []
+    return [n for n in ran if n.lower() not in reply.lower()]
+
+
+READ_VERB_RX = re.compile(r"^\W*(please\s+)?(audit|check|research|look\s+(at|into)|review|explain|investigate|"
+                          r"verific\w*|analiz\w*|проверь|посмотри)(?!\w)", re.I)
+CHANGE_VERB_RX = re.compile(r"\b(fix|add|build|install|deploy|restart|update|implement|change|remove)\b"
+                            r"|(?<!\w)(repar\w*|adaug\w*|instaleaz\w*|исправ\w*|добав\w*|установ\w*|"
+                            r"перезапуст\w*)", re.I)
+
+
+def read_only_prompt(prompt):
+    """Audit, check, research, look at, review, explain, investigate, or a question, with no change verb."""
+    text = (prompt or "").strip()
+    return bool(READ_VERB_RX.search(text) or text.endswith("?")) and not CHANGE_VERB_RX.search(text)
+
+
+def read_only_reason(stages, cmd, cwd):
+    """In a read-only turn every host change stops, also outside the classes: a write over ssh (redirect, tee,
+    sed -i, cp, mv) and a local write outside the repo, the scratchpad and /tmp."""
+    for st in stages:
+        why = st.exe == "ssh" and ssh_reason(st, cmd, cwd, remote_write)
+        if why:
+            return why + " (a host change in a read-only turn)"
+    for target in write_targets(stages, cwd, cmd):
+        if not target.startswith("/dev/") and not safe_rm_target(target, cmd, cwd):
+            return "a write to %s (outside the repo in a read-only turn)" % target
+    return None
+
+
+def remote_write(stages, cmd, cwd):
+    return next((t for t in write_targets(stages, cwd, cmd) if not t.startswith("/dev/")), None)
+
+
+GH_CREATE = {("pr", "create"), ("issue", "create"), ("release", "create")}
+
+
+def gh_create_reason(stages, d):
+    """gh pr, issue or release create when the owner did not ask for a PR, feature or fix in this session."""
+    # shortcut: a session with no prompt seen yet (no state) passes, as the old gates did; upgrade if one shows up.
+    if d.get("asked_change") or not d.get("prompted"):
+        return None
+    for st in stages:
+        if st.exe == "gh" and tuple(st.args[:2]) in GH_CREATE:
+            return "gh %s %s (the owner did not ask for a PR, feature or fix in this session)" % tuple(st.args[:2])
+    return None
+
+
+def probe_ask_first(stages, cmd=""):
+    return bool(stages)
+
+
+def ask_first_stage(st, cmd, cwd):
+    exe, args = st.exe, st.args
+    words = [a for a in args if not a.startswith("-")]
+    if exe == "ssh":
+        return ssh_reason(st, cmd, cwd)
+    if exe in ("npx", "bunx", "uvx") or (exe in ("pnpm", "yarn") and args[:1] == ["dlx"]):
+        # shortcut: a runner option with a value (npx -p x) hides the program; split them when agents use it.
+        rest = [a for a in (args[1:] if exe in ("pnpm", "yarn") else args) if not a.startswith("-")][:1]
+        if rest:
+            i = args.index(rest[0])
+            st = Stage([(re.sub(r"(.)@[^/]*$", r"\1", rest[0]), False)] + [(a, False) for a in args[i + 1:]], "")
+            return ask_first_stage(st, cmd, cwd)
+        return None
+    if exe in SERVICE_TOOLS:
+        verbs = [a for a in args if a in SERVICE_CHANGE]
+        if exe == "service":
+            verbs = [w for w in words[1:2] if w in SERVICE_CHANGE]      # service <name> <verb>
+        if verbs:
+            return "%s %s (a service change)" % (exe, verbs[0])
+    if exe in POWER_TOOLS or (exe == "init" and words[:1] in (["0"], ["6"])):
+        return "%s (a server power change)" % exe
+    if exe in CONTAINER_TOOLS:
+        sub = words[:3]
+        if any(w in CONTAINER_CHANGE for w in sub) or ("up" in sub and ("-d" in args or "--detach" in args)):
+            return "%s %s (a container change)" % (exe, " ".join(sub))
+    if exe == "crontab" and "-l" not in args:
+        return "crontab %s (a cron change)" % " ".join(args)
+    if exe in KILL_TOOLS and not own_job_kill(st, cmd):
+        return "%s %s (it stops a process)" % (exe, " ".join(args))
+    if exe == "tmux" and words[:1] and words[0] in ("kill-session", "kill-server", "kill-window"):
+        return "tmux %s (it stops a session and its processes)" % words[0]
+    if exe in PACKAGE_TOOLS and any(w in PACKAGE_CHANGE for w in words[:2]):
+        return "%s %s (a package change)" % (exe, " ".join(words[:2]))
+    # brew install already waits for the owner in audit-before-install.
+    if exe == "brew" and words[:1] in (["uninstall"], ["remove"], ["upgrade"], ["reinstall"]):
+        return "brew %s (a package change)" % words[0]
+    if exe == "brew" and words[:1] == ["services"] and any(w in START_VERBS for w in words[1:3]):
+        return "brew %s (a service change)" % " ".join(words[:2])
+    if exe in ACCESS_TOOLS and not ACCESS_READS.get(exe, set()) & set(args):
+        return "%s (a user or access change)" % exe
+    if exe == "git":
+        why = git_high_impact(args)
+        if why:
+            return why
+    if exe in DEPLOY_VERBS:
+        if not any(a.split("=")[0] == "--dry-run" for a in args) and any(a in DEPLOY_VERBS[exe] for a in args):
+            return "%s %s (a deploy)" % (exe, " ".join(words[:2]))
+        return None
+    if exe in SQL_CLIENTS and SQL_WRITE.search(" ".join(args)):
+        return "a database write through %s" % exe
+    if exe == "rm" and any(re.match(r"^-[a-zA-Z]*[rR]", a) or a == "--recursive" for a in args):
+        bad = [t for t in words if not safe_rm_target(t, cmd, cwd)]
+        if bad:
+            return "rm -r %s (outside a temp, scratch or rebuildable folder)" % " ".join(bad[:3])
+    if exe and exe not in VERB_SKIP and any(w in START_VERBS for w in words[:3]) and not local_test_program(st, cmd):
+        return "%s %s (a program start or stop)" % (exe, " ".join(words[:3]))
+    return None
+
+
+def ssh_reason(st, cmd, cwd, judge=None):
+    """The same rules as a local command (or judge), for each text an ssh stage runs on the other host that the
+    gate can read. A script it cannot read passes, as a local `bash x.sh` does."""
+    for text in remote_texts(st, cmd, cwd):
+        # The remote folder is unknown: "/" makes a relative rm -r count as outside the repo.
+        why = text and (judge or ask_first_reason)(parse_command(text), text, "/")
+        if why:
+            return why + " over ssh"
+    return None
+
+
+SSH_VALUE_OPTS = set("BbcDEeFIiJLlmOoPpQRSWw")      # ssh options that take the next word as their value
+# A heredoc and the line text before it: the body feeds the stage that starts after the last ; & or |.
+HEREDOC = re.compile(r"^([^\n]*?)(?<!<)<<(?!<)-?[ \t]*(['\"]?)([\w.-]+)\2[^\n]*\n(.*?)^[ \t]*\3[ \t]*$",
+                     re.S | re.M)
+
+
+def remote_texts(st, cmd, cwd):
+    """The command texts of `ssh [opts] host <words>`: the words ssh joins with spaces, and the local text that a
+    remote `bash -s` reads (None when the gate cannot read it). [] for an interactive login."""
+    args, i = st.args, 0
+    while i < len(args) and args[i].startswith("-"):
+        if args[i] == "--":
+            i += 1
+            break
+        i += 2 if len(args[i]) == 2 and args[i][1] in SSH_VALUE_OPTS else 1
+    remote = " ".join(args[i + 1:])
+    if not remote:
+        return []
+    if not any(SHELLS.match(s.exe) and runs_stdin_as_code(s) for s in parse_command(remote)):
+        return [remote]
+    return [remote, stdin_text(st, cmd, cwd)]
+
+
+def stdin_text(st, cmd, cwd):
+    for op, target in st.redirs:
+        if op == "<<<":
+            return target
+        if op == "<":
+            path = os.path.join(cwd, os.path.expanduser(expand_vars(target, cmd)))
+            # A device, a FIFO or a huge file would hang or kill the hook, and a dead hook lets the command run.
+            if "$" in path or "`" in path or not os.path.isfile(path) or os.path.getsize(path) > 1_000_000:
+                return None
+            return read_text(path)
+    # shortcut: a heredoc counts when an ssh stage starts it; with two ssh heredocs, both bodies count for each.
+    bodies = [m.group(4) for m in HEREDOC.finditer(cmd) if re.search(r"\bssh\b", re.split(r"[;&|]", m.group(1))[-1])]
+    return "\n".join(bodies) or None
+
+
+def local_test_program(st, cmd):
+    """A program the command itself defines or names by a variable (a test helper), or one that works on a temp
+    folder (a throwaway database in the scratchpad): its start or stop touches nothing that runs for the owner."""
+    if st.exe.startswith("$") or re.search(r"(^|[\s;{(])%s\s*\(\)" % re.escape(st.exe), cmd):
+        return True
+    return any(temp_path(a) for a in st.args)
+
+
+def git_high_impact(args):
+    words = [a for a in args if not a.startswith("-")]
+    if "push" in words and ("f" in short_flags(args) or any(a == "--force" or a.startswith("--force-with-lease")
+                                                          for a in args) or any(w.startswith("+") for w in words)):
+        return "git push --force (it rewrites the remote history)"
+    if "reset" in words and "--hard" in args:
+        return "git reset --hard (it drops local changes)"
+    if "branch" in words and any(a in ("-D", "--delete") for a in args) and PROTECTED_BRANCHES & set(words):
+        return "git branch -D of main or master"
+    return None
+
+
+def own_job_kill(st, cmd):
+    """kill of a job this command started ($!, %1) or a signal check (kill -0) is local test cleanup."""
+    if st.exe != "kill":
+        return False
+    targets = [a for a in st.args if not a.startswith("-")]
+    if "-0" in st.args or (targets and all(a.startswith("%") for a in targets)):
+        return True
+    return bool(targets) and "$!" in cmd and all(a.startswith("$") for a in targets)
+
+
+def safe_rm_target(target, cmd, cwd):
+    """A temp, scratchpad or rebuildable folder, or a path inside the current repo (not its root or .git)."""
+    path = expand_vars(target, cmd)
+    if "$" in path or "`" in path:
+        return True     # shortcut: an unresolved variable passes (agents keep scratch paths in $S); the rule covers it
+    path = os.path.normpath(os.path.join(cwd, os.path.expanduser(path)))
+    if temp_path(path) or rebuildable_name(path):
+        return True
+    root = project_root(cwd)
+    return bool(root) and path.startswith(root.rstrip("/") + "/") and "/.git" not in path[len(root):]
+
+
+def temp_path(path):
+    """A path inside a temp root (the roots of no-destroy) or a scratchpad, not the root itself."""
+    return "/scratchpad" in path or any(path.startswith(r.rstrip("/") + "/") for r in temp_roots())
+
+
 FILE_GATES = {"worktree-first"}      # gates that judge the file of an Edit or Write, not a shell command
 # shortcut: shell writes (sed -i, >) and Codex apply_patch on main are not judged; add them when agents use them.
 
 GATES = {"audit-before-install": gate_audit, "secret-scan": gate_secrets, "pr-rules": gate_pr, "no-sudo": gate_sudo,
          "no-destroy": gate_destroy, "merge-approval": gate_merge, "no-verify": gate_no_verify, "gh-write": gate_gh,
-         "worktree-first": gate_worktree}
+         "worktree-first": gate_worktree, "ask-first": gate_ask_first}
 GATE_PROBES = {"audit-before-install": probe_audit, "secret-scan": probe_secrets, "pr-rules": probe_pr_gate,
                "no-sudo": probe_sudo, "no-destroy": probe_destroy, "merge-approval": probe_merge,
-               "no-verify": probe_no_verify, "gh-write": probe_gh}
+               "no-verify": probe_no_verify, "gh-write": probe_gh, "ask-first": probe_ask_first}
 
 
 # ---------------------------------------------------------------- regression ledger (docs/REGRESSIONS.md)

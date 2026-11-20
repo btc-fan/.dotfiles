@@ -157,6 +157,25 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   root, `compose down -v`, `docker volume rm|prune`; per repo `.ai/destructive.txt` (`db:` protected databases
   for SQL DROP/TRUNCATE/DELETE without WHERE and `dropdb`; `cmd:` extra prefixes). Attack table:
   `ai/tests/cases/no-destroy.json`.
+- ask-first (every profile, owner 2026-11-20): a high-impact step is denied until the owner gives a typed OK.
+  The deny tells the agent to show the plan, the risk and the undo. Classes: `systemctl`, `service`, `launchctl`
+  with a changing verb; `reboot`, `shutdown`; container stop, restart, rm, down, `up -d`; `crontab` (not `-l`);
+  `kill`, `pkill`, `tmux kill-session`; package changes; user and access tools; force push, `reset --hard`;
+  deploys (not `--dry-run`); SQL writes; `rm -r` outside temp, scratch, rebuildable and repo folders; shell writes
+  to unit, cron, sudoers, PAM, fstab and GRUB files; an unknown program with a start or stop verb. Also
+  `gh pr`, `issue` or `release create` when no owner prompt in the session asked for a PR, feature or fix. Reads pass.
+  The owner's typed go, ok, yes, approve or do it (RO da, fa-l; RU да, давай) lets every high-impact step pass
+  for the rest of that turn. The whole prompt must be OK words ("go", "yes do it"). A longer prompt, a negation,
+  a question, pasted text or an agent message is not an OK. The OK ends at Stop and at a notification turn.
+  A `bash -s` script is read only from a regular file of 1 MB or less; a device or a FIFO passes unread.
+  A prompt that audits, checks, reviews or explains, or asks a question, with no change verb, makes a read-only
+  turn. Then every host change also stops: a write over ssh (redirect, `tee`, `sed -i`, `cp`, `mv`) and a local
+  write outside the repo, the scratchpad and `/tmp`. The router note says "read-only turn".
+  At Stop (Claude and Codex), the reply must name each approved step that ran in the turn ("systemctl
+  restart"). Else the hook blocks one time with the list.
+  ssh: the same rules apply to the remote text and to the local script or heredoc that `bash -s` reads. A script
+  that the gate cannot read (`ssh host ./x.sh`, a missing local file) passes, as a local `bash x.sh` does.
+  Attack table: `ai/tests/cases/ask-first.json`.
 - winner-gate: a Skill tool call of a loser in `winners` of `ai/routing.yaml` (the overlap table of the skills
   guide, section 5) is denied with the winner's name, also in a subagent; a typed-only winner gets "read <its
   SKILL.md> and follow it". A typed /name never reaches the Skill tool. Codex has no Skill tool: there a shell
@@ -250,3 +269,5 @@ sources. What we took from each: `ai/rules/verification-skill.md`. Speed, and ot
 - Builtin secret patterns are a fixed list; new token formats need a new pattern or gitleaks.
 - no-destroy cannot see through a script file, `find -delete` or `xargs rm`; the sandbox, branch protection
   and a database role without DROP/TRUNCATE are the real boundary.
+- ask-first cannot see into a script file, a `make` target or an npm script, and an unresolved variable in
+  `rm -r` passes. The conduct rule in AGENTS.md covers these cases.
