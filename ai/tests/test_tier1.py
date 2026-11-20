@@ -1246,8 +1246,12 @@ def t_doctor_owner_text(work):
     assert "FAIL ai-adopt commit lost owner text: AGENTS.md" in said, said
 
 
-FORCE = ("import importlib.machinery, sys\n"
-         "m = importlib.machinery.SourceFileLoader('ai_start', sys.argv[1]).load_module()\n"
+# exec_module, not load_module: load_module is gone in Python 3.12+ (the CI runner has 3.15).
+FORCE = ("import importlib.machinery, importlib.util, sys\n"
+         "loader = importlib.machinery.SourceFileLoader('ai_start', sys.argv[1])\n"
+         "m = importlib.util.module_from_spec(importlib.util.spec_from_loader('ai_start', loader))\n"
+         "sys.modules['ai_start'] = m\n"
+         "loader.exec_module(m)\n"
          "m.upsert_project_rules = lambda a: a.replace('by hand', 'by script')\n"
          "sys.exit(m.main(sys.argv[2:]))\n")
 

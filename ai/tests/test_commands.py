@@ -440,7 +440,8 @@ def t_ai_sync_keeps_pstack(work):
     for d in (os.path.join(home, ".claude", "skills"), os.path.join(home, ".agents", "skills")):
         os.makedirs(d)
     installed_link(home)
-    res = run(["bash", os.path.join(BIN, "ai-sync")], env={"HOME": home})
+    # The home layout above is the macOS one; a Linux runner would pick the server root layer (/opt/agent-plugins).
+    res = run(["bash", os.path.join(BIN, "ai-sync")], env={"HOME": home, "AI_OS_FORCE": "macos"})
     assert res.returncode == 0, res.stdout
     for d in (".claude", ".agents"):
         link = os.path.join(home, d, "skills", "create-verification-skill")

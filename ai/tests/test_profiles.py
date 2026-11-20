@@ -30,6 +30,9 @@ SYSTEM = ("bash sh env python3 jq git sed awk grep egrep cut tr sort head tail f
 def main():
     # A fixed-length work path: long paths are cut in the printed plan, the cut must not move.
     work = tempfile.mkdtemp(prefix="aiprof", dir="/tmp" if os.path.isdir("/tmp") else None)
+    # The plans read the rendered ai/AGENTS.md (gitignored): a fresh checkout has none until a render.
+    if not os.path.exists(os.path.join(AI_DIR, "AGENTS.md")):
+        subprocess.run([sys.executable, os.path.join(AI_DIR, "bin", "ai-render")], check=True, stdout=subprocess.DEVNULL)
     try:
         for test in TESTS_LIST:
             try:
@@ -72,12 +75,16 @@ def fake_env(work, name, tools=()):
         path = shutil.which(cmd, path="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin")
         if path:
             os.symlink(path, os.path.join(sysbin, cmd))
+    # The admin hint names the user (id -un): one fixed name, not the user of this machine.
+    os.remove(os.path.join(sysbin, "id"))
+    stub(sysbin, "id", '#!/bin/sh\n[ "$*" = -un ] && { echo user; exit 0; }\nexec %s "$@"\n' % shutil.which("id", path="/usr/bin:/bin"))
     for t in tools:
         stub(bindir, t, "#!/bin/sh\n[ \"$1\" = --version ] && echo '%s 1.0.0'\nexit 0\n" % t)
     env = {"PATH": bindir + ":" + sysbin, "HOME": home, "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1",
            "AI_RESOLVE_OFFLINE": "1", "AI_PROJ_AGENT_PATH": "/nonexistent/proj-agent",
            "AI_PROJ_AGENT_SOCK": "/nonexistent/proj-agent.sock", "GIT_CONFIG_GLOBAL": os.devnull,
-           "GIT_CONFIG_NOSYSTEM": "1", "TMPDIR": os.path.join(root, "tmp")}
+           "GIT_CONFIG_NOSYSTEM": "1", "TMPDIR": os.path.join(root, "tmp"),
+           "SHELL": "/bin/zsh"}       # else bash sets SHELL from the login shell of this user (~/.zshenv or not)
     os.makedirs(env["TMPDIR"])
     return env, home, bindir
 
@@ -92,6 +99,12 @@ def fake_homebrew(root, env):
         stub(nm, tool, body)
         os.makedirs(brew, exist_ok=True)
         os.symlink(os.path.join(nm, tool), os.path.join(brew, tool))
+    # A fake brew and its rtk formula 1.2.0 hide the real ones: rtk on this machine or not, the plan is the same.
+    prefix = os.path.dirname(brew)
+    stub(brew, "brew", "#!/bin/sh\ncase \"$1\" in\n  --prefix) echo '%s' ;;\n  info) echo '%s' ;;\nesac\nexit 0\n"
+         % (prefix, '{"formulae": [{"name": "rtk", "tap": "homebrew/core", "versions": {"stable": "1.2.0"}}]}'))
+    stub(os.path.join(prefix, "Cellar", "rtk", "1.2.0", "bin"), "rtk", "#!/bin/sh\necho 'rtk 1.2.0'\nexit 0\n")
+    os.symlink("../Cellar/rtk/1.2.0/bin/rtk", os.path.join(brew, "rtk"))
     env["PATH"] = ":".join([brew, "/opt/homebrew/bin", "/usr/local/bin", env["PATH"]])
     return brew
 

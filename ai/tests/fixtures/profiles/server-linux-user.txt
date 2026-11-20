@@ -6,7 +6,7 @@ DRY RUN: commands are printed, nothing is changed.
 [1/13] prerequisites (check only)
   WARN: node  is older than 22 (Ponytail, i-have-adhd and context7 need a current LTS)
   missing: curl
-  manual: missing: curl. Ask admin to run: sudo /opt/ai-setup/install.sh --update --for-user python-qa   (admin)
+  manual: missing: curl. Ask admin to run: sudo /opt/ai-setup/install.sh --update --for-user user   (admin)
 
 [2/13] sources: newest stable per tool (ai/pins.env, ai/lib/resolve.py)
   newest stable per tool (ai/lib/resolve.py; a <TOOL>_HOLD line in ai/pins.env wins):
@@ -43,11 +43,13 @@ DRY RUN: commands are printed, nothing is changed.
   [dry-run] link    ~/.config/ai/rules -> $REPO/ai/rules
   [dry-run] link    ~/.local/bin/agent-audit -> $REPO/ai/bin/agent-audit
   [dry-run] link    ~/.local/bin/ai-adopt -> $REPO/ai/bin/ai-adopt
+  [dry-run] link    ~/.local/bin/ai-check -> $REPO/ai/bin/ai-check
   [dry-run] link    ~/.local/bin/ai-check-detect -> $REPO/ai/bin/ai-check-detect
   [dry-run] link    ~/.local/bin/ai-docs-check -> $REPO/ai/bin/ai-docs-check
   [dry-run] link    ~/.local/bin/ai-doctor -> $REPO/ai/bin/ai-doctor
   [dry-run] link    ~/.local/bin/ai-eval -> $REPO/ai/bin/ai-eval
   [dry-run] link    ~/.local/bin/ai-evidence-prune -> $REPO/ai/bin/ai-evidence-prune
+  [dry-run] link    ~/.local/bin/ai-github-wall -> $REPO/ai/bin/ai-github-wall
   [dry-run] link    ~/.local/bin/ai-info -> $REPO/ai/bin/ai-info
   [dry-run] link    ~/.local/bin/ai-ledger -> $REPO/ai/bin/ai-ledger
   [dry-run] link    ~/.local/bin/ai-libs -> $REPO/ai/bin/ai-libs
@@ -85,8 +87,8 @@ DRY RUN: commands are printed, nothing is changed.
   [dry-run] sh -c npm\ install\ --prefix\ ~/.local/share/ai/npm/context7-mcp-4.7.0\ --ignore-scripts\ --no-audit\ --no-fund\ --save-exact\ @upstash/context7-mcp@4.7.0
   [dry-run] record  npm-local:context7 undo: sh -c 'rm -rf "$1"/context7-mcp-*' _ ~/.local/share/ai/npm
   planned: context7-mcp 4.7.0 in ~/.local/share/ai/npm/context7-mcp-4.7.0 (audited, integrity checked, scripts off)
-  manual: rtk missing (system part): sudo /opt/ai-setup/install.sh --update --for-user python-qa   (admin)
-  manual: Ponytail source missing (system part): sudo /opt/ai-setup/install.sh --update --for-user python-qa   (admin)
+  manual: rtk missing (system part): sudo /opt/ai-setup/install.sh --update --for-user user   (admin)
+  manual: Ponytail source missing (system part): sudo /opt/ai-setup/install.sh --update --for-user user   (admin)
 
 [6/13] MCP servers
   skip: Serena config: serena not installed
@@ -350,10 +352,10 @@ warnings (2)
   - RTK hook: rtk not installed (or not built): Claude runs without it
 
 manual steps left (8)
-  - missing: curl. Ask admin to run: sudo /opt/ai-setup/install.sh --update --for-user python-qa   (admin)
+  - missing: curl. Ask admin to run: sudo /opt/ai-setup/install.sh --update --for-user user   (admin)
   - create ~/.config/ai/secrets.env: install -m 600 $REPO/secrets.env.example ~/.config/ai/secrets.env, then fill GITHUB_PERSONAL_ACCESS_TOKEN and CONTEXT7_API_KEY
-  - rtk missing (system part): sudo /opt/ai-setup/install.sh --update --for-user python-qa   (admin)
-  - Ponytail source missing (system part): sudo /opt/ai-setup/install.sh --update --for-user python-qa   (admin)
+  - rtk missing (system part): sudo /opt/ai-setup/install.sh --update --for-user user   (admin)
+  - Ponytail source missing (system part): sudo /opt/ai-setup/install.sh --update --for-user user   (admin)
   - Claude, once per machine, in a project with claude-seo on: /seo setup, then /seo doctor (venv + Chromium)
   - add to your shell rc: [ -f ~/.config/ai/env.sh ] && . ~/.config/ai/env.sh
   - log in once: claude (then /login)
