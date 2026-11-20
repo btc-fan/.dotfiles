@@ -23,6 +23,11 @@
 7. `make check` in CI fails when a tool is missing (ticket 09). So the template puts the fetched setup's `ai/bin` on PATH before `make check`.
 8. A fix PR needs a test file in its diff. The diff comes from the `files` API (max 3,000 files). Over that limit, the check fails with "diff too large to read".
 9. An author-sessions line `main: unknown` is refused in the session. In CI the same rule applies, with the same message.
+10. Difference: the PR diff and the `run.log` files come from git, not `gh api`. The job fetches `refs/pull/<n>/head` and writes the PR files as data into a separate folder. Nothing there runs. So the 3,000-file limit of edge case 8 does not apply.
+11. Difference: `ai-check pr-rules --pr-body` takes `--title` and `--base` (CI gives them), and `--dir` is the folder of PR files. The `main: unknown` line now fails with no session too.
+12. Difference: the template `ai-checks.yml` runs on `pull_request`, not `pull_request_target`, because the job `check` must run PR code. A PR can edit it. A `shortcut:` comment says when to split it.
+13. Difference: ticket 19 is not built. The setup URL comes from `AI_SETUP_URL` (env or `~/.config/ai/config.env`), else the `origin` of the setup. `ci` is an opt-in of `ai-adopt` itself, not a `routing.yaml` rule.
+14. Difference: the workflow runs on PRs to `ai` and `ai-fable`, the same branches as `tests.yml`.
 
 **Owner steps:** None. The ruleset of ticket 04 already names `pr-text`.
 
@@ -34,10 +39,10 @@
 
 - [ ] A PR to `ai` with a body that has no Mermaid block shows `pr-text` red, with the missing field in the log.
 - [ ] After the body is fixed and saved, `pr-text` turns green with no new push.
-- [ ] A PR that edits `pr-text.yml` still gets the base branch version of the check (a test reads the workflow trigger).
+- [x] A PR that edits `pr-text.yml` still gets the base branch version of the check (a test reads the workflow trigger).
 - [ ] A PR whose verify `run.log` names an older commit shows `pr-text` red.
-- [ ] `ai-adopt --tools ci` on a fixture writes `.github/workflows/ai-checks.yml`. A plain `ai-adopt` writes no workflow.
-- [ ] The workflow passes no PR text into a `run:` line (a test greps for `github.event.pull_request.body` in `run:`).
+- [x] `ai-adopt --tools ci` on a fixture writes `.github/workflows/ai-checks.yml`. A plain `ai-adopt` writes no workflow.
+- [x] The workflow passes no PR text into a `run:` line (a test greps for `github.event.pull_request.body` in `run:`).
 
 **Verify:**
 - Unit: `ai/tests/test_commands.py` gets `t_pr_text_workflow_shape` and `t_ai_checks_template`; `ai/tests/test_tier1.py` gets `t_adopt_tools_ci`.

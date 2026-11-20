@@ -1212,9 +1212,10 @@ def gate_pr(ctx, cmd, stages):
             missing.append("a ```mermaid diagram")
         if "<!-- author-sessions" not in text:
             missing.append("the <!-- author-sessions block")
-        line = session_line(ctx)
-        if line and re.search(r"(?im)^\s*main:\s*unknown\b", text):
-            missing.append("a real main: line in the author-sessions block (this session: %s)" % line)
+        if re.search(r"(?im)^\s*main:\s*unknown\b", text):     # CI has no session: the same rule, no hint
+            line = session_line(ctx)
+            missing.append("a real main: line in the author-sessions block" + (" (this session: %s)" % line
+                                                                                 if line else ""))
         fix = bool(PR_FIX_TITLE.match(flag_value(args, ("--title", "-t")) or ""))
         for name in PR_FIELDS:
             why = pr_field_problem(name, pr_field(text, name))
@@ -2560,8 +2561,8 @@ class CheckCtx(object):
         self.contexts.append(text)
 
 
-def run_check(gate, cwd, cmd=None, staged=False, body=None):
-    """(problem or None, notes) of one gate on one input. A problem means fail."""
+def run_check(gate, cwd, cmd=None, staged=False, body=None, title=None, base=None):
+    """(problem or None, notes) of one gate on one input. A problem means fail. CI gives the PR title and base."""
     import shlex
     import shutil
     ctx = CheckCtx(cwd)
@@ -2571,7 +2572,8 @@ def run_check(gate, cwd, cmd=None, staged=False, body=None):
     if staged:
         cmd = "git commit"
     elif body is not None:
-        cmd = "gh pr create --body-file " + shlex.quote(os.path.abspath(body))
+        cmd = "gh pr create --body-file " + shlex.quote(os.path.abspath(body)) + "".join(
+            " %s %s" % (flag, shlex.quote(value)) for flag, value in (("--title", title), ("--base", base)) if value)
     if gate == "secret-scan" and not shutil.which("gitleaks"):
         ctx.add_context("gitleaks not found: built-in patterns only.")
     verdict = GATES[gate](ctx, cmd, parse_command(cmd))

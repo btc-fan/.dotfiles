@@ -888,6 +888,29 @@ def t_check_cli_contract(work):
     assert res.returncode == 0, res.text
 
 
+def t_check_ci_inputs(work):
+    """Ticket rth-06: CI gives the PR title and base branch. A fix: title with no test file in the diff fails;
+    main: unknown fails with no session (the session rule); --title and --base need --pr-body."""
+    repo, env = new_repo(work, "ci-inputs", dict(PY_APP))
+    git(repo, "checkout", "-q", "-b", "feat", env=env)
+    write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return b + a\n")
+    git(repo, "commit", "-qam", "change", "--no-verify", env=env)
+    body = os.path.join(work, "ci-body.md")
+    write(body, PR_BODY)
+    res = check(env, repo, "pr-rules", "--pr-body", body, "--title", "feat: x", "--base", "main")
+    assert res.returncode == 0, res.text
+    res = check(env, repo, "pr-rules", "--pr-body", body, "--title", "fix: x", "--base", "main")
+    assert res.returncode == 1 and "a test file in the diff" in res.text, res.text
+
+    write(body, PR_BODY.replace("main: pr1 dir: ~/w", "main: unknown"))
+    res = check(env, repo, "pr-rules", "--pr-body", body, "--base", "main")
+    assert res.returncode == 1 and "a real main: line" in res.text, res.text
+
+    for args in (("--staged", "--title", "fix: x"), ("--command", "gh pr create", "--base", "main")):
+        res = check(env, repo, "pr-rules", *args)
+        assert res.returncode == 2 and "--pr-body" in res.text, (args, res.text)
+
+
 def t_check_reads_input_as_data(work):
     """--command is parsed, never run: a command that would write a file leaves no file."""
     repo, env = new_repo(work, "data", dict(PY_APP))
