@@ -817,6 +817,85 @@ def t_secret_scan_mnemonic_prefix(work):
     assert decision(out) != "deny" or "secret" not in out, out
 
 
+# ---------------------------------------------------------------- one entry for a check (ticket 05)
+
+CHECK = os.path.join(BIN, "ai-check")
+
+
+def check(env, cwd, *args):
+    return run([sys.executable, CHECK] + list(args), env=env, cwd=cwd)
+
+
+def t_check_three_callers(work):
+    """The same staged diff goes to the agent hook, to ai-precommit and to ai-check: one decision from each.
+    A fake key: all 3 refuse. A clean diff: all 3 pass. The key is built at run time (no secret in the repo)."""
+    repo, env = new_repo(work, "three", dict(PY_APP))
+    key = "ghp" + "_" + "aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC2eF4hJ6"
+    for staged, want in (("TOKEN = '%s'\n" % key, "deny"), ("print('hello')\n", "allow")):
+        write(os.path.join(repo, "src", "app", "config.py"), staged + "x = 1\n" * 1000)
+        git(repo, "add", "-A", env=env)
+
+        hook_says = decision(pr_hook(env, repo, "git commit -m 'add config'"))
+        pre = run([sys.executable, os.path.join(BIN, "ai-precommit"), "--dir", repo], env=env, cwd=repo)
+        start = time.time()
+        cli = check(env, repo, "secret-scan", "--staged")
+        print("     ai-check secret-scan --staged, 1,000-line diff: %.2f s" % (time.time() - start))
+
+        got = {"hook": hook_says, "ai-precommit": "deny" if pre.returncode == 1 else "allow",
+               "ai-check": "deny" if cli.returncode == 1 else "allow"}
+        assert got == dict.fromkeys(got, want), (got, pre.text, cli.text)
+        if want == "deny":
+            assert "secret-scan" in pre.text and "github-token" in pre.text, pre.text
+            assert "secret-scan" in cli.text and "github-token" in cli.text, cli.text
+        assert cli.returncode != 2 and pre.returncode != 2, (cli.text, pre.text)
+
+
+def t_check_cli_contract(work):
+    """ai-check: --pr-body names the missing field; --list names each gate it does not offer and why; a session
+    gate and bad usage exit 2; outside a git repo --staged exits 2; the text check refuses an em dash."""
+    repo, env = new_repo(work, "cli", dict(PY_APP))
+    body = os.path.join(work, "body.md")
+    write(body, "## Summary\nno diagram\n## Evidence\n- **After:** make check-fast: 3 passed\n")
+    res = check(env, repo, "pr-rules", "--pr-body", body)
+    assert res.returncode == 1 and "mermaid" in res.text and "Door" in res.text, res.text
+
+    res = check(env, repo, "--list")
+    assert res.returncode == 0, res.text
+    for gate in ("secret-scan", "pr-rules", "text", "merge-approval", "writing-for-agents", "ship", "ask-first",
+                 "gh-write"):
+        assert gate in res.text, (gate, res.text)
+    assert "owner" in res.text.split("merge-approval", 1)[1].splitlines()[0], res.text
+
+    for args in (("merge-approval", "--staged"), ("secret-scan",), ("nope", "--staged"),
+                 ("secret-scan", "--pr-body", body)):
+        res = check(env, repo, *args)
+        assert res.returncode == 2, (args, res.returncode, res.text)
+
+    plain = os.path.join(work, "not-a-repo")
+    os.makedirs(plain)
+    res = check(env, plain, "secret-scan", "--staged")
+    assert res.returncode == 2 and "not a git repo" in res.text, res.text
+
+    dash = chr(0x2014)
+    write(os.path.join(repo, "README.md"), "one %s two\n" % dash)
+    git(repo, "add", "README.md", env=env)
+    res = check(env, repo, "text", "--staged")
+    assert res.returncode == 1 and "README.md:1" in res.text, res.text
+    write(body, "a line %s here\n" % dash)
+    res = check(env, repo, "text", "--pr-body", body)
+    assert res.returncode == 1 and "body.md:1" in res.text, res.text
+    res = check(env, repo, "text", "--command", "echo plain")
+    assert res.returncode == 0, res.text
+
+
+def t_check_reads_input_as_data(work):
+    """--command is parsed, never run: a command that would write a file leaves no file."""
+    repo, env = new_repo(work, "data", dict(PY_APP))
+    marker = os.path.join(work, "ran")
+    res = check(env, repo, "secret-scan", "--command", "touch %s && git commit -m x" % marker)
+    assert res.returncode == 0 and not os.path.exists(marker), res.text
+
+
 def t_pr_gate_verify_log(work):
     """Red: app code on the PR head and only an older log: create, edit and ready are denied. Green: a valid log
     at the head SHA. An invalid log (doctor FAIL, db_writes yes, finished before the code commit) does not count."""
