@@ -6,23 +6,25 @@ Usage (hooks.json / codex-hooks.json):
   python3 stop-check.py --agent claude|codex Stop           < hook JSON   (runs the check when files changed)
 
 A separate script, not the router: the router must stay fast and blocks a Stop only for a missing must-use
-skill (strength stop); this hook runs the project's check, up to 55 s (owner plan, Tier 1 T2).
+skill (strength stop); this hook runs the project's check, up to 60 s (owner plan, Tier 1 T2; decision D5).
 Python stdlib only (/usr/bin/python3 3.9 too). An internal error is logged and the hook stays silent: it is a
 quality check, not a security gate (the gates are in the router).
 
 Stop, in order:
-  1. Only in an adopted repo (.ai/enabled), tier mvp or long, without a `no-stop-check` line.
+  1. Only on a profile with PROFILE_STOP_CHECK=1, in an adopted repo (.ai/enabled), tier mvp or long, without a
+     `no-stop-check` line.
   2. An oh-my-claudecode persistent mode (ralph, autopilot, ultragoal, team ...) is active for this session:
      silent. That mode owns the continuation; this check runs at the first stop after the mode ends.
      OMC itself never blocks when stop_hook_active is set, so one stop never gets a block from both.
   3. The tree fingerprint (HEAD, git status, git diff, untracked file sizes and times) equals the session
      baseline or the last green tree: silent. No SessionStart baseline (hook timed out, added mid-session):
-     the baseline is the clean HEAD, so any uncommitted change counts.
+     the baseline is the clean HEAD, so any uncommitted change counts. No code file (hooklib CODE_EXT) changed:
+     silent, with "no code change" in <state>/stop-check.log. A changed root Makefile or justfile counts as code.
   4. Loop limits: at most 2 blocks on the same tree, and at most 4 blocks in one stop chain (stops while
      stop_hook_active is set; a new user turn starts a new chain). Then one note to the owner (Claude).
      stop_hook_active does not skip the check: the continuation is where the agent's fix gets checked.
   5. The check-fast recipe changed since the session start: a block (the owner decides on a weaker check).
-  6. `make check-fast` (or `just check-fast`) in its own process group, 55 s budget in all (a timeout kills
+  6. `make check-fast` (or `just check-fast`) in its own process group, 60 s budget in all (a timeout kills
      the group and passes with a note). Exit 0 with 0 tests seen, or only skipped tests, fails
      (minimum-input floor). Long tier: then `ai-ratchet --only tests,skips --base <session start commit>`.
   7. Failure: JSON {"decision": "block", "reason": <command, exit code, last 40 lines>}. Success: no output.
@@ -38,10 +40,10 @@ import time
 sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
-from hooklib import (ai_home, iso_now, ledger_hits, ledger_note, log_line, log_wall, project_root,  # noqa: E402
-                     project_tier, read_text, state_path)
+from hooklib import (ai_home, is_code_file, iso_now, ledger_hits, ledger_note, log_line, log_wall,  # noqa: E402
+                     project_root, project_tier, read_text, state_path)
 
-CHECK_TIMEOUT = float(os.environ.get("AI_STOP_CHECK_TIMEOUT") or 55)   # env: tests only (the hook's own env)
+CHECK_TIMEOUT = float(os.environ.get("AI_STOP_CHECK_TIMEOUT") or 60)   # D5; hook entry: 75 s   # env: tests only (the hook's own env)
 MAX_TRIES = 2
 MAX_CHAIN = 4                   # blocks in one chain of continuation stops
 TAIL_LINES = 40
@@ -99,7 +101,8 @@ def on_session_start(payload):
     prune_states()
     st = State(payload, root)
     if not st.data.get("baseline"):         # resume / compact keep the first baseline of the session
-        st.data.update(baseline=fingerprint(root), baseline_head=head(root), started=iso_now())
+        h = head(root)
+        st.data.update(baseline=fingerprint(root), baseline_head=h, code=code_state(root, h), started=iso_now())
         st.save()
 
 
@@ -122,6 +125,12 @@ def on_stop(payload, agent):
     if fp == st.data["baseline"] or fp in (st.data.get("last_ok") or []):
         st.save()
         return None
+
+    if code_state(root, st.data.get("baseline_head")) == st.data.get("code", {}):
+        log_line("stop-check.log", "%s %s no code change" % (iso_now(), root))
+        st.save()
+        return None
+
     tries = st.data.setdefault("tries", {})
     if tries.get(fp, 0) >= MAX_TRIES or st.data.get("chain", 0) >= MAX_CHAIN:
         told = st.data.setdefault("told", [])
@@ -159,7 +168,7 @@ def on_stop(payload, agent):
                        "nothing fails)" % " ".join(cmd))
         elif project_tier(root) == "long":
             left = CHECK_TIMEOUT - (time.time() - t0)
-            if left >= 3:                   # the hook timeout is 60 s: never start what cannot finish
+            if left >= 3:                   # the hook timeout is 75 s: never start what cannot finish
                 ok, msg = ratchet(root, left, st.data.get("baseline_head"))
                 if not ok:
                     problem, output = "ai-ratchet (tests and skips) failed", msg
@@ -182,12 +191,7 @@ def on_stop(payload, agent):
 def ledger_stop_note(root, st, payload):
     """Files changed in this session (Bash edits too: sed -i, formatters) that lie in a regression-ledger area
     the edit nudge did not name yet: one line for the owner."""
-    names = set()
-    for e in git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all").split(b"\0"):
-        if len(e) > 3 and e[2:3] == b" ":
-            names.add(e[3:].decode("utf-8", "replace"))
-    if st.data.get("baseline_head"):
-        names |= set(git(root, "diff", "--name-only", st.data["baseline_head"], "HEAD").decode().splitlines())
+    names = changed_files(root, st.data.get("baseline_head"))
     sid = re.sub(r"[^A-Za-z0-9_.-]", "_", str(payload.get("session_id") or "nosession"))[:120]
     try:
         router = json.loads(read_text(state_path(os.path.join("sessions", sid + ".json"))) or "{}")
@@ -201,6 +205,31 @@ def ledger_stop_note(root, st, payload):
     return "Files changed in a regression area this session (Bash edits too). " + ledger_note(hits)
 
 
+def changed_files(root, base):
+    """Paths with uncommitted changes, plus paths changed in commits since the session start commit."""
+    names = set()
+    for e in git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all").split(b"\0"):
+        if len(e) > 3 and e[2:3] == b" ":
+            names.add(e[3:].decode("utf-8", "replace"))
+    if base:
+        names |= set(git(root, "diff", "--name-only", base, "HEAD").decode().splitlines())
+    return names
+
+
+def code_state(root, base):
+    """{path: size and mtime} of the changed code files and check recipes: equal to the SessionStart one when no
+    code changed in this session (a file that was dirty before it is not blamed)."""
+    out = {}
+    for rel in changed_files(root, base):
+        if is_code_file(rel) or rel in dict(RECIPE_FILES):
+            try:
+                s = os.stat(os.path.join(root, rel))
+                out[rel] = "%d %d" % (s.st_size, s.st_mtime_ns)
+            except OSError:
+                out[rel] = "gone"
+    return out
+
+
 def note(agent, text):
     """A message for the owner that does not block. Codex: Stop output must be empty or a decision."""
     if agent == "claude":
@@ -210,21 +239,21 @@ def note(agent, text):
 
 # ---------------------------------------------------------------- project state
 
-def profile_guards():
-    """False on a profile with PROFILE_GUARDS=0 (dev-mac): no Stop check there. Any error: the check stays on."""
+def profile_stop_check():
+    """False on a profile with PROFILE_STOP_CHECK=0. PROFILE_GUARDS does not count (D5). Any error: the check is on."""
     try:
         sys.path.insert(0, os.path.join(ai_home(), "ai", "lib"))
         import ai_profile
         name, _from = ai_profile.resolve()
-        return ai_profile.load(name).get("PROFILE_GUARDS", "1") != "0"
+        return ai_profile.load(name).get("PROFILE_STOP_CHECK", "1") != "0"
     except Exception:
         return True
 
 
 def active_root(payload):
     """The repo root when the stop check is on there: adopted, tier mvp or long, no `no-stop-check`."""
-    if not profile_guards():
-        return None          # profile dev-mac: no Stop check (owner 2026-11-15)
+    if not profile_stop_check():
+        return None          # rollback switch: PROFILE_STOP_CHECK=0 in the profile
     root = project_root(str(payload.get("cwd") or os.getcwd()))
     if not root:
         return None
@@ -293,7 +322,10 @@ def run_group(cmd, root, timeout):
             os.killpg(proc.pid, signal.SIGKILL)
         except OSError:
             pass
-        proc.communicate()
+        try:
+            proc.communicate(timeout=5)     # a child that left the group can hold the pipe: answer anyway
+        except subprocess.TimeoutExpired:
+            pass
         return None, "", True
 
 

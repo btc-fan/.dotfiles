@@ -13,6 +13,8 @@ invalid" (https://developers.openai.com/codex/hooks.md, read 2026-11-12).
 - Runs at every Stop of Claude and Codex in an adopted repo (`.ai/enabled`), tier `mvp` or `long`.
 - Off: tier `try`, a `no-stop-check` line in `.ai/enabled`, a repo without `.ai/enabled`, a repo without a
   `check-fast` target.
+- Off on a profile with `PROFILE_STOP_CHECK=0` (on for `dev-mac` and `server`, decision D5).
+- Silent when no code file changed (the hooklib `CODE_EXT` list); `<state>/stop-check.log` says "no code change".
 - Silent when nothing changed since the session start (baseline fingerprint at SessionStart, so a tree that was
   dirty before the session is not blamed; without a SessionStart baseline the clean HEAD is the baseline), when
   the tree is already green, and on success.
@@ -26,7 +28,7 @@ invalid" (https://developers.openai.com/codex/hooks.md, read 2026-11-12).
 
 ## Enforcement
 - L4 hook: JSON `decision: block` with the command, the exit code and the last 40 lines; the limits above; one
-  55 s budget (the check runs in its own process group, so a timeout kills make's children too; a timeout counts
+  60 s budget (decision D5; hook entry 75 s; the check runs in its own process group, so a timeout kills make's children too; a timeout counts
   as a pass with a note); exit 0 with 0 tests seen or only skipped tests fails (minimum-input floor); a check-fast
   recipe changed since the session start blocks (the owner decides on a weaker check); long tier:
   `ai-ratchet --only tests,skips --no-write --base <session start commit>` when time is left.

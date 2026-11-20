@@ -1,0 +1,13 @@
+## SessionStart (dev-mac: macOS default profile, temp HOME)
+rc=0 seconds=0.32
+## Markdown-only change
+rc=0 seconds=0.32
+log: 2026-11-20T18:51:26Z /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-r3xwf720/payload no code change
+## Break add() (code change)
+{"decision": "block", "reason": "[ai stop-check] make check-fast failed (exit 2). Last 40 lines:\nTraceback (most recent call last):\n  File \"/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-r3xwf720/payload/tests/run.py\", line 7, in <module>\n    getattr(t, n)()\n  File \"/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-r3xwf720/payload/tests/test_calc.py\", line 5, in test_add\n    assert add(2, 3) == 5\n           ^^^^^^^^^^^^^^\nAssertionError\nFAILED tests/test_calc.py::test_add\n1 failed\nmake: *** [check-fast] Error 1\n\nFix the cause, then finish. Do not delete, skip or weaken a test to get green. If it cannot pass, say why and stop (block 1 of 2 for these files)."}
+rc=0 seconds=0.39
+## Fix add(), continuation stop
+rc=0 seconds=0.24
+## Codex: break again
+{"decision": "block", "reason": "[ai stop-check] make check-fast failed (exit 2). Last 40 lines:\nTraceback (most recent call last):\n  File \"/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-r3xwf720/payload/tests/run.py\", line 7, in <module>\n    getattr(t, n)()\n  File \"/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-r3xwf720/payload/tests/test_calc.py\", line 5, in test_add\n    assert add(2, 3) == 5\n           ^^^^^^^^^^^^^^\nAssertionError\nFAILED tests/test_calc.py::test_add\n1 failed\nmake: *** [check-fast] Error 1\n\nFix the cause, then finish. Do not delete, skip or weaken a test to get green. If it cannot pass, say why and stop (block 1 of 2 for these files)."}
+rc=0 seconds=0.44

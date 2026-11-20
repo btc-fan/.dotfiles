@@ -968,6 +968,58 @@ def t_stop_omc_coexistence(work):
     assert hook(repo, env, "Stop") is None, "legacy OMC state with this session id"
 
 
+def t_stop_check_dev_mac_on(work):
+    """D5: the Stop check runs on dev-mac (PROFILE_STOP_CHECK=1); PROFILE_GUARDS stays 0 there."""
+    sys.path.insert(0, os.path.join(AI_DIR, "lib"))
+    import ai_profile
+    keys = ai_profile.load("dev-mac")
+    assert keys.get("PROFILE_GUARDS") == "0" and keys.get("PROFILE_STOP_CHECK") == "1", keys
+    repo, env = stop_repo(work, "stop-devmac")
+    env["AI_PROFILE"] = "dev-mac"
+    hook(repo, env, "SessionStart")
+    write(os.path.join(repo, "src", "app.py"), "x = 2\n")
+    out = hook(repo, env, "Stop")
+    assert out and out.get("decision") == "block" and "FAILED tests/test_a.py::test_price" in out["reason"], out
+
+
+def t_stop_check_code_only(work):
+    """Only a change of a code file runs the check: a Markdown-only turn passes and the log says why."""
+    repo, env = stop_repo(work, "stop-codeonly")
+    env["AI_PROFILE"] = "dev-mac"
+    hook(repo, env, "SessionStart")
+    write(os.path.join(repo, "README.md"), "# notes\n")
+    assert hook(repo, env, "Stop") is None and runs(env) == 0, "a Markdown-only change runs no check"
+    assert "no code change" in (read(os.path.join(env["AI_STATE_DIR"], "stop-check.log")) or ""), "log line"
+    write(os.path.join(repo, "src", "app.py"), "x = 2\n")
+    assert hook(repo, env, "Stop")["decision"] == "block" and runs(env) == 1, "a code change runs the check"
+    dirty, env2 = stop_repo(work, "stop-codeonly-dirty")
+    env2["AI_PROFILE"] = "dev-mac"
+    write(os.path.join(dirty, "src", "old.py"), "y = 1\n")         # dirty code before the session: not this turn's
+    hook(dirty, env2, "SessionStart")
+    write(os.path.join(dirty, "README.md"), "# notes\n")
+    assert hook(dirty, env2, "Stop") is None and runs(env2) == 0, "code dirty before the session is not a change"
+
+
+def t_stop_check_timeout_note(work):
+    """The limit is 60 s and the hook entries give it 75 s. A check that sleeps 90 s is killed at the limit."""
+    import time
+    hooks = {n: json.load(open(os.path.join(HOOKS, n)))["hooks"]["Stop"] for n in ("hooks.json", "codex-hooks.json")}
+    for name, groups in hooks.items():
+        t = [h["timeout"] for g in groups for h in g["hooks"] if "stop-check.py" in h["command"]]
+        assert t == [75], "%s: the stop-check Stop timeout is %s, want [75]" % (name, t)
+    res = run([sys.executable, "-c", "import importlib.util as u; s = u.spec_from_file_location('sc', %r); "
+               "m = u.module_from_spec(s); s.loader.exec_module(m); print(m.CHECK_TIMEOUT)" % STOP], env={"HOME": work})
+    assert res.stdout.strip() == "60.0", "the check limit is %r, want 60" % res.stdout
+    slow, env = stop_repo(work, "stop-sleep90", check_sh="sleep 90\n")
+    env.update(AI_PROFILE="dev-mac", AI_STOP_CHECK_TIMEOUT="2")
+    hook(slow, env, "SessionStart")
+    write(os.path.join(slow, "src", "app.py"), "x = 2\n")
+    t0 = time.time()
+    out = hook(slow, env, "Stop")
+    assert time.time() - t0 < 10, "the hook answered after %.1f s" % (time.time() - t0)
+    assert out and "decision" not in out and "ran over 2 s" in out.get("systemMessage", ""), out
+
+
 # ---------------------------------------------------------------- T3: regression ledger
 
 LEDGER = """# Regressions
@@ -1487,7 +1539,8 @@ TESTS_LIST = [t_verify_skills_copy, t_pstack_adapt_ours, t_adopt_verify_link, t_
               t_doctor_budget, t_stop_no_change_no_run, t_stop_blocks_twice_then_stops, t_stop_continuation_checks_the_fix, t_stop_chain_cap, t_stop_no_baseline_uses_head,
               t_stop_recipe_changed, t_stop_skipped_only_and_group_kill,
               t_stop_success_silent_both_agents, t_stop_codex_block_and_timeout, t_stop_floor_zero_tests,
-              t_stop_off_switches, t_stop_omc_coexistence, t_ledger_check_honest, t_ledger_removed_in_last_commit, t_ledger_quarantine_clock,
+              t_stop_off_switches, t_stop_omc_coexistence, t_stop_check_dev_mac_on, t_stop_check_code_only,
+              t_stop_check_timeout_note, t_ledger_check_honest, t_ledger_removed_in_last_commit, t_ledger_quarantine_clock,
               t_ledger_stop_note, t_nav_graph_symbols, t_pr_test_path, t_ratchet, t_ratchet_other_languages, t_stop_ratchet_long_tier]
 
 if __name__ == "__main__":

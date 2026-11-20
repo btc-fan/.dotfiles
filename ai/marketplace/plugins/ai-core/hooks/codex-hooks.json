@@ -68,7 +68,7 @@
           {
             "type": "command",
             "command": "/usr/bin/python3 \"${PLUGIN_ROOT}/hooks/stop-check.py\" --agent codex Stop",
-            "timeout": 60
+            "timeout": 75
           }
         ]
       }

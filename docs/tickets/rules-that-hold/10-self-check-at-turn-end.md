@@ -25,6 +25,10 @@ Why it is off, from the git history: commit `3250289` (2026-11-15) set `PROFILE_
 7. Subagents: the check runs on `Stop` only, not on `SubagentStop`. A subagent's change is checked when the main agent ends its turn.
 8. An OMC persistent mode is active: the script stays silent, as today. It runs at the first stop after the mode ends.
 9. Two Stop hooks can block one stop (the router walls and this check). Each has its own cap; the evidence names both texts.
+10. Difference: the timeout note keeps its old text "ran over 60 s and was not judged (counted as a pass)", not the text in edge case 1.
+11. Difference: `stop-check.py` is about 470 lines now. Code files dirty before the session are not blamed (a per-file baseline at SessionStart).
+12. Difference: a changed root `Makefile` or `justfile` counts as code, so the "recipe changed" block still fires.
+13. Difference: the real session drive did not reach the check. The `worktree-first` gate refused the edit on `main` of the fixture.
 
 **Owner steps:** None after D5.
 
@@ -34,10 +38,10 @@ Why it is off, from the git history: commit `3250289` (2026-11-15) set `PROFILE_
 
 **Size:** M
 
-- [ ] On `dev-mac`, a turn that breaks a unit test ends with a block that holds the failing test name.
-- [ ] A turn that changes only Markdown files runs no check (the log shows "no code change").
-- [ ] A `check-fast` that sleeps 90 s is killed at 60 s and the turn passes with a note.
-- [ ] `PROFILE_GUARDS` stays `0` on `dev-mac`, and `claude.sh` writes no ask or deny rules.
+- [x] On `dev-mac`, a turn that breaks a unit test ends with a block that holds the failing test name.
+- [x] A turn that changes only Markdown files runs no check (the log shows "no code change").
+- [x] A `check-fast` that sleeps 90 s is killed at 60 s and the turn passes with a note.
+- [x] `PROFILE_GUARDS` stays `0` on `dev-mac`, and `claude.sh` writes no ask or deny rules.
 - [ ] The self-correction scenario of ticket 02 passes on Claude in 3 of 3 runs.
 
 **Verify:**

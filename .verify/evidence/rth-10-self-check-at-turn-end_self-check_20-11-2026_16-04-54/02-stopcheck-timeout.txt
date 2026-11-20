@@ -1,0 +1,5 @@
+## check-fast sleeps 90 s, default limit
+rc=0 seconds=0.38
+{"systemMessage": "[ai stop-check] make check-fast ran over 60 s and was not judged (counted as a pass). Keep check-fast under 60 s."}
+rc=0 seconds=60.3
+sleep processes left: 0
