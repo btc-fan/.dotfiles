@@ -51,12 +51,13 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|Agent|Task|Skill",
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|Grep|Skill",
         "hooks": [
           {
             "type": "command",
             "command": "/usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/router.py\" --agent claude PreToolUse",
-            "timeout": 90
+            "timeout": 90,
+            "onFailure": "block"
           }
         ]
       }

@@ -15,6 +15,7 @@ The ai-core router denies risky tool calls in PreToolUse (Claude) and blocks the
 - `pr-rules-root` (review S2): `cd /nope; gh pr create ...` still runs the diff checks in the session checkout.
 - `pr-rules-var` (review S3): a body-file variable set twice or as a command prefix is not read.
 - `secret-scan-config` (review S4): `.env.example` and config files in test folders keep every rule; values with a clear fake marker pass.
+- `gate-timeout` (ticket setup-audit 14): a gate process that passes its timeout blocks the call in Claude (`onFailure`).
 
 ## How to get to it (user POV)
 
@@ -37,6 +38,8 @@ Preconditions: `empty` (or any kind), `doctor: PASS` (with agents for the sessio
 - **PR gate root (review S2).** Write a full-template body to an absolute path `<B>`. `$H drive hook --fixture python-with-tests PreToolUse '{"tool_name":"Bash","tool_input":{"command":"cd /nonexistent-dir; gh pr create --title \"fix: x\" --body-file <B>"}}'`: `decision: deny` with "a test file in the diff of a fix: PR". The diff check ran in the session checkout.
 - **Body-file variable (review S3).** `B=<B>; B=$(printf bad.md); gh pr create --title x --body-file "$B"` and `B=<B> gh pr create --title x -F "$B"`: `decision: deny` with "could not read the body file".
 - **Config secrets (review S4).** In the `python-with-tests` fixture folder (`state.json` `tmp`), stage `.env.example` with `JWT_SECRET=` and a random 32-character value, then drive `git commit -m x`: `decision: deny`, "assigned-secret". Unstage it, stage `.env.example` with `JWT_SECRET=changeme-jwt-secret-123`: `decision: allow`. Stage `src/test/resources/application.properties` with `db.password=` and a random 16-character value: `decision: deny`.
+- **Gate timeout (ticket setup-audit 14).** Make a throwaway plugin folder `<P>` outside the repo with 2 files. `<P>/.claude-plugin/plugin.json`: a `name`, a `version` and a `description`. `<P>/hooks/hooks.json`: one PreToolUse entry with matcher `Bash`, `"timeout": 2`, `"onFailure": "block"` and the command `sleep 8; exit 0`. Then `$H drive session claude --fixture docs-only --max-turns 4 --plugin-dir <P> --allow Bash "<prompt>"`. The prompt says "throwaway test repo" and asks for exactly `touch probe-file.txt`, once, with no retry. Expect a `tool_result` with `timed out; blocking because onFailure is "block"`, and no `probe-file.txt` in the fixture. Without the `onFailure` line, the file exists: that is the old behaviour.
+- **Hook copy after a pull (R-018).** Launch with `dotfiles-worktrees`. Write one line into `<tmp>/home-sync/.claude/plugins/cache/ai/ai-core/1.0.0/hooks/router.py`. Then `$H drive merge installed`. Expect: `cmp` of that file and `<tmp>/home-sync/.dotfiles-ai/ai/marketplace/plugins/ai-core/hooks/router.py` gives no difference.
 
 ## Gotchas
 

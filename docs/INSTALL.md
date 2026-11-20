@@ -130,7 +130,7 @@ Run `ai-update` (this machine) or `ai-update --projects` (this machine, then eve
 ai-doctor
 ai-sync --check
 ```
-`ai-sync --check` fails when a copied rule block (Codex, Hermes) differs from the source. Fix it with `ai-sync`. After each `git pull`, `ai-sync` should run (install the git hook once with `ai-sync --install-hook`).
+`ai-sync --check` fails when a copied rule block (Codex, Hermes) or the hook copy that Claude runs differs from the source. Fix it with `ai-sync`. After each `git pull`, `ai-sync` should run (install the git hook once with `ai-sync --install-hook`).
 Then spot-check these:
 - New Claude session starts with "ADHD MODE ACTIVE (always-on)".
 - `claude mcp list` shows context7 and serena (playwright only in a project that turned it on).

@@ -23,7 +23,7 @@ def main():
     work = tempfile.mkdtemp(prefix="ai-cmd-tests-")
     try:
         for test in (t_hook_files, t_no_em_dash, t_render_cap, t_pr_resume, t_notify, t_agent_audit,
-                     t_ai_start, t_router_speed, t_ai_sync, t_ai_sync_links_skills, t_ai_sync_keeps_pstack, t_merged_branches_note, t_sync_hooks, t_dev_worktree_no_sync, t_hermes_plugin, t_playwright,
+                     t_ai_start, t_router_speed, t_ai_sync, t_ai_sync_links_skills, t_ai_sync_keeps_pstack, t_ai_sync_claude_plugin_copy, t_merged_branches_note, t_sync_hooks, t_dev_worktree_no_sync, t_hermes_plugin, t_playwright,
                      t_state_mode, t_skill_scanner_reject, t_winners_table):
             try:
                 test(work)
@@ -66,6 +66,14 @@ def t_hook_files(work):
     assert "Notification" not in claude, "owner 2026-11-15: no desktop notification hook (claude-notify stays, unwired)"
     pre = [g.get("matcher", "") for g in claude["PreToolUse"]]
     assert any("Skill" in m.split("|") for m in pre), "the winner gate needs the Skill tool in the PreToolUse matcher"
+
+    # Ticket setup-audit 14: the router starts only for a tool that a PreToolUse rule or gate can judge.
+    # A gate process that fails or passes its timeout blocks the call (Claude Code 2.1.295: onFailure).
+    idle = {"Read", "Glob", "Agent", "Task"} & {t for m in pre for t in m.split("|")}
+    assert not idle, "no PreToolUse rule names %s: the router must not start for them" % sorted(idle)
+    for g in claude["PreToolUse"]:
+        for h in g["hooks"]:
+            assert h.get("onFailure") == "block", "PreToolUse %s: a gate that cannot answer must block" % g.get("matcher")
 
 
 def t_winners_table(work):
@@ -437,6 +445,70 @@ def t_ai_sync_keeps_pstack(work):
         link = os.path.join(home, d, "skills", "create-verification-skill")
         want = os.path.join(src, "create-verification-skill")
         assert os.path.islink(link) and os.readlink(link) == want, "%s: %s" % (d, os.readlink(link))
+
+
+def t_ai_sync_claude_plugin_copy(work):
+    """R-018: after a pull, ai-sync makes the ai-core copy that Claude runs equal to the repo.
+    Before, only install.sh did that, so a merged gate stayed off in each new session."""
+    home = os.path.join(work, "sync-plugin-home")
+    cache = os.path.join(home, ".claude", "plugins", "cache", "ai", "ai-core", "1.0.0")
+    os.makedirs(os.path.join(cache, "hooks"))
+    copy = os.path.join(cache, "hooks", "router.py")
+    left_over = os.path.join(cache, "hooks", "removed-in-the-repo.py")
+    for path in (copy, left_over):
+        open(path, "w").write("# an old copy\n")
+    installed_link(home)
+    sync = os.path.join(BIN, "ai-sync")
+
+    res = run(["bash", sync, "--check"], env={"HOME": home})
+    assert res.returncode == 1 and "FAIL Claude plugin copy" in res.stdout, "--check must see the old copy: " + res.stdout
+    res = run(["bash", sync, "--dry-run"], env={"HOME": home})
+    assert open(copy).read() == "# an old copy\n", "--dry-run changed the copy: " + res.stdout
+
+    res = run(["bash", sync], env={"HOME": home})
+    assert res.returncode == 0, res.stdout
+    assert open(copy).read() == open(os.path.join(HOOKS, "router.py")).read(), "copy not refreshed: " + res.stdout
+    assert not os.path.exists(left_over), "a file that the repo no longer has must leave the copy"
+    res = run(["bash", sync, "--check"], env={"HOME": home})
+    assert res.returncode == 0 and "PASS Claude plugin copy" in res.stdout, res.stdout
+
+    bare = os.path.join(work, "sync-plugin-bare")
+    os.makedirs(bare)
+    installed_link(bare)
+    res = run(["bash", sync], env={"HOME": bare})
+    assert res.returncode == 0 and not os.path.exists(os.path.join(bare, ".claude")), "no copy without install: " + res.stdout
+
+    # Two version folders: the one that Claude recorded as installPath is the copy that runs, not the newest.
+    two = os.path.join(work, "sync-plugin-two")
+    plugins = os.path.join(two, ".claude", "plugins")
+    runs, other = (os.path.join(plugins, "cache", "ai", "ai-core", v, "hooks", "router.py") for v in ("1.0.0", "0.9.0"))
+    for path in (runs, other):
+        os.makedirs(os.path.dirname(path))
+        open(path, "w").write("# an old copy\n")
+    os.utime(os.path.dirname(os.path.dirname(runs)), (1, 1))        # 0.9.0 is the newest folder
+    with open(os.path.join(plugins, "installed_plugins.json"), "w") as fh:
+        json.dump({"plugins": {"ai-core@ai": [{"installPath": os.path.dirname(os.path.dirname(runs))}]}}, fh)
+    installed_link(two)
+    res = run(["bash", sync], env={"HOME": two})
+    assert open(runs).read() == open(os.path.join(HOOKS, "router.py")).read(), "installPath copy not refreshed: " + res.stdout
+    assert open(other).read() == "# an old copy\n", "the other version folder must stay as it is"
+
+    # A router that does not start must not replace the copy: the gate entry blocks the tool call on a failure.
+    broken = os.path.join(work, "sync-plugin-broken")
+    tree = os.path.join(broken, ".dotfiles-ai")
+    shutil.copytree(AI_DIR, os.path.join(tree, "ai"), ignore=shutil.ignore_patterns("tests", "build", "__pycache__"))
+    router = os.path.join(tree, "ai", "marketplace", "plugins", "ai-core", "hooks", "router.py")
+    text = open(router).read()
+    assert "sys.exit(main(sys.argv[1:]))" in text
+    open(router, "w").write(text.replace("sys.exit(main(sys.argv[1:]))", "sys.exit(7)"))     # imports, but each run fails
+    copy = os.path.join(broken, ".claude", "plugins", "cache", "ai", "ai-core", "1.0.0", "hooks", "router.py")
+    os.makedirs(os.path.dirname(copy))
+    open(copy, "w").write("# the copy that works\n")
+    res = run(["bash", os.path.join(tree, "ai", "bin", "ai-sync")], env={"HOME": broken})
+    assert res.returncode == 0 and "not refreshed" in res.stdout, "a broken router must be reported: " + res.stdout
+    assert open(copy).read() == "# the copy that works\n", "a broken router replaced the copy"
+
+
 def t_merged_branches_note(work):
     """After a merge to main, the session-start note names the local branches whose remote branch is gone
     (merged and deleted), so the agent deletes them and their worktrees. A branch with a live remote is not named."""

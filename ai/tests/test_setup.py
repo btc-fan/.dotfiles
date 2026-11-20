@@ -113,7 +113,7 @@ def fake_codex_home(work):
 
 def t_redact_word_boundary(work):
     """redact() masks token shapes only at a word start: a path with "task-", "desk-" or "dotfiles-ask-first"
-    is no secret (R-017: the plan fixtures failed in a worktree named dotfiles-ask-first)."""
+    is no secret (R-019: the plan fixtures failed in a worktree named dotfiles-ask-first)."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("aiconf_redact", AICONF)
     mod = importlib.util.module_from_spec(spec)
