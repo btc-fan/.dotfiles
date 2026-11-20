@@ -432,7 +432,8 @@ def t_adopt_optin_serena_graph(work, server):
 
 GI_BLOCK = [".omc/*", "!.omc/skills/", ".omx/", ".codex/", ".claude/*", "!.claude/settings.json", "!.claude/skills/",
             ".claude/skills/*", "!.claude/skills/verify-*", ".serena/*", "!.serena/project.yml", "graphify-out/",
-            ".ai/*", "!.ai/enabled", "!.ai/ratchet.json", "!.ai/destructive.txt", "!.ai/docs-allow"]
+            ".ai/*", "!.ai/enabled", "!.ai/ratchet.json", "!.ai/destructive.txt", "!.ai/docs-allow",
+            ".verify/*", "!.verify/evidence/", ".verify/evidence/**/.DS_Store"]
 GI_SKILL_LINKS = ["grill-with-docs", "domain-modeling", "to-spec", "to-tickets", "tdd", "codebase-design", "code-review", "pr",
                  "diagnosing-bugs", "improve-codebase-architecture", "implement", "research", "handoff", "wayfinder", "prototype"]
 

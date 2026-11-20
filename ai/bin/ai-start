@@ -423,7 +423,8 @@ def owner_text_refusals(root, plan):
         if old is None or rel.endswith(".json") or rel == os.path.join(".ai", "base-version"):
             continue
         if rel == ".gitignore":
-            old = drop_old_block(old)      # the unmarked block of an older ai-adopt run is ours, not the owner's
+            # the unmarked block of an older ai-adopt run and the old generator line .verify/ are ours
+            old = drop_old_verify(drop_old_block(old))
         out.append(ownertext.lost(old, text, ENABLED_GENERATED if rel == os.path.join(".ai", "enabled") else (), rel))
     return [d for d in out if d]
 
@@ -668,7 +669,11 @@ GI_END = "# <<< AI tools <<<"
 GI_RX = re.compile(r"^%s\n.*?^%s\n?" % (re.escape(GI_START), re.escape(GI_END)), re.M | re.S)
 GI_LINES = [".omc/*", "!.omc/skills/", ".omx/", ".codex/", ".claude/*", "!.claude/settings.json", ".serena/*",
             "!.serena/project.yml", "graphify-out/", ".ai/*", "!.ai/enabled", "!.ai/ratchet.json",
-            "!.ai/destructive.txt", "!.ai/docs-allow"]
+            "!.ai/destructive.txt", "!.ai/docs-allow",
+            # verify-evidence-in-git: run folders are committed so the owner sees the proof on GitHub; app data
+            # of the verify runs (.verify/data/) stays local
+            ".verify/*", "!.verify/evidence/", ".verify/evidence/**/.DS_Store"]
+GI_VERIFY_OLD = {".verify/", ".verify", "/.verify/", "/.verify"}    # the old generator line: it hides evidence/
 GI_OLD_HEAD = "# AI tools (ai-adopt): caches and generated graph"     # unmarked block of older ai-adopt runs
 GI_OLD_LINES = {".serena/cache/", ".serena/project.local.yml", ".serena/logs/", "graphify-out/"}
 ENABLED_HEAD = ("# ai-adopt: the project tier (always long), the mattpocock skills linked here (skills: a, b | "
@@ -694,12 +699,19 @@ def gitignore_text(text, enabled=None, root=None, skill_links=()):
     lines += [".claude/skills/%s" % n for n in skill_links] + [".agents/skills/%s" % n for n in skill_links]
     block = "\n".join([GI_START] + lines + [GI_END]) + "\n"
     text = text or ""
+    text = drop_old_verify(text)
     if GI_RX.search(text):
         new = GI_RX.sub(lambda m: merged(m.group(0), block), text, count=1)
     else:
         new = drop_old_block(text).rstrip("\n")
         new = (new + "\n\n" if new else "") + block
     return None if new == text else new
+
+
+def drop_old_verify(text):
+    """The .gitignore without the bare .verify/ line that create-verification-skill wrote before
+    verify-evidence-in-git (it hides .verify/evidence/, which is now committed)."""
+    return "\n".join(ln for ln in text.split("\n") if ln.strip() not in GI_VERIFY_OLD) if text else text
 
 
 def drop_old_block(text):

@@ -487,6 +487,20 @@ def t_vh_commit_gate_python(work):
     assert res.returncode != 0, "a fresh run is per commit: %s" % res.text
 
 
+def t_vh_commit_gate_after_evidence_commit(work):
+    """verify-evidence-in-git: a commit that adds only the run folder does not make the run older than HEAD."""
+    repo, env = vh_repo(work, "appev", old_commit=True)
+    write(os.path.join(repo, ".gitignore"), ".verify/*\n!.verify/evidence/\n")
+    git(repo, "commit", "-qam", "chore: ignore", "--no-verify", "--date", "@%d +0000" % (time.time() - 3600),
+        env=dict(env, GIT_COMMITTER_DATE="@%d +0000" % (time.time() - 3600)))
+    precommit_hook(repo)
+    run_log_ago(repo, "20261118T110100Z-good", 30)
+    git(repo, "add", ".verify/evidence", env=env)
+    git(repo, "commit", "-qm", "chore: verify evidence", "--no-verify", env=env)
+    res = commit(repo, env, "tests/test_more.py", "def test_more():\n    assert 1\n")
+    assert res.returncode == 0, res.text
+
+
 def t_vh_commit_gate_owner_skip(work):
     """Review T2: the commit gate honours the owner skip (sudo ai-gate-skip verify-commit <minutes> <why>) and logs
     it. The router's test-only skip file variables are not read here: an agent's command sets the env of git and
@@ -833,6 +847,26 @@ def t_pr_gate_verify_log(work):
         assert decision(out) == "allow", "%s: %s" % (cmd, out)
     hook("PostToolUse", {"session_id": "pr1", "cwd": repo, "tool_name": "Skill", "tool_input": {"skill": "ship"}}, env)
     out = pr_hook(env, repo, "gh pr ready 3")
+    assert decision(out) == "allow", out
+
+
+def t_pr_gate_evidence_commit(work):
+    """verify-evidence-in-git: the run folder is committed after the run. That commit moves the PR head, but it
+    changes only .verify/evidence/, so the log at the last code commit still counts."""
+    files = dict(PY_APP, **VERIFY_APP)
+    files[".gitignore"] = ".verify/*\n!.verify/evidence/\n"
+    repo, env = new_repo(work, "previd", files)
+    body = os.path.join(work, "body.md")
+    write(body, PR_BODY)
+    git(repo, "switch", "-q", "-c", "feat", env=env)
+    write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return b + a\n")
+    git(repo, "commit", "-qam", "feat: add", env=env)
+    code = git(repo, "rev-parse", "HEAD", env=env).text.strip()
+    run_log(repo, "r-code", code)
+    git(repo, "add", ".verify/evidence", env=env)
+    git(repo, "commit", "-qm", "chore: verify evidence", "--no-verify", env=env)
+    assert git(repo, "rev-parse", "HEAD", env=env).text.strip() != code
+    out = pr_hook(env, repo, "gh pr create --title 'feat: add' --body-file %s" % body)
     assert decision(out) == "allow", out
 
 
