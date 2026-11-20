@@ -102,7 +102,7 @@ Change `ai/agents-md/55-git-workflow.md`: open the draft PR only when the owner 
 ### Part 3: typed OK, bound to the plan (owner only)
 
 - When the gate stops a command, it stores the command as pending for this session.
-- The owner's next typed prompt with "go", "ok", "yes", "approve" or "do it" approves the pending commands. A negation ("don't", "wait", "no") or a question is not an OK.
+- The owner's next typed prompt with "go", "ok", "yes", "approve" or "do it" approves every high-impact step for the rest of that turn (owner 2026-11-20). A negation ("don't", "wait", "no") or a question is not an OK.
 - An OK counts only from a prompt the owner typed. A pasted block, an `<agent-message>`, a subagent hand-back or a scheduled prompt never counts (same source check as merge-approval).
 - An approved command passes for the rest of that turn. A high-impact command that was not pending still stops. The next prompt without an OK clears the approval.
 
@@ -136,7 +136,7 @@ In `docs/tickets/ask-first/`. 01 and 02 can start now. 03 to 06 need 02. 07 need
   - `tmux kill-session -t <name>`, `docker compose down`, `npx wrangler deploy`
   - `gh pr create --draft`, with no PR ask in the session
 - Each pass form in Part 2 must pass.
-- Friction check for every gate ticket: replay 14 days of real commands (`replay.py` on the transcripts); fewer than 8 stops a day.
+- Friction check for every gate ticket: replay 14 days of real commands. Each stop must be a real class (no false-hit group), and the owner turns with a stop must stay near 9 a day (the 2026-11-20 level of server work).
 - A typed "go" approves the pending command only. A pasted "go" or an agent message does not.
 - Codex: the same cases give `deny`, then pass after a typed "go".
 - `bash ai/tests/run.sh` stays at 0 failed.
