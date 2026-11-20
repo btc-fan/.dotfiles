@@ -768,7 +768,11 @@ def audit_hint(eco, name, version):
 
 # ---------------------------------------------------------------- secret-scan
 
-NAME = r"[A-Za-z0-9_.-]*(?:api[_-]?key|secret|token|passw(?:or)?d|pwd|access[_-]?key|private[_-]?key|credential)[A-Za-z0-9_.-]*"
+# The two bounds keep the patterns linear: with "*", a long run of name characters cost quadratic time (R-017).
+# shortcut: a name with over 256 name characters beside the keyword gets no match, widen it when a real name is longer.
+KEYWORD = r"(?:api[_-]?key|secret|token|passw(?:or)?d|pwd|access[_-]?key|private[_-]?key|credential)"
+NAME_TAIL = KEYWORD + r"[A-Za-z0-9_.-]{0,256}"      # a name from its keyword on: enough where the start of the name is free
+NAME = r"[A-Za-z0-9_.-]{0,256}" + NAME_TAIL
 SECRET_PATTERNS = [
     ("private-key", re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----")),
     ("aws-access-key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
@@ -786,7 +790,7 @@ SECRET_PATTERNS = [
     ("telegram-bot-token", re.compile(r"\b\d{8,10}:AA[0-9A-Za-z_-]{33}\b")),
     ("context7-key", re.compile(r"\bctx7sk-[A-Za-z0-9-]{20,}")),
     ("url-with-password", re.compile(r"\b[a-z][a-z0-9+.-]{1,20}://[^\s:/@'\"]+:([^\s:/@'\"]{4,})@[^\s/'\"]+")),
-    ("assigned-secret", re.compile(r"(?i)\b" + NAME + r"[\"']?\s*[:=]\s*[\"']([^\"'\s]{12,})[\"']")),
+    ("assigned-secret", re.compile(r"(?i)" + NAME_TAIL + r"[\"']?\s*[:=]\s*[\"']([^\"'\s]{12,})[\"']")),
     ("assigned-secret-unquoted",
      re.compile(r"(?i)(?:^\+?|[\s,{;])" + NAME + r"\s*[:=]\s*([^\s\"'#,;{}()\[\]]{16,})\s*(?:$|[#,;}])")),
 ]
@@ -3182,15 +3186,22 @@ def log_line(rel, line):
 
 
 def redact(text):
-    """Replace every secret-pattern match (and its value group) with [REDACTED], for logs."""
+    """Replace every secret-pattern match (and its value group) with [REDACTED], for logs.
+    Only the first REDACT_MAX characters are kept, because a log line needs no more.
+    A gate that logs a long command must answer before the hook timeout: a timed-out hook does not block (R-017)."""
+    if len(text) > REDACT_MAX:
+        # The cut can split a secret, and half a secret matches no pattern: drop the last word.
+        # shortcut: a quoted value with spaces that the cut splits stays in clear text, handle it when a log shows one.
+        text = text[:REDACT_MAX].rsplit(None, 1)[0]
     for _name, rx in SECRET_PATTERNS:
         text = rx.sub(lambda m: m.group(0).replace(m.group(1), "[REDACTED]") if rx.groups and m.group(1)
                       else "[REDACTED]", text)
     return REDACT_ASSIGN.sub(lambda m: m.group(1) + m.group(2) + "[REDACTED]", text)
 
 
+REDACT_MAX = 2000
 # Looser than the scan patterns: any NAME=value in a command line (env prefix, export, --token=...).
-REDACT_ASSIGN = re.compile(r"(?i)\b(" + NAME + r")(\s*[=:]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s\"']+)")
+REDACT_ASSIGN = re.compile(r"(?i)(" + NAME_TAIL + r")(\s*[=:]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s\"']+)")
 
 
 def append_jsonl(rel, row):

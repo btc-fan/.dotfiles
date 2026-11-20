@@ -1,0 +1,10 @@
+router.py --agent codex PreToolUse
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-urnbf08i/docs-only
+payload: {"tool_name": "exec_command", "tool_input": ["git", "push"], "session_id": "verify-fix-gates-fail-closed_gates-fail-closed_20-11-2026_12-21-52", "cwd": "/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-urnbf08i/docs-only", "hook_event_name": "PreToolUse"}
+decision: deny
+rules fired: none
+router errors: none
+rc: 0
+
+--- output
+{"decision": "block", "reason": "[ai router: payload] The tool_input of exec_command is not a JSON object, so no gate can check this tool call. Stop and tell the owner.", "hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "[ai router: payload] The tool_input of exec_command is not a JSON object, so no gate can check this tool call. Stop and tell the owner."}}

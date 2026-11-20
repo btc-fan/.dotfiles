@@ -176,8 +176,13 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   glob, a search that filters the output of a pipe, document nodes. `no-graph` switches both denies off. A
   broken `graph.json`, or one over 50 MB, gives no symbol deny; the file and line in the text are cut to 120 characters.
 
-A gate decision is sent even when the state dir cannot be written; an internal error before a decision
-fails open and is logged to `~/.local/state/ai/router-errors.log` (ai-doctor shows it).
+A gate decision is sent even when the state dir cannot be written. An internal error before a decision is
+logged to `~/.local/state/ai/router-errors.log` (ai-doctor shows it). For a shell command it fails closed
+(deny). For the other tools it fails open. The same deny applies in 3 more cases (R-017): the hook payload is
+not a JSON object, the `tool_input` of a shell tool is not a JSON object, or a `routing.json` exists and does not
+load (run `ai-sync`). Log lines keep only the first 2000 characters of a command, so a long command cannot hold a
+gate until the hook timeout. Two cases still fail open: no `routing.json` at any candidate path (a machine before
+`install.sh`), and an empty payload.
 The secret scan has a time budget under 80 s (git 30 s and gitleaks 60 s per call; PreToolUse timeout 90 s). On a timeout it
 denies ("scan timed out, nothing was checked"); it never passes unscanned.
 Wall log (ticket 17): every wall fire writes one line to `~/.local/state/ai/walls.jsonl`: a router deny
