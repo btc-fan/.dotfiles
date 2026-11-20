@@ -24,6 +24,8 @@
 7. A project that is adopted with the old layer and opened on a machine that is behind: the old router reads no block text, so a missing block breaks nothing.
 8. A package folder that already has its own `AGENTS.md`: the pointer lines are added at its end inside markers, and the rest stays.
 
+10. A project whose own Makefile has `check` and no `check-fast` (seen on 2026-11-20 in a real run): `ai-adopt` wrote no `check-fast` target, so the end-of-turn self-check had nothing to run. The ticket adds a `check-fast` target, or makes the self-check use `check` with its time limit.
+
 **Owner steps:** None.
 
 **Blocked by:** 14, 19
