@@ -437,11 +437,23 @@ claude_ai_core_cache() {
     ls -td "$CLAUDE_PLUGINS_DIR"/cache/ai/ai-core/* 2>/dev/null | head -n1 || true
 }
 
+# claude_ai_core_cache_sync <plugin dir> <tree hash>: make the copy that Claude runs equal to the repo.
+# `claude plugin update` keeps a cache whose version number did not change, so the repo is copied over it.
+# 0: the copy matches (or dry run). 1: no cache folder, or the copy still differs.
+claude_ai_core_cache_sync() {
+    local p=$1 hash=$2 cache
+    [ "$AI_DRY_RUN" != 1 ] || return 0
+    cache=$(claude_ai_core_cache)
+    [ -n "$cache" ] || return 1
+    [ "$(aiconf tree-hash "$cache")" = "$hash" ] || aiconf tree-sync "$p" "$cache" >/dev/null
+    [ "$(aiconf tree-hash "$cache")" = "$hash" ]
+}
+
 # ---------------------------------------------------------------- step 8: plugins
 
 claude_plugins() {
     has claude || { skip "Claude plugins: claude not found"; return 0; }
-    local p hash_file hash old="" cache
+    local p hash_file hash old=""
     p=$(PLUGIN_DIR)
 
     # ai-core from this repo (directory marketplace).
@@ -452,15 +464,10 @@ claude_plugins() {
         # B2: refresh in place; never uninstall first. Check the cache against the source after.
         run claude plugin marketplace update ai || warn "claude plugin marketplace update ai failed"
         run claude plugin update ai-core@ai || warn "claude plugin update ai-core@ai failed"
-        cache=$(claude_ai_core_cache)
-        # `claude plugin update` keeps a cache whose version number did not change: copy the repo over it.
-        if [ "$AI_DRY_RUN" != 1 ] && [ -n "$cache" ] && [ "$(aiconf tree-hash "$cache")" != "$hash" ]; then
-            aiconf tree-sync "$p" "$cache" >/dev/null
-        fi
-        if [ "$AI_DRY_RUN" = 1 ] || { [ -n "$cache" ] && [ "$(aiconf tree-hash "$cache")" = "$hash" ]; }; then
+        if claude_ai_core_cache_sync "$p" "$hash"; then
             ok "Claude plugin ai-core@ai updated (cache matches the repo)"
         else
-            warn "ai-core cache does not match the repo after update and copy: ${cache:-no cache folder}"
+            warn "ai-core cache does not match the repo after update and copy: $(claude_ai_core_cache | grep . || echo 'no cache folder')"
             manual "refresh ai-core by hand when no session runs: claude plugin uninstall ai-core@ai && claude plugin install ai-core@ai --scope user"
             hash=$old
         fi

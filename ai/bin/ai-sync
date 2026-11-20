@@ -22,6 +22,8 @@
 # Claude and opencode read ~/.config/ai/AGENTS.md (a link), so ai-render alone updates them. One Claude case:
 #   macOS   ~/.claude/CLAUDE-omc.md (omc launch reads only that file): the AI:core import block is added
 #           when OMC created the file after install (claude_omc_companion_block, base.sh).
+# Hooks   ~/.claude/plugins/cache/ai/ai-core/<version>: the hook code that Claude runs is a copy, and a pull
+#           does not change it (sync_claude_plugin_copy, R-018).
 set -euo pipefail
 
 SELF=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$0")
@@ -50,6 +52,7 @@ main() {
 
     claude_omc_companion_block
     sync_skill_links
+    sync_claude_plugin_copy
     if [ -d "$CODEX_DIR" ]; then
         local tmp; tmp=$(rules_text_file)
         aiconf block-upsert "$CODEX_DIR/AGENTS.md" core 1 "$tmp"
@@ -82,6 +85,23 @@ main() {
         fi
     fi
     return 0
+}
+
+# R-018: the hook code that Claude runs is a copy in its plugin cache. Only install.sh refreshed it, so a
+# gate that came with a pull stayed off. No copy yet: install.sh makes it, ai-sync makes none.
+sync_claude_plugin_copy() {
+    local p hash
+    [ -n "$(claude_ai_core_cache)" ] || return 0
+    p=$(PLUGIN_DIR)
+    hash=$(aiconf tree-hash "$p")
+    [ "$(aiconf tree-hash "$(claude_ai_core_cache)")" != "$hash" ] || return 0
+    if [ "${AI_DRY_RUN:-0}" = 1 ]; then info "would refresh the Claude copy of ai-core"; return 0; fi
+    if claude_ai_core_cache_sync "$p" "$hash"; then
+        mkdir -p "$AI_STATE_DIR" && printf '%s\n' "$hash" > "$AI_STATE_DIR/ai-core.claude.hash"
+        ok "Claude copy of ai-core refreshed: new sessions run the hooks of this pull"
+    else
+        warn "Claude copy of ai-core not refreshed: run install.sh"
+    fi
 }
 
 # A skill added to ai/skills after install gets its links here (R-007), in the folders install made.
@@ -138,7 +158,15 @@ load_libs() {
 
 check_copies() {
     load_libs >/dev/null
-    local rc=0 soul=""
+    local rc=0 soul="" cache
+    cache=$(claude_ai_core_cache)
+    if [ -n "$cache" ] && installed_copy; then      # a dev worktree is not the source of the copy
+        if [ "$(aiconf tree-hash "$cache")" = "$(aiconf tree-hash "$(PLUGIN_DIR)")" ]; then
+            echo "PASS Claude plugin copy of ai-core is current"
+        else
+            echo "FAIL Claude plugin copy of ai-core differs from the repo (run ai-sync)"; rc=1
+        fi
+    fi
     if [ -f "$CODEX_DIR/AGENTS.md" ]; then
         block_matches "$CODEX_DIR/AGENTS.md" "Codex ~/.codex/AGENTS.md" || rc=1
     fi
