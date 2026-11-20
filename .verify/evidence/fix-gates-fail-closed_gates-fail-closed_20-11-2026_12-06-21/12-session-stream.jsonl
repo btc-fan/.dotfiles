@@ -1,5 +1,0 @@
-Reading additional input from stdin...
-{"type":"thread.started","thread_id":"01a1f8da-6d01-7e43-a4f0-918c24e89db8"}
-{"type":"turn.started"}
-{"type":"error","message":"You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at 4:29 PM."}
-{"type":"turn.failed","error":{"message":"You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at 4:29 PM."}}

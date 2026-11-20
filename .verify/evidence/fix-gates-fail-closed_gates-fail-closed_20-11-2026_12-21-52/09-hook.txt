@@ -1,0 +1,10 @@
+router.py --agent codex PreToolUse
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-urnbf08i/empty
+payload: {"tool_name": "Bash", "tool_input": {"command": "gh pr merge 5 --squash"}, "session_id": "verify-fix-gates-fail-closed_gates-fail-closed_20-11-2026_12-21-52", "cwd": "/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-urnbf08i/empty", "hook_event_name": "PreToolUse"}
+decision: deny
+rules fired: none
+router errors: 2026-11-20T12:22:00Z routing JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+rc: 0
+
+--- output
+{"decision": "block", "reason": "[ai router: routing] /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-urnbf08i/build/routing.json does not load, so no gate can check this tool call. Stop and tell the owner: run ai-sync, then try again.", "hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "[ai router: routing] /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-urnbf08i/build/routing.json does not load, so no gate can check this tool call. Stop and tell the owner: run ai-sync, then try again."}}
