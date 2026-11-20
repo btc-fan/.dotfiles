@@ -169,6 +169,8 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   A prompt that audits, checks, reviews or explains, or asks a question, with no change verb, makes a read-only
   turn. Then every host change also stops: a write over ssh (redirect, `tee`, `sed -i`, `cp`, `mv`) and a local
   write outside the repo, the scratchpad and `/tmp`. The router note says "read-only turn".
+  At Stop (Claude and Codex), the reply must name each approved step that ran in the turn ("systemctl
+  restart"). Else the hook blocks one time with the list.
   Attack table: `ai/tests/cases/ask-first.json`.
 - winner-gate: a Skill tool call of a loser in `winners` of `ai/routing.yaml` (the overlap table of the skills
   guide, section 5) is denied with the winner's name, also in a subagent; a typed-only winner gets "read <its

@@ -1442,6 +1442,283 @@
      }
     }
    ]
+  },
+  {
+   "name": "stop: an approved restart ran and the reply does not name it",
+   "expect": "block",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart radar-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart radar-api"
+      }
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Done. The API answers again."
+     }
+    }
+   ],
+   "contains": [
+    "[ai router: ask-first]",
+    "systemctl restart"
+   ]
+  },
+  {
+   "name": "stop: the reply names the restart",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart radar-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart radar-api"
+      }
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "I ran `systemctl restart radar-api`. It is active again."
+     }
+    }
+   ]
+  },
+  {
+   "name": "stop: a continuation stop passes (no loop)",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart radar-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart radar-api"
+      }
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": true,
+      "last_assistant_message": "Done."
+     }
+    }
+   ]
+  },
+  {
+   "name": "stop: nothing high-impact ran",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart radar-api"
+      }
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "I need your OK for the restart."
+     }
+    }
+   ]
+  },
+  {
+   "name": "stop: blocks once, the next stop passes",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart radar-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart radar-api"
+      }
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Done."
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Done again."
+     }
+    }
+   ]
+  },
+  {
+   "name": "stop: two approved steps, the reply names one",
+   "expect": "block",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart radar-api"
+      }
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "docker compose down"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "ok"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart radar-api"
+      }
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "docker compose down"
+      }
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "I ran systemctl restart radar-api."
+     }
+    }
+   ],
+   "contains": "docker compose",
+   "not_contains": "systemctl restart radar-api,"
+  },
+  {
+   "name": "codex: stop names the approved restart",
+   "agent": "codex",
+   "expect": "block",
+   "steps": [
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart radar-api"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart radar-api"
+      }
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Done."
+     }
+    }
+   ],
+   "contains": "systemctl restart"
   }
  ]
 }

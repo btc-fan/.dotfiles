@@ -2230,6 +2230,12 @@ def gate_ask_first(ctx, cmd, stages):
     # Ticket 04: a denied command waits as pending; the owner's next typed OK approves it for that turn only.
     fp = " ".join(cmd.split())
     if fp in (d.get("ask_ok") or []):
+        # Ticket 06: the Stop check asks the reply to name it.
+        # shortcut: "ran" means the gate let it pass; a later permission refusal still counts. Upgrade at PostToolUse.
+        ran = d.setdefault("ask_ran", [])
+        if ask_name(why) not in ran:
+            ran.append(ask_name(why))
+            ctx.state.dirty = True
         return None
     pending = d.setdefault("ask_pending", [])
     if fp not in pending:
@@ -2249,6 +2255,7 @@ def ask_first_prompt(d, prompt):
     ok = owner_ask_ok(prompt)
     d["ask_ok"] = list(d.get("ask_pending") or []) if ok else []
     d["ask_pending"] = []
+    d["ask_ran"] = []
     d["prompted"] = True
     if ASKED_CHANGE_RX.search(prompt or ""):
         d["asked_change"] = True
@@ -2271,6 +2278,20 @@ def owner_ask_ok(prompt):
     is not an OK."""
     text = (prompt or "").strip()
     return bool(text) and not text.endswith("?") and not NO_ASK_RX.search(text) and bool(ASK_OK_RX.search(text))
+
+
+def ask_name(why):
+    """How a reply names the step: the program and its main verb ("systemctl restart"), or the object of a
+    reason that starts with "a " ("a write to /etc/x" gives "/etc/x")."""
+    label = why.split(" (")[0].replace(":", "")
+    return label.split()[-1] if label.startswith("a ") else " ".join(label.split()[:2])
+
+
+def ask_first_unnamed(d, reply):
+    """Stop: the approved high-impact steps of this turn that the reply does not name. Clears the list, so a
+    turn blocks once."""
+    ran, d["ask_ran"] = d.get("ask_ran") or [], []
+    return [n for n in ran if n.lower() not in reply.lower()]
 
 
 READ_VERB_RX = re.compile(r"^\W*(please\s+)?(audit|check|research|look\s+(at|into)|review|explain|investigate|"

@@ -13,8 +13,8 @@ What each event does:
   PreToolUse           L4 gates (deny or ask) and context nudges (quiet windows, log-only rules).
   PostToolUse          nudges after edits/commands, docs lookups, Skill proof (Skill call or a read SKILL.md).
   UserPromptExpansion  Skill proof for a typed /skill.
-  Stop                 stop rules, pr-url (a PR named without its URL), the verify hooks (below), the miss
-                       log, then claude-notify.
+  Stop                 stop rules, pr-url (a PR named without its URL), ask-first (each approved high-impact
+                       step named), the verify hooks (below), the miss log, then claude-notify.
   SubagentStop         the verify hooks: verify-tool-exists and verify-tool-used block the end of a turn that
                        changed app code (read from git) without a proven verify skill or a fresh valid run.
   SessionEnd           drop the session state file.
@@ -39,7 +39,7 @@ from hooklib import (FILE_GATES, GATES, GATE_PROBES, ai_home, append_jsonl, comm
                      origin_slug, parse_command, prompt_libs, redact, project_root, read_text, repo_symbol,
                      state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
                      graph_status, git_history, git_out, short_skill, write_targets,
-                     owner_merge_ok, ask_first_prompt, merge_review_note, nav_note, upgrade_note, legacy_memory_note, probe_pr,
+                     owner_merge_ok, ask_first_prompt, ask_first_unnamed, merge_review_note, nav_note, upgrade_note, legacy_memory_note, probe_pr,
                      session_line, log_wall, verify_proof, verify_steps, app_code_state, head_at, git_quick)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -210,8 +210,7 @@ def on_user_prompt(ctx):
     if not prompt.strip() or is_notification(prompt):
         return
     prompt = owner_text(prompt)
-    remember_merge_ok(ctx, prompt)      # only the owner's typed lines can say merge, never pasted ones
-    remember_ask_ok(ctx, prompt)        # the same for the ask-first OK
+    remember_owner_ok(ctx, prompt)      # only the owner's typed lines can say merge or go, never pasted ones
     if not prompt.strip():
         return
     routing = ctx.routing
@@ -288,28 +287,18 @@ def is_notification(prompt):
             or prompt.lstrip().startswith("[SYSTEM NOTIFICATION"))
 
 
-def remember_merge_ok(ctx, prompt):
-    """The merge-approval gate reads this: the owner's latest prompt said merge (or approve)."""
+def remember_owner_ok(ctx, prompt):
+    """The owner's typed OKs, read by the gates: merge_ok (merge-approval) and the ask-first state (approved and
+    pending commands, a read-only turn). The caller passes only the owner's own lines, never pasted ones."""
     try:
-        ok = owner_merge_ok(prompt)
         d = ctx.state.load()
-        if bool(d.get("merge_ok")) != ok:
-            d["merge_ok"] = ok
-            ctx.state.dirty = True
-    except Exception as exc:
-        log_error("merge_ok", exc)
-
-
-def remember_ask_ok(ctx, prompt):
-    """The ask-first gate reads this: approved and pending commands, a read-only turn, and whether the owner asked
-    for a change."""
-    try:
-        note = ask_first_prompt(ctx.state.load(), prompt)
+        d["merge_ok"] = owner_merge_ok(prompt)
+        note = ask_first_prompt(d, prompt)
         ctx.state.dirty = True
         if note:
             ctx.add_context("[ai router: ask-first] " + note)
     except Exception as exc:
-        log_error("ask_ok", exc)
+        log_error("owner_ok", exc)
 
 
 def on_pre_tool(ctx):
@@ -486,6 +475,7 @@ def on_prompt_expansion(ctx):
 def on_stop(ctx):
     check_stop_rules(ctx)
     pr_url_stop(ctx)
+    ask_first_stop(ctx)
     verify_stop(ctx)
     if not ctx.payload.get("stop_hook_active"):
         check_misses(ctx)
@@ -861,6 +851,25 @@ def pr_url_stop(ctx):
     ctx.stop_block.append("[ai router: pr-url] Your reply names PR %s without a URL. Name each PR with its full URL "
                           "(https://github.com/<owner>/<repo>/pull/<n>; gh pr view <n> --json url). Write the reply "
                           "again. Then finish the turn." % ", ".join(str(n) for n in bare))
+    ctx.wall(ctx.stop_block[-1])
+
+
+def ask_first_stop(ctx):
+    """ask-first ticket 06: the reply names each high-impact step that ran in this turn after a typed OK, so no
+    step stays hidden in a chain. Blocks once per turn, as pr-url."""
+    reply = ctx.payload.get("last_assistant_message") or ""
+    if not reply or ctx.payload.get("stop_hook_active"):
+        return
+    d = ctx.state.load()
+    if not d.get("ask_ran"):
+        return
+    missing = ask_first_unnamed(d, reply)
+    ctx.state.dirty = True
+    if not missing or owner_skip(ctx, "ask-first", ""):
+        return
+    ctx.stop_block.append("[ai router: ask-first] High-impact steps ran in this turn, but your reply does not name "
+                          "them: %s. Name each one, what it changed and the undo. Then finish the turn."
+                          % ", ".join(missing))
     ctx.wall(ctx.stop_block[-1])
 
 
