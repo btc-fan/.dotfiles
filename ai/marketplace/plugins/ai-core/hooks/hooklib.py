@@ -2220,7 +2220,10 @@ SQL_WRITE = re.compile(r"\b(drop|delete\s+from|update\s+[\w.\"`]+\s+set|truncate
 
 def gate_ask_first(ctx, cmd, stages):
     d = ctx.state.load()
-    why = ask_first_reason(stages, cmd, ctx.cwd or ".") or gh_create_reason(stages, d)
+    cwd = ctx.cwd or "."
+    why = ask_first_reason(stages, cmd, cwd) or gh_create_reason(stages, d)
+    if not why and d.get("read_only"):
+        why = read_only_reason(stages, cmd, cwd)
     if not why:
         return None
 
@@ -2241,15 +2244,18 @@ def gate_ask_first(ctx, cmd, stages):
 
 def ask_first_prompt(d, prompt):
     """UserPromptSubmit, the owner's typed text only: an OK moves the pending commands to approved; any other
-    prompt clears both. Records whether the owner asked for a PR, feature or fix. True when d changed."""
-    keys = ("ask_ok", "ask_pending", "asked_change", "prompted")
-    old = [d.get(k) for k in keys]
-    d["ask_ok"] = list(d.get("ask_pending") or []) if owner_ask_ok(prompt) else []
+    prompt clears both and tags the turn read-only or not. Records whether the owner asked for a PR, feature or
+    fix. Returns the router note ("" for none)."""
+    ok = owner_ask_ok(prompt)
+    d["ask_ok"] = list(d.get("ask_pending") or []) if ok else []
     d["ask_pending"] = []
     d["prompted"] = True
     if ASKED_CHANGE_RX.search(prompt or ""):
         d["asked_change"] = True
-    return old != [d.get(k) for k in keys]
+    if ok:
+        return ""       # the OK continues the turn: a read-only tag stays, the approved commands pass
+    d["read_only"] = read_only_prompt(prompt)
+    return "read-only turn: report, then ask." if d["read_only"] else ""
 
 
 ASK_OK_RX = re.compile(r"^\W*(go|ok(ay)?|yes|yep|da|fa-?l|да|давай|proceed|approved?)(?!\w)"
@@ -2265,6 +2271,53 @@ def owner_ask_ok(prompt):
     is not an OK."""
     text = (prompt or "").strip()
     return bool(text) and not text.endswith("?") and not NO_ASK_RX.search(text) and bool(ASK_OK_RX.search(text))
+
+
+READ_VERB_RX = re.compile(r"^\W*(please\s+)?(audit|check|research|look\s+(at|into)|review|explain|investigate|"
+                          r"verific\w*|analiz\w*|проверь|посмотри)(?!\w)", re.I)
+QUESTION_RX = re.compile(r"\?\s*$|^\W*(how|what|why|where|which|when|who|is|are|does|did)\b", re.I)
+CHANGE_VERB_RX = re.compile(r"\b(fix|add|build|install|deploy|restart|update|implement|change|remove)\b"
+                            r"|(?<!\w)(repar\w*|adaug\w*|instaleaz\w*|исправ\w*|добав\w*|установ\w*|"
+                            r"перезапуст\w*)", re.I)
+
+
+def read_only_prompt(prompt):
+    """Audit, check, research, look at, review, explain, investigate, or a question, with no change verb."""
+    text = (prompt or "").strip()
+    return bool(READ_VERB_RX.search(text) or QUESTION_RX.search(text)) and not CHANGE_VERB_RX.search(text)
+
+
+def read_only_reason(stages, cmd, cwd):
+    """In a read-only turn every host change stops, also outside the classes: a write over ssh (redirect, tee,
+    sed -i, cp, mv, a script on stdin) and a local write outside the repo, the scratchpad and /tmp."""
+    for st in stages:
+        host, remote = ssh_remote(st) if st.exe == "ssh" else (None, "")
+        if not remote:
+            continue
+        rs = parse_command(remote)
+        why = ask_first_reason(rs, remote, "/") or next(
+            (t for t in write_targets(rs, "/", remote) if not t.startswith("/dev/")), None)
+        if not why and any(INTERPRETERS.match(r.exe) and runs_stdin_as_code(r) for r in rs):
+            why = "a script on stdin"
+        if why:
+            return "ssh %s: %s (a host change in a read-only turn)" % (host, why)
+    for target in write_targets(stages, cwd, cmd):
+        if not target.startswith("/dev/") and not safe_rm_target(target, cmd, cwd):
+            return "a write to %s (outside the repo in a read-only turn)" % target
+    return None
+
+
+SSH_VALUE_OPTS = set("bcDEeFIiJLlmOoPpQRSWw")
+
+
+def ssh_remote(st):
+    """The host and the remote command text of an ssh stage; ("", "") for an interactive login."""
+    args, i = st.args, 0
+    while i < len(args) and args[i].startswith("-"):
+        i += 2 if len(args[i]) == 2 and args[i][1] in SSH_VALUE_OPTS else 1
+    if i >= len(args):
+        return "", ""
+    return args[i], " ".join(args[i + 1:])
 
 
 GH_CREATE = {("pr", "create"), ("issue", "create"), ("release", "create")}

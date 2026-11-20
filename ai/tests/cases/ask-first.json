@@ -1116,6 +1116,354 @@
     }
    ],
    "not_contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "read-only: incident audit prompt plus the reboot chain",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'journalctl -n 5; sync; sudo systemctl reboot'"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "read-only: audit prompt plus a sudo tee over ssh",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'echo x | sudo tee /etc/motd'"
+      }
+     }
+    }
+   ],
+   "contains": [
+    "[ai gate ask-first]",
+    "read-only turn"
+   ]
+  },
+  {
+   "name": "read-only: question plus a config copy over ssh",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "how is the migration going?"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh db 'cp /srv/app/new.conf /etc/app/app.conf'"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "read-only: question plus a local write outside the repo",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "how is the migration going?"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "echo x > /usr/local/etc/app.conf"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "read-only: Russian check prompt plus sed -i over ssh",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "проверь логи бота"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'sudo sed -i s/a/b/ /etc/app.conf'"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "read-only: the router note says so",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    }
+   ],
+   "contains": "read-only turn: report, then ask"
+  },
+  {
+   "name": "read-only: reads over ssh pass",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'uptime; journalctl -n 5 2>/dev/null; cat /etc/os-release'"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "read-only: a write in the repo passes",
+   "expect": "allow",
+   "project": {
+    "git": true
+   },
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "echo x > notes.txt"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "read-only: a write in /tmp passes",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "echo x > /tmp/audit.txt"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "read-only: a typed go lifts it for the pending command",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'echo x | sudo tee /etc/motd'"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'echo x | sudo tee /etc/motd'"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "read-only: after go another write still denies",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'echo x | sudo tee /etc/motd'"
+      }
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'echo y | sudo tee /etc/issue'"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "not read-only: add a button",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "add a button to the page"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'echo x | sudo tee /etc/motd'"
+      }
+     }
+    }
+   ],
+   "not_contains": "read-only turn"
+  },
+  {
+   "name": "not read-only: check and fix",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "check the tests and fix them"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'echo x | sudo tee /etc/motd'"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "codex: read-only turn denies a write over ssh",
+   "agent": "codex",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "audit how well the bots come back after a power outage"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh h 'echo x | sudo tee /etc/motd'"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "read-only: a script on stdin over ssh",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "review the backup setup on the server"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "ssh -p 22 h 'sudo bash -s' < fix.sh"
+      }
+     }
+    }
+   ],
+   "contains": "a script on stdin"
   }
  ]
 }

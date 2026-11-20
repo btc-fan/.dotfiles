@@ -301,10 +301,13 @@ def remember_merge_ok(ctx, prompt):
 
 
 def remember_ask_ok(ctx, prompt):
-    """The ask-first gate reads this: approved and pending commands, and whether the owner asked for a change."""
+    """The ask-first gate reads this: approved and pending commands, a read-only turn, and whether the owner asked
+    for a change."""
     try:
-        if ask_first_prompt(ctx.state.load(), prompt):
-            ctx.state.dirty = True
+        note = ask_first_prompt(ctx.state.load(), prompt)
+        ctx.state.dirty = True
+        if note:
+            ctx.add_context("[ai router: ask-first] " + note)
     except Exception as exc:
         log_error("ask_ok", exc)
 
