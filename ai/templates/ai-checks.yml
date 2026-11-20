@@ -1,0 +1,66 @@
+# The AI setup checks of this project. `ai-adopt --tools ci` put this file here; edit it as you like.
+# Jobs: `check` runs make check, `pr-text` checks the PR text with the pr-rules gate of the AI setup (ai-check).
+# Both fetch the AI setup at the pinned commit below. A private setup repo needs a token: the fetch step stops
+# with a message, never a silent pass.
+# shortcut: on pull_request a PR can edit this file and its own check; move pr-text to a pull_request_target
+# file (base copy, no PR code checked out) when people outside the owner open PRs here.
+name: ai-checks
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  AI_SETUP_URL: __AI_SETUP_URL__
+  AI_SETUP_COMMIT: __AI_SETUP_COMMIT__
+
+concurrency:
+  group: ai-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: AI setup at the pinned commit
+        run: |
+          mkdir -p "$RUNNER_TEMP/ai-setup" && cd "$RUNNER_TEMP/ai-setup" && git init -q
+          git fetch -q --depth 1 "$AI_SETUP_URL" "$AI_SETUP_COMMIT" || {
+            echo "::error::cannot fetch the AI setup from $AI_SETUP_URL. A private setup repo needs a token in the URL step."
+            exit 1; }
+          git checkout -q FETCH_HEAD
+          echo "$RUNNER_TEMP/ai-setup/ai/bin" >> "$GITHUB_PATH"
+      - name: make check
+        run: make check
+
+  pr-text:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: AI setup at the pinned commit
+        run: |
+          mkdir -p "$RUNNER_TEMP/ai-setup" && cd "$RUNNER_TEMP/ai-setup" && git init -q
+          git fetch -q --depth 1 "$AI_SETUP_URL" "$AI_SETUP_COMMIT" || {
+            echo "::error::cannot fetch the AI setup from $AI_SETUP_URL. A private setup repo needs a token in the URL step."
+            exit 1; }
+          git checkout -q FETCH_HEAD
+          echo "$RUNNER_TEMP/ai-setup/ai/bin" >> "$GITHUB_PATH"
+      - name: PR body to a file
+        run: printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
+      - name: PR text check
+        run: ai-check pr-rules --pr-body "$RUNNER_TEMP/pr-body.md" --title "$PR_TITLE" --base "$BASE_REF"

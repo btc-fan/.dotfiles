@@ -25,7 +25,8 @@ def main():
         for test in (t_hook_files, t_no_em_dash, t_render_cap, t_pr_resume, t_notify, t_agent_audit,
                      t_ai_start, t_router_speed, t_ai_sync, t_ai_sync_links_skills, t_ai_sync_keeps_pstack, t_ai_sync_claude_plugin_copy, t_merged_branches_note, t_sync_hooks, t_dev_worktree_no_sync, t_hermes_plugin, t_playwright,
                      t_state_mode, t_skill_scanner_reject, t_winners_table, t_github_wall_dry_run,
-                     t_github_wall_apply, t_tests_workflow_shape, t_doctor_legacy_memory_fail):
+                     t_github_wall_apply, t_tests_workflow_shape, t_pr_text_workflow_shape, t_ai_checks_template,
+                     t_doctor_legacy_memory_fail):
             try:
                 test(work)
                 print("ok   " + test.__name__)
@@ -899,6 +900,72 @@ def t_tests_workflow_shape(work):
     # The suite reads the env key and names the tests it leaves out; the job summary copies that line.
     res = run(["bash", os.path.join(TESTS, "run.sh"), "-k", "zzz-no-such-case"], env={"AI_TESTS_NO_AGENT": "1"})
     assert res.returncode == 0 and "left out (needs a logged-in agent): " in res.stdout, res.stdout
+
+
+def t_pr_text_workflow_shape(work):
+    """Ticket rth-06: job pr-text on pull_request_target (the base copy of the check runs), read-only token, no
+    secret, pinned actions, PR text only through env, no checkout of the PR head, ai-check of the base branch."""
+    import re
+    text = workflow_text(os.path.join(REPO, ".github", "workflows", "pr-text.yml"))
+    assert re.search(r"^on:\n  pull_request_target:\n    types: \[opened, edited, synchronize, reopened\]\n"
+                     r"    branches: \[ai\b", text, re.M), "trigger: pull_request_target, 4 types, PRs to ai"
+    assert "\n  pull_request:" not in text, "pull_request runs the PR copy of the check"
+    assert jobs_of(text) == ["pr-text"], jobs_of(text)
+    assert_safe_workflow(text, "pull_request_target")
+    assert re.search(r"ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}", text), "check out the base commit"
+    assert "ai/bin/ai-check pr-rules --pr-body" in text and '--title "$PR_TITLE"' in text, "the check of the base"
+
+
+def t_ai_checks_template(work):
+    """Ticket rth-06: the project template has the jobs check and pr-text, ubuntu-latest only, the setup URL and
+    commit as slots (never a constant), the setup bin on PATH before make check, and a clear stop on a fetch error."""
+    import re
+    text = workflow_text(os.path.join(AI_DIR, "templates", "ai-checks.yml"))
+    assert jobs_of(text) == ["check", "pr-text"], jobs_of(text)
+    assert set(re.findall(r"runs-on: (\S+)", text)) == {"ubuntu-latest"}, "ubuntu-latest only"
+    assert "AI_SETUP_URL: __AI_SETUP_URL__" in text and "AI_SETUP_COMMIT: __AI_SETUP_COMMIT__" in text, text
+    assert "github.com/" not in text, "the setup URL comes from config, never from the template"
+    assert text.index("GITHUB_PATH") < text.index("run: make check"), "the setup ai/bin goes on PATH before make check"
+    assert "needs a token" in text and "exit 1" in text, "a private setup repo stops with a clear message"
+    assert_safe_workflow(text, "pull_request")
+    assert "ai-check pr-rules --pr-body" in text and '--title "$PR_TITLE"' in text, text
+
+
+def workflow_text(path):
+    assert os.path.isfile(path), "missing " + os.path.relpath(path, REPO)
+    return open(path, encoding="utf-8").read()
+
+
+def jobs_of(text):
+    import re
+    return re.findall(r"^  ([\w-]+):\s*$", text.split("\njobs:\n", 1)[1], re.M)
+
+
+def assert_safe_workflow(text, event):
+    """Read-only token, no secret, actions pinned by SHA, no PR text in a run: script, no PR head checkout in a
+    pull_request_target workflow."""
+    import re
+    assert re.search(r"^permissions:\n  contents: read\n  pull-requests: read$", text, re.M), "read-only permissions"
+    assert "secrets." not in text and "write" not in text.split("\njobs:", 1)[0], "no secret, no write permission"
+    assert ("\n  pull_request_target:" in text) == (event == "pull_request_target"), "the event: " + event
+    for ref, rest in re.findall(r"uses: (\S+)(.*)", text):
+        assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", ref) and re.match(r"\s+# v\d", rest), ref + rest
+    run_lines, in_run = [], False
+    for line in text.splitlines():
+        m = re.match(r"^(\s*)(- )?run:(.*)$", line)
+        if m:
+            in_run, indent = True, len(m.group(1)) + len(m.group(2) or "")
+            run_lines.append(m.group(3))
+        elif in_run and (not line.strip() or len(line) - len(line.lstrip()) > indent):
+            run_lines.append(line)
+        else:
+            in_run = False
+    script = "\n".join(run_lines)
+    assert run_lines and not re.search(r"\$\{\{[^}]*\b(title|body|head_ref|head\.ref|head\.label)\b", script), \
+        "PR text goes through env, never into a run: script"
+    if event == "pull_request_target":
+        assert not re.search(r"ref: \$\{\{[^}]*\bhead\b", text) and not re.search(r"git (checkout|switch)", script), \
+            "a pull_request_target job never checks out the PR head"
 
 
 # ---------------------------------------------------------------- helpers

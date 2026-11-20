@@ -41,7 +41,9 @@ What it writes (project root):
                      run and test, non-obvious conventions; <= 60 lines; written when missing or with
                      --refresh-map; edit freely inside the markers) and "## Libraries" between
                      <!-- AI:libraries START/END --> (ai-libs --sync: library, version, context7 ID).
-                     Plus one short managed block per enabled opt-in tool:
+                     .github/workflows/ai-checks.yml   only with --tools ci (jobs check and pr-text; the setup URL from AI_SETUP_URL
+                   or the setup's origin, at its commit); an existing file is never changed
+Plus one short managed block per enabled opt-in tool:
                      <!-- AI:<id> v<N> START --> <routing action> <!-- AI:<id> v<N> END -->
   CLAUDE.md          a line "@AGENTS.md" (created when missing)
   .claude/settings.json   enabledPlugins for claude-seo / claude-blog / ui-ux-pro-max / oh-my-claudecode when
@@ -166,6 +168,7 @@ def main(argv):
     plan.append(write_plan(os.path.join(root, "CLAUDE.md"), claude_md(read(os.path.join(root, "CLAUDE.md")))))
     plan.extend(project_mcp_plan(root, enabled, opts["dry_run"]))
     plan.append(claude_plugins_plan(root, enabled, skill_closure(skills)))
+    plan.append(ci_workflow_plan(root, enabled))
     plan.append(write_plan(os.path.join(root, ".gitignore"), gitignore_text(read(os.path.join(root, ".gitignore")),
                                                                             with_defaults(enabled), root,
                                                                             skill_closure(skills))))
@@ -484,6 +487,7 @@ def parse(argv):
 
 
 def choose(optin, current, opts):
+    optin = optin + [CI_TOOL]
     ids = [r["id"] for r in optin]
     if opts["tools"] is not None:
         bad = [t for t in opts["tools"] if t not in ids]
@@ -503,6 +507,37 @@ def choose(optin, current, opts):
 
 
 # ---------------------------------------------------------------- file builders
+
+# Ticket rth-06: an opt-in that ai-adopt handles itself (no routing rule): the CI template for the project.
+CI_TOOL = {"id": "ci", "tool": "GitHub Actions", "action": "write .github/workflows/ai-checks.yml (make check, pr-text)"}
+CI_REL = os.path.join(".github", "workflows", "ai-checks.yml")
+
+
+def ci_workflow_plan(root, enabled):
+    """(path, text) of the CI template when the project asked for `ci`. An existing file is never changed: when it
+    has no pr-text job, the 2 job blocks are printed for the owner to add by hand."""
+    if "ci" not in enabled:
+        return None
+    text, old = ci_workflow_text(), read(os.path.join(root, CI_REL))
+    if old is None:
+        return (os.path.join(root, CI_REL), text)
+    # shortcut: an existing file keeps its old setup commit; the owner edits AI_SETUP_COMMIT to move it.
+    if not re.search(r"^  pr-text:", old, re.M):
+        print("%s exists and is not changed: add these 2 jobs by hand.\njobs:\n%s" % (CI_REL, text.split("\njobs:\n", 1)[1]))
+    return None
+
+
+def ci_workflow_text():
+    """The template with the setup URL (config AI_SETUP_URL, else the origin of this setup) and its commit."""
+    url = config_value("AI_SETUP_URL") or git(AI_HOME, "remote", "get-url", "origin")
+    commit = git(AI_HOME, "rev-parse", "HEAD")
+    if not url or not commit:
+        sys.exit("ai-adopt --tools ci: no setup URL or commit. Set AI_SETUP_URL in ~/.config/ai/config.env, "
+                 "or give %s an origin remote." % AI_HOME)
+    url = re.sub(r"^git@([^:]+):", r"https://\1/", url)        # CI fetches over https
+    text = read(os.path.join(AI_DIR, "templates", "ai-checks.yml"))
+    return text.replace("__AI_SETUP_URL__", url).replace("__AI_SETUP_COMMIT__", commit)
+
 
 def write_plan(path, text):
     if not text:
@@ -1726,15 +1761,21 @@ def owner_repo(root):
 
 
 def allowed_owners():
-    raw = os.environ.get("AI_GITHUB_OWNERS")
-    if not raw:
-        for line in (read(os.path.expanduser("~/.config/ai/config.env")) or "").splitlines():
-            m = re.match(r"^\s*AI_GITHUB_OWNERS\s*=\s*\"?([^\"]*)\"?", line)
-            if m:
-                raw = m.group(1)
+    raw = config_value("AI_GITHUB_OWNERS")
     if not raw:
         raw = repo_owner(git(AI_HOME, "remote", "get-url", "origin") or "") or ""
     return {o.strip().lower() for o in raw.split(",") if o.strip()}
+
+
+def config_value(key):
+    """An owner value: the env, else ~/.config/ai/config.env, else None."""
+    raw = os.environ.get(key)
+    if not raw:
+        for line in (read(os.path.expanduser("~/.config/ai/config.env")) or "").splitlines():
+            m = re.match(r"^\s*%s\s*=\s*\"?([^\"]*)\"?" % re.escape(key), line)
+            if m:
+                raw = m.group(1)
+    return raw or None
 
 
 def repo_owner(url):

@@ -224,6 +224,29 @@ def t_adopt_long_tier(work):
     assert "ai-ratchet" in read(os.path.join(repo, "Makefile")), "check block lost the ratchet"
 
 
+def t_adopt_tools_ci(work):
+    """Ticket rth-06: a plain ai-adopt writes no workflow. --tools ci writes ai-checks.yml with the setup URL from
+    config (AI_SETUP_URL) and the setup commit. An existing file is never overwritten: the job blocks are printed."""
+    repo, env = adopt_repo(work, "ci", {})
+    assert adopt(repo, env).returncode == 0
+    wf = os.path.join(repo, ".github", "workflows", "ai-checks.yml")
+    assert not os.path.exists(os.path.join(repo, ".github")), "a plain ai-adopt writes no workflow"
+
+    env = dict(env, AI_SETUP_URL="https://example.invalid/setup.git")
+    res = adopt(repo, env, "--tools", "ci")
+    assert res.returncode == 0 and os.path.isfile(wf), res.stdout
+    text = read(wf)
+    sha = run(["git", "-C", AI_DIR, "rev-parse", "HEAD"]).stdout.strip()
+    assert "AI_SETUP_URL: https://example.invalid/setup.git" in text and "AI_SETUP_COMMIT: %s" % sha in text, text
+    assert "__AI_" not in text and "ci" in read(os.path.join(repo, ".ai", "enabled")).split(), text
+
+    write(wf, "name: own\n")
+    run(["git", "-C", repo, "commit", "-qam", "own ci", "--no-verify"], env=env)
+    res = adopt(repo, env, "--tools", "ci")
+    assert read(wf) == "name: own\n" and "add these 2 jobs by hand" in res.stdout and "  pr-text:" in res.stdout, \
+        res.stdout
+
+
 def commit_short_path(repo, env):
     """A real git commit, as a GUI client runs it: a short PATH without the setup's bin folder."""
     write(os.path.join(repo, "src", "more.py"), "X = 1\n")
@@ -1606,7 +1629,7 @@ def run(cmd, env=None, cwd=None, stdin=None, timeout=120):
     return res
 
 
-TESTS_LIST = [t_verify_skills_copy, t_pstack_adapt_ours, t_adopt_verify_link, t_adopt_verify_evidence_shared, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_skills_none, t_detect_python_uv, t_detect_python_pip, t_detect_python_no_manifest, t_detect_node, t_detect_go_rust, t_detect_monorepo, t_detect_missing_dir,
+TESTS_LIST = [t_adopt_tools_ci, t_verify_skills_copy, t_pstack_adapt_ours, t_adopt_verify_link, t_adopt_verify_evidence_shared, t_verify_status_and_doctor, t_adopt_project_skills, t_adopt_skills_none, t_detect_python_uv, t_detect_python_pip, t_detect_python_no_manifest, t_detect_node, t_detect_go_rust, t_detect_monorepo, t_detect_missing_dir,
               t_detect_probe_drops_missing_tool, t_detect_safe_probe_for_dry_run, t_adopt_failing_check_turns_stop_off, t_adopt_leaves_tree_clean, t_adopt_commits_on_branch, t_adopt_init, t_adopt_decline_undoes_intent_to_add,
               t_adopt_branch_exists_main_clean, t_adopt_old_branch, t_adopt_unborn_main, t_typed_only_skill_paths,
               t_plan_keeps_targets, t_plan_keeps_owner_flags, t_plan_keeps_target_comments, t_adopt_owner_text_survives_rerun, t_adopt_gitignore_makefile_owner_lines,
