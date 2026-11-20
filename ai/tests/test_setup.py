@@ -36,7 +36,7 @@ def main():
                      t_root_guard, t_update_clone, t_ai_sync_untrusted, t_plugin_files_tracked,
                      t_hooks_absolute, t_uv_copy, t_box_registration, t_readiness, t_managed_router,
                      t_owner_2026_11_12, t_graph_refresh, t_graph_build_at_session_start, t_env_key_outside_trust_block,
-                     t_block_upsert_owner_text):
+                     t_block_upsert_owner_text, t_redact_word_boundary):
             try:
                 test(os.path.join(work, test.__name__))
                 print("ok   " + test.__name__)
@@ -110,6 +110,20 @@ def fake_codex_home(work):
 
 
 # ---------------------------------------------------------------- tests
+
+def t_redact_word_boundary(work):
+    """redact() masks token shapes only at a word start: a path with "task-", "desk-" or "dotfiles-ask-first"
+    is no secret (R-017: the plan fixtures failed in a worktree named dotfiles-ask-first)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("aiconf_redact", AICONF)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    for plain in ("/Users/x/work/dotfiles-ask-first/ai/bin/ai-sync", "task-runner", "/mnt/desk-01/x"):
+        assert mod.redact(plain) == plain, mod.redact(plain)
+    for secret, masked in (("sk-ant-abc123", "sk-ant-***"), ("ghp_abc123", "ghp_***"), ("--token=ghp_abc", "--token=ghp_***"),
+                           ("Bearer sk-abc123", "Bearer sk-***")):
+        assert mod.redact(secret) == masked, mod.redact(secret)
+
 
 def t_block_upsert_owner_text(work):
     """Global rule files (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md): block-upsert never changes owner text outside
