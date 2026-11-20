@@ -96,6 +96,7 @@ def main(argv):
             failures.extend(check_coverage(routing, coverage))
             failures.extend(check_tiebreak_regex(routing))
             failures.extend(check_fail_closed(work))
+            failures.extend(check_fail_closed_inputs(work, build))
         print("\n%d cases, %d failed" % (total, len(failures)))
         for f in failures:
             if "->" not in f:
@@ -156,6 +157,48 @@ def check_tiebreak_regex(routing):
 
 
 # ---------------------------------------------------------------- one case
+
+def check_fail_closed_inputs(work, build):
+    """R-017: rules or a payload that the router cannot read must deny a shell command, and a long denied
+    command must not hold the hook until its timeout (a timed-out hook does not block)."""
+    hooks = os.path.join(AI_DIR, "marketplace", "plugins", "ai-core", "hooks")
+    good = os.path.join(build, "routing.json")
+    bad = os.path.join(work, "bad-routing.json")
+    write(bad, "{not json")
+    base = {"hook_event_name": "PreToolUse", "cwd": work, "session_id": "fci"}
+    bash = lambda cmd: json.dumps(dict(base, tool_name="Bash", tool_input={"command": cmd}))
+    read_file = json.dumps(dict(base, tool_name="Read", tool_input={"file_path": "/tmp/x"}))
+    probes = [      # name, agent, routing.json, event, stdin, wanted decision
+        ("corrupt routing.json, Bash", "claude", bad, "PreToolUse", bash("gh pr merge 5 --squash"), "deny"),
+        ("corrupt routing.json, Bash, Codex", "codex", bad, "PreToolUse", bash("gh pr merge 5 --squash"), "deny"),
+        ("corrupt routing.json, Read", "claude", bad, "PreToolUse", read_file, None),
+        ("payload is a JSON list", "claude", good, "PreToolUse", "[]", "deny"),
+        ("payload is cut short", "claude", good, "PreToolUse", bash("echo hi")[:40], "deny"),
+        ("Bash tool_input is a string", "claude", good, "PreToolUse",
+         json.dumps(dict(base, tool_name="Bash", tool_input="git commit --no-verify")), "deny"),
+        ("empty payload", "claude", good, "PreToolUse", "", None),
+        ("SessionStart, payload is a JSON list", "claude", good, "SessionStart", "[]", None),
+        ("16 KB denied command", "claude", good, "PreToolUse", bash("git commit --no-verify -m " + "a-" * 8000), "deny"),
+    ]
+    failures = []
+    for name, agent, routing, event, stdin, want in probes:
+        home = os.path.join(work, "home-fci")
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home, "LANG": "C.UTF-8",
+               "AI_STATE_DIR": os.path.join(home, "state"), "AI_ROUTING_JSON": routing,
+               "AI_CLAUDE_MANAGED_SETTINGS": os.path.join(work, "no-managed-settings.json")}
+        start = time.time()
+        res = subprocess.run([sys.executable, os.path.join(hooks, "router.py"), "--agent", agent, event],
+                             input=stdin.encode(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+        elapsed = time.time() - start
+        got = decision_of(res.stdout.decode(), res.returncode, agent)
+        if res.returncode != 0:
+            failures.append("fail-closed input (%s): exit %d: %s" % (name, res.returncode, short(res.stderr.decode())))
+        elif got != want:
+            failures.append("fail-closed input (%s): got %s, want %s" % (name, got, want))
+        elif elapsed > 3:
+            failures.append("fail-closed input (%s): took %.1f s, want under 3 s" % (name, elapsed))
+    return failures
+
 
 def run_case(rule_id, case, work, build):
     tmp = tempfile.mkdtemp(dir=work)

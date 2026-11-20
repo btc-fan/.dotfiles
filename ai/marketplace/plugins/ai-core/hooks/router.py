@@ -72,6 +72,9 @@ def main(argv):
     try:
         payload = json.loads(raw) if raw.strip() else {}
     except ValueError:
+        payload = None
+    unreadable = not isinstance(payload, dict)       # cut short, or not a JSON object
+    if unreadable:
         payload = {}
     event = event or payload.get("hook_event_name", "")
     if agent is None:
@@ -81,13 +84,15 @@ def main(argv):
     if handler is None:
         return 0
     try:
+        if unreadable and event == "PreToolUse":
+            raise ValueError("the hook payload is not a JSON object")
         handler(ctx)
     except Exception as exc:  # never break the session; a decision made before the error still counts
         log_error(event, exc)
         # Fail closed for shell commands: the gates (secret-scan, no-sudo, audit-before-install, pr-rules)
         # may not have run, so the command must not run either. Other tools keep fail-open (nudges only).
         tool = str(payload.get("tool_name") or "")
-        if event == "PreToolUse" and ctx.decision is None and (tool == "Bash" or ctx.stages):
+        if event == "PreToolUse" and ctx.decision is None and (unreadable or tool == "Bash" or ctx.stages):
             ctx.decision = "deny"
             ctx.reasons.append("A safety gate failed with an internal error (logged), so this command was not "
                                "run. Retry once; if it repeats, stop and tell the owner (ai-doctor shows the error).")
@@ -302,8 +307,14 @@ def remember_merge_ok(ctx, prompt):
 def on_pre_tool(ctx):
     tool = ctx.payload.get("tool_name") or ""
     tin = tool_input(ctx.payload)
+    if tool == "Bash" and not isinstance(ctx.payload.get("tool_input") or {}, dict):
+        raise ValueError("the Bash tool_input is not an object")      # main() fails closed
     cmd = "" if tool == "apply_patch" else command_of(tin)     # a Codex patch is not a shell command
     ctx.set_command(cmd)
+    if ctx.routing.get("broken") and (tool == "Bash" or ctx.stages):
+        ctx.decide("deny", "[ai router: routing] %s does not load, so no gate can check this command. "
+                           "Stop and tell the owner: run ai-sync, then try again." % ctx.routing["broken"])
+        return
     home = session_in_home(ctx)
     if home and tool in HOME_TOOLS:
         ctx.decide("deny", "[ai router: home-folder] " + HOME_MSG % home)
@@ -1846,15 +1857,22 @@ class SessionState(object):
 # ---------------------------------------------------------------- helpers
 
 def load_routing():
-    path = first_existing(routing_candidates())
-    if not path:
-        return {"rules": [], "tiebreaks": [], "layers": {}}
-    try:
-        with open(path) as fh:
-            return json.load(fh)
-    except (OSError, ValueError) as exc:
-        log_error("routing", exc)
-        return {"rules": [], "tiebreaks": [], "layers": {}}
+    """The first routing.json that loads. When a file exists and none loads, the result names it under
+    "broken": on_pre_tool then denies shell commands, because no gate can run (R-017)."""
+    out = {"rules": [], "tiebreaks": [], "layers": {}}
+    for path in routing_candidates():
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path) as fh:
+                data = json.load(fh)
+            if isinstance(data, dict) and isinstance(data.get("rules"), list):
+                return data
+            raise ValueError("no rules list in " + path)
+        except (OSError, ValueError) as exc:
+            log_error("routing", exc)
+            out["broken"] = path
+    return out
 
 
 ROUTING_OVERRIDE = None     # set by an embedding host (Hermes plugin) to its own routing.json copy

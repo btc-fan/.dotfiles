@@ -768,7 +768,8 @@ def audit_hint(eco, name, version):
 
 # ---------------------------------------------------------------- secret-scan
 
-NAME = r"[A-Za-z0-9_.-]*(?:api[_-]?key|secret|token|passw(?:or)?d|pwd|access[_-]?key|private[_-]?key|credential)[A-Za-z0-9_.-]*"
+# The two {0,64} bounds keep the patterns linear: with "*" a long run of name characters cost quadratic time (R-017).
+NAME = r"[A-Za-z0-9_.-]{0,64}(?:api[_-]?key|secret|token|passw(?:or)?d|pwd|access[_-]?key|private[_-]?key|credential)[A-Za-z0-9_.-]{0,64}"
 SECRET_PATTERNS = [
     ("private-key", re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----")),
     ("aws-access-key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
@@ -3182,7 +3183,10 @@ def log_line(rel, line):
 
 
 def redact(text):
-    """Replace every secret-pattern match (and its value group) with [REDACTED], for logs."""
+    """Replace every secret-pattern match (and its value group) with [REDACTED], for logs.
+    Only the first 4000 characters are kept: a log line needs no more, and a gate that logs a long
+    command must answer before the hook timeout (a timed-out hook does not block, R-017)."""
+    text = text[:4000]
     for _name, rx in SECRET_PATTERNS:
         text = rx.sub(lambda m: m.group(0).replace(m.group(1), "[REDACTED]") if rx.groups and m.group(1)
                       else "[REDACTED]", text)
