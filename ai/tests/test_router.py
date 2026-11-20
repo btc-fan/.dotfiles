@@ -27,6 +27,7 @@ Placeholders: {{PROJ}} {{HOME}} {{NOW}} {{OLD}} {{TRANSCRIPT}} and fake secrets 
 {{SK_LIVE_SAMPLE}} {{ADMINPASS}} {{AIZA_TEST}} {{ZPS_FAKE}} {{JWT_REAL}} {{DBURL_TEST}}
 (fake secrets are built here at run time, so no secret-looking string is stored in the repo).
 Every run uses a throwaway HOME and state dir. Nothing touches the real home.
+Passes: one per profile in PASSES (dev-mac first). A case file whose rule is not in a render does not run in its pass.
 """
 import glob
 import json
@@ -63,6 +64,7 @@ FAKE = {
 }
 FIRE_KINDS = {"fire", "log", "deny", "ask", "miss", "block"}
 QUIET_KINDS = {"nofire", "allow", "nomiss"}
+PASSES = ("dev-mac", "server")      # dev-mac: the render the machines load. Ticket 18 removes the server pass.
 
 
 def main(argv):
@@ -70,40 +72,132 @@ def main(argv):
     only = argv[argv.index("-k") + 1] if "-k" in argv else None
     work = tempfile.mkdtemp(prefix="ai-router-tests-")
     try:
-        build = os.path.join(work, "build")
-        res = subprocess.run([sys.executable, os.path.join(AI_DIR, "bin", "ai-render"), "--profile", "server", "--out", build],
-                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        if res.returncode != 0:
-            print(res.stdout.decode())
-            return 1
-        routing = json.load(open(os.path.join(build, "routing.json")))
-        failures, total, coverage = [], 0, {}
-        for path in sorted(glob.glob(os.path.join(TESTS, "cases", "*.json"))):
-            spec = json.load(open(path))
-            for case in spec["cases"]:
-                label = "%s: %s" % (spec["rule"], case["name"])
-                if only and only not in label:
-                    continue
-                total += 1
-                err = run_case(spec["rule"], case, work, build)
-                coverage.setdefault(spec["rule"], set()).add(case["expect"])
-                if err:
-                    failures.append("%s -> %s" % (label, err))
-                    print("FAIL " + label + "\n     " + err)
-                elif verbose:
-                    print("ok   " + label)
+        builds = {}
+        for profile in PASSES:
+            builds[profile], err = render(profile, os.path.join(work, "build-" + profile))
+            if err:
+                print(err)
+                return 1
+        renders = {p: [r["id"] for r in load_routing(b)["rules"]] for p, b in builds.items()}
+        failures, total = [], 0
+        for profile in PASSES:
+            failed, count = run_pass(profile, builds[profile], renders, work, only, verbose)
+            failures.extend(failed)
+            total += count
+
         if not only:
-            failures.extend(check_coverage(routing, coverage))
-            failures.extend(check_tiebreak_regex(routing))
+            failures.extend(t_router_profile_flag(work))
+            failures.extend(t_router_coverage())
+            failures.extend(t_router_dev_mac_golden(builds["dev-mac"]))
             failures.extend(check_fail_closed(work))
-            failures.extend(check_fail_closed_inputs(work, build))
-        print("\n%d cases, %d failed" % (total, len(failures)))
+            failures.extend(check_fail_closed_inputs(work, builds[PASSES[0]]))
+        print("\n%d cases in %d passes, %d failed" % (total, len(PASSES), len(failures)))
         for f in failures:
             if "->" not in f:
                 print("FAIL " + f)
         return 1 if failures else 0
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def run_pass(profile, build, renders, work, only, verbose):
+    """Run each case file whose rule is in this render. A file whose rule no render holds (_proof, pr-url) runs in each pass."""
+    print("pass %s:" % profile)
+    start = time.time()
+    routing = load_routing(build)
+    every_rule = set().union(*renders.values())
+    failures, total, coverage, ran, skipped = [], 0, {}, [], []
+    for path in sorted(glob.glob(os.path.join(TESTS, "cases", "*.json"))):
+        spec = json.load(open(path))
+        name = os.path.basename(path)
+        if spec["rule"] in every_rule and spec["rule"] not in renders[profile]:
+            skipped.append(name)
+            continue
+        ran.append(name)
+        for case in spec["cases"]:
+            label = "%s: %s" % (spec["rule"], case["name"])
+            if only and only not in label:
+                continue
+            total += 1
+            err = run_case(spec["rule"], case, work, build)
+            coverage.setdefault(spec["rule"], set()).add(case["expect"])
+            if err:
+                failures.append("[%s] %s -> %s" % (profile, label, err))
+                print("FAIL [%s] %s\n     %s" % (profile, label, err))
+            elif verbose:
+                print("ok   " + label)
+
+    if not only:
+        failures.extend("[%s] %s" % (profile, e) for e in check_coverage(routing, coverage) + check_tiebreak_regex(routing))
+    print("  ran %d files: %s" % (len(ran), ", ".join(ran)))
+    print("  not in this render: %s" % (", ".join(skipped) or "none"))
+    print("  pass %s: %d cases, %d failed, %.0f s" % (profile, total, len(failures), time.time() - start))
+    return failures, total
+
+
+def render(profile, out):
+    """(out, error). The profile is always on the command line, and AI_PROFILE is cleared:
+    the OS default (Linux: server) or the shell of the developer must not pick the render."""
+    env = {k: v for k, v in os.environ.items() if k != "AI_PROFILE"}
+    res = subprocess.run(render_cmd(profile, out), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    return out, (res.stdout.decode() if res.returncode != 0 else None)
+
+
+def render_cmd(profile, out):
+    return [sys.executable, os.path.join(AI_DIR, "bin", "ai-render"), "--profile", profile, "--out", out]
+
+
+def load_routing(build):
+    return json.load(open(os.path.join(build, "routing.json")))
+
+
+# ---------------------------------------------------------------- checks of the test itself
+
+def t_router_profile_flag(work):
+    """The main pass is dev-mac. The render command names the profile, so a Linux CI runner
+    (OS default server) or AI_PROFILE=server in the shell gives the same render."""
+    errs = []
+    if PASSES[0] != "dev-mac":
+        errs.append("profile flag: the main pass is %s, want dev-mac" % PASSES[0])
+    cmd = render_cmd("dev-mac", "x")
+    if "--profile" not in cmd or cmd[cmd.index("--profile") + 1] != "dev-mac":
+        errs.append("profile flag: the render command has no --profile dev-mac: %s" % cmd)
+
+    saved = {k: os.environ.get(k) for k in ("AI_PROFILE", "AI_OS_FORCE", "AI_PROFILE_FILE")}
+    os.environ.update(AI_PROFILE="server", AI_OS_FORCE="linux", AI_PROFILE_FILE=os.path.join(work, "no-profile"))
+    try:
+        build, err = render("dev-mac", os.path.join(work, "build-flag"))
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    ids = [] if err else [r["id"] for r in load_routing(build)["rules"]]
+    if err or "no-sudo" in ids or "ask-first" not in ids:
+        errs.append("profile flag: AI_PROFILE=server on Linux changed the dev-mac render: %s" % (err or ids))
+    return errs
+
+
+def t_router_coverage():
+    """The coverage check names a rule that has no fire case (a throwaway rule, not in routing.yaml)."""
+    routing = {"rules": [{"id": "throwaway-rule"}]}
+    got = check_coverage(routing, {"throwaway-rule": {"nofire"}})
+    if got != ["coverage: rule throwaway-rule has no should-fire case"]:
+        return ["coverage check: a rule with no fire case gave %s" % got]
+    return []
+
+
+def t_router_dev_mac_golden(build):
+    """The dev-mac AGENTS.md render equals the fixture. A ticket that changes the text updates the fixture."""
+    want = read(os.path.join(TESTS, "fixtures", "profiles", "agents-dev-mac.md"))
+    got = read(os.path.join(build, "AGENTS.md"))
+    if want != got:
+        import difflib
+        diff = "".join(list(difflib.unified_diff((want or "").splitlines(True), (got or "").splitlines(True),
+                                                 "fixture", "now"))[:40])
+        return ["dev-mac golden: the render differs from fixtures/profiles/agents-dev-mac.md:\n" + diff]
+    return []
 
 
 FAIL_CLOSED_PROBE = r"""
