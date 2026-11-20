@@ -226,7 +226,7 @@ The design names each kind of help with a layer number. You see these names in t
 | L0 | Routing table | The table at the end of the global rules. Always in context. | "pr-rules (gate) - before gh pr create, edit or ready - PR body: ..." |
 | L1 | Session start | Rules with `when: session_start`, plus the status line. | `[ai router: project-knowledge] Read the Map and Libraries ...` |
 | L2 | Forced evaluation | After a prompt rule matched: answer YES or NO per tool, then use every YES tool first. | `[ai router L2] Before you act, answer YES or NO ...` |
-| L3 | Regex nudge | A rule whose trigger matched (a prompt word, a command, a file). | `[ai router: no-em-dash] Remove the em dash ...` |
+| L3 | Regex nudge | A rule whose trigger matched (a prompt word, a command, a file). | `[ai router: feature-grill] ...` |
 | L4 | Gate | The tool call is denied. | `[ai gate secret-scan] Secret scan found ...` |
 | L7 | Miss log | `~/.local/state/ai/misses.jsonl`: a rule fired, the agent did not follow it. | Read it to find rules that do not work. |
 
@@ -243,8 +243,6 @@ Global rules (every repo):
 | project-knowledge | nudge | session start in a code repo | Read the Map and Libraries of AGENTS.md first, then search narrowly. Plus the status line. |
 | secret-scan | **gate** | before `git commit` or `git push` | Remove the secret first. |
 | pr-rules | **gate** | before `gh pr create` or `gh pr edit` with a body | The PR body template (section 11). |
-| no-em-dash | nudge | after a write that contains U+2014 | Use "-", ":" or a new sentence. |
-| ste-sentence | nudge | after an Edit, MultiEdit or Write of a Markdown file with a new sentence over 25 words | The writing style rule (ASD-STE100): split the sentence. Code, tables, headings and front matter do not count. A sentence that the old text already had does not count. |
 | feature-grill | nudge | a feature request prompt (EN, RO, RU) | Grill first, then to-spec and to-tickets for 3+ files. |
 | merge-approval, no-verify | **gate** | `gh pr merge` or a push to main; `--no-verify` | Wait for your "merge"; fix what the git hook reports. |
 | writing-for-agents | **gate** | before an edit or shell write of AGENTS.md, CLAUDE.md, CLAUDE.local.md, a SKILL.md | Load the `writing-for-agents` skill first. |
@@ -761,13 +759,17 @@ If nothing fits, answer "none needed".
 
 So the agent answers "feature-grill: YES" and starts grilling you before it writes code.
 
-### 7.3 An after-the-fact nudge (L3)
+### 7.3 The text lint at commit (not a nudge)
 
-The agent writes a file with an em dash. The router adds (real):
+The em dash and the 25-word rule are scripts, not reminders (ticket rules-that-hold 07). The agent stages a line
+with an em dash and runs `git commit`. The pre-commit hook refuses it:
 
 ```
-[ai router: no-em-dash] Remove the em dash (U+2014). Use '-', ':' or a new sentence. (.../README.md, 1 line(s))
+ai-precommit: blocked the commit: [text] the em dash character (U+2014) at README.md:3. Use '-', ':' or a new sentence. A quote of another person: add its file glob to .ai/text-lint-allow.
 ```
+
+A Markdown sentence over 25 words gives a warning, and the commit passes. The `commit-msg` hook checks the
+message. The PR text check on GitHub checks the PR title and body.
 
 ### 7.4 Gate: secret-scan (L4)
 

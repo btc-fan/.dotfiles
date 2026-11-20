@@ -2547,6 +2547,12 @@ CHECK_NOT_OFFERED = {
     "worktree-first": "it judges an agent file edit before it happens; git and CI see no edit",
 }
 EM_DASH = "\u2014"      # the escape, never the character: the lint reads this file too
+STE_WORDS = 25
+MD_EXTS = (".md", ".markdown", ".mdx")
+TEXT_LINT_ALLOW_REL = os.path.join(".ai", "text-lint-allow")
+# Vendored and generated files: their text is not ours to fix. A project adds its own globs to .ai/text-lint-allow.
+TEXT_LINT_DEFAULT = ("vendor/*", "*/vendor/*", "node_modules/*", "*/node_modules/*", "graphify-out/*",
+                     ".verify/evidence/*", "*.lock", "*.lockb", "*-lock.json", "*-lock.yaml")
 
 
 class CheckCtx(object):
@@ -2567,7 +2573,7 @@ def run_check(gate, cwd, cmd=None, staged=False, body=None, title=None, base=Non
     import shutil
     ctx = CheckCtx(cwd)
     if gate == "text":
-        return text_problem(cwd, cmd, staged, body), ctx.contexts
+        return text_problem(ctx, cwd, cmd, staged, body), ctx.contexts
 
     if staged:
         cmd = "git commit"
@@ -2580,24 +2586,56 @@ def run_check(gate, cwd, cmd=None, staged=False, body=None, title=None, base=Non
     return (verdict[1] if verdict else None), ctx.contexts
 
 
-def text_problem(cwd, cmd, staged, body):
-    """The em dash check on the added lines of the staged diff, on a PR body file, or on a command line."""
+def text_problem(ctx, cwd, cmd, staged, body):
+    """The text gate (rules-that-hold 07) on the added lines of the staged diff, a PR text file or a command line.
+    An em dash fails. A Markdown sentence over STE_WORDS words is a warning note; AI_STE_STRICT=1 makes it fail.
+    In the staged diff, a path that matches the text-lint allow list is skipped."""
     if staged:
         diff = scan_git(cwd, ["diff", "--cached", "--no-color", "-U0"], Budget())
     elif body is not None:
         diff = "+++ b/%s\n" % os.path.basename(body) + as_added(read_text(body) or "")
     else:
         diff = "+++ b/command\n" + as_added(cmd or "")
-    hits = em_dash_lines(diff)
-    if not hits:
-        return None
-    return ("the em dash character (U+2014) at %s. Use '-', ':' or a new sentence."
-            % ", ".join(hits[:10]) + (" (%d more)" % (len(hits) - 10) if len(hits) > 10 else ""))
+    allow = text_lint_allow(cwd) if staged else ()
+    problems = []
+    hits = em_dash_lines(diff, allow)
+    if hits:
+        problems.append("the em dash character (U+2014) at %s. Use '-', ':' or a new sentence. A quote of another "
+                        "person: add its file glob to %s." % (first_ten(hits), TEXT_LINT_ALLOW_REL))
+    long = long_sentence_lines(diff, allow)
+    if long:
+        text = "a Markdown sentence over %d words (ASD-STE100) at %s. Split it." % (STE_WORDS, first_ten(long))
+        if owner_config("AI_STE_STRICT") == "1":
+            problems.append(text)
+        else:
+            ctx.add_context("warning: " + text)
+    return " ".join(problems) or None
 
 
-def em_dash_lines(diff):
-    """["path:line"] of the added lines in a -U0 diff that hold the em dash."""
-    out, path, line_no = [], "", 1
+def em_dash_lines(diff, allow=()):
+    """["path:line"] of the added lines in a -U0 diff that hold the em dash. The one copy of the check."""
+    return ["%s:%d" % (path, n) for path, n, text in added_lines(diff)
+            if EM_DASH in text and not text_lint_allowed(path, allow)]
+
+
+def long_sentence_lines(diff, allow=()):
+    """["path:line (N words)"] of the Markdown sentences over STE_WORDS words in the added lines of a -U0 diff.
+    One run of added lines is one text."""
+    # shortcut: an added line inside an old paragraph is read alone, upgrade when warnings on edits look wrong
+    out = []
+    for path, start, lines in added_runs(diff):
+        if not path.lower().endswith(MD_EXTS) or text_lint_allowed(path, allow):
+            continue
+        for words in long_sentences("\n".join(lines), STE_WORDS):
+            head = " ".join(words[:3])
+            at = next((i for i, ln in enumerate(lines) if head in " ".join(ln.split())), 0)
+            out.append("%s:%d (%d words)" % (path, start + at, len(words)))
+    return out
+
+
+def added_lines(diff):
+    """(path, line number, text) of each added line in a -U0 diff. A binary file has none."""
+    path, line_no = "", 1
     for line in diff.splitlines():
         if is_diff_header(line):
             path, line_no = (line[6:] if line.startswith("+++ b/") else ""), 1
@@ -2605,9 +2643,70 @@ def em_dash_lines(diff):
             m = re.match(r"^@@ -\S+ \+(\d+)", line)
             line_no = int(m.group(1)) if m else 1
         elif line.startswith("+"):
-            if EM_DASH in line:
-                out.append("%s:%d" % (path, line_no))
+            yield path, line_no, line[1:]
             line_no += 1
+
+
+def added_runs(diff):
+    """[(path, first line number, [text, ...])] of the runs of next-to-each-other added lines."""
+    runs = []
+    for path, n, text in added_lines(diff):
+        if runs and runs[-1][0] == path and runs[-1][1] + len(runs[-1][2]) == n:
+            runs[-1][2].append(text)
+        else:
+            runs.append((path, n, [text]))
+    return runs
+
+
+def text_lint_allow(root):
+    """The globs of the files that the text lint skips: the defaults, then the lines of .ai/text-lint-allow."""
+    lines = [ln.split("#", 1)[0].strip() for ln in (read_text(os.path.join(root, TEXT_LINT_ALLOW_REL)) or "").splitlines()]
+    return TEXT_LINT_DEFAULT + tuple(ln for ln in lines if ln)
+
+
+def text_lint_allowed(path, allow):
+    import fnmatch
+    return any(path == glob or fnmatch.fnmatch(path, glob) for glob in allow)
+
+
+def first_ten(items):
+    return ", ".join(items[:10]) + (" (%d more)" % (len(items) - 10) if len(items) > 10 else "")
+
+
+def owner_config(key):
+    """An owner value: the env, else a KEY=value line in ~/.config/ai/config.env, else None."""
+    if os.environ.get(key):
+        return os.environ[key]
+    for line in (read_text(os.path.expanduser("~/.config/ai/config.env")) or "").splitlines():
+        m = re.match(r"^\s*(?:export\s+)?%s\s*=\s*[\"']?([^\"'#]*)" % re.escape(key), line)
+        if m:
+            return m.group(1).strip()
+    return None
+
+
+MD_NOT_PROSE = re.compile(r"\A---\n.*?^---[^\n]*$|^[ \t]*```.*?^[ \t]*```[^\n]*$|^[ \t]*~~~.*?^[ \t]*~~~[^\n]*$|"
+                          r"<!--.*?(?:-->|\Z)|^[ \t]*(#|\||>)[^\n]*$|^(    |\t)[^\n]*$", re.S | re.M)
+MD_FENCE = re.compile(r"^[ \t]*(```|~~~)", re.M)
+MD_MAX_CHARS = 200000
+MD_LIST_ITEM = re.compile(r"^[ \t]*([-*+]|\d+[.)])[ \t]+", re.M)
+
+
+def long_sentences(text, limit):
+    """The sentences of Markdown prose with more than `limit` words, each as its list of words (ASD-STE100: 25 words
+    at most in a description, 20 in an instruction). Not prose: the front matter, a code block, a table row, a
+    heading, a quote, an HTML comment, a link target. Inline code is one word. A list item and a paragraph each end
+    a sentence. Not checked: an odd number of fence lines (an edit inside a code block), a text over MD_MAX_CHARS."""
+    if len(text) > MD_MAX_CHARS or len(MD_FENCE.findall(text)) % 2:
+        return []
+    text = MD_NOT_PROSE.sub("\n\n", text)
+    text = re.sub(r"`[^`\n]*`", "code", text)
+    text = re.sub(r"\]\([^)\s]*\)", "]", text)
+    text = MD_LIST_ITEM.sub("\n\n", text)
+    out = []
+    for sentence in re.split(r"(?<=[.!?:])\s+|\n[ \t]*\n", text):
+        words = [w for w in sentence.split() if re.search(r"\w", w)]
+        if len(words) > limit:
+            out.append(words)
     return out
 
 

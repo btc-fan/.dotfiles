@@ -22,7 +22,7 @@ FAILS = []
 def main():
     work = tempfile.mkdtemp(prefix="ai-cmd-tests-")
     try:
-        for test in (t_hook_files, t_no_em_dash, t_render_cap, t_pr_resume, t_notify, t_agent_audit,
+        for test in (t_hook_files, t_no_em_dash, t_repo_no_em_dash, t_render_cap, t_pr_resume, t_notify, t_agent_audit,
                      t_ai_start, t_router_speed, t_ai_sync, t_ai_sync_links_skills, t_ai_sync_keeps_pstack, t_ai_sync_claude_plugin_copy, t_merged_branches_note, t_sync_hooks, t_dev_worktree_no_sync, t_hermes_plugin, t_playwright,
                      t_state_mode, t_skill_scanner_reject, t_winners_table, t_github_wall_dry_run,
                      t_github_wall_apply, t_tests_workflow_shape, t_pr_text_workflow_shape, t_ai_checks_template,
@@ -114,6 +114,24 @@ def t_no_em_dash(work):
                 if chr(0x2014).encode() in open(p, "rb").read():
                     bad.append(os.path.relpath(p, REPO))
     assert not bad, "em dash in: " + ", ".join(bad)
+
+
+def t_repo_no_em_dash(work):
+    """Ticket rth-07, edge case 1: no tracked file holds the literal em dash, apart from the text-lint allow list
+    (vendored and generated files). Code builds the character at run time from its code point."""
+    sys.path.insert(0, HOOKS)
+    import hooklib
+    res = subprocess.run(["git", "-C", REPO, "ls-files", "-z"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    if res.returncode != 0:
+        return      # an unpacked copy with no git: t_no_em_dash still reads the code folders
+    allow = hooklib.text_lint_allow(REPO)
+    bad = []
+    for rel in res.stdout.decode("utf-8", "replace").split("\0"):
+        p = os.path.join(REPO, rel)
+        if rel and not hooklib.text_lint_allowed(rel, allow) and os.path.isfile(p) and not os.path.islink(p):
+            if hooklib.EM_DASH.encode() in open(p, "rb").read():
+                bad.append(rel)
+    assert not bad, "the literal em dash in: " + ", ".join(bad)
 
 
 def t_render_cap(work):
@@ -933,6 +951,8 @@ def t_pr_text_workflow_shape(work):
     assert_safe_workflow(text, "pull_request_target")
     assert re.search(r"ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}", text), "check out the base commit"
     assert "ai/bin/ai-check pr-rules --pr-body" in text and '--title "$PR_TITLE"' in text, "the check of the base"
+    assert re.search(r"printf .*\$PR_TITLE.*\$PR_BODY.* > \"\$RUNNER_TEMP/pr-text\.md\"", text), "title and body"
+    assert 'ai/bin/ai-check text --pr-body "$RUNNER_TEMP/pr-text.md"' in text, "rth-07: the em dash check of the PR"
 
 
 def t_ai_checks_template(work):
@@ -948,6 +968,7 @@ def t_ai_checks_template(work):
     assert "needs a token" in text and "exit 1" in text, "a private setup repo stops with a clear message"
     assert_safe_workflow(text, "pull_request")
     assert "ai-check pr-rules --pr-body" in text and '--title "$PR_TITLE"' in text, text
+    assert 'ai-check text --pr-body "$RUNNER_TEMP/pr-text.md"' in text, "rth-07: the em dash check of the PR"
 
 
 def workflow_text(path):

@@ -62,5 +62,9 @@ jobs:
           echo "$RUNNER_TEMP/ai-setup/ai/bin" >> "$GITHUB_PATH"
       - name: PR body to a file
         run: printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
+      - name: PR title and body to a file (the text check)
+        run: printf '%s\n\n%s\n' "$PR_TITLE" "$PR_BODY" > "$RUNNER_TEMP/pr-text.md"
       - name: PR text check
         run: ai-check pr-rules --pr-body "$RUNNER_TEMP/pr-body.md" --title "$PR_TITLE" --base "$BASE_REF"
+      - name: No em dash in the PR title and body
+        run: ai-check text --pr-body "$RUNNER_TEMP/pr-text.md"

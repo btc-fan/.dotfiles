@@ -635,6 +635,9 @@ def t_scenario_small_new_project(work):
     assert "design-system/" in read(os.path.join(repo, "CODING_STANDARDS.md"))
     hook_text = read(os.path.join(repo, ".git", "hooks", "pre-commit")) or ""
     assert "ai-precommit" in hook_text and os.access(os.path.join(repo, ".git", "hooks", "pre-commit"), os.X_OK)
+    msg_hook = os.path.join(repo, ".git", "hooks", "commit-msg")
+    assert 'ai-precommit --commit-msg "$1"' in (read(msg_hook) or "") and os.access(msg_hook, os.X_OK), \
+        "ticket rth-07: the commit-msg hook sits next to the pre-commit hook"
     assert not os.path.exists(os.path.join(repo, ".ai", "docs-allow")), "no stray Markdown: no baseline file"
     assert "ai-docs-check" in read(os.path.join(repo, "Makefile")), "make check runs the Markdown check"
     res = adopt(repo, env)
@@ -930,6 +933,109 @@ def t_check_reads_input_as_data(work):
     marker = os.path.join(work, "ran")
     res = check(env, repo, "secret-scan", "--command", "touch %s && git commit -m x" % marker)
     assert res.returncode == 0 and not os.path.exists(marker), res.text
+
+
+# ---------------------------------------------------------------- text lint at commit (ticket 07)
+# The em dash is built at run time (chr(0x2014)): the repo holds no literal one.
+
+DASH = chr(0x2014)
+LONG_SENTENCE = " ".join(["word"] * 29) + " end."      # 30 words
+
+
+def text_hooks(repo):
+    """The 2 hooks that ai-adopt installs (pre-commit, commit-msg), calling this checkout's ai-precommit."""
+    precommit_hook(repo)
+    path = os.path.join(repo, ".git", "hooks", "commit-msg")
+    write(path, '#!/bin/sh\nexec %s %s --commit-msg "$1"\n' % (sys.executable, os.path.join(BIN, "ai-precommit")))
+    os.chmod(path, 0o755)
+
+
+def t_precommit_em_dash(work):
+    """A staged added line with the em dash is refused in each text file type, with the file and line. Old lines,
+    deleted lines, a rename and a binary file pass. 2,000 added lines stay fast."""
+    files = dict(PY_APP, **{"docs/old.md": "old %s line\n" % DASH, "docs/move.md": "moved %s line\n" % DASH})
+    repo, env = new_repo(work, "dash", files)
+    text_hooks(repo)
+    write(os.path.join(repo, "src", "app", "core.py"), "def add(a, b):\n    return a + b  # a %s b\n" % DASH)
+    write(os.path.join(repo, "notes.txt"), "a %s b\n" % DASH)
+    res = commit(repo, env, "conf/app.yaml", "key: 1\nname: a %s b\n" % DASH)
+    assert res.returncode != 0, res.text
+    for where in ("src/app/core.py:2", "notes.txt:1", "conf/app.yaml:2"):
+        assert where in res.text, (where, res.text)
+    assert "text-lint-allow" in res.text, "the refusal names the way out for a quote: " + res.text
+    git(repo, "reset", "-q", "--hard", env=env)
+    git(repo, "clean", "-qfd", env=env)
+
+    res = commit(repo, env, "docs/old.md", "old %s line\nnew clean line\n" % DASH)
+    assert res.returncode == 0, "an old line does not block: " + res.text
+    res = commit(repo, env, "docs/old.md", "new clean line\n")
+    assert res.returncode == 0, "a deleted line passes: " + res.text
+    git(repo, "mv", "docs/move.md", "docs/moved.md", env=env)
+    res = git(repo, "commit", "-qm", "rename", env=env)
+    assert res.returncode == 0, "a rename adds no line: " + res.text
+    with open(os.path.join(repo, "logo.bin"), "wb") as fh:
+        fh.write(b"\x00\x01" + DASH.encode() + b"\x00")
+    git(repo, "add", "logo.bin", env=env)
+    res = git(repo, "commit", "-qm", "logo", env=env)
+    assert res.returncode == 0, "a binary file is skipped: " + res.text
+
+    write(os.path.join(repo, "big.txt"), "clean line\n" * 2000 + "last %s\n" % DASH)
+    git(repo, "add", "big.txt", env=env)
+    start = time.time()
+    res = check(env, repo, "text", "--staged")
+    print("     ai-check text --staged, 2,000-line diff: %.2f s" % (time.time() - start))
+    assert res.returncode == 1 and "big.txt:2001" in res.text and time.time() - start < 5, res.text
+
+
+def t_commit_msg_em_dash(work):
+    """The commit-msg hook refuses a message with the em dash. The diff that git commit -v puts under the scissors
+    line does not count. A clean message passes."""
+    repo, env = new_repo(work, "msg", dict(PY_APP))
+    text_hooks(repo)
+    write(os.path.join(repo, "a.txt"), "a\n")
+    git(repo, "add", "a.txt", env=env)
+    res = git(repo, "commit", "-qm", "feat: one %s two" % DASH, env=env)
+    assert res.returncode != 0 and "COMMIT_EDITMSG:1" in res.text and "em dash" in res.text, res.text
+    msg = os.path.join(work, "msg.txt")
+    write(msg, "feat: clean\n\n# ------------------------ >8 ------------------------\n+a %s b\n" % DASH)
+    res = run([sys.executable, os.path.join(BIN, "ai-precommit"), "--commit-msg", msg], env=env, cwd=repo)
+    assert res.returncode == 0, "the text under the scissors line is not the message: " + res.text
+    res = git(repo, "commit", "-qm", "feat: clean", env=env)
+    assert res.returncode == 0, res.text
+
+
+def t_ste_warning_only(work):
+    """A Markdown sentence of 30 words gives a warning with the file and line, and the commit passes. The same
+    sentence in a Python file gives nothing. AI_STE_STRICT=1 in the owner config makes the warning a failure."""
+    repo, env = new_repo(work, "ste", dict(PY_APP))
+    text_hooks(repo)
+    res = commit(repo, env, "docs/guide.md", "# Guide\n\nShort one.\n%s\n" % LONG_SENTENCE)
+    assert res.returncode == 0, res.text
+    assert "warning" in res.text and "docs/guide.md:4" in res.text and "30 words" in res.text, res.text
+    res = commit(repo, env, "src/app/note.py", "# %s\n" % LONG_SENTENCE)
+    assert res.returncode == 0 and "30 words" not in res.text, res.text
+
+    write(os.path.join(work, ".config", "ai", "config.env"), "AI_STE_STRICT=1\n")
+    res = commit(repo, env, "docs/more.md", "%s\n" % LONG_SENTENCE)
+    assert res.returncode != 0 and "docs/more.md:1" in res.text and "30 words" in res.text, res.text
+
+
+def t_text_lint_allow(work):
+    """A quote of another person: a glob in .ai/text-lint-allow lets it pass. Vendored and generated files pass
+    by default (vendor/, node_modules/, lock files, graphify-out/, .verify/evidence/)."""
+    repo, env = new_repo(work, "allow", dict(PY_APP))
+    text_hooks(repo)
+    for rel in ("ai/rules/vendor/up/SKILL.md", "node_modules/x/README.md", "package-lock.json",
+                "graphify-out/GRAPH_REPORT.md", ".verify/evidence/run-1/01-cli.txt"):
+        write(os.path.join(repo, rel), "a %s b\n" % DASH)
+    res = commit(repo, env, "uv.lock", "a %s b\n" % DASH)
+    assert res.returncode == 0, "vendored and generated files pass: " + res.text
+
+    res = commit(repo, env, "docs/research/quote.md", "They wrote: a %s b.\n" % DASH)
+    assert res.returncode != 0 and "docs/research/quote.md:1" in res.text, res.text
+    write(os.path.join(repo, ".ai", "text-lint-allow"), "# quotes of other repos\ndocs/research/*\n")
+    res = commit(repo, env, "docs/research/quote.md", "They wrote: a %s b.\n" % DASH)
+    assert res.returncode == 0, res.text
 
 
 def t_pr_gate_verify_log(work):

@@ -16,6 +16,8 @@ version: 4
 # Serena and graphify are opt-in per project. Grounded Docs and the GitHub MCP are dropped (context7, gh).
 # Ticket rules-that-hold 11 (2026-11-20, owner D1): 11 reminder rows left the router; each rule has a home in a
 # check, a skill or a tool list (docs/tickets/rules-that-hold/CHANGED-GUARDS.md).
+# Ticket rules-that-hold 07 (2026-11-20, owner): no-em-dash and ste-sentence left the router; ai-precommit, the
+# commit-msg hook and the PR text check run hooklib's text gate on added lines.
 # Fields: proof = regex over the session's tool/skill calls for the Stop miss log; once_per = session | agent
 # (the main agent and each subagent by its agent_id).
 # Action placeholders the router fills at fire time: {knowledge_index} {feature_flow} {nav_hint}
@@ -158,21 +160,6 @@ rules:
     trigger: {tool_before: 'Bash|shell|exec_command|local_shell', command: '\bgh\b'}
     action: "gh reads run freely; other gh writes ask the owner first."
     strength: gate    # ask (Codex: deny); the PR commands keep their own gates (pr-rules, merge-approval, ship)
-
-  # ---------- lint and docs ----------
-  - id: no-em-dash
-    scope: global
-    summary: 'after a write with U+2014'
-    trigger: {tool_after: 'Edit|Write|MultiEdit|Bash|shell|exec_command|local_shell', content: "\u2014"}   # escaped so this file itself passes the lint; shell: the lines a command added to the files it writes (ticket 19)
-    action: "Remove the em dash (U+2014). Use '-', ':' or a new sentence."
-    strength: nudge
-
-  - id: ste-sentence
-    scope: global
-    summary: 'Markdown sentence over 25 words'
-    trigger: {tool_after: 'Edit|Write|MultiEdit', paths: '**/*.md|**/*.MD|**/*.markdown|**/*.mdx', long_sentence: 25}   # the writing style rule (ASD-STE100)
-    action: "STE: 25 words max per sentence. Split it."   # short: the L0 table has a size cut
-    strength: nudge
 
   - id: feature-grill
     scope: global

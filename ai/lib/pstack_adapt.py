@@ -25,8 +25,11 @@ import re
 import shutil
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "marketplace", "plugins",
+                                "ai-core", "hooks"))
+from hooklib import EM_DASH as EM  # noqa: E402  a transform of upstream text, not a check: the one constant
+
 SKILLS = ("create-verification-skill", "maintain-verification-skill")
-EM = "—"
 TRIGGERS = {
     "create-verification-skill": ' Also at the first feature task in a project without a verify-<app> skill. RO: "creeaza skill-ul de verificare pentru proiect". RU: "создай навык проверки для проекта".',
     "maintain-verification-skill": ' RO: "actualizeaza skill-ul de verificare". RU: "обнови навык проверки".',

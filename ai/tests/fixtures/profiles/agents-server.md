@@ -185,8 +185,6 @@ opt-in = only where the project enabled the tool (ai-start, ai-adopt).
 | tdd | test-first prompt (tests first, tdd, red-green, failing test first; RO, RU) | Use the tdd skill (Skill tool) and follow its red-green slices before you end the turn. |
 | ship (gate) | before gh pr ready | Run the ship skill first (checks, review, Evidence), then gh pr ready. |
 | gh-write (gate) | gh write other than the PR commands | gh reads run freely; other gh writes ask the owner first. |
-| no-em-dash | after a write with U+2014 | Remove the em dash (U+2014). Use '-', ':' or a new sentence. |
-| ste-sentence | Markdown sentence over 25 words | STE: 25 words max per sentence. Split it. |
 | feature-grill | feature request (add, build ...; RO, RU) | Worktree ../<repo>-<slug> first; grill-with-docs (else grilling); 3+ files: to-spec, to-tickets; /implement each ticket (check-fast, verify, e2e, commit). Draft PR only if asked. Done: ship; the owner merges. |
 | serena (opt-in) | session start, Serena on (default) | Serena is on here (no memories; the Map holds knowledge): get_symbols_overview / find_symbol for definitions, find_referencing_symbols for callers, replace_symbol_body to edit. |
 | graph (opt-in) | session start, graphify on (default) | graphify is on here: graphify query for structure before rg (auto-refresh after commits, merges, checkouts). |

@@ -78,7 +78,7 @@ The versions and commits above are the intake audits. Installed today: the newes
 | SessionStart | rules with `when: session_start` (status lines); the skill card (every start, again after compact and clear); the author-sessions line (`main: <session id> dir: <cwd>`); the L0 table after compaction or /clear (startup and resume get only the status lines; the table is in the root rules) | L1 |
 | UserPromptSubmit | regex rules, then forced-eval text when a rule matched; shows the `diagnosing-bugs` and `tdd` hints (no stop since 2026-11-18). A harness notification (task-notification) fires no rule and never sets or clears the merge-approval OK | L2, L3 |
 | PreToolUse | gates: audit, secret scan, no sudo, no destroy, PR rules, merge approval, no verify, writing-for-agents (Edit, Write, shell writes), ship (`gh pr ready`), gh-write, winner gate (Skill tool), graph-first (first broad search); Claude Bash only: the `rtk-hook` wrapper | L4 |
-| PostToolUse | no-em-dash lint, docs ID log, skill proof (kept in the session state, logged to `fired.jsonl`), graphify and Serena use (ends graph-first) | L3, L7 |
+| PostToolUse | docs ID log, skill proof (kept in the session state, logged to `fired.jsonl`), graphify and Serena use (ends graph-first) | L3, L7 |
 | Stop | stop rules (none since 2026-11-18), `stop-check` (`check-fast`), miss log, then `claude-notify` | L4, L7 |
 | Notification | `claude-notify` | owner hook |
 | SessionStart (startup, resume) | caffeinate | owner hook |
@@ -88,7 +88,7 @@ Owner hooks come from the owner's hooks.json. Each hook finishes well under the 
 
 ## Routing
 
-Source: `ai/routing.yaml` (version 4, owner decision 2026-11-12: passive context beats nudges; enforcement round 2026-11-16). 26 rules (19 global: 7 nudges, 12 gates; 7 opt-in), a tie-break table of 4 rows, a `winners` table of 12 rows, the `skills` card block and a `layers` block.
+Source: `ai/routing.yaml` (version 4, owner decision 2026-11-12: passive context beats nudges; enforcement round 2026-11-16). 24 rules (17 global: 5 nudges, 12 gates; 7 opt-in), a tie-break table of 4 rows, a `winners` table of 12 rows, the `skills` card block and a `layers` block.
 Rules by group:
 - Session start: `project-knowledge` (status line: Map, Libraries, opt-in tools).
 - After a commit: no knowledge reminder. `make check` runs `ai-docs-check` (Map paths) and `ai-libs --check` (Libraries). The graph refreshes itself: after agent git calls the router starts `graphify update` in the background.
@@ -96,7 +96,7 @@ Rules by group:
 - Skill gates (`require_skill`): `writing-for-agents` (gate, before an edit of AGENTS.md, CLAUDE.md, a SKILL.md), `ship` (gate, before `gh pr ready`), `diagnosing-bugs` and `tdd` (stop rules: the next Stop is blocked once per session without the skill).
 - Not rows: `winner-gate` (the `winners` table, on the Skill tool) and graph-first (the `nav-first` row with `deny_once_when: graph`). Skip name for the owner escape hatch: the rule id, `winner-gate` or `nav-first`.
 - Tier 1 (adopted repos): `feature-grill` (L2: questions first for a feature prompt). The Stop hook `stop-check` is a separate script, not a routing row.
-- Lint and docs: `no-em-dash`, `ste-sentence` (a Markdown sentence over 25 words).
+- Text lint: not a row. `ai-precommit` and the `commit-msg` hook run `ai-check text` on added lines: an em dash fails, a Markdown sentence over 25 words warns (ticket rules-that-hold 07).
 - Default on (opt out with `no-serena`, `no-graph`): `serena`, `graph`. Opt-in catalog (`ai-adopt --tools <id>`): `omc`, `seo`, `blog`, `browser`, `ui`, `knowledge-wiki`.
 - Removed in v4 (ignored in the logs or unmeasured): `kickoff`, `no-memories`, `no-graph`, `graph-first`, `serena-first`, `graph-update`, `docs-on-dependency`, `github`, `prompting-others`, `agent-docs`, `wait-what`, `toolbox`.
 Tie-breaks: post file means blog-*, a URL means seo-*; new app means grilling; "deep interview" means OMC deep-interview.

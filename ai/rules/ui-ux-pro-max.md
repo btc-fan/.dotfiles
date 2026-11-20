@@ -24,7 +24,7 @@ Its skill files hold 34 U+2014 characters in total. Lint every output.
 - L2 and L3 (routing row `ui`): only in opt-in projects. Edit or Write of tsx, jsx, vue, svelte, css, html files gives a nudge to run its `search.py`.
 - L5: the OMC designer agent needs the L0 line from SubagentStart.
 - L6: the six asset skills have marketing-style descriptions and `design` overlaps the rest. Add RO and RU triggers in the hook.
-- The no-em-dash lint covers its output.
+- The em dash check of the commit hook covers its output.
 
 ## Proof
 Eval cases: `ai/evals/ui-ux-pro-max.md`. Run them only in a project that enabled the plugin. In a project that did not, ALL of them must NOT fire and the skill must be absent from the listing.
