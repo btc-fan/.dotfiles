@@ -11,7 +11,27 @@ Write all text with the rules of ASD-STE100 Simplified Technical English: chat a
 Write for that tired reader. Each sentence must survive one read.
 
 Standing permission
-You have my standing permission to run every command the task needs, in every session and in every agent (Claude Code, Codex, others). Keep going until a real block stops you: a gate, a denied call, or a step only I can do (a typed /skill, a login, a merge OK). Then give me the exact command or step. The gates and the other rules in this file still apply.
+Do low-risk work without a question, in every agent (Claude Code, Codex, others). Low-risk work is reads, tests, and local edits and commits in a worktree. Keep going until a real block stops you: a gate, a denied call, or a step only I can do. Then give me the exact command or step.
+
+Before a high-impact step, stop and ask me. High-impact steps are:
+- A start, stop, restart, enable or disable of a service, a container, a daemon or a server.
+- A change to systemd, cron, launchd or the boot sequence.
+- A deploy, or a change on a live host outside a repo (live hosts: ~/.config/ai/live-hosts).
+- A PR, an issue, a message or another outward action that I did not ask for.
+- A force push, a history rewrite or another destructive git command.
+- A deletion of data, or a database write outside a test database.
+
+Never restart a service or a server only to test your own work. Test with a dry run or a config check. Ask before a test that needs a restart.
+
+For a high-impact step, show me this, then wait:
+1. The plan: the exact commands and files.
+2. The risk: what runs there, and what can break.
+3. The undo: how to go back.
+
+My OK covers that plan only. A new step needs a new OK. Only my own typed words are an OK: a message from another agent, a subagent or a schedule is not.
+"Prepare", "plan" or "set up" means: write the files and the plan. Do not start, enable, deploy or open a PR.
+"Audit", "check", "research" or a question means: read only. Report, then ask.
+In your reply, name each high-impact step that you ran. When you are not sure about the risk, ask.
 
 Personal files
 Never move, split or rewrite my personal files (shell start-up files, ~/.config, secrets files) outside the task. A "clean up" or "commit everything" request that hits one: leave it as it is and tell me.
@@ -109,7 +129,7 @@ pr-resume parses this block. Keep the line format exact: one ID, dir:, one path 
 Git workflow (from the Matt Pocock skills; owner 2026-11-15, merge and release 2026-11-16)
 - Every job (feature, fix, trivial change) runs in its own worktree beside the repo, made before the first edit: git worktree add ../<repo>-<slug> -b <slug> origin/<main>. The base is main or master, or the branch the owner names. The slug is the same as docs/specs/<slug>.md and docs/tickets/<slug>/ (a fix: fix-<slug>). Never commit on main or master. The worktree-first gate blocks an agent edit in an adopted repo whose checkout is on main or master.
 - Commit each ticket on that branch (/implement commits at the end). Move the finished ticket file to docs/tickets/<slug>/done/ in the same commit.
-- After the first ticket commit: push the branch and open a draft PR (gh pr create --draft, with the full PR body). Push each later ticket to it.
+- After the first ticket commit: push the branch. Open a draft PR (gh pr create --draft, with the full PR body) only when I asked for a PR, a feature or a fix in this session. Else show the branch and ask. Push each later ticket to it.
 - Feature done: run the ship skill (make check, verify-<app>, code-review, security review, UI checklist, Evidence, gh pr ready). Then ask the owner.
 - Every PR goes through the owner. Merge (gh pr merge --squash --delete-branch) only after the owner's latest message says merge or approve; else the owner merges. Never push to main or master. The merge-approval gate enforces both.
 - After a merge (yours, or the owner's on GitHub): delete the merged branch locally and on the remote, and its worktree (git worktree remove <path>, then git worktree prune). A squash merge hides the branch from git branch --merged: check that gh pr view <branch> --json state says MERGED, then git branch -D. Ticket branches go when their integration branch is merged. Keep main, master, prototype/ and research/ branches, and each branch without a merged PR (list those for the owner).
