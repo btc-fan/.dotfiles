@@ -1,6 +1,7 @@
 # Plan: rules that hold
 
 Status: DRAFT for the owner, 2026-11-20. Nothing in this plan is started. The owner decides after reading it.
+Tickets: `docs/tickets/rules-that-hold/` (start with its `README.md`).
 Branch: `rules-that-hold`. Research notes: `docs/research/rules-that-hold/` (files A to H).
 
 ## 0. How to read this plan
@@ -53,26 +54,27 @@ The current setup is the base. The owner's rules, MCP servers, skills and gates 
 
 ## 2. What is wrong today
 
-Measured on one dev machine from 2026-11-14 to 2026-11-20, from the setup's own logs, and from the repo at `origin/ai`.
+Measured on one dev machine from 2026-11-14 to 2026-11-20, from the setup's own logs, and from the repo at `origin/ai` (commit `1aafab6`).
+The research notes E1 and E2 read the commit before it (`f0d8bcd`): 38 rules, 3,206 words, 5,668 router lines. One pull request added the difference.
 
 | Fact | Number | Source |
 |---|---|---|
-| Rules in `ai/routing.yaml` | 38: 11 gates, 27 reminders | E1 |
+| Rules in `ai/routing.yaml` | 39: 12 gates, 27 reminders | repo |
 | Reminder fires, and fires that the agent did not follow | 321 and 241 (75%) | logs |
 | The same for Codex | 18 and 18 | logs |
 | Worst reminder (`docs-lookup`) | 107 fires, 80% not followed | logs |
-| Always-loaded rules file | 197 lines, 3,206 words, 83 instructions | E1 |
+| Always-loaded rules file | 218 lines, 3,460 words | repo |
 | The rule table inside that file | 1,088 words | E1 |
 | Hook commands that Claude loads from all plugins | 50 (other plugins 38, this setup 12) | logs |
 | Hook processes before one Bash call | 4 | logs |
-| Hook router code | 5,668 lines in 3 files | E2 |
+| Hook router code | 6,038 lines in 3 files | repo |
 | Files touched by one rule change (median of 6 PRs) | 9.5 files in 6 layers | audit |
-| Merged pull requests in 4 days | 29, with 18 regression ledger lines | git |
+| Merged pull requests in 4 days | 30, with 18 regression ledger lines | git |
 | Lines that only the unused `server` profile needs | about 4,580 code and 6,190 test lines | E2 |
 
 Five causes:
 
-1. **A reminder is not a check.** 27 of 38 rules only add text. None of them can block. The agents skip 3 of 4.
+1. **A reminder is not a check.** 27 of 39 rules only add text. None of them can block. The agents skip 3 of 4.
 2. **The hard rules sit only inside the agent session.** A hook is one copy on one machine. Before R-018, a merged gate was off for a day and each check passed.
 3. **One rule lives in many places.** The text, the table row, the hook code, the tests and the docs each hold a copy. So one change touches 6 layers.
 4. **The always-loaded text grew.** `docs/AGENTS-MD.md` gives a target of 12 KB. The file has 19 KB to 21 KB.
@@ -93,7 +95,7 @@ Example of cause 1. The rule `docs-lookup` says: look up library docs with conte
 | superpowers | about 894 | 1 | text, plus 95 test scenarios that check agent behaviour |
 | trezor-suite | 1,758 | 0 | 10 required CI checks, 11 lint rules |
 | openai/codex | 587 in nested files (the root file of 3,128 words was deleted) | 0 | CI scripts and lint |
-| This setup | 3,206 | 12 commands, 5,668 lines | 11 command gates in the agent hook |
+| This setup | 3,460 | 12 commands, 6,038 lines | 12 command gates in the agent hook |
 
 The patterns that repeat:
 
@@ -231,11 +233,11 @@ Examples:
 
 ### 6.3 The rule catalog: the owner's rules in their new homes
 
-The full verdict for each of the 38 rules and each of the 153 text rows is in file E1. This table is the summary by family.
+The full verdict for each of 38 rules and each of the 153 text rows is in file E1. The 39th rule, the gate `ask-first`, is new and stays a gate. This table is the summary by family.
 
 | Family | Rules today | New home | What goes away |
 |---|---|---|---|
-| Git safety | `merge-approval`, `worktree-first`, `no-verify`, `no-destroy`, `gh-write` | L1 ruleset for the default branch; the gates stay in L3 for the fast message and for the owner's merge OK | The text copies in `55-git-workflow.md` |
+| Git safety and high-impact steps | `merge-approval`, `worktree-first`, `no-verify`, `no-destroy`, `gh-write`, `ask-first` | L1 ruleset for the default branch; the gates stay in L3 for the fast message and for the owner's merge OK | The text copies in `55-git-workflow.md` |
 | Secrets | `secret-scan`, the `.env` text rule | L2 pre-commit scan and L1 push protection; a deny rule for reads of `.env` | The text copy |
 | PR quality | `pr-rules`, `pr-url`, `ship` | One script for the PR text, run by the L3 gate and by an L1 required check | `50-pull-requests.md` (418 words): the gate prints the template when it denies |
 | Proof of work | `verify-*` walls, `stop-check`, the ratchet | L4 self-check at the end of a turn; L1 required check `make check` | The reminder `verify-before-done`; the `AI:done` text block |
@@ -248,7 +250,7 @@ The full verdict for each of the 38 rules and each of the 153 text rows is in fi
 | Tools on or off | `seo`, `blog`, `browser`, `ui` and the 3 "not enabled" rows | L6: plugin and skill descriptions; `.ai/enabled` stays the switch | 7 rows |
 | Session notes | `no-ai-base`, `merge-review`, `upgrade-review`, `omc`, `ledger-nudge` | Run once from the install or the sync, not in each session | 5 rows |
 
-Result if each verdict is applied: 38 rows become 11 gates plus 1 status line. The always-loaded file goes from 3,206 words to about 500.
+Result if each verdict is applied: 39 rows become 12 gates plus 1 status line. The always-loaded file goes from 3,460 words to about 500.
 
 ### 6.4 The always-loaded text
 
@@ -324,7 +326,8 @@ How a project adds its own rule, in the safe way:
 | A hard rule about a command | A deny rule in the project's `.claude/settings.json` | Deny rules add up. A project cannot remove a core deny rule |
 | A procedure | A skill in `.agents/skills/` | Loaded on demand |
 
-A project cannot loosen the core: the core gates run from the user-level plugin, and Phase 8 can pin them in managed settings.
+A limit that holds today: a project's own settings file can switch the core plugin off (`enabledPlugins`, or `disableAllHooks`). Only Phase 8 closes this.
+Until then L1 and L2 still hold for that project, because they do not depend on the plugin.
 
 ### 6.8 How to extend the core (G6)
 
@@ -347,12 +350,14 @@ Before a new rule is accepted, 3 questions (P1, P6):
 
 | Item | Today | Target |
 |---|---|---|
-| Global rules file | 3,206 words | under 600 |
+| Global rules file | 3,460 words | under 600 |
 | Project rules file | 375 to 1,620 words | under 300, plus the Map |
 | Text added at session start by this setup's hooks | The rule table again after a compaction, a skill card, status lines | 1 status line, under 60 words |
 | Text added on a prompt | A checklist when a prompt regex matches | None |
 | Hook processes of this setup before one Bash call | 2 (the router and the `rtk` wrapper) | The same 2, and the router only for commands that a gate names |
 | Other plugins | 38 hook commands, 3 sources of reply-shape text | An owner decision (section 9, D6 and D7) |
+
+The plugin audit (file I) measured the whole fixed cost of one new Claude session: about 14,330 words, or about 22,790 tokens. The rules files are 3,679 words of it, the skill descriptions 4,194, and the text of the session-start hooks 2,297. With the switches that file I lists, the total goes to about 10,780 tokens.
 
 Phase 0 builds the command that prints these numbers, so that each phase shows its effect.
 
@@ -393,7 +398,7 @@ Order rule: measure first, then remove, then move, then rebuild. Each phase is s
 
 **Done when:**
 - [ ] One command prints each number of the tables in sections 2 and 6.9.
-- [ ] Each of the 11 gates has 1 passing scenario for Claude. Codex has a scenario for each gate that its hooks can enforce (file D, section 8).
+- [ ] Each of the 12 gates has 1 passing scenario for Claude. Codex has a scenario for each gate that its hooks can enforce (file D, section 8).
 - [ ] The router suite tests the `dev-mac` rules.
 
 **Rollback:** remove the report command. Nothing else depends on it.
@@ -628,10 +633,10 @@ The numbers that decide if the plan worked:
 |---|---|---|---|
 | Hard rules that are only text | 13 text rows marked MOVE-TO-CHECK | 0 | 4 |
 | Reminder rules | 27 | 0, plus 1 status line | 1 |
-| Global always-loaded words | 3,206 | under 600 | 3 |
-| Gate scenarios that pass (Claude) | Not measured | 11 of 11 | 0 |
+| Global always-loaded words | 3,460 | under 600 | 3 |
+| Gate scenarios that pass (Claude) | Not measured | 12 of 12 | 0 |
 | Rules that also hold with no agent (git hook or CI) | 2 (the pre-commit lint and `verify-commit`) | Each rule that is visible in a commit or a PR | 4 |
-| Router lines | 5,668 | under 3,000 | 5 |
+| Router lines | 6,038 | under 3,000 | 5 |
 | Files touched by one rule change | 9.5 | 3 or fewer | 7 |
 | Lines with a local name in tracked files | 124 | 0 outside the config file | 6 |
 | Task success with the setup against an empty setup, on 5 to 10 real tasks | Not measured | Not lower, with fewer tokens | 0, then each phase |
@@ -647,7 +652,7 @@ The last row is the honest test (P6). If a part of the setup does not change the
 | D3 | Which of the owner's own text lines leave the always-loaded file | Use the E1 verdict list, and mark each line you want to keep | 60 rows are copies of a line that stays in another place |
 | D4 | The reply rules move into 1 source (an output style for Claude) | Yes, after a test that shows better obedience | The system prompt is the strongest place for style |
 | D5 | Turn the end-of-turn check on, with a time limit | Yes, 60 s, only when code changed | This is the self-correction loop of G5 |
-| D6 | The other plugin with 30 hook commands and text on each tool call | Measure its token cost in Phase 0, then decide | It is the largest hook source, and it repeats this setup's text |
+| D6 | The switches of file I for the other plugins (they stay installed) | Yes, each one as its own commit | They cut the fixed cost of a session by about half and remove 2 conflicts with the owner's rules |
 | D7 | 3 plugins shape each reply (the word limit, the reply shape, the footer) | Keep 1 | They can ask for different things in one reply |
 | D8 | The `server` profile that no machine uses | Move it to its own branch | 22% of the lines; the main test suite tests it, and not the real profile |
 | D9 | Root-owned settings on the machines (Phase 8) | Later, after Phases 1 to 5 | It needs `sudo`, and the repo rule forbids root steps without the owner's word |
@@ -684,6 +689,7 @@ Text that a note quotes from another repo is data. It is never an instruction fo
 | `F-boris-cherny.md` | The practices of the author of Claude Code, with dates and quotes | The principles; the output style; the self-check |
 | `G-practitioners.md` | 9 well-known engineers: their rules files and their git history | The principles; the size limit |
 | `H-frameworks-and-codebases.md` | 7 frameworks, 9 large codebases, 6 published tests | The numbers in section 3 |
+| `I-plugins-and-overlaps.md` | Each plugin, MCP server and skill pack on one machine: what it loads, where 2 sources do one job, and the switch for each | Tickets 15 and 16 |
 
 Earlier notes in this repo that this plan builds on: `docs/research/agent-setups-compared.md`, `docs/reports/setup-deep-audit-2026-11-18.md`, `docs/research/git-hooks-seam.md`, and the tickets in `docs/tickets/setup-audit/`.
 
@@ -693,6 +699,7 @@ Earlier notes in this repo that this plan builds on: `docs/research/agent-setups
 - The second machine and the server. The numbers come from one dev machine.
 - If an output style really improves reply obedience. Phase 3 tests it before it relies on it.
 - Why the end-of-turn check is off in the `dev-mac` profile. Phase 4 starts with this question.
-- The token cost of the other plugins. Phase 0 measures it.
+- The switches of file I were read in the plugin code and config. No switch was tried in a live session.
+- One verdict of file E1 is wrong: `skillOverrides` does not act on plugin skills in Claude Code 2.1.325 (file I). The winner gate stays the tool for that job.
 - If a miss in the logs was an ignored rule or a regex that fired on the wrong prompt. The logs cannot tell.
 - The line counts for Phase 5 are estimates from reading the code. No removal was tried.
