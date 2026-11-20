@@ -546,7 +546,7 @@ Per-tool cleanup details are in the "Setup checklist" of each `ai/rules/<tool>.m
 | `~/.local/bin/` | links to every command in `ai/bin/` |
 | `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, Hermes `SOUL.md` | each has one managed block `AI:core` that carries or points to the root rules |
 
-Commands in `ai/bin/`: `ai-info`, `ai-doctor`, `ai-render`, `ai-sync`, `agent-audit`, `ai-start`, `ai-adopt`, `ai-libs`, `claude-notify`, `pr-resume`.
+Commands in `ai/bin/`: `ai-info`, `ai-doctor`, `ai-render`, `ai-sync`, `agent-audit`, `ai-start`, `ai-adopt`, `ai-libs`, `claude-notify`, `pr-resume`, `ai-github-wall`.
 
 ## 10. Troubleshooting
 

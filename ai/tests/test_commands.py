@@ -24,7 +24,8 @@ def main():
     try:
         for test in (t_hook_files, t_no_em_dash, t_render_cap, t_pr_resume, t_notify, t_agent_audit,
                      t_ai_start, t_router_speed, t_ai_sync, t_ai_sync_links_skills, t_ai_sync_keeps_pstack, t_ai_sync_claude_plugin_copy, t_merged_branches_note, t_sync_hooks, t_dev_worktree_no_sync, t_hermes_plugin, t_playwright,
-                     t_state_mode, t_skill_scanner_reject, t_winners_table):
+                     t_state_mode, t_skill_scanner_reject, t_winners_table, t_github_wall_dry_run,
+                     t_github_wall_apply, t_tests_workflow_shape):
             try:
                 test(work)
                 print("ok   " + test.__name__)
@@ -736,6 +737,116 @@ def t_state_mode(work):
     for name in ("gates.log", "fired.jsonl"):
         mode = os.stat(os.path.join(state, name)).st_mode & 0o777
         assert mode == 0o600, "%s mode %o" % (name, mode)
+
+
+# Fake gh for ai-github-wall: logs argv and stdin; one ruleset of that name exists; FAKE_GH_DENY gives the
+# free-plan error of GitHub.
+FAKE_GH_WALL = r"""#!/bin/sh
+echo "gh $*" >> "$GH_LOG"
+case "$*" in *--input*) cat >> "$GH_LOG"; echo >> "$GH_LOG" ;; esac
+if [ -n "${FAKE_GH_DENY:-}" ]; then
+  echo 'gh: Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)' >&2; exit 1
+fi
+case "$*" in
+  "api repos/someone/tools/rulesets") echo '[{"id": 41, "name": "pull request and green checks"}]' ;;
+  "api repos/someone/tools --jq .security_and_analysis")
+    echo '{"secret_scanning_push_protection": {"status": "enabled"}}' ;;
+  *) echo '{}' ;;
+esac
+"""
+
+
+def github_wall_env(work, name):
+    """A git repo with a GitHub origin and a fake gh first on PATH."""
+    repo = os.path.join(work, name)
+    fake = os.path.join(work, name + "-bin")
+    os.makedirs(fake)
+    write_exec(os.path.join(fake, "gh"), FAKE_GH_WALL)
+    run(["git", "init", "-q", repo])
+    run(["git", "-C", repo, "remote", "add", "origin", "git@github.com:someone/tools.git"])
+    env = {"HOME": work, "PATH": fake + os.pathsep + os.environ["PATH"], "GH_LOG": os.path.join(work, name + ".log")}
+    return repo, env
+
+
+def wall(repo, env, *args):
+    full = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C.UTF-8"}
+    full.update(env)
+    res = subprocess.run([sys.executable, os.path.join(BIN, "ai-github-wall")] + list(args), cwd=repo, env=full,
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+    res.stdout = res.stdout.decode("utf-8", "replace")
+    return res
+
+
+def t_github_wall_dry_run(work):
+    """Ticket rth-04: --dry-run prints the 2 rulesets for the repo of the cwd and never calls gh."""
+    repo, env = github_wall_env(work, "wall-dry")
+    res = wall(repo, env, "--dry-run")
+    assert res.returncode == 0, res.stdout
+    data = json.loads(res.stdout)
+    assert data["repo"] == "someone/tools", data
+    checks, default = data["rulesets"]
+    assert checks["name"] == "pull request and green checks" and checks["bypass_actors"] == [], checks
+    assert checks["conditions"]["ref_name"]["include"] == ["refs/heads/ai"], checks
+    need = [c["context"] for r in checks["rules"] if r["type"] == "required_status_checks"
+            for c in r["parameters"]["required_status_checks"]]
+    assert need == ["tests", "pr-text"], need
+    assert default["bypass_actors"] == [] and default["conditions"]["ref_name"]["include"] == ["~DEFAULT_BRANCH"]
+    assert [r["type"] for r in default["rules"]] == ["deletion", "non_fast_forward", "pull_request"], default
+    assert not os.path.exists(env["GH_LOG"]), "--dry-run must not call gh"
+
+    res = wall(repo, env)
+    assert res.returncode == 2 and "usage" in res.stdout.lower(), res.stdout
+    run(["git", "-C", repo, "remote", "set-url", "origin", "https://gitlab.com/someone/tools.git"])
+    res = wall(repo, env, "--dry-run")
+    assert res.returncode == 1 and "not a GitHub remote" in res.stdout, res.stdout
+
+
+def t_github_wall_apply(work):
+    """Ticket rth-04: --apply updates the ruleset of the same name (PUT) and creates the other (POST); a free
+    private repo prints the plan message and exits 1; --check prints the push protection state."""
+    repo, env = github_wall_env(work, "wall-apply")
+    res = wall(repo, env, "--apply")
+    assert res.returncode == 0, res.stdout
+    log = open(env["GH_LOG"]).read()
+    assert "gh api repos/someone/tools/rulesets\n" in log, log
+    assert "gh api -X PUT repos/someone/tools/rulesets/41 --input -" in log, log
+    assert "gh api -X POST repos/someone/tools/rulesets --input -" in log, log
+    assert '"bypass_actors": []' in log and "~DEFAULT_BRANCH" in log, log
+    assert "admin" in res.stdout, "the output must say that an admin can still edit the ruleset: " + res.stdout
+
+    res = wall(repo, dict(env, FAKE_GH_DENY="1"), "--apply")
+    assert res.returncode == 1 and "rulesets need a public repo or a paid plan" in res.stdout, res.stdout
+
+    res = wall(repo, env, "--check")
+    assert res.returncode == 0 and "secret push protection: enabled" in res.stdout, res.stdout
+
+
+def t_tests_workflow_shape(work):
+    """Ticket rth-04: the workflow runs on PRs to ai; jobs tests-macos and tests-ubuntu, and a job `tests` that needs
+    both (the required check name); each action pinned by a 40-character SHA; read-only token; no secret."""
+    import re
+    path = os.path.join(REPO, ".github", "workflows", "tests.yml")
+    assert os.path.isfile(path), "missing " + os.path.relpath(path, REPO)
+    text = open(path, encoding="utf-8").read()
+    jobs = re.findall(r"^  ([\w-]+):\s*$", text.split("\njobs:\n", 1)[1], re.M)
+    assert jobs == ["tests-macos", "tests-ubuntu", "tests"], jobs
+    assert re.search(r"^  tests:\n(    .*\n)*    needs: \[tests-macos, tests-ubuntu\]$", text, re.M), "tests needs both"
+    assert re.search(r"^on:\n  pull_request:\n    branches: \[ai\b", text, re.M), "trigger: pull_request to ai"
+    assert re.search(r"^permissions:\n  contents: read$", text, re.M), "permissions: contents: read"
+    assert re.search(r"^  cancel-in-progress: true$", text, re.M), "a new push cancels the older run"
+    assert text.count("timeout-minutes: 40") == 2, "each test job has timeout-minutes: 40"
+    uses = re.findall(r"uses: (\S+)(.*)", text)
+    assert uses, "no uses: lines"
+    for ref, rest in uses:
+        assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", ref) and re.match(r"\s+# v\d", rest), \
+            "pin each action by its commit SHA, tag as a comment: " + ref + rest
+    assert "secrets." not in text and "pull_request_target" not in text, "no secret in the workflow"
+    assert text.count("bash ai/tests/run.sh") == 2 and "AI_TESTS_NO_AGENT: \"1\"" in text, text
+    assert "GITHUB_STEP_SUMMARY" in text, "the job summary lists the tests left out"
+
+    # The suite reads the env key and names the tests it leaves out; the job summary copies that line.
+    res = run(["bash", os.path.join(TESTS, "run.sh"), "-k", "zzz-no-such-case"], env={"AI_TESTS_NO_AGENT": "1"})
+    assert res.returncode == 0 and "left out (needs a logged-in agent): " in res.stdout, res.stdout
 
 
 # ---------------------------------------------------------------- helpers

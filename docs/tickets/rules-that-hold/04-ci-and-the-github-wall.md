@@ -23,6 +23,11 @@
 7. The `gh-write` gate asks before `gh api` with a write. So the agent never runs `--apply`. It prints the command for the owner (step M2).
 8. A pull request can change `tests.yml` itself. With 0 required reviews, the owner reads each workflow change. The PR template line "Changed guards" names it.
 9. Hooks use `/usr/bin/python3`. Both runners have it. The job prints its version (macOS 3.9 is the low bound).
+10. Difference: no test of the suite needs a logged-in agent today (each uses a fake claude and codex). `run.sh` prints "left out (needs a logged-in agent): none" until ticket 02 adds live tests to its list.
+11. Difference: `agent-audit` does not read workflow files. The pin check is `t_tests_workflow_shape` in `ai/tests/test_commands.py`.
+12. Difference: the ruleset requires `pr-text`, and ticket 06 makes that check. If the owner runs M2 before ticket 06 merges, each PR to `ai` waits.
+13. The job `tests` has `if: always()`. Without it, a failed test job makes `tests` skipped, and GitHub counts a skipped required check as passed.
+14. The run time is not measured, because nothing was pushed. The workflow has a `shortcut:` comment for it. `actionlint` was not installed, so it did not run.
 
 **Owner steps:**
 - M1: `ai-github-wall --dry-run` (prints the JSON it would send).
@@ -38,8 +43,8 @@
 - [ ] A pull request to `ai` shows the check `tests`, green on both operating systems.
 - [ ] A pull request with a broken test shows `tests` red.
 - [ ] The job summary lists each test that was left out because it needs a logged-in agent.
-- [ ] Each `uses:` line in the workflow names a 40-character commit SHA (a test reads the file).
-- [ ] `ai-github-wall --dry-run` prints valid JSON with `"bypass_actors": []` and changes nothing on GitHub.
+- [x] Each `uses:` line in the workflow names a 40-character commit SHA (a test reads the file).
+- [x] `ai-github-wall --dry-run` prints valid JSON with `"bypass_actors": []` and changes nothing on GitHub.
 - [ ] After M2, `git push origin ai` from a local branch is refused by GitHub (owner evidence).
 
 **Verify:**

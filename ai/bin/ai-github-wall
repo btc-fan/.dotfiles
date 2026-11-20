@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+"""ai-github-wall: the GitHub side of the rules (ticket rules-that-hold 04). The repo comes from the git remote
+`origin` of the current folder.
+
+Usage:
+  ai-github-wall --dry-run   print the 2 rulesets as JSON; change nothing
+  ai-github-wall --apply     send them with gh api; a ruleset with the same name is updated, not added again
+  ai-github-wall --check     print the state of secret push protection (exit 1 when it is not enabled)
+
+Ruleset 1, for the branch `ai` that has the workflow: pull request, no deletion, no force push, checks `tests`
+and `pr-text` green. Ruleset 2, for the default branch, which has no workflow: the same without the checks.
+Exit 0 = done, 1 = gh or GitHub refused, 2 = usage error.
+"""
+import json
+import re
+import subprocess
+import sys
+
+CHECKS = "pull request and green checks"
+DEFAULT = "pull request on the default branch"
+
+
+def main(argv):
+    if len(argv) != 1 or argv[0] not in ("--dry-run", "--apply", "--check"):
+        print(__doc__.split("\n\n", 1)[1].split("\n\n", 1)[0])
+        return 2
+    repo = origin_repo()
+    if repo is None:
+        print("ai-github-wall: the remote origin of this folder is not a GitHub remote")
+        return 1
+
+    if argv[0] == "--dry-run":
+        print(json.dumps({"repo": repo, "rulesets": rulesets()}, indent=1))
+        return 0
+    if argv[0] == "--check":
+        return check(repo)
+    return apply(repo)
+
+
+def apply(repo):
+    res = gh(["api", "repos/%s/rulesets" % repo])
+    if res.returncode != 0:
+        return refused(res)
+    known = {r["name"]: r["id"] for r in json.loads(res.stdout or "[]")}
+
+    for ruleset in rulesets():
+        rid = known.get(ruleset["name"])
+        if rid:
+            args = ["api", "-X", "PUT", "repos/%s/rulesets/%s" % (repo, rid), "--input", "-"]
+        else:
+            args = ["api", "-X", "POST", "repos/%s/rulesets" % repo, "--input", "-"]
+        res = gh(args, json.dumps(ruleset))
+        if res.returncode != 0:
+            return refused(res)
+        print("%s: %s" % ("updated" if rid else "made", ruleset["name"]))
+
+    print("Note: bypass_actors is empty, but an admin token can still edit or delete these rulesets.")
+    return 0
+
+
+def check(repo):
+    res = gh(["api", "repos/%s" % repo, "--jq", ".security_and_analysis"])
+    if res.returncode != 0:
+        return refused(res)
+    state = (json.loads(res.stdout or "null") or {}).get("secret_scanning_push_protection", {}).get("status", "off")
+    print("secret push protection: %s" % state)
+    return 0 if state == "enabled" else 1
+
+
+def refused(res):
+    text = res.stdout + res.stderr
+    if re.search(r"Upgrade to GitHub Pro|make this repository public", text):     # 403 or 404 on a free private repo
+        print("ai-github-wall: rulesets need a public repo or a paid plan")
+    print(text.strip())
+    return 1
+
+
+def rulesets():
+    base = [
+        {"type": "deletion"},
+        {"type": "non_fast_forward"},
+        {"type": "pull_request", "parameters": {
+            "required_approving_review_count": 0, "dismiss_stale_reviews_on_push": False,
+            "require_code_owner_review": False, "require_last_push_approval": False,
+            "required_review_thread_resolution": False}},
+    ]
+    checks = {"type": "required_status_checks", "parameters": {
+        "strict_required_status_checks_policy": False,
+        "required_status_checks": [{"context": "tests"}, {"context": "pr-text"}]}}
+    return [ruleset(CHECKS, "refs/heads/ai", base + [checks]), ruleset(DEFAULT, "~DEFAULT_BRANCH", base)]
+
+
+def ruleset(name, ref, rules):
+    return {"name": name, "target": "branch", "enforcement": "active", "bypass_actors": [],
+            "conditions": {"ref_name": {"include": [ref], "exclude": []}}, "rules": rules}
+
+
+def origin_repo():
+    res = subprocess.run(["git", "remote", "get-url", "origin"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                         text=True)
+    m = re.search(r"github\.com[:/]([^/\s]+)/([^/\s]+?)(?:\.git)?/?$", res.stdout.strip())
+    return "%s/%s" % m.groups() if m else None
+
+
+def gh(args, stdin=""):
+    return subprocess.run(["gh"] + args, input=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

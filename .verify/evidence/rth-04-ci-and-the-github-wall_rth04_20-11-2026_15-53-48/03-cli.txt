@@ -1,0 +1,89 @@
+/Users/python-qa/work/dotfiles-rth-04/ai/bin/ai-github-wall --dry-run
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-hsw6k8kx/empty
+rc: 0
+--- transcript
+{
+ "repo": "someone/tools",
+ "rulesets": [
+  {
+   "name": "pull request and green checks",
+   "target": "branch",
+   "enforcement": "active",
+   "bypass_actors": [],
+   "conditions": {
+    "ref_name": {
+     "include": [
+      "refs/heads/ai"
+     ],
+     "exclude": []
+    }
+   },
+   "rules": [
+    {
+     "type": "deletion"
+    },
+    {
+     "type": "non_fast_forward"
+    },
+    {
+     "type": "pull_request",
+     "parameters": {
+      "required_approving_review_count": 0,
+      "dismiss_stale_reviews_on_push": false,
+      "require_code_owner_review": false,
+      "require_last_push_approval": false,
+      "required_review_thread_resolution": false
+     }
+    },
+    {
+     "type": "required_status_checks",
+     "parameters": {
+      "strict_required_status_checks_policy": false,
+      "required_status_checks": [
+       {
+        "context": "tests"
+       },
+       {
+        "context": "pr-text"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "pull request on the default branch",
+   "target": "branch",
+   "enforcement": "active",
+   "bypass_actors": [],
+   "conditions": {
+    "ref_name": {
+     "include": [
+      "~DEFAULT_BRANCH"
+     ],
+     "exclude": []
+    }
+   },
+   "rules": [
+    {
+     "type": "deletion"
+    },
+    {
+     "type": "non_fast_forward"
+    },
+    {
+     "type": "pull_request",
+     "parameters": {
+      "required_approving_review_count": 0,
+      "dismiss_stale_reviews_on_push": false,
+      "require_code_owner_review": false,
+      "require_last_push_approval": false,
+      "required_review_thread_resolution": false
+     }
+    }
+   ]
+  }
+ ]
+}
+
+--- git status --short after
