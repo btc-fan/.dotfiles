@@ -6,12 +6,12 @@ Status: DRAFT, 2026-11-20. The owner has not started the work.
 ## What these tickets do
 
 They keep each rule, skill, plugin and gate of the owner. They move each rule to the lowest place that can check it, remove the copies, and prove each step.
-Nothing is merged into `ai` by these tickets. The work lands on the branch `rules-that-hold`. The owner tries that branch on one project, then decides.
+Nothing is merged into `ai` by these tickets. The work lands on the branch `ai-fable`, a copy of `ai`. The owner compares the 2 branches at the end. The owner tries that branch on one project, then decides.
 
 ## How an agent works a ticket
 
 1. Read the spec sections 4 to 6, then the ticket, then the research file that the ticket names.
-2. Work in your own worktree on a branch `rth-<NN>-<slug>`, made from `rules-that-hold`.
+2. Work in your own worktree on a branch `rth-<NN>-<slug>`, made from `ai-fable`.
 3. Write the failing test first. Then make the change.
 4. Run the tests that the ticket names. Run the full suite before you say "done".
 5. Run the verify drives that the ticket names, and keep the evidence folder.

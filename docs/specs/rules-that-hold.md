@@ -2,7 +2,7 @@
 
 Status: DRAFT for the owner, 2026-11-20. Nothing in this plan is started. The owner decides after reading it.
 Tickets: `docs/tickets/rules-that-hold/` (start with its `README.md`).
-Branch: `rules-that-hold`. Research notes: `docs/research/rules-that-hold/` (files A to H).
+Branch: `ai-fable` (a copy of `ai` for the comparison; `ai` itself is not changed). Research notes: `docs/research/rules-that-hold/` (files A to H).
 
 ## 0. How to read this plan
 
