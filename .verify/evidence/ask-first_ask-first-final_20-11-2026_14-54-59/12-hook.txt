@@ -1,0 +1,9 @@
+router.py --agent claude UserPromptSubmit
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-i35hw65k/python-with-tests
+payload: {"session_id": "s5", "prompt": "Look at the logs, the build was approved by CI", "cwd": "/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-i35hw65k/python-with-tests", "hook_event_name": "UserPromptSubmit"}
+decision: allow
+rules fired: none
+router errors: none
+rc: 0
+
+--- output

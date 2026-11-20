@@ -1912,7 +1912,7 @@ def backup_path(path):
 
 
 SECRET_RX = re.compile(r"(?i)(key|token|secret|password|pat|auth)[A-Z0-9_]*=")
-TOKEN_RX = re.compile(r"(ctx7sk-|ghp_|gho_|github_pat_|sk-ant-|sk-|xox[abp]-)[A-Za-z0-9_\-]+")
+TOKEN_RX = re.compile(r"(?<![A-Za-z0-9])(ctx7sk-|ghp_|gho_|github_pat_|sk-ant-|sk-|xox[abp]-)[A-Za-z0-9_\-]+")   # R-019: word start only
 
 
 def redact(arg):

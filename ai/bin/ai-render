@@ -371,7 +371,7 @@ PLACEHOLDER_WORDS = {
     "knowledge_delta": "Update the AGENTS.md Map, run ai-libs --sync or graphify update, as the commit needs.",
     "libs_hits": "(cached IDs)",
     "ledger_hits": "docs/REGRESSIONS.md area (long tier): keep its R-IDs green, run their tests.",
-    "feature_flow": "Worktree ../<repo>-<slug> first; grill-with-docs (else grilling); 3+ files: to-spec, to-tickets; /implement each ticket (check-fast, verify, e2e, commit; draft PR after #1). Done: ship, then the owner merges. Trivial: no grill.",
+    "feature_flow": "Worktree ../<repo>-<slug> first; grill-with-docs (else grilling); 3+ files: to-spec, to-tickets; /implement each ticket (check-fast, verify, e2e, commit). Draft PR only if asked. Done: ship; the owner merges.",
     "merge_review": "/improve-codebase-architecture, then /retro; findings as tickets or a PR; then git rev-parse main > .ai/last-review.",
     "legacy_memory": "Move the facts into the repo (PR), then delete the files.",
     "upgrade_pending": "Run the upgrade-review skill.",

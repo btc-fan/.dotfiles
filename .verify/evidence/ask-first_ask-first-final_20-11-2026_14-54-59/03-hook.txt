@@ -1,0 +1,10 @@
+router.py --agent claude PreToolUse
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-i35hw65k/python-with-tests
+payload: {"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": "herdr-core server start"}, "cwd": "/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-i35hw65k/python-with-tests", "hook_event_name": "PreToolUse"}
+decision: deny
+rules fired: ask-first
+router errors: none
+rc: 0
+
+--- output
+{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "[ai gate ask-first] High-impact step: herdr-core server start (a program start or stop). Stop here. Show the owner the whole plan (every command of it), the risk (what runs there and what can break) and the undo. Then wait until the owner types go (or ok) once; it covers the plan for that turn. Never restart a service or a server only to test your own work: test with a dry run or a config check first. Do not rephrase the command or try another way.\nOnly the owner can let it through, when the owner types go (or ok) in the next message. Do not try to get around the gate."}}

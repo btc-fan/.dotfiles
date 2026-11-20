@@ -1157,8 +1157,8 @@
    "not_contains": "Destructive command blocked"
   },
   {
-   "name": "psql DROP on a scratch db",
-   "expect": "allow",
+   "name": "psql DROP on a scratch db (no-destroy silent; ask-first stops it, owner 2026-11-20)",
+   "expect": "deny",
    "event": "PreToolUse",
    "payload": {
     "tool_name": "Bash",
@@ -1177,7 +1177,8 @@
     },
     "commit": "init"
    },
-   "not_contains": "Destructive command blocked"
+   "not_contains": "Destructive command blocked",
+   "contains": "[ai gate ask-first]"
   },
   {
    "name": "psql SELECT on a protected db",
@@ -1226,8 +1227,8 @@
    "not_contains": "Destructive command blocked"
   },
   {
-   "name": "DELETE with WHERE on a protected db",
-   "expect": "allow",
+   "name": "DELETE with WHERE on a protected db (no-destroy silent; ask-first stops it, owner 2026-11-20)",
+   "expect": "deny",
    "event": "PreToolUse",
    "payload": {
     "tool_name": "Bash",
@@ -1246,11 +1247,12 @@
     },
     "commit": "init"
    },
-   "not_contains": "Destructive command blocked"
+   "not_contains": "Destructive command blocked",
+   "contains": "[ai gate ask-first]"
   },
   {
-   "name": "SQL rule needs a protected list",
-   "expect": "allow",
+   "name": "SQL rule needs a protected list (no-destroy silent; ask-first stops it, owner 2026-11-20)",
+   "expect": "deny",
    "event": "PreToolUse",
    "payload": {
     "tool_name": "Bash",
@@ -1266,11 +1268,12 @@
     },
     "commit": "init"
    },
-   "not_contains": "Destructive command blocked"
+   "not_contains": "Destructive command blocked",
+   "contains": "[ai gate ask-first]"
   },
   {
-   "name": "force push to a feature branch",
-   "expect": "allow",
+   "name": "force push to a feature branch (no-destroy silent; ask-first stops it, owner 2026-11-20)",
+   "expect": "deny",
    "event": "PreToolUse",
    "payload": {
     "tool_name": "Bash",
@@ -1286,7 +1289,8 @@
     },
     "commit": "init"
    },
-   "not_contains": "Destructive command blocked"
+   "not_contains": "Destructive command blocked",
+   "contains": "[ai gate ask-first]"
   },
   {
    "name": "plain push of a branch (not destructive; a push to main is the merge-approval gate's job)",
@@ -1309,8 +1313,8 @@
    "not_contains": "Destructive command blocked"
   },
   {
-   "name": "reset --hard on a clean tree",
-   "expect": "allow",
+   "name": "reset --hard on a clean tree (no-destroy silent; ask-first stops it, owner 2026-11-20)",
+   "expect": "deny",
    "event": "PreToolUse",
    "payload": {
     "tool_name": "Bash",
@@ -1326,7 +1330,8 @@
     },
     "commit": "init"
    },
-   "not_contains": "Destructive command blocked"
+   "not_contains": "Destructive command blocked",
+   "contains": "[ai gate ask-first]"
   },
   {
    "name": "git reset --soft with changes",
@@ -1412,8 +1417,8 @@
    "not_contains": "Destructive command blocked"
   },
   {
-   "name": "docker compose down",
-   "expect": "allow",
+   "name": "docker compose down (no-destroy silent; ask-first stops it, owner 2026-11-20)",
+   "expect": "deny",
    "event": "PreToolUse",
    "payload": {
     "tool_name": "Bash",
@@ -1429,7 +1434,8 @@
     },
     "commit": "init"
    },
-   "not_contains": "Destructive command blocked"
+   "not_contains": "Destructive command blocked",
+   "contains": "[ai gate ask-first]"
   },
   {
    "name": "compose run of a service command",
@@ -2053,8 +2059,8 @@
    "not_contains": "Destructive command blocked"
   },
   {
-   "name": "force push HEAD to a feature branch",
-   "expect": "allow",
+   "name": "force push HEAD to a feature branch (no-destroy silent; ask-first stops it, owner 2026-11-20)",
+   "expect": "deny",
    "event": "PreToolUse",
    "payload": {
     "tool_name": "Bash",
@@ -2070,7 +2076,8 @@
     },
     "commit": "init"
    },
-   "not_contains": "Destructive command blocked"
+   "not_contains": "Destructive command blocked",
+   "contains": "[ai gate ask-first]"
   },
   {
    "name": "another worktree of this repo",
