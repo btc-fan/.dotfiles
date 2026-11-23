@@ -78,6 +78,9 @@ def fake_env(work, name, tools=()):
     # The admin hint names the user (id -un): one fixed name, not the user of this machine.
     os.remove(os.path.join(sysbin, "id"))
     stub(sysbin, "id", '#!/bin/sh\n[ "$*" = -un ] && { echo user; exit 0; }\nexec %s "$@"\n' % shutil.which("id", path="/usr/bin:/bin"))
+    # The plan names the CPU (uname -m) and picks the herdr asset by it: one fixed CPU, not the CPU of this machine.
+    os.remove(os.path.join(sysbin, "uname"))
+    stub(sysbin, "uname", '#!/bin/sh\n[ "$*" = -m ] && { echo arm64; exit 0; }\nexec %s "$@"\n' % shutil.which("uname", path="/usr/bin:/bin"))
     for t in tools:
         stub(bindir, t, "#!/bin/sh\n[ \"$1\" = --version ] && echo '%s 1.0.0'\nexit 0\n" % t)
     env = {"PATH": bindir + ":" + sysbin, "HOME": home, "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1",
@@ -105,6 +108,8 @@ def fake_homebrew(root, env):
          % (prefix, '{"formulae": [{"name": "rtk", "tap": "homebrew/core", "versions": {"stable": "1.2.0"}}]}'))
     stub(os.path.join(prefix, "Cellar", "rtk", "1.2.0", "bin"), "rtk", "#!/bin/sh\necho 'rtk 1.2.0'\nexit 0\n")
     os.symlink("../Cellar/rtk/1.2.0/bin/rtk", os.path.join(brew, "rtk"))
+    # A fake gh, not logged in, hides the real one: the plan says if gh is there. Some machines have no gh on this PATH.
+    stub(brew, "gh", "#!/bin/sh\nexit 1\n")
     env["PATH"] = ":".join([brew, "/opt/homebrew/bin", "/usr/local/bin", env["PATH"]])
     return brew
 

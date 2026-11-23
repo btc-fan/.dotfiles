@@ -1372,6 +1372,7 @@ def t_doctor_owner_text(work):
     lost owner text compared with its parent; PASS for a clean adopt commit."""
     doctor = load(os.path.join(BIN, "ai-doctor"), "aidoc3")
     repo, env = adopt_repo(work, "doc-owner", {"AGENTS.md": "# demo\n\n" + OWNER_RULES})
+    env["PATH"] = env["PATH"] + os.pathsep + BIN      # the commit below runs the adopt hook: it needs ai-precommit
     assert adopt(repo, env).returncode == 0
 
     def doctor_says(text):
@@ -1428,6 +1429,7 @@ def t_update_projects_flow(work):
     ai-update --only-projects: skipped (on ai-adopt), current (merged), and an older setup gives commit, push, PR and
     the project back on its default branch."""
     repo, env = adopt_repo(work, "upd", {})
+    env["PATH"] = env["PATH"] + os.pathsep + BIN      # the "older setup" commit runs the adopt hook: it needs ai-precommit
     bare = os.path.join(work, "someone", "upd.git")
     run(["git", "init", "-q", "--bare", bare])
     run(["git", "-C", repo, "remote", "add", "origin", bare])
