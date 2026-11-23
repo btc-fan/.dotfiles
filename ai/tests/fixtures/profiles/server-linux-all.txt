@@ -231,6 +231,7 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
 
 [9/16] skills
   [dry-run] link    ~/.claude/skills/create-verification-skill -> $REPO/ai/skills/create-verification-skill
+  [dry-run] link    ~/.claude/skills/feature-kickoff -> $REPO/ai/skills/feature-kickoff
   [dry-run] link    ~/.claude/skills/maintain-verification-skill -> $REPO/ai/skills/maintain-verification-skill
   [dry-run] link    ~/.claude/skills/promote-skill -> $REPO/ai/skills/promote-skill
   [dry-run] link    ~/.claude/skills/release -> $REPO/ai/skills/release
@@ -240,6 +241,7 @@ undo --only ^cmd:herdr-integration:|^toml:[^:]*/herdr/config\.toml:: 0 entr(y/ie
   [dry-run] link    ~/.claude/skills/upgrade-review -> $REPO/ai/skills/upgrade-review
   planned: Claude: shared skills and the 5 mattpocock skills linked into ~/.claude/skills
   [dry-run] link    ~/.agents/skills/create-verification-skill -> $REPO/ai/skills/create-verification-skill
+  [dry-run] link    ~/.agents/skills/feature-kickoff -> $REPO/ai/skills/feature-kickoff
   [dry-run] link    ~/.agents/skills/maintain-verification-skill -> $REPO/ai/skills/maintain-verification-skill
   [dry-run] link    ~/.agents/skills/promote-skill -> $REPO/ai/skills/promote-skill
   [dry-run] link    ~/.agents/skills/prompting-claude-and-codex -> $REPO/ai/skills/prompting-claude-and-codex

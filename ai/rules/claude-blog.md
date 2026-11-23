@@ -19,8 +19,8 @@ Claude-only is an inference from its CLAUDE.md wording, not a vendor statement.
 
 ## Enforcement
 - L0 (mandatory). Rows: `write a post | scrie un articol, напиши статью | blog-write`; `fix or refresh a post file | rescrie, actualizeaza postarea, перепиши, обнови пост | blog-rewrite`; `score or check a post | verifica postarea, проверь статью | blog-analyze / blog-seo-check`; `translate a post | tradu articolul, переведи статью | blog-translate`; `brief or outline for one post | brief pentru articol, бриф для статьи | blog-brief / blog-outline`; `fact check | verifica sursele, проверь факты | blog-factcheck`. Start with the router `claude-blog:blog`.
-- L1: the routing table comes back after compaction or /clear.
-- L2 (tight): fire only on (post|article|blog|articol|postare|статья|пост) AND (write|rewrite|draft|translate|brief|outline|scrie|rescrie|tradu|напиши|перепиши|переведи|проверь), or a path ending .md or .mdx under blog, posts, content, articles. Include "none". The word "blog" alone is a bad trigger.
+- L1: none. The routing table is in the root rules; the row `blog` is only the `ai-adopt --tools` catalog entry.
+- L2: none since rules-that-hold 12. The plugin skill descriptions and 1 index line in the rules file hold the trigger. Old design (tight): fire only on (post|article|blog|articol|postare|статья|пост) AND a writing verb, or a post path.
 - L3: Edit or Write of `**/{blog,posts,articles,content}/**/*.{md,mdx}` gives context "post file: use claude-blog, run blog_preflight before delivery".
 - L4 (fits here): PostToolUse matcher `Skill` and UserPromptExpansion each write a per-session marker. PreToolUse on Write or Edit of post paths denies unless the marker has a `claude-blog:` entry. Do not read the transcript for this (it lags). Escape: owner only, `sudo ai-gate-skip <gate> <minutes> <why>`.
 - L5: own subagents that write posts get the table through SubagentStart.

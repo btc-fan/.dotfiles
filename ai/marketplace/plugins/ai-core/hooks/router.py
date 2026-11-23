@@ -8,7 +8,7 @@ Matching is deterministic: regex, globs and project state. No LLM, no network.
 Python stdlib only, so the hook starts fast.
 
 What each event does:
-  SessionStart         L1: inject the L0 table + session_start rules whose state matches + the skill card.
+  SessionStart         L1: one status line + session_start rules whose state matches + the skill card.
   UserPromptSubmit     L3 regex on the prompt; if a rule or a tie-break matched, L2 forced-eval text.
   PreToolUse           L4 gates (deny or ask) and context nudges (quiet windows, log-only rules).
   PostToolUse          nudges after edits/commands, docs lookups, Skill proof (Skill call or a read SKILL.md).
@@ -34,7 +34,7 @@ import time
 sys.dont_write_bytecode = True      # no __pycache__ inside the (possibly read-only) plugin dir
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from hooklib import (FILE_GATES, GATES, GATE_PROBES, ai_home, append_jsonl, command_text, gate_skips,  # noqa: E402
-                     iso_now, knowledge_index, log_error,
+                     iso_now, status_line, log_error,
                      log_line, one_line, project_skills, verify_skill, skill_md,
                      origin_slug, parse_command, redact, project_root, read_text,
                      state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
@@ -45,9 +45,6 @@ from hooklib import (FILE_GATES, GATES, GATE_PROBES, ai_home, append_jsonl, comm
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
 CONTEXT_CAP = 9500          # additionalContext is cut here (hook output caps: Claude 10,000 chars, Codex ~2,500 tokens)
-PLACEHOLDER_MAX = {"knowledge_index": 800}   # worst-case length of a placeholder value (ai-render budget)
-L0_RESEND_SOURCES = ("compact", "clear")    # SessionStart sources that get the L0 table again
-L1_HEADER = "[ai router L1] Routing table (also in your root rules):\n"
 DAY = 86400
 CODEX_HINTS = ("turn_id", "tool_use_id")
 SHELL_TOOLS = ("Bash", "shell", "exec_command", "local_shell")
@@ -180,9 +177,11 @@ def on_session_start(ctx):
     home = session_in_home(ctx)
     if home:
         parts.append("[ai router: home-folder] STOP. " + HOME_MSG % home)
-    # Status lines first. The L0 table only after compact or clear (owner decision 2026-11-12): at startup and
-    # resume it is already in the root rules (CLAUDE.md, Codex AGENTS.md), so sending it again only costs
-    # tokens. A cut at CONTEXT_CAP loses only the table tail. ai-render checks the budget.
+    # One fact line (rules-that-hold 13). The rule table is not sent: the root rules file holds it, and Claude
+    # loads that file again from disk after a compaction or a clear.
+    status = status_line(ctx.root, [r["id"] for r in routing.get("rules", []) if r.get("scope") == "opt-in"])
+    if status:
+        parts.append(status)
     for rule in rules_for(routing, "session_start"):
         if not rule_enabled(rule, ctx):
             continue
@@ -200,11 +199,6 @@ def on_session_start(ctx):
     line = session_line(ctx)
     if line:
         parts.append(SESSION_MSG % line)
-    resend = str(ctx.payload.get("source") or "") in L0_RESEND_SOURCES
-    if resend and (routing.get("layers", {}).get("L1_session_start") is not None or routing.get("rules")):
-        l0 = read_text(first_existing(l0_candidates()))
-        if l0:
-            parts.append(L1_HEADER + l0.strip())
     if parts:
         ctx.add_context("\n\n".join(parts))
 
@@ -229,8 +223,7 @@ def on_user_prompt(ctx):
         rx = trig.get("prompt")
         if not rx:
             continue
-        hit = search_owner_words(rx, prompt) if rule["id"] in NAME_SENSITIVE else search(rx, prompt)
-        if not hit:
+        if not search(rx, prompt):
             continue
         if not rule_enabled(rule, ctx):
             continue
@@ -257,33 +250,11 @@ def on_user_prompt(ctx):
 
 PASTED_FENCE = re.compile(r"^[ \t]*```.*?(^[ \t]*```[^\n]*$|\Z)", re.M | re.S)
 PASTED_LINE = re.compile(r"^[ \t]*[\u23fa\u276f>\u2502].*$", re.M)
-NAME_SENSITIVE = ("ui", "diagnosing-bugs")
 
 
 def owner_text(prompt):
     """The prompt without pasted output: code fences and lines that start with a session marker (\u23fa \u276f > \u2502)."""
     return PASTED_LINE.sub("", PASTED_FENCE.sub("", prompt))
-
-
-def search_owner_words(rx, text):
-    """A match that is not part of a product name: no hyphen joins it to a word ("ui-ux-pro-max"), and a capitalised
-    match has no capitalised neighbour word ("Acme Performance Suite")."""
-    if not rx:
-        return False
-    try:
-        matches = list(re.finditer(rx, text, re.IGNORECASE))
-    except re.error as exc:
-        log_error("regex " + rx[:60], exc)
-        return False
-    for m in matches:
-        before, after = text[:m.start()], text[m.end():]
-        if re.search(r"\w-$", before) or re.match(r"-\w", after):
-            continue
-        near = [w.group(1) for w in (re.search(r"(\w{2,})[ \t]+$", before), re.match(r"[ \t]+(\w{2,})", after)) if w]
-        if m.group(0)[:1].isupper() and any(w[:1].isupper() for w in near):
-            continue
-        return True
-    return False
 
 
 def is_notification(prompt):
@@ -1290,10 +1261,6 @@ def check_state(name, ctx):
 # routing.yaml actions may hold {name}; the router fills them at fire time. Each value is a full phrase with
 # its own label, or "" (then it disappears). An action that renders to empty text sends no message.
 
-def _ph_knowledge_index(ctx):
-    return knowledge_index(ctx.root, ctx.agent)
-
-
 def graph_refresh(ctx):
     """After a successful git call that changes the code: start the background graph refresh (graph on)."""
     if ctx.agent not in ("claude", "codex") or not ctx.stages or not commit_succeeded(ctx):
@@ -1317,31 +1284,6 @@ def graph_build(ctx):
     return set_flag(ctx, "graph_build") and start_graph_refresh(root, build=True)
 
 
-WORKTREE_STEP = ("First a worktree for the job (worktree-first gate): git worktree add ../<repo>-<slug> -b <slug> "
-                 "origin/<main> (main or master, or the base the owner names); work only there. ")
-
-
-def _ph_feature_flow(ctx):
-    """The feature-grill action: grill-with-docs, to-spec, to-tickets and the Done order where the project links
-    them; plain grilling elsewhere (tier try, not adopted)."""
-    info = verify_skill(ctx.root) if ctx.root else None
-    vname = info["name"] if info else "verify-<app>"
-    if ctx.root and "grill-with-docs" in project_skills(ctx.root):
-        spec = set(project_skills(ctx.root)) & {"to-spec", "to-tickets"}
-        plan = (" A feature that touches 3+ files: to-spec, then to-tickets (vertical slices with acceptance criteria "
-                "and the %s feature each slice must pass; tickets in docs/tickets/, never GitHub issues without the "
-                "owner)." % vname) if spec == {"to-spec", "to-tickets"} else ""
-        return ("%sFeature work: grill-with-docs first (one round of questions, then GLOSSARY.md and docs/adr "
-                "updates).%s Then build slice by slice: check-fast green, %s on the changed feature (evidence kept), "
-                "then e2e tests for the proven journey. Feature done: the ship skill (checks, review, security, "
-                "Evidence, gh pr ready), then ask the owner to merge. A trivial change (typo, rename, one-line fix): "
-                "none needed.%s"
-                % (WORKTREE_STEP, plan, vname, typed_skills_note(ctx.root, ["grill-with-docs"] + sorted(spec) + ["implement"],
-                                                  ctx.agent)))
-    return (WORKTREE_STEP + "Feature work: before any code, run the grilling skill (one round of questions first), unless the "
-            "change is trivial (typo, rename, one-line fix, a config value).")
-
-
 def _ph_nav_hint(ctx):
     """Before the first broad code search of a session: graphify and Serena first."""
     if ctx.event != "PreToolUse" or not ctx.root:
@@ -1361,8 +1303,6 @@ def _ph_claude_handoff(ctx):
 
 
 PLACEHOLDERS = {
-    "knowledge_index": _ph_knowledge_index,
-    "feature_flow": _ph_feature_flow,
     "origin_slug": _ph_origin_slug,
     "claude_handoff": _ph_claude_handoff,
     "nav_hint": _ph_nav_hint,
@@ -1772,15 +1712,6 @@ def routing_candidates():
     home = ai_home()
     out = [os.path.join(home, "ai", "build", "routing.json")] if home else []
     return out + [os.path.join(HOOK_DIR, "routing.json")]
-
-
-def l0_candidates():
-    env = ROUTING_OVERRIDE or os.environ.get("AI_ROUTING_JSON")
-    if env:
-        return [os.path.join(os.path.dirname(env), "L0.md")]
-    home = ai_home()
-    out = [os.path.join(home, "ai", "build", "L0.md")] if home else []
-    return out + [os.path.join(HOOK_DIR, "L0.md")]
 
 
 def rules_for(routing, when):

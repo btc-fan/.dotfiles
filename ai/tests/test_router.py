@@ -184,7 +184,7 @@ def t_router_profile_flag(work):
 
 def t_router_coverage():
     """The coverage check names a rule that has no fire case (a throwaway rule, not in routing.yaml)."""
-    routing = {"rules": [{"id": "throwaway-rule"}]}
+    routing = {"rules": [{"id": "throwaway-rule", "trigger": {"prompt": "x"}}, {"id": "catalog-only", "trigger": {}}]}
     got = check_coverage(routing, {"throwaway-rule": {"nofire"}})
     if got != ["coverage: rule throwaway-rule has no should-fire case"]:
         return ["coverage check: a rule with no fire case gave %s" % got]
@@ -329,7 +329,7 @@ def check_fail_closed_inputs(work, build):
 
 def check_coverage(routing, coverage):
     errs = []
-    for rule in routing["rules"]:
+    for rule in [r for r in routing["rules"] if r.get("trigger")]:     # a catalog entry (trigger: {}) never fires
         kinds = coverage.get(rule["id"], set())
         if not kinds & FIRE_KINDS:
             errs.append("coverage: rule %s has no should-fire case" % rule["id"])

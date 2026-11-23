@@ -25,6 +25,48 @@
    "project": {
     "git": true
    }
+  },
+  {
+   "name": "R-004: pasted session lines do not count",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "⏺ I took a screenshot and ran the e2e test.\n❯ click the button\n> playwright done\nok, commit the README change"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".mcp.json": "{\"mcpServers\": {\"playwright\": {}}}"
+    }
+   }
+  },
+  {
+   "name": "R-004: a pasted code fence does not count",
+   "expect": "nofire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "here is the log:\n```\nplaywright: screenshot saved\n```\nsummarise it for the changelog"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".mcp.json": "{\"mcpServers\": {\"playwright\": {}}}"
+    }
+   }
+  },
+  {
+   "name": "R-004: a real prompt after a pasted block still fires",
+   "expect": "fire",
+   "event": "UserPromptSubmit",
+   "payload": {
+    "prompt": "⏺ Done.\ntake a screenshot of the login page"
+   },
+   "project": {
+    "git": true,
+    "files": {
+     ".mcp.json": "{\"mcpServers\": {\"playwright\": {}}}"
+    }
+   }
   }
  ]
 }

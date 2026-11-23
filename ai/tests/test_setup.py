@@ -639,7 +639,8 @@ def t_knowledge_status(work):
 
 
 def t_session_start_order(work):
-    """Status lines come before the L0 table (a cut loses only the table tail); ai-render fails past the cut."""
+    """One status line at every start; no L0 table again after compact or clear (rules-that-hold 13). ai-render
+    fails past the cut, and on a status line that can pass 60 words."""
     env, home, _bindir = bash_env(work)
     proj = os.path.join(work, "p")
     os.makedirs(proj)
@@ -656,14 +657,10 @@ def t_session_start_order(work):
         res = subprocess.run([sys.executable, os.path.join(PLUGIN, "hooks", "router.py"), "--agent", "claude",
                               "SessionStart"], input=payload.encode(), stdout=subprocess.PIPE, env=env, cwd=proj)
         return json.loads(res.stdout.decode())["hookSpecificOutput"]["additionalContext"]
-    for source in ("startup", "resume"):
+    for source in ("startup", "resume", "compact", "clear"):
         ctx = start(source)
-        assert "[ai router: project-knowledge]" in ctx and "[ai router L1]" not in ctx, \
-            "%s: status lines only, the L0 table is in the root rules: %s" % (source, ctx[:200])
-    for source in ("compact", "clear"):
-        ctx = start(source)
-        assert "[ai router L1]" in ctx and ctx.index("[ai router: project-knowledge]") < ctx.index("[ai router L1]"), \
-            source + ": L0 table again, after the status lines"
+        assert "ai: not adopted." in ctx and "[ai router L1]" not in ctx, \
+            "%s: the status line only, the L0 table is in the root rules: %s" % (source, ctx[:200])
     import importlib.machinery
     import types
     loader = importlib.machinery.SourceFileLoader("ai_render", os.path.join(AI_DIR, "bin", "ai-render"))
@@ -671,15 +668,12 @@ def t_session_start_order(work):
     mod.__file__ = loader.path
     loader.exec_module(mod)
     sys.path.insert(0, os.path.join(PLUGIN, "hooks"))
-    small = {"rules": [{"id": "a", "when": "session_start", "action": "x {knowledge_index}"}]}
-    assert mod.session_start_budget(small, "| t |\n") == ""
-    import contextlib
-    import io
-    with contextlib.redirect_stderr(io.StringIO()) as err:
-        assert mod.session_start_budget(small, "y" * 9400) == "", "a long table only warns (tail cut after compact)"
-    assert "WARN" in err.getvalue()
+    small = {"rules": [{"id": "a", "when": "session_start", "action": "x {nav_hint}"}]}
+    assert mod.session_start_budget(small) == ""
     big = {"rules": [{"id": "a", "when": "session_start", "action": "z" * 8500}]}
-    assert "status lines" in mod.session_start_budget(big, "| t |\n"), "status lines past cut minus margin must fail"
+    assert "status lines" in mod.session_start_budget(big), "status lines past cut minus margin must fail"
+    many = {"rules": [{"id": "tool%d" % i, "scope": "opt-in", "trigger": {}} for i in range(40)]}
+    assert "60 words" in mod.session_start_budget(many), "a status line that can pass 60 words must fail"
     # The real routing.yaml, every profile: after compact or clear the whole L0 table must fit under the cut.
     for profile in mod.ai_profile.names():
         res = subprocess.run([sys.executable, os.path.join(AI_DIR, "bin", "ai-render"), "--profile", profile,
@@ -1162,7 +1156,7 @@ def t_graph_build_at_session_start(work):
     write(os.path.join(proj, "app.py"), "print(1)\n")
     took, out = start("b")
     assert took < 1.5, "the hook must not wait for the build: %.2f s" % took
-    assert "[ai router: serena]" in out and "[ai router: graph]" in out, out
+    assert "Serena on, graph missing," in out, "rules-that-hold 13: the status line: " + out
     assert runs(20) == ["none update %s" % proj], "background graphify update"
     os.remove(marker)
     start("b", source="compact")

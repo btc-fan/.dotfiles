@@ -14,7 +14,7 @@ For the explanation of each tool, how tools overlap and interact: [TOOLS.md](TOO
 | Project rules | `<project>/AGENTS.md` + a one-line `CLAUDE.md` with `@AGENTS.md` | add rules. May override style or tooling only |
 | Opt-in tool blocks | `<!-- AI:<tool> v<N> START --> ... END -->` in the project AGENTS.md | skipped when the project already has text for the tool |
 | Global CLAUDE.md | `~/.claude/CLAUDE.md` | short: the root-rules import, the machine line and a 3-line OMC note. `ai-doctor` reports the long OMC block if an OMC update writes it back |
-| Skill card | `skills:` block of `ai/routing.yaml` | SessionStart text under 1500 characters (again after compact and clear): the must-use skills with one trigger line each, and the typed-only skills with "read the SKILL.md and follow it". `ai-render` fails above 1500 |
+| Skill card | `skills:` block of `ai/routing.yaml` | SessionStart text under 1500 characters (at every start): the must-use skills with one trigger line each, and the typed-only skills with "read the SKILL.md and follow it". `ai-render` fails above 1500 |
 | Winners | `winners:` block of `ai/routing.yaml` | the overlap table of the skills guide as data; the winner gate reads it. `test_commands.py` keeps both in step |
 
 ## Project knowledge (per repo, in its AGENTS.md, made by ai-adopt)
@@ -75,7 +75,7 @@ The versions and commits above are the intake audits. Installed today: the newes
 
 | Event | What | Layer |
 |---|---|---|
-| SessionStart | rules with `when: session_start` (status lines); the skill card (every start, again after compact and clear); the author-sessions line (`main: <session id> dir: <cwd>`); the L0 table after compaction or /clear (startup and resume get only the status lines; the table is in the root rules) | L1 |
+| SessionStart | one status line of facts (`ai: tier long, Map ok (12 lines), ...`, under 60 words); rules with `when: session_start`; the skill card; the author-sessions line (`main: <session id> dir: <cwd>`). The same text at every source: the L0 table is in the root rules, and Claude loads them again after a compaction | L1 |
 | UserPromptSubmit | regex rules, then forced-eval text when a rule matched; shows the `diagnosing-bugs` and `tdd` hints (no stop since 2026-11-18). A harness notification (task-notification) fires no rule and never sets or clears the merge-approval OK | L2, L3 |
 | PreToolUse | gates: audit, secret scan, no sudo, no destroy, PR rules, merge approval, no verify, writing-for-agents (Edit, Write, shell writes), ship (`gh pr ready`), gh-write, winner gate (Skill tool), graph-first (first broad search); Claude Bash only: the `rtk-hook` wrapper | L4 |
 | PostToolUse | docs ID log, skill proof (kept in the session state, logged to `fired.jsonl`), graphify and Serena use (ends graph-first) | L3, L7 |
@@ -90,18 +90,18 @@ Owner hooks come from the owner's hooks.json. Each hook finishes well under the 
 
 Source: `ai/routing.yaml` (version 4, owner decision 2026-11-12: passive context beats nudges; enforcement round 2026-11-16). 24 rules (17 global: 5 nudges, 12 gates; 7 opt-in), a tie-break table of 4 rows, a `winners` table of 12 rows, the `skills` card block and a `layers` block.
 Rules by group:
-- Session start: `project-knowledge` (status line: Map, Libraries, opt-in tools).
+- Session start: one status line (Map, Libraries, Serena, graph, verify skill, opt-in tools), not a routing row (rules-that-hold 13).
 - After a commit: no knowledge reminder. `make check` runs `ai-docs-check` (Map paths) and `ai-libs --check` (Libraries). The graph refreshes itself: after agent git calls the router starts `graphify update` in the background.
 - Gates: `audit-before-install`, `secret-scan`, `no-sudo`, `no-destroy`, `pr-rules`, `merge-approval`, `no-verify`, `gh-write`. Profile `dev-mac` does not render `audit-before-install`, `no-sudo` and `no-destroy`.
 - Skill gates (`require_skill`): `writing-for-agents` (gate, before an edit of AGENTS.md, CLAUDE.md, a SKILL.md), `ship` (gate, before `gh pr ready`), `diagnosing-bugs` and `tdd` (stop rules: the next Stop is blocked once per session without the skill).
 - Not rows: `winner-gate` (the `winners` table, on the Skill tool) and graph-first (the `nav-first` row with `deny_once_when: graph`). Skip name for the owner escape hatch: the rule id, `winner-gate` or `nav-first`.
-- Tier 1 (adopted repos): `feature-grill` (L2: questions first for a feature prompt). The Stop hook `stop-check` is a separate script, not a routing row.
+- Feature work: the model-invocable `feature-kickoff` skill (rules-that-hold 12; the row `feature-grill` is gone). The Stop hook `stop-check` is a separate script, not a routing row.
 - Text lint: not a row. `ai-precommit` and the `commit-msg` hook run `ai-check text` on added lines: an em dash fails, a Markdown sentence over 25 words warns (ticket rules-that-hold 07).
 - Default on (opt out with `no-serena`, `no-graph`): `serena`, `graph`. Opt-in catalog (`ai-adopt --tools <id>`): `omc`, `seo`, `blog`, `browser`, `ui`, `knowledge-wiki`.
 - Removed in v4 (ignored in the logs or unmeasured): `kickoff`, `no-memories`, `no-graph`, `graph-first`, `serena-first`, `graph-update`, `docs-on-dependency`, `github`, `prompting-others`, `agent-docs`, `wait-what`, `toolbox`.
 Tie-breaks: post file means blog-*, a URL means seo-*; new app means grilling; "deep interview" means OMC deep-interview.
 - Removed by ticket rules-that-hold 11 (each rule has a home elsewhere, see `docs/tickets/rules-that-hold/CHANGED-GUARDS.md`): `no-ai-base`, `merge-review`, `upgrade-review`, `ledger-nudge`, `docs-lookup`, `verify-before-done`, `seo-not-enabled`, `blog-not-enabled`, `browser-not-enabled`, `tracker-flow`, `domain-docs`.
-Action placeholders the router fills at fire time: `{knowledge_index}`, `{feature_flow}`, `{nav_hint}`, `{claude_handoff}`.
+Action placeholders the router fills at fire time: `{nav_hint}`, `{claude_handoff}`.
 To read the full table: `ai/routing.yaml`. Do not copy it here.
 
 ## Commands

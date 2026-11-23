@@ -23,6 +23,7 @@
 6. Explore and Plan subagents load no rules files. SessionStart text reaches the main session only. No subagent needs the status line, so this ticket adds no SubagentStart text.
 7. A session that is open during the change gets the new line at its next compaction. Its old L0 text stays in context until then.
 8. Codex: the same router runs on Codex SessionStart. Codex has no `compact` source in the same form, so the test sends `startup` and `resume` for Codex.
+9. Difference: `serena` and `graph` are also the `ai-adopt --tools` catalog (`no-serena`, `no-graph`), so both rows stay with `trigger: {}` and never fire.
 
 **Owner steps:** None.
 
@@ -32,11 +33,11 @@
 
 **Size:** S
 
-- [ ] A SessionStart payload with `source: startup` gives 1 status line under 60 words, plus the sessions line and the card.
-- [ ] A payload with `source: compact` gives no L0 table.
+- [x] A SessionStart payload with `source: startup` gives 1 status line under 60 words, plus the sessions line and the card.
+- [x] A payload with `source: compact` gives no L0 table.
 - [ ] `ai/routing.yaml` has no rows `project-knowledge`, `serena` and `graph`.
-- [ ] The line is right for 4 fixtures: no Map, Serena off, graph off, not adopted.
-- [ ] `ai-render` fails on a status template that can pass 60 words.
+- [x] The line is right for 4 fixtures: no Map, Serena off, graph off, not adopted.
+- [x] `ai-render` fails on a status template that can pass 60 words.
 - [ ] `ai-doctor --numbers` shows the start text of this setup before and after.
 
 **Verify:**

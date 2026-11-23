@@ -2,5 +2,5 @@
   "id": "diagnosing-bugs-ru",
   "fixture": "app",
   "prompt": "Приложение работает медленно, когда я запускаю python3 -m app.cli 2 3. Найди причину.",
-  "expect": {"skills": ["diagnosing-bugs"], "rules": ["diagnosing-bugs"]}
+  "expect": {"skills": ["diagnosing-bugs"]}
 }

@@ -21,7 +21,7 @@ Its skill files hold 34 U+2014 characters in total. Lint every output.
 - Opt-in means project scope. Enable it in `.claude/settings.local.json` or the project `.claude/settings.json` (`ai-adopt --tools ui` writes `"ui-ux-pro-max@ui-ux-pro-max-skill": true` there). It must be OFF in `~/.claude/settings.json`: where it is installed, install.sh sets it false at user scope (`AI_OFF_CLAUDE_PLUGINS` in `ai/pins.env`, owner decision 2026-11-14). Plugin skills ignore `skillOverrides`, so the switch is the whole plugin.
 - L0: one line in the project AGENTS.md only: `UI work (pages, components, layout, color, type, a11y) -> use ui-ux-pro-max first; assets: design / banner-design / slides / brand`. RO and RU: "interfata, design, pagina, componente", "интерфейс, дизайн, страница, компонент".
 - L1: only through a project SessionStart hook when the project opted in (marker: `design-system/` or `.claude/skills/ui-ux-pro-max`).
-- L2 and L3 (routing row `ui`): only in opt-in projects. Edit or Write of tsx, jsx, vue, svelte, css, html files gives a nudge to run its `search.py`.
+- L2 and L3: none since rules-that-hold 12. The row `ui` is only the `ai-adopt --tools` catalog entry; the skill description, the Map line "Design" and 1 index line hold the trigger.
 - L5: the OMC designer agent needs the L0 line from SubagentStart.
 - L6: the six asset skills have marketing-style descriptions and `design` overlaps the rest. Add RO and RU triggers in the hook.
 - The em dash check of the commit hook covers its output.

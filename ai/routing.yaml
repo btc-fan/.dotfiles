@@ -20,11 +20,14 @@ version: 4
 # commit-msg hook and the PR text check run hooklib's text gate on added lines.
 # Fields: proof = regex over the session's tool/skill calls for the Stop miss log; once_per = session | agent
 # (the main agent and each subagent by its agent_id).
-# Action placeholders the router fills at fire time: {knowledge_index} {feature_flow} {nav_hint}
+# Ticket rules-that-hold 12 and 13 (2026-11-20, owner D1): feature-grill, tdd, diagnosing-bugs, project-knowledge
+# left; ui, seo, blog, serena and graph stay only as catalog entries (trigger: {}, they never fire). The skill
+# descriptions and the index lines of ai/agents-md/80-tool-catalog.md hold the triggers; one status line holds the facts.
+# Action placeholders the router fills at fire time: {nav_hint}
 # {claude_handoff}. Each value is a full phrase; an empty value disappears; an empty action sends nothing.
 
 layers:
-  L1_session_start: {inject: 'rules with when: session_start; L0 table only after compact or clear', reinject_after_compaction: true}
+  L1_session_start: {inject: 'one status line, the rules with when: session_start, the skill card', reinject_after_compaction: true}
   L2_forced_eval:
     enabled: true
     prefilter: regex   # runs only when a prompt rule or a tie-break trigger matched, never on every prompt
@@ -35,15 +38,6 @@ layers:
   L7_miss_log: ~/.local/state/ai/misses.jsonl   # Stop hook: rule fired but no matching tool or skill call
 
 rules:
-  # ---------- session start: read the stored knowledge first ----------
-  - id: project-knowledge
-    scope: global
-    trigger: {state: 'git repo with code'}
-    when: session_start
-    summary: 'session start in a code repo'
-    action: "Read the Map and Libraries of this repo's AGENTS.md first, then search narrowly. {knowledge_index}"
-    strength: nudge   # {knowledge_index}: one status line (Map, Libraries, opt-in tools), never file content
-
   - id: nav-first
     scope: global
     summary: 'broad search (Grep, rg); with a graph: denied once, and once per graph symbol'
@@ -131,21 +125,6 @@ rules:
     action: "Load the writing-for-agents skill first (Skill tool, or read its SKILL.md), then edit."
     strength: gate
 
-  - id: diagnosing-bugs
-    scope: global
-    summary: 'bug or performance prompt (slow, perf, broken, debug, crash, regression; RO, RU)'
-    trigger: {prompt: '\b(slow(er|ly|ness|s|ed|ing)?|performance|perf|broken|debug(s|ged|ging)?|crash(es|ed|ing)?|regressions?)\b|\b(lent[aăe]?|performan[tț][aăe]|stricat[aăe]?|s-a stricat|nu (mai )?merge|depaneaz[aă]|crap[aă]|se blocheaz[aă]|regresie)\b|(?<!\w)(медленн|тормоз|производительн|слома|отлад|дебаг|пада|упал|краш|регресси)\w*|(?<!\w)не работает'}
-    action: "Use the diagnosing-bugs skill (Skill tool) and follow its loop before you end the turn."
-    strength: nudge   # ticket 14 (2026-11-18): as a stop, 6 of 6 blocks were false (research and setup prompts)
-
-  - id: tdd
-    scope: global
-    summary: 'test-first prompt (tests first, tdd, red-green, failing test first; RO, RU)'
-    # owner 2026-11-16: the baseline showed 0/3 tdd skill use (Claude works test-first by hand without the skill)
-    trigger: {prompt: '\b(tests? first|test-first|tdd|red[- ]green|(write|add) (the |a )?(failing )?tests? (first|before)|failing tests? first)\b|\b(teste(le)? (mai )?[iî]nt[aâ]i|test(e|ul)? [iî]nainte|mai [iî]nt[aâ]i (un |testele|testul))\b|(?<!\w)(сначала тест|тесты сначала|тест сначала|красн\w* зел[её]н)\w*'}
-    action: "Use the tdd skill (Skill tool) and follow its red-green slices before you end the turn."
-    strength: nudge   # ticket 14 (2026-11-18): as a stop, 1 of 1 block was false
-
   - id: ship
     scope: global
     summary: 'before gh pr ready'
@@ -161,13 +140,6 @@ rules:
     action: "gh reads run freely; other gh writes ask the owner first."
     strength: gate    # ask (Codex: deny); the PR commands keep their own gates (pr-rules, merge-approval, ship)
 
-  - id: feature-grill
-    scope: global
-    summary: 'feature request (add, build ...; RO, RU)'
-    trigger: {prompt: '\b(add|implement|introduce|create)\b(?!\W+(a\W+|an\W+|the\W+|more\W+|some\W+)?(unit\W+|e2e\W+|regression\W+)?tests?\b)(\W+\w+){0,4}?\W+(feature|endpoint|page(?!\W+break)|screen|command|option|flag|setting|integration|flow|button|form|report|export|webhook|notification|mode|login|sign[- ]?in|sign[- ]?up|oauth|auth\w*|rate limit\w*|limiting|caching|pagination|search|upload|download|sync|dashboard|api)s?\b|\bbuild\b(\W+\w+){0,3}?\W+(feature|endpoint|screen|integration|dashboard)s?\b|\badd support for\b|\bnew feature\b|\bfeature request\b|\bchange (how|the way)\b|\bchange the behaviou?r\b|\b(adaug[aă]|implementeaz[aă]|construie[sș]te|creeaz[aă])\b(?!\W+(un\W+)?test)(\W+\w+){0,4}?\W+(func[tț]ionalitate|func[tț]ie|pagin[aă]|endpoint|op[tț]iune|buton|ecran|raport|integrare|comand[aă]|export|import|autentificare|c[aă]utare)\b|\bfunc[tț]ionalitate nou[aă]\b|\bschimb[aă] (cum|felul)\b|(?<!\w)(добавь|добавить|реализуй|реализовать|сделай|создай|внедри)(?!\s+(\w+\s+)?тест)(\W+\w+){0,4}?\W+(функци|фич|эндпоинт|страниц|кнопк|команд|опци|интеграци|отч[её]т|экран|режим|экспорт|импорт|поиск|авторизаци|вход|регистраци|загрузк)\w*|(?<!\w)нов(ую|ая|ой|ые) (функци|фич)\w*|(?<!\w)измени,? как'}
-    action: "{feature_flow}"   # grill-with-docs, to-spec, to-tickets, Done order where linked; else plain grilling
-    proof: 'skill:\S*grill|grill[\w-]*/SKILL\.md'
-    strength: nudge   # strict regex: a verb plus a feature noun; "new app" stays with the kickoff tie-break
 
   # ---------- opt-in per project (catalog for ai-adopt --tools) ----------
   # serena and graph are ON BY DEFAULT (owner 2026-11-12 evening): they fire in every code repo unless
@@ -175,18 +147,16 @@ rules:
   - id: serena
     scope: opt-in
     tool: Serena
-    when: session_start
-    trigger: {state: 'git repo with code'}
-    summary: 'session start, Serena on (default)'
+    trigger: {}   # catalog entry only: the session status line says Serena on or off (ticket rules-that-hold 13)
+    summary: 'Serena on (default)'
     action: "Serena is on here (no memories; the Map holds knowledge): get_symbols_overview / find_symbol for definitions, find_referencing_symbols for callers, replace_symbol_body to edit."
     strength: nudge
 
   - id: graph
     scope: opt-in
     tool: graphify
-    when: session_start
-    trigger: {state: 'git repo with code'}
-    summary: 'session start, graphify on (default)'
+    trigger: {}   # catalog entry only: the session status line gives the graph state (ticket rules-that-hold 13)
+    summary: 'graphify on (default)'
     action: "graphify is on here: graphify query for structure before rg (auto-refresh after commits, merges, checkouts)."
     strength: nudge
 
@@ -203,18 +173,16 @@ rules:
     scope: opt-in
     summary: 'SEO prompt'
     tool: claude-seo
-    trigger: {prompt: '\b(seo|serp|rank(ing|s)?|meta (title|description)|schema markup|structured data|sitemap|core web vitals|cwv|hreflang|backlinks?|ai overviews?|geo audit|search console)\b'}
+    trigger: {}   # catalog entry only: the plugin skill description holds the trigger (ticket rules-that-hold 12)
     action: "claude-seo first (/seo audit <url>, /seo page <url>). {claude_handoff}"
-    proof: 'skill:\S*seo|claude -p|claude-seo/skills'
     strength: nudge
 
   - id: blog
     scope: opt-in
     summary: 'blog prompt'
     tool: claude-blog
-    trigger: {prompt: '\b(blog|blog post|article|write a post|rewrite (the|this) post|newsletter)\b'}
+    trigger: {}   # catalog entry only: the plugin skill description holds the trigger (ticket rules-that-hold 12)
     action: "claude-blog first (claude-blog:blog routes). Post file: blog-*. Site: seo-*. {claude_handoff}"
-    proof: 'skill:\S*blog|claude -p|claude-blog/skills'
     strength: nudge
 
   - id: browser
@@ -230,9 +198,8 @@ rules:
     scope: opt-in
     summary: 'UI prompt or UI file'
     tool: ui-ux-pro-max
-    trigger: {prompt: '\b(ui|ux|design|landing page|component|layout|color palette|typography|dark mode)\b', paths: '**/*.{tsx,jsx,vue,svelte,css,scss}'}
+    trigger: {}   # catalog entry only: the ui-ux-pro-max description and the Map line Design hold the trigger (ticket 12)
     action: "ui-ux-pro-max. Read design-system/<app>/MASTER.md (and page override) first. None: 3 to 5 --design-system variants (?variant=); the owner picks, then --persist. Ask before paid images or npx ...@latest."
-    proof: 'skill:\S*ui-ux-pro-max'
     strength: nudge
 
 # ---------- tie-breaks (single source for L0, L2, L3) ----------

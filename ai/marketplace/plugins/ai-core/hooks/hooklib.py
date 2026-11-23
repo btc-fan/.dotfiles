@@ -3350,6 +3350,50 @@ def knowledge_index(root, agent="claude"):
     return " ".join(bits)[:KNOWLEDGE_CAP]
 
 
+
+# ---------------------------------------------------------------- session status line (rules-that-hold 13)
+# One fact line at each session start. Its only action: a stale verify skill names maintain-verification-skill.
+STATUS_MAX_WORDS = 60
+
+
+def status_line(root, optin=()):
+    """'ai: not adopted.' or the facts of an adopted repo: tier, Map, Libraries, Serena, graph, verify skill and
+    the opt-in ids (from the catalog `optin`) that the project enables. Empty outside a git repo."""
+    if not root:
+        return ""
+    if not os.path.isfile(os.path.join(root, ".ai", "enabled")):
+        return "ai: not adopted."
+    ids = enabled_ids(root)
+    mp = map_block(root)
+    n = len([ln for ln in (mp or "").splitlines() if ln.strip()])
+    libs = libs_doc(root)
+    d = docs_map_status(root)
+    info = verify_skill(root)
+    return status_text({
+        "tier": project_tier(root),
+        "map": "none" if mp is None else "ok (%d lines%s)" % (n, ", over cap" if n > MAP_CAP_LINES else ""),
+        "libs": "none" if libs is None else "%d (%s)" % (len(libs["rows"]), "stale" if d == "stale" else "fresh"),
+        "serena": "on" if "serena" in ids else "off",
+        "graph": graph_status(root, git_history(root)) if ids & {"graph", "graphify"} else "off",
+        "verify": "none" if not info else "%s (%d features%s)" % (
+            info["name"], info["features"],
+            ", stale: run maintain-verification-skill" if verify_stale(verify_staleness(root, info)) else ""),
+        "optin": sorted(i for i in ids if i in optin and i not in DEFAULT_ON)})
+
+
+def status_text(f):
+    tools = ", ".join(f["optin"]) or "none"
+    return ("ai: tier %(tier)s, Map %(map)s, Libraries %(libs)s, Serena %(serena)s, graph %(graph)s, "
+            "verify %(verify)s, opt-in: " % f) + tools + "."
+
+
+def status_worst_words(optin):
+    """Words of the longest possible line for this catalog (ai-render fails above STATUS_MAX_WORDS)."""
+    line = status_text({"tier": "long", "map": "ok (999 lines, over cap)", "libs": "999 (stale)", "serena": "off",
+                        "graph": "missing", "verify": "verify-<app> (999 features, stale: run maintain-verification-skill)",
+                        "optin": sorted(i for i in optin if i not in DEFAULT_ON)})
+    return len(line.split())
+
 # ---------------------------------------------------------------- graph refresh after agent git calls
 # The server's git guard turns git hooks off for agent git calls, so graphify's own post-commit hook does not
 # run for them. After a successful commit, merge, pull, checkout, switch or rebase the router starts

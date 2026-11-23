@@ -1,0 +1,10 @@
+{
+  "id": "feature-kickoff-ro",
+  "fixture": "app",
+  "prompt": "Adaugă o pagină care listează utilizatorii.",
+  "expect": {
+    "skills": [
+      "feature-kickoff"
+    ]
+  }
+}

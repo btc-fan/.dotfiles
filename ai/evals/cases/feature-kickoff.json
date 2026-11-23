@@ -1,0 +1,10 @@
+{
+  "id": "feature-kickoff",
+  "fixture": "app",
+  "prompt": "Add a page that lists the users.",
+  "expect": {
+    "skills": [
+      "feature-kickoff"
+    ]
+  }
+}
