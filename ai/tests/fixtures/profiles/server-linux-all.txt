@@ -50,6 +50,7 @@ DRY RUN: commands are printed, nothing is changed.
   [dry-run] link    ~/.local/bin/ai-doctor -> $REPO/ai/bin/ai-doctor
   [dry-run] link    ~/.local/bin/ai-eval -> $REPO/ai/bin/ai-eval
   [dry-run] link    ~/.local/bin/ai-evidence-prune -> $REPO/ai/bin/ai-evidence-prune
+  [dry-run] link    ~/.local/bin/ai-friction -> $REPO/ai/bin/ai-friction
   [dry-run] link    ~/.local/bin/ai-info -> $REPO/ai/bin/ai-info
   [dry-run] link    ~/.local/bin/ai-ledger -> $REPO/ai/bin/ai-ledger
   [dry-run] link    ~/.local/bin/ai-libs -> $REPO/ai/bin/ai-libs

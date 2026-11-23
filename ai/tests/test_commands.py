@@ -24,7 +24,7 @@ def main():
     try:
         for test in (t_hook_files, t_no_em_dash, t_render_cap, t_pr_resume, t_notify, t_agent_audit,
                      t_ai_start, t_router_speed, t_ai_sync, t_ai_sync_links_skills, t_ai_sync_keeps_pstack, t_ai_sync_claude_plugin_copy, t_merged_branches_note, t_sync_hooks, t_dev_worktree_no_sync, t_hermes_plugin, t_playwright,
-                     t_state_mode, t_skill_scanner_reject, t_winners_table):
+                     t_state_mode, t_skill_scanner_reject, t_winners_table, t_ai_friction):
             try:
                 test(work)
                 print("ok   " + test.__name__)
@@ -38,6 +38,46 @@ def main():
 
 
 # ---------------------------------------------------------------- tests
+def t_ai_friction(work):
+    """ai-friction replays transcript Bash commands through the ask-first gate: stops, owner turns with a stop,
+    groups. --max-turns-per-day fails the run when the gate would ask too often (gate tickets use it)."""
+    projects = os.path.join(work, "friction-projects", "-repo")
+    os.makedirs(projects, exist_ok=True)
+
+    def bash(cmd):
+        return {"type": "assistant", "cwd": "/tmp", "message": {"content": [
+            {"type": "tool_use", "name": "Bash", "input": {"command": cmd}}]}}
+    lines = [{"type": "user", "message": {"content": "restart the api"}},
+             bash("systemctl restart api"), bash("git status"),
+             {"type": "user", "message": {"content": "<task-notification>done</task-notification>"}},
+             {"type": "user", "message": {"content": "now list the files"}}, bash("ls -la")]
+    with open(os.path.join(projects, "s1.jsonl"), "w") as f:
+        f.write("\n".join(json.dumps(x) for x in lines) + "\n")
+    cli = [sys.executable, os.path.join(BIN, "ai-friction"), "--projects", os.path.dirname(projects), "--days", "1"]
+
+    res = run(cli + ["--json"])
+    assert res.returncode == 0, res.stdout
+    data = json.loads(res.stdout)
+    assert (data["commands"], data["stops"], data["turns_with_stop"]) == (3, 1, 1), data
+    assert data["groups"][0]["count"] == 1 and "service change" in data["groups"][0]["reason"], data
+
+    res = run(cli + ["--max-turns-per-day", "0.5"])
+    assert res.returncode == 1 and "1.0 owner turns a day" in res.stdout, res.stdout
+
+    # Bad lines are skipped, a typed /skill starts a turn, an ssh group is named once, --days 0 is refused.
+    bad = ['3', '{"type": "user", "message": "text"}', '[' * 5000 + ']' * 5000,
+           json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": "x"}]}}),
+           json.dumps({"type": "user", "message": {"content": "<command-name>/ship</command-name>"}}),
+           json.dumps(bash("ssh h 'sudo systemctl restart api'"))]
+    with open(os.path.join(projects, "s2.jsonl"), "w") as f:
+        f.write("\n".join(bad) + "\n")
+    res = run(cli + ["--json"])
+    assert res.returncode == 0, res.stdout
+    data = json.loads(res.stdout)
+    assert (data["stops"], data["turns_with_stop"]) == (2, 2), data
+    assert all(g["reason"].count("over ssh") <= 1 for g in data["groups"]), data
+    assert run(cli[:-2] + ["--days", "0"]).returncode != 0
+
 
 def t_hook_files(work):
     for name, root_var in (("hooks.json", "${CLAUDE_PLUGIN_ROOT}"), ("codex-hooks.json", "${PLUGIN_ROOT}")):
