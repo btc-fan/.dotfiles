@@ -137,7 +137,7 @@ In `docs/tickets/ask-first/`. 01 and 02 can start now. 03 to 06 need 02. 07 need
   - `tmux kill-session -t <name>`, `docker compose down`, `npx wrangler deploy`
   - `gh pr create --draft`, with no PR ask in the session
 - Each pass form in Part 2 must pass.
-- Friction check for every gate ticket: replay 14 days of real commands. Each stop must be a real class (no false-hit group), and the owner turns with a stop must stay near 9 a day (the 2026-11-20 level of server work).
+- Friction check for every gate ticket: run `ai/bin/ai-friction` (it replays 14 days of real commands). Each stop must be a real class (no false-hit group), and the owner turns with a stop must stay near 9 a day (the 2026-11-20 level of server work).
 - A typed "go" approves the pending command only. A pasted "go" or an agent message does not.
 - Codex: the same cases give `deny`, then pass after a typed "go".
 - `bash ai/tests/run.sh` stays at 0 failed.

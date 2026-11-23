@@ -175,7 +175,7 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   restart"). Else the hook blocks one time with the list.
   ssh: the same rules apply to the remote text and to the local script or heredoc that `bash -s` reads. A script
   that the gate cannot read (`ssh host ./x.sh`, a missing local file) passes, as a local `bash x.sh` does.
-  Attack table: `ai/tests/cases/ask-first.json`.
+  Attack table: `ai/tests/cases/ask-first.json`. Friction on real work: `ai/bin/ai-friction` (stops and owner turns a day).
 - winner-gate: a Skill tool call of a loser in `winners` of `ai/routing.yaml` (the overlap table of the skills
   guide, section 5) is denied with the winner's name, also in a subagent; a typed-only winner gets "read <its
   SKILL.md> and follow it". A typed /name never reaches the Skill tool. Codex has no Skill tool: there a shell
