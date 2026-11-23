@@ -36,13 +36,13 @@
    }
   },
   {
-   "name": "SessionStart after compaction injects the L0 table",
+   "name": "SessionStart after compaction sends no L0 table (rules-that-hold 13: the root rules load again)",
    "expect": "allow",
    "event": "SessionStart",
    "payload": {
     "source": "compact"
    },
-   "contains": "Routing table (L0)"
+   "not_contains": "Routing table (L0)"
   },
   {
    "name": "SessionStart at startup sends no L0 table (it is in the root rules)",

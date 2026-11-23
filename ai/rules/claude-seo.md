@@ -29,9 +29,9 @@ No user-facing CLAUDE.md or AGENTS.md block exists. Closest routing text:
   `JSON-LD of a page | date structurate, микроразметка | seo-schema (post file: blog-schema)`
   `AI citation, GEO | citari AI, цитирование ИИ | seo-geo (post file: blog-geo)`
   `plan/strategy | plan SEO, SEO-стратегия | seo-plan`; `sitemap | sitemap, карта сайта | seo-sitemap`; `hreflang | hreflang, мультиязычность | seo-hreflang`; `backlinks | backlink-uri, обратные ссылки | seo-backlinks`
-- L1: the routing table comes back after compaction or /clear (startup and resume rely on the root rules). Table only.
-- L2: gated by a regex (URL, seo, serp, backlink, sitemap, hreflang, schema, llms.txt, core web vitals, RO and RU words). Keep the "none" option.
-- L3: `/seo `, `seo-` command names, a bare URL with audit, check, analiza, проверь.
+- L1: none. The routing table is in the root rules; the row `seo` is only the `ai-adopt --tools` catalog entry.
+- L2 and L3: none since rules-that-hold 12. The plugin skill descriptions and 1 index line in the rules file hold the trigger.
+- L3 (old design): `/seo `, `seo-` command names, a bare URL with audit, check, analiza, проверь.
 - L4: not a skill gate (false blocks). A permission gate for `indexnow_submit|indexing_notify|dataforseo|google_auth.py --auth|generate.py`: ask. Block `pip install` and unpinned `npx lighthouse`.
 - L5: plugin agents cannot be edited and cannot carry hooks. Own subagents get the table through SubagentStart.
 - L6: descriptions are English only. RO and RU triggers live in L0, L2, L3.

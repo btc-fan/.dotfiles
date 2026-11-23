@@ -1,0 +1,10 @@
+{
+  "id": "feature-kickoff-ru",
+  "fixture": "app",
+  "prompt": "Добавь страницу со списком пользователей.",
+  "expect": {
+    "skills": [
+      "feature-kickoff"
+    ]
+  }
+}

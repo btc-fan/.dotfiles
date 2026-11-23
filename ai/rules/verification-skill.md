@@ -115,7 +115,7 @@ passes the hooks, and the hooks never judge if the drive was good; code review a
 - L3: `ai-adopt` writes the Done order into every project. A project with its own Done section gets one managed
   `AI:verify` line at the end of that section; the owner text stays byte for byte.
 - L3: the `release` skill runs `maintain-verification-skill` when the project has a verify skill.
-- L2: the feature flow (`feature-grill`) names the verify feature per slice and the Done order.
+- L6: the `feature-kickoff` skill names the verify feature per slice and the Done order.
 - L4: pr-rules on `gh pr create`, `edit` and `ready`: with a verify skill and app code in the diff, a valid
   run.log at the PR head SHA that finished after the last app-code commit.
 - L7: `ai-doctor --project`: WARN when missing (an agent task: build it with create-verification-skill), stale,

@@ -1,0 +1,10 @@
+{
+  "id": "feature-kickoff-not",
+  "fixture": "app",
+  "prompt": "Fix the typo 'retrun' in the README.",
+  "expect": {
+    "not_skills": [
+      "feature-kickoff"
+    ]
+  }
+}

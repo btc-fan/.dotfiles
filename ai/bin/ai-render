@@ -65,7 +65,7 @@ def main(argv):
     if EM_DASH in l0_text:
         print("ai-render: ERROR em dash in L0 table", file=sys.stderr)
         return 1
-    over = card_budget(routing.get("skills") or {}) or session_start_budget(routing, l0_text)
+    over = card_budget(routing.get("skills") or {}) or session_start_budget(routing)
     if over:
         print("ai-render: ERROR " + over, file=sys.stderr)
         return 1
@@ -172,7 +172,7 @@ def validate(data):
         if r.get("scope", "global") not in ("global", "opt-in"):
             errors.append("%s: scope must be global or opt-in" % rid)
         trig = r.get("trigger") or {}
-        if not trig:
+        if not trig and r.get("scope") != "opt-in":      # an opt-in row with trigger: {} is a catalog entry only
             errors.append("%s: no trigger" % rid)
         for key in ("prompt", "command", "tool_before", "tool_after"):
             if trig.get(key):
@@ -239,31 +239,32 @@ def build_routing(data, sha, profile):
 SESSION_START_MARGIN = 1500     # the status lines alone must leave this much room under the cut
 
 
-def session_start_budget(routing, l0_text):
-    """SessionStart context = the status lines (every session_start row, placeholders at their max length),
-    plus the L0 table only after compact or clear. Error text when the status lines alone would not leave
-    SESSION_START_MARGIN under router.CONTEXT_CAP; a warning when lines + table pass the cut (then only the
-    table tail is cut after a compaction, and the table is in the root rules anyway)."""
+def session_start_budget(routing):
+    """SessionStart context = the status line, the session_start rows (placeholders at their max length) and the
+    skill card. Error text when the status line can pass hooklib.STATUS_MAX_WORDS words, or when the rest would
+    not leave SESSION_START_MARGIN under router.CONTEXT_CAP."""
     try:
         import router
-        cap, ph_max, header = router.CONTEXT_CAP, router.PLACEHOLDER_MAX, router.L1_HEADER
+        import hooklib
+        cap = router.CONTEXT_CAP
     except (ImportError, AttributeError):
         return ""
+    optin = [r["id"] for r in routing.get("rules", []) if r.get("scope") == "opt-in"]
+    words = hooklib.status_worst_words(optin)
+    if words > hooklib.STATUS_MAX_WORDS:
+        return ("the session status line can have %d words: over %d words. Fewer opt-in tools in ai/routing.yaml, "
+                "or a shorter hooklib.status_text." % (words, hooklib.STATUS_MAX_WORDS))
     parts = []
     for r in routing.get("rules", []):
         if r.get("when") != "session_start":
             continue
-        action = re.sub(r"\{([a-z_]+)\}", lambda m: "x" * ph_max.get(m.group(1), 200), str(r.get("action", "")))
+        action = re.sub(r"\{([a-z_]+)\}", "x" * 200, str(r.get("action", "")))
         parts.append("[ai router: %s] %s" % (r["id"], action))
     lines = len("\n\n".join(parts)) + 2 + getattr(router, "CARD_CAP", 0)
     if lines > cap - SESSION_START_MARGIN:
         return ("SessionStart status lines worst case is %d chars: over %d (cut %d minus margin %d). "
                 "Shorten the session_start actions in ai/routing.yaml." % (lines, cap - SESSION_START_MARGIN,
                                                                            cap, SESSION_START_MARGIN))
-    total = len("\n\n".join(parts + [header + l0_text.strip()]))
-    if total > cap:
-        print("ai-render: WARN after compact/clear the SessionStart context would be %d chars (cut %d): the L0 "
-              "table tail is cut there (it stays complete in the root rules)." % (total, cap), file=sys.stderr)
     return ""
 
 
@@ -303,7 +304,7 @@ def render_l0(routing):
     ]
     if not any(r.get("strength") == "stop" for r in routing["rules"]):
         lines.remove(lines[3])      # no stop rule: no stop legend
-    for r in routing["rules"]:
+    for r in [r for r in routing["rules"] if r.get("trigger")]:      # catalog entries never fire: no row
         kinds = [k for k in (r.get("strength", "nudge"), r.get("scope")) if k in ("gate", "stop", "opt-in")]
         name = "%s (%s)" % (r["id"], ", ".join(kinds)) if kinds else r["id"]    # nudge is the default: no label
         lines.append("| %s | %s | %s |" % (name, cell(r.get("summary") or when_text(r)), cell(r["action"])))
@@ -365,8 +366,6 @@ def top_level_split(s):
 
 # How the L0 table shows an action placeholder (the router fills the real text at fire time).
 PLACEHOLDER_WORDS = {
-    "knowledge_index": "(status line: memories, graph, docs map)",
-    "feature_flow": "Worktree ../<repo>-<slug> first; grill-with-docs (else grilling); 3+ files: to-spec, to-tickets; /implement each ticket (check-fast, verify, e2e, commit). Draft PR only if asked. Done: ship; the owner merges.",
     "nav_hint": "graphify query (where, how) or graphify affected (impact) first, then Serena find_symbol / find_referencing_symbols; rg only for text.",
     "origin_slug": "(repo from origin)",
     "claude_handoff": "Other agents: hand off to Claude if it is logged in, else follow the skill files.",

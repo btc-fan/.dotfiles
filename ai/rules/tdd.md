@@ -1,8 +1,8 @@
-# tdd hint (tests-first prompts; a stop rule until 2026-11-18)
+# tdd (tests-first prompts)
 
-Our own rule (`routing.yaml` rule `tdd`, `strength: nudge`). Added 2026-11-16 as a stop rule by owner decision after
-the baseline: Claude worked test-first by hand and used the skill in 0 of 3 runs. Since 2026-11-18 (ticket 14) it is a
-hint: as a stop, 1 of 1 block was false. The skill: `tdd` (Matt Pocock).
+Home since rules-that-hold 12 (2026-11-20): the description of the `tdd` skill (Matt Pocock) and 1 index line in
+`ai/agents-md/80-tool-catalog.md` (it adds the RO and RU words). The router row `tdd` is gone. History: a stop rule
+from 2026-11-16, a hint from 2026-11-18 (as a stop, 1 of 1 block was false). The text below is the old row.
 
 ## Vendor rules (verbatim)
 NOT FOUND (our own rule).
@@ -14,7 +14,7 @@ NOT FOUND (our own rule).
 - The OMC skill `oh-my-claudecode:tdd` is a loser in the winner table. A call of it is denied, and it is no proof.
 
 ## Enforcement
-- L2 hint only (see `diagnosing-bugs-stop.md`). No Stop block, no miss row.
+- L2 hint only (see `diagnosing-bugs.md`). No Stop block, no miss row.
 - Works with the winner gate: the deny of `oh-my-claudecode:tdd` names `tdd`.
 
 ## Proof

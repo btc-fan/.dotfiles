@@ -209,7 +209,7 @@ One table (`ai/routing.yaml`) feeds every layer, so they never disagree. Since v
 | Layer | What | Catches |
 |---|---|---|
 | L0 | routing table inside the root rules | knowledge missing from context, all agents |
-| L1 | status lines and the skill card at session start; the table and the card again after compaction or /clear | drift late in a session, skills the agent did not see |
+| L1 | one status line and the skill card at each session start (the table stays in the root rules) | drift late in a session, skills the agent did not see |
 | L2 | forced evaluation: the agent must answer YES or NO per matched tool ("none needed" is allowed) | paraphrases |
 | L3 | regex fast path: file types, tool names, commands | exact cases |
 | L4 | gates (PreToolUse deny) and stop rules (Stop block, once per session) | "skipped it and did it anyway", skills never used |

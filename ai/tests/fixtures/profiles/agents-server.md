@@ -157,6 +157,12 @@ Rule order
 Skills
 - Which skill, flow or command fits a task, or how a skill works: load the skills-guide skill first. It covers the 27 Matt Pocock skills and their overlaps with OMC (Matt first). Owner guide with full scenarios: ~/.dotfiles-ai/docs/GUIDE.md.
 - Every project has the full setup (tier long). A Matt skill that is not linked in this repo: read its SKILL.md from the path in skills-guide, and suggest ai-adopt --skills.
+- Add, build or implement a feature, endpoint or page: the feature-kickoff skill.
+- Tests first, TDD, red-green (RO: teste întâi; RU: сначала тест): the tdd skill.
+- A bug, crash, regression or slow code (RO: nu merge; RU: не работает): the diagnosing-bugs skill.
+- UI, UX, layout or component work: ui-ux-pro-max; read design-system/<app>/MASTER.md first.
+- SEO, meta tags, sitemap or Core Web Vitals (where enabled): the claude-seo skills.
+- A blog post or article (where enabled): the claude-blog skills.
 
 Other agents
 claude -p "<task>" --output-format stream-json --verbose (no --bare); codex exec --json "<task>"; opencode run "<task>" --format json. Hermes never hands work to Claude. Details: ~/.config/ai/rules/<tool>.md.
@@ -169,7 +175,6 @@ opt-in = only where the project enabled the tool (ai-start, ai-adopt).
 
 | Rule | When | Do |
 |---|---|---|
-| project-knowledge | session start in a code repo | Read the Map and Libraries of this repo's AGENTS.md first, then search narrowly. (status line: memories, graph, docs map) |
 | nav-first | broad search (Grep, rg); with a graph: denied once, and once per graph symbol | graphify query (where, how) or graphify affected (impact) first, then Serena find_symbol / find_referencing_symbols; rg only for text. |
 | audit-before-install (gate) | before a package install command | agent-audit this package first. No @latest, no curl-to-shell. |
 | secret-scan (gate) | before git commit or push | Secret scan found a key, token or password. Remove it before commit or push. |
@@ -181,20 +186,12 @@ opt-in = only where the project enabled the tool (ai-start, ai-adopt).
 | ask-first (gate) | restart, boot, deploy, kill, delete | Plan, risk, undo. Wait for a typed OK. |
 | no-verify (gate) | git commit or push with --no-verify (or commit -n) | Never skip git hooks: fix what pre-commit reports, then commit again. |
 | writing-for-agents (gate) | before an edit of AGENTS.md, CLAUDE.md, CLAUDE.local.md or a SKILL.md | Load the writing-for-agents skill first (Skill tool, or read its SKILL.md), then edit. |
-| diagnosing-bugs | bug or performance prompt (slow, perf, broken, debug, crash, regression; RO, RU) | Use the diagnosing-bugs skill (Skill tool) and follow its loop before you end the turn. |
-| tdd | test-first prompt (tests first, tdd, red-green, failing test first; RO, RU) | Use the tdd skill (Skill tool) and follow its red-green slices before you end the turn. |
 | ship (gate) | before gh pr ready | Run the ship skill first (checks, review, Evidence), then gh pr ready. |
 | gh-write (gate) | gh write other than the PR commands | gh reads run freely; other gh writes ask the owner first. |
 | no-em-dash | after a write with U+2014 | Remove the em dash (U+2014). Use '-', ':' or a new sentence. |
 | ste-sentence | Markdown sentence over 25 words | STE: 25 words max per sentence. Split it. |
-| feature-grill | feature request (add, build ...; RO, RU) | Worktree ../<repo>-<slug> first; grill-with-docs (else grilling); 3+ files: to-spec, to-tickets; /implement each ticket (check-fast, verify, e2e, commit). Draft PR only if asked. Done: ship; the owner merges. |
-| serena (opt-in) | session start, Serena on (default) | Serena is on here (no memories; the Map holds knowledge): get_symbols_overview / find_symbol for definitions, find_referencing_symbols for callers, replace_symbol_body to edit. |
-| graph (opt-in) | session start, graphify on (default) | graphify is on here: graphify query for structure before rg (auto-refresh after commits, merges, checkouts). |
 | omc (opt-in) | session start, oh-my-claudecode on here | oh-my-claudecode is on here (/oh-my-claudecode:... skills and agents). Keep .omc/ out of commits, except .omc/skills/. |
-| seo (opt-in) | SEO prompt | claude-seo first (/seo audit <url>, /seo page <url>). Other agents: hand off to Claude if it is logged in, else follow the skill files. |
-| blog (opt-in) | blog prompt | claude-blog first (claude-blog:blog routes). Post file: blog-*. Site: seo-*. Other agents: hand off to Claude if it is logged in, else follow the skill files. |
 | browser (opt-in) | browser prompt (screenshot, click, e2e) | Playwright MCP (headless, isolated on servers). |
-| ui (opt-in) | UI prompt or UI file | ui-ux-pro-max. Read design-system/<app>/MASTER.md (and page override) first. None: 3 to 5 --design-system variants (?variant=); the owner picks, then --persist. Ask before paid images or npx ...@latest. |
 
 Tie-breaks (use the first, not the second):
 - one post file, or a post to be written: claude-blog:blog-*, not claude-seo:seo-*

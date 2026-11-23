@@ -1,7 +1,9 @@
 # feature-grill (questions first before feature code)
 
-Routing row `feature-grill` (L2 forced-eval). The skill is mattpocock `grilling` (typed: `/grill-me`), see
-`mattpocock-skills.md`.
+Home since rules-that-hold 12 (2026-11-20): the model-invocable skill `ai/skills/feature-kickoff/SKILL.md` (its
+description holds the trigger words in EN, RO and RU) and 1 index line in `ai/agents-md/80-tool-catalog.md`. The
+router row `feature-grill` and its `{feature_flow}` text are gone. The grill skill is mattpocock `grill-with-docs`
+or `grilling`, see `mattpocock-skills.md`. The text below is the old row.
 
 ## Vendor rules (verbatim)
 NOT FOUND for the row; the grilling skill text is in `mattpocock-skills.md`.

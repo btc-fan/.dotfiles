@@ -107,11 +107,12 @@ def t_render_checks_skill_rules(work):
     gated = {r["id"]: (r["strength"], r["require_skill"]) for r in routing["rules"] if r.get("require_skill")}
     assert gated == {"writing-for-agents": ("gate", "writing-for-agents"), "ship": ("gate", "ship")}, gated
     hints = {r["id"]: r["strength"] for r in routing["rules"] if r["id"] in ("diagnosing-bugs", "tdd")}
-    assert hints == {"diagnosing-bugs": "nudge", "tdd": "nudge"}, "ticket 14: hints, no stop: %s" % hints
+    assert hints == {}, "rules-that-hold 12: the skill descriptions hold the trigger, no row: %s" % hints
+    assert not [r["id"] for r in routing["rules"] if r["strength"] == "stop"], "no stop rule"
     assert [s["name"] for s in routing["skills"]["hints"]] == ["diagnosing-bugs", "tdd"], routing["skills"]
     l0 = open(os.path.join(work, sorted(d for d in os.listdir(work) if d.startswith("render-"))[-1], "L0.md")).read()
     assert "stop = the turn cannot end" not in l0, "no stop rule left: the L0 legend must not name stop"
-    assert "| diagnosing-bugs |" in l0 and "| diagnosing-bugs (stop) |" not in l0, l0
+    assert "| diagnosing-bugs" not in l0, "rules-that-hold 12: no diagnosing-bugs row: " + l0
 
 
 def t_eval_turns_let_stop_fire(work):
@@ -235,8 +236,52 @@ def t_release_runs_maintain(work):
     assert "disable-model-invocation" not in head, "maintain-verification-skill must stay model-invocable"
 
 
+# ---------------------------------------------------------------- rules-that-hold 12: triggers in skills
+
+def t_feature_kickoff_skill(work):
+    """feature-kickoff is model-invocable, its description holds the trigger words (EN, RO, RU) under 300
+    characters, its body points to the skills of the flow, and no other skill in this repo has its name."""
+    path = os.path.join(AI_DIR, "skills", "feature-kickoff", "SKILL.md")
+    text = open(path, encoding="utf-8").read()
+    head = text.split("---")[1]
+    assert "name: feature-kickoff\n" in head and "disable-model-invocation" not in head, head
+    desc = head.split("description:", 1)[1].strip().strip("'")
+    assert len(desc) < 300, "description has %d characters (listing budget)" % len(desc)
+    for word in ("add", "build", "implement", "feature", "endpoint", "page", "adaugă", "добавь"):
+        assert word in desc, "trigger word %r missing from the description" % word
+    for skill in ("grill-with-docs", "grilling", "to-spec", "to-tickets", "implement", "verify-<app>", "ship",
+                  "worktree", "check-fast"):
+        assert skill in text, "the flow does not name %s" % skill
+    clash = []
+    for root, _dirs, files in os.walk(os.path.dirname(AI_DIR)):
+        if "SKILL.md" in files and os.path.join(root, "SKILL.md") != path and ".git" not in root:
+            if "\nname: feature-kickoff\n" in open(os.path.join(root, "SKILL.md"), encoding="utf-8").read():
+                clash.append(root)
+    assert not clash, "another skill is named feature-kickoff: %s" % clash
+
+
+def t_workflow_rows_left(work):
+    """The 6 workflow rows send no prompt reminder: feature-grill, tdd and diagnosing-bugs are gone; ui, seo and
+    blog stay only as the ai-adopt catalog (trigger: {}). Each has 1 index line in the rules file."""
+    out = os.path.join(work, "rows-render")
+    subprocess.check_call([sys.executable, os.path.join(BIN, "ai-render"), "--profile", "dev-mac", "--out", out],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    rules = {r["id"]: r for r in json.load(open(os.path.join(out, "routing.json")))["rules"]}
+    for rid in ("feature-grill", "tdd", "diagnosing-bugs", "project-knowledge"):
+        assert rid not in rules, rid + " is still a router row"
+    for rid in ("ui", "seo", "blog", "serena", "graph"):
+        assert rules[rid]["scope"] == "opt-in" and rules[rid]["trigger"] == {} and "when" not in rules[rid], rules[rid]
+    agents = open(os.path.join(out, "AGENTS.md"), encoding="utf-8").read()
+    for line in ("the feature-kickoff skill.", "the tdd skill.", "the diagnosing-bugs skill.", "ui-ux-pro-max; read",
+                 "the claude-seo skills.", "the claude-blog skills."):
+        hit = [ln for ln in agents.splitlines() if line in ln]
+        assert len(hit) == 1 and len(hit[0].split()) < 20, "index line %r: %s" % (line, hit)
+    l0 = open(os.path.join(out, "L0.md"), encoding="utf-8").read()
+    assert "| ui (opt-in)" not in l0 and "| serena (opt-in)" not in l0, "a catalog entry is not a table row"
+
+
 TESTS_LIST = [t_release_runs_maintain, t_card_fits_worst_case, t_doctor_skill_stats, t_render_checks_skill_rules, t_eval_turns_let_stop_fire,
-              t_verify_ai_setup_run, t_doctor_wall_table]
+              t_verify_ai_setup_run, t_doctor_wall_table, t_feature_kickoff_skill, t_workflow_rows_left]
 
 if __name__ == "__main__":
     sys.exit(main())

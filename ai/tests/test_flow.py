@@ -674,7 +674,8 @@ def t_scenario_own_precommit_kept(work):
 
 
 def t_scenario_web_ui(work):
-    """A web UI repo with a design system: the Design line has no 'missing' note; the ui nudge points to it."""
+    """A web UI repo with a design system: the Design line has no 'missing' note; the AI:ui block of AGENTS.md
+    points to it (rules-that-hold 12: no prompt nudge, the skill description holds the trigger)."""
     files = {"package.json": json.dumps({"name": "shop", "scripts": {"test": "vitest run", "lint": "eslint ."}}),
              "src/App.tsx": "export const App = () => null\n", "design-system/shop/MASTER.md": "# Master\n"}
     repo, env = new_repo(work, "shop", files)
@@ -683,9 +684,11 @@ def t_scenario_web_ui(work):
     agents = read(os.path.join(repo, "AGENTS.md"))
     line = [ln for ln in agents.splitlines() if ln.startswith("- Design:")]
     assert line and "missing" not in line[0], line
+    block = agents.split("<!-- AI:ui ", 1)[-1]
+    assert "<!-- AI:ui " in agents and "ui-ux-pro-max" in block and "MASTER.md" in block, agents
     out = hook("UserPromptSubmit", {"session_id": "w1", "cwd": repo, "prompt": "make the landing page layout nicer"},
                env)
-    assert "ui-ux-pro-max" in out and "MASTER.md" in out, out
+    assert "ui-ux-pro-max" not in out, "no prompt reminder: " + out
 
 
 def t_scenario_mobile_no_serena(work):

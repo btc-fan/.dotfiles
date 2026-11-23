@@ -681,9 +681,9 @@ print(json.dumps(out))
     out = json.loads(res.stdout.strip().splitlines()[-1])
     assert out["hooks"] == ["pre_llm_call", "pre_tool_call"] and out["pos"] == "after_memory" and out["cap"] == 4000
     assert 0 < out["section_len"] <= 4000 and out["section_has_seo"], out
-    assert "claude-seo" in out["llm_seo"]["context"] and "L2" in out["llm_seo"]["context"]
-    assert out["llm_none"] is None
-    assert "claude-blog" in out["llm_parts"]["context"]
+    # rules-that-hold 12: no prompt rows for seo and blog; the routing section above still names them each turn.
+    assert out["llm_seo"] is None and out["llm_none"] is None, out
+    assert "claude-blog" in out["llm_parts"]["context"], "the post tie-break stays: %s" % out
     assert out["tool_curl"]["action"] == "block" and "audit-before-install" in out["tool_curl"]["message"]
     assert out["tool_brew"]["action"] == "approve"
     assert out["tool_ls"] is None and out["tool_other"] is None

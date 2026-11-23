@@ -1,0 +1,94 @@
+{
+ "rule": "_status-line",
+ "cases": [
+  {
+   "name": "not adopted: a fact of 3 words",
+   "expect": "allow",
+   "event": "SessionStart",
+   "payload": {"source": "startup"},
+   "project": {"git_init": true, "files": {"main.py": "print(1)\n"}},
+   "contains": "ai: not adopted.",
+   "not_contains": ["Map", "[ai router: project-knowledge]"]
+  },
+  {
+   "name": "no Map: the line says Map none, no ai-adopt hint",
+   "expect": "allow",
+   "event": "SessionStart",
+   "payload": {"source": "startup"},
+   "project": {"git_init": true, "files": {"main.py": "print(1)\n", ".ai/enabled": "tier: long\n"}},
+   "contains": ["ai: tier long, Map none,", "Serena on", "graph missing", "verify none"],
+   "not_contains": ["ai-adopt", "[ai router: serena]", "[ai router: graph]", "Agent task"]
+  },
+  {
+   "name": "Map present: counted, never quoted",
+   "expect": "allow",
+   "event": "SessionStart",
+   "payload": {"source": "startup"},
+   "project": {"git_init": true, "files": {"main.py": "print(1)\n", ".ai/enabled": "tier: long\n",
+    "AGENTS.md": "<!-- AI:map START -->\n## Map\n- SECRET-MAP-TEXT\n- b\n<!-- AI:map END -->\n"}},
+   "contains": "Map ok (3 lines)",
+   "not_contains": "SECRET-MAP-TEXT"
+  },
+  {
+   "name": "Serena off (no-serena)",
+   "expect": "allow",
+   "event": "SessionStart",
+   "payload": {"source": "startup"},
+   "project": {"git_init": true, "files": {"main.py": "print(1)\n", ".ai/enabled": "no-serena\n"}},
+   "contains": ["Serena off", "graph missing"]
+  },
+  {
+   "name": "graph off (no-graph)",
+   "expect": "allow",
+   "event": "SessionStart",
+   "payload": {"source": "startup"},
+   "project": {"git_init": true, "files": {"main.py": "print(1)\n", ".ai/enabled": "no-graph\n"}},
+   "contains": ["Serena on", "graph off"]
+  },
+  {
+   "name": "the opt-in tools of the project, from the catalog",
+   "expect": "allow",
+   "event": "SessionStart",
+   "payload": {"source": "startup"},
+   "project": {"git_init": true, "files": {"main.py": "print(1)\n", ".ai/enabled": "tier: long\nui\nomc\nno-graph\n"}},
+   "contains": "opt-in: omc, ui."
+  },
+  {
+   "name": "compact: the status line, the card and the sessions line; no L0 table",
+   "expect": "allow",
+   "event": "SessionStart",
+   "payload": {"source": "compact"},
+   "project": {"git_init": true, "files": {"main.py": "print(1)\n", ".ai/enabled": "tier: long\n"}},
+   "contains": ["ai: tier long", "[ai router: skill-card]", "[ai router: sessions]"],
+   "not_contains": ["[ai router L1]", "Routing table"]
+  },
+  {
+   "name": "clear: no L0 table",
+   "expect": "allow",
+   "event": "SessionStart",
+   "payload": {"source": "clear"},
+   "project": {"git_init": true, "files": {"main.py": "print(1)\n", ".ai/enabled": "tier: long\n"}},
+   "contains": "ai: tier long",
+   "not_contains": "[ai router L1]"
+  },
+  {
+   "name": "Codex startup: the same line",
+   "expect": "allow",
+   "agent": "codex",
+   "event": "SessionStart",
+   "payload": {"source": "startup"},
+   "project": {"git_init": true, "files": {"main.py": "print(1)\n", ".ai/enabled": "tier: long\n"}},
+   "contains": "ai: tier long"
+  },
+  {
+   "name": "Codex resume: the same line, no L0 table",
+   "expect": "allow",
+   "agent": "codex",
+   "event": "SessionStart",
+   "payload": {"source": "resume"},
+   "project": {"git_init": true, "files": {"main.py": "print(1)\n", ".ai/enabled": "tier: long\n"}},
+   "contains": "ai: tier long",
+   "not_contains": "[ai router L1]"
+  }
+ ]
+}

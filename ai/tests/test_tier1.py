@@ -797,6 +797,9 @@ def t_verify_status_and_doctor(work):
     line = hooklib.knowledge_index(repo)
     assert "stale (25 code commits" in line and "Agent task: run maintain-verification-skill" in line, line
     assert "run /maintain-verification-skill" not in line, "ticket 06: an agent task, not a typed owner step: " + line
+    status = hooklib.status_line(repo)
+    assert "verify verify-shop (2 features, stale: run maintain-verification-skill)," in status, \
+        "rules-that-hold 13: the status line keeps the owner's action for a stale verify skill: " + status
     out = io.StringIO()
     with redirect_stdout(out):
         doctor.check_verify_skill(repo, hooklib, "mvp")
@@ -807,6 +810,7 @@ def t_verify_status_and_doctor(work):
     run(["git", "-C", repo, "add", "-A"], env=env)
     run(["git", "-C", repo, "commit", "-qm", "map"], env=env)
     assert "Verify skill: verify-shop (3 features)." in hooklib.knowledge_index(repo), "a map change resets it"
+    assert "verify verify-shop (3 features)," in hooklib.status_line(repo), "fresh: no action in the status line"
     bare = tree(work, "verify-none", {"src/app.py": "x = 1\n", ".ai/enabled": "tier: try\n"})
     run(["git", "init", "-q", bare])
     line = hooklib.knowledge_index(bare)

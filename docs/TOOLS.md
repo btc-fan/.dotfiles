@@ -292,7 +292,7 @@ Some tools can do the same job. The table in `ai/routing.yaml` (`tiebreaks`) nam
 | Topic cluster to write posts | `blog-cluster` | `seo-cluster` | Goal decides. |
 | Topic cluster as site architecture | `seo-cluster` | `blog-cluster` | Goal decides. |
 | Search Console, PageSpeed, CrUX | `seo-google` | `blog-google` | One Google login, shared. |
-| Feature prompt (add, implement, build ... a feature, endpoint, page) | `grill-with-docs` then `to-spec` and `to-tickets` where the project links them, else `grilling` | writing code at once | Row `feature-grill` (L2); a trivial change answers "none needed". |
+| Feature prompt (add, implement, build ... a feature, endpoint, page) | `grill-with-docs` then `to-spec` and `to-tickets` where the project links them, else `grilling` | writing code at once | The `feature-kickoff` skill (its description holds the EN, RO and RU words); a trivial change skips the grill. |
 | Proving a change works | the project's `verify-<app>` skill, then e2e tests | "CI is green" alone | Evidence from the running app first, then a test that encodes it. |
 | Tickets for a feature | `to-tickets` into `docs/tickets/` | GitHub issues | Never without the owner. |
 | New app or project (kickoff) | `grilling` (typed: `/grill-me`) | OMC `deep-interview` | Kickoff uses grilling; deep-interview only when grilling is not installed. |
@@ -407,7 +407,7 @@ Navigation order for agents (rules): AGENTS.md Map, then `graphify query` for st
 | Area | Who does it | Duplicates and what we did |
 |---|---|---|
 | Navigation | 1 AGENTS.md Map (what lives where), 2 `graphify query` (structure, dependencies), 3 Serena symbol tools (definitions, references, symbol edits), 4 built-in Grep/Read on the located lines | Serena's file and shell tools are off (claude-code context; `excluded_tools: execute_shell_command, serena_repl`). OMC `lsp_*` / `ast_grep_*`: OMC is off on servers; where it is on, rules say Serena first. No Claude LSP plugin is installed. graphify MCP not installed (CLI only) |
-| Hooks: SessionStart | router (status lines; the skill card; L0 table after compact/clear), i-have-adhd, Ponytail, OMC (when on), Serena `activate` for Codex only | Serena `activate` skipped for Claude (single-project context). graphify's global hooks removed |
+| Hooks: SessionStart | router (one status line; the skill card; the sessions line), i-have-adhd, Ponytail, OMC (when on), Serena `activate` for Codex only | Serena `activate` skipped for Claude (single-project context). graphify's global hooks removed |
 | Hooks: PreToolUse | RTK rewrites (Bash; Claude: not in auto mode); router gates (Bash, Edit, Write, Skill) and absolute rewrite of excluded commands | No two rewrites of one command: RTK excludes `git push` and `gh`. Deny wins over any rewrite. Serena `remind` and graphify `hook-guard` not installed |
 | Hooks: Stop, SessionEnd, Notification | router, claude-notify, `stop-check` (check-fast), OMC persistent mode (when on), Serena `cleanup` | stop-check is silent while an OMC persistent mode of the session is active; OMC never blocks a continuation stop: one stop never gets a block from both |
 | Git hooks | graphify post-commit/checkout/merge/rewrite (owner's own git) | The server git guard turns them off for agent git calls |

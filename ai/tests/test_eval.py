@@ -234,10 +234,10 @@ def t_cases_valid(work):
     ev = load()
     cases = ev.load_cases()
     ids = [c["id"] for c in cases]
-    for want in ("writing-for-agents", "diagnosing-bugs", "graphify-first", "docs-lookup", "ship", "winner-tdd"):
+    for want in ("writing-for-agents", "diagnosing-bugs", "graphify-first", "docs-lookup", "ship", "winner-tdd", "feature-kickoff"):
         assert want in ids, "missing case %s: %s" % (want, ids)
     # EXTENDING section 6: English, Romanian and Russian should-fire cases, and a should-not-fire case.
-    for base in ("writing-for-agents", "diagnosing-bugs", "graphify-first", "ship"):
+    for base in ("writing-for-agents", "diagnosing-bugs", "graphify-first", "ship", "feature-kickoff"):
         for want in (base + "-ro", base + "-ru", base + "-not"):
             assert want in ids, "missing case %s: %s" % (want, ids)
         neg = [c for c in cases if c["id"] == base + "-not"][0]["expect"]

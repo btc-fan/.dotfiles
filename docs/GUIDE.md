@@ -224,7 +224,7 @@ The design names each kind of help with a layer number. You see these names in t
 | Layer | Name | What it is | Example you will see |
 |---|---|---|---|
 | L0 | Routing table | The table at the end of the global rules. Always in context. | "pr-rules (gate) - before gh pr create, edit or ready - PR body: ..." |
-| L1 | Session start | Rules with `when: session_start`, plus the status line. | `[ai router: project-knowledge] Read the Map and Libraries ...` |
+| L1 | Session start | One status line, plus the rules with `when: session_start`. | `ai: tier long, Map ok (12 lines), Libraries 4 (fresh), Serena on, ...` |
 | L2 | Forced evaluation | After a prompt rule matched: answer YES or NO per tool, then use every YES tool first. | `[ai router L2] Before you act, answer YES or NO ...` |
 | L3 | Regex nudge | A rule whose trigger matched (a prompt word, a command, a file). | `[ai router: no-em-dash] Remove the em dash ...` |
 | L4 | Gate | The tool call is denied. | `[ai gate secret-scan] Secret scan found ...` |
@@ -240,12 +240,10 @@ Global rules (every repo):
 
 | Rule | Kind | Fires when | Says |
 |---|---|---|---|
-| project-knowledge | nudge | session start in a code repo | Read the Map and Libraries of AGENTS.md first, then search narrowly. Plus the status line. |
 | secret-scan | **gate** | before `git commit` or `git push` | Remove the secret first. |
 | pr-rules | **gate** | before `gh pr create` or `gh pr edit` with a body | The PR body template (section 11). |
 | no-em-dash | nudge | after a write that contains U+2014 | Use "-", ":" or a new sentence. |
 | ste-sentence | nudge | after an Edit, MultiEdit or Write of a Markdown file with a new sentence over 25 words | The writing style rule (ASD-STE100): split the sentence. Code, tables, headings and front matter do not count. A sentence that the old text already had does not count. |
-| feature-grill | nudge | a feature request prompt (EN, RO, RU) | Grill first, then to-spec and to-tickets for 3+ files. |
 | merge-approval, no-verify | **gate** | `gh pr merge` or a push to main; `--no-verify` | Wait for your "merge"; fix what the git hook reports. |
 | writing-for-agents | **gate** | before an edit or shell write of AGENTS.md, CLAUDE.md, CLAUDE.local.md, a SKILL.md | Load the `writing-for-agents` skill first. |
 | ship | **gate** | before `gh pr ready` | Run the `ship` skill first. |

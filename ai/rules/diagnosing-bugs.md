@@ -1,8 +1,9 @@
-# diagnosing-bugs hint (bug and performance prompts; a stop rule until 2026-11-18)
+# diagnosing-bugs (bug and performance prompts)
 
-Our own rule (`routing.yaml` rule `diagnosing-bugs`, `strength: nudge`). Added 2026-11-16 as a stop rule. Since
-2026-11-18 (ticket 14) it is a hint: as a stop, 6 of 6 blocks were false (research and setup prompts that mention
-debug, broken or crash). The skill: `diagnosing-bugs` (Matt Pocock).
+Home since rules-that-hold 12 (2026-11-20): the description of the `diagnosing-bugs` skill (Matt Pocock) and 1 index
+line in `ai/agents-md/80-tool-catalog.md` (it adds crash, regression and the RO and RU words). The router row is
+gone. History: a stop rule from 2026-11-16, a hint from 2026-11-18 (as a stop, 6 of 6 blocks were false). The text
+below is the old row.
 
 ## Vendor rules (verbatim)
 NOT FOUND (our own rule). Platform fact: a Claude Stop hook accepts `{"decision": "block", "reason"}`.

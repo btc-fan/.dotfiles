@@ -24,6 +24,8 @@
 5. `seo` and `blog` plugins are off in most projects. Then their descriptions are absent. `ai-info` lists them as off (ticket 11).
 6. The winner gate: `grill-with-docs` stays the winner for "New feature or kickoff interview". `feature-kickoff` calls it, so the gate must allow that read.
 7. A user types a long feature request that is pasted session output: no regex runs any more, so the false fires of R-004 cannot happen.
+8. Difference: `ui`, `seo` and `blog` are also the `ai-adopt --tools` catalog, so each row stays with `trigger: {}` and never fires.
+9. Difference: the row `browser` (kept by ticket 11) still has a prompt trigger, so box 1 is not met; the R-004 cases moved to `browser.json`.
 
 **Owner steps:** None after D1.
 
@@ -34,8 +36,8 @@
 **Size:** M
 
 - [ ] `ai/routing.yaml` has no `trigger: {prompt: ...}` key.
-- [ ] `ai/skills/feature-kickoff/SKILL.md` exists, is model-invocable, and passes the skill validator.
-- [ ] The eval cases `ai/evals/cases/feature-kickoff.json`, `-ro.json`, `-ru.json` and `-not.json` exist.
+- [x] `ai/skills/feature-kickoff/SKILL.md` exists, is model-invocable, and passes the skill validator.
+- [x] The eval cases `ai/evals/cases/feature-kickoff.json`, `-ro.json`, `-ru.json` and `-not.json` exist.
 - [ ] In 3 runs, a Claude session with "add a page that lists the users" calls `feature-kickoff` in at least 2.
 - [ ] The PR lists the trigger words of each of the 6 skill descriptions.
 
