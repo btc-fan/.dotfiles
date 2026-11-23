@@ -64,6 +64,19 @@ def t_ai_friction(work):
     res = run(cli + ["--max-turns-per-day", "0.5"])
     assert res.returncode == 1 and "1.0 owner turns a day" in res.stdout, res.stdout
 
+    # Bad lines are skipped, a typed /skill starts a turn, an ssh group is named once, --days 0 is refused.
+    bad = ['3', '{"type": "user", "message": "text"}', '[' * 5000 + ']' * 5000,
+           json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": "x"}]}}),
+           json.dumps({"type": "user", "message": {"content": "<command-name>/ship</command-name>"}}),
+           json.dumps(bash("ssh h 'sudo systemctl restart api'"))]
+    with open(os.path.join(projects, "s2.jsonl"), "w") as f:
+        f.write("\n".join(bad) + "\n")
+    res = run(cli + ["--json"])
+    assert res.returncode == 0, res.stdout
+    data = json.loads(res.stdout)
+    assert (data["stops"], data["turns_with_stop"]) == (2, 2), data
+    assert all(g["reason"].count("over ssh") <= 1 for g in data["groups"]), data
+    assert run(cli[:-2] + ["--days", "0"]).returncode != 0
 
 
 def t_hook_files(work):

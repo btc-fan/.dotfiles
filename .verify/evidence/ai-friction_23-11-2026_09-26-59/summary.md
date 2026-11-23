@@ -6,3 +6,4 @@ Doctor: PASS (--no-agents). Real files changed: none.
 |---|---|
 | `ai-friction --projects ~/.claude/projects --days 14` | rc 0, report printed |
 | same with `--max-turns-per-day 5` | rc 1, "over the limit: 10.9 owner turns a day with a stop (limit 5.0)" |
+The raw drive files (real transcript lines) and state.json are left out: the repo is public and generic. run.log holds the commit, doctor and finish lines.

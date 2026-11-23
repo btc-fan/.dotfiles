@@ -14,6 +14,7 @@ Usage:
   --max-turns-per-day X  exit 1 when the owner turns with a stop a day are over X
 """
 import argparse
+import calendar
 import collections
 import glob
 import json
@@ -34,6 +35,8 @@ def main():
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--max-turns-per-day", type=float)
     a = ap.parse_args()
+    if a.days <= 0:
+        ap.error("--days must be more than 0")
 
     report = replay(a.projects, a.days)
     print(json.dumps(report, indent=1) if a.json else text(report))
@@ -49,9 +52,12 @@ def replay(projects, days):
     commands, stops, turns = 0, 0, set()
     groups = collections.defaultdict(list)
     for path in glob.glob(os.path.join(projects, "*", "*.jsonl")):
-        if os.path.getmtime(path) < cut:
+        try:
+            if os.path.getmtime(path) < cut:
+                continue
+        except OSError:        # the file went away after the glob
             continue
-        for turn, cmd, cwd in bash_calls(path):
+        for turn, cmd, cwd in bash_calls(path, cut):
             commands += 1
             why = gate_reason(cmd, cwd)
             if why:
@@ -64,22 +70,44 @@ def replay(projects, days):
                        for g, w in sorted(groups.items(), key=lambda kv: -len(kv[1]))]}
 
 
-def bash_calls(path):
-    """(owner turn number, command, cwd) for each Bash call. A turn starts at an owner prompt, not at a
-    notification or a tool result."""
+def bash_calls(path, cut=0):
+    """(owner turn number, command, cwd) for each Bash call after the cut time. A turn starts at an owner
+    prompt: typed text, a typed /skill or a prompt with an image; not a notification or a tool result."""
     turn = 0
     for line in open(path, errors="ignore"):
         try:
             d = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError):
             continue
-        msg = d.get("message") or {}
-        content = msg.get("content")
-        if d.get("type") == "user" and isinstance(content, str) and not content.lstrip().startswith("<"):
+        if not isinstance(d, dict) or not isinstance(d.get("message"), dict) or too_old(d, cut):
+            continue
+        content = d["message"].get("content")
+        if d.get("type") == "user" and owner_prompt(content):
             turn += 1
         for item in content if isinstance(content, list) else []:
             if isinstance(item, dict) and item.get("type") == "tool_use" and item.get("name") == "Bash":
-                yield turn, (item.get("input") or {}).get("command") or "", d.get("cwd") or "."
+                cmd = item.get("input").get("command") if isinstance(item.get("input"), dict) else None
+                if isinstance(cmd, str):
+                    yield turn, cmd, d.get("cwd") or "."
+
+
+def owner_prompt(content):
+    if isinstance(content, str):
+        text = content.lstrip()
+        return not text.startswith("<") or text.startswith("<command-name>")
+    return isinstance(content, list) and any(isinstance(i, dict) and i.get("type") in ("text", "image")
+                                             for i in content)
+
+
+def too_old(d, cut):
+    """A line older than the window (a long session started before it) does not count."""
+    stamp = d.get("timestamp")
+    if not cut or not isinstance(stamp, str):
+        return False
+    try:
+        return calendar.timegm(time.strptime(stamp[:19], "%Y-%m-%dT%H:%M:%S")) < cut     # transcript stamps are UTC
+    except ValueError:
+        return False
 
 
 def gate_reason(cmd, cwd):
@@ -92,7 +120,7 @@ def gate_reason(cmd, cwd):
 def group_of(why):
     """The class in the reason's last parentheses, plus "over ssh": "a service change over ssh"."""
     inner = why.rsplit("(", 1)[-1].split(")")[0] if "(" in why else why
-    return inner + (" over ssh" if "over ssh" in why else "")
+    return inner if inner.endswith("over ssh") or "over ssh" not in why else inner + " over ssh"
 
 
 def text(r):
