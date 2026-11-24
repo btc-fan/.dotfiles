@@ -38,7 +38,7 @@ def main():
                      t_claude_plugin_replace, t_claude_plugin_update, t_claude_plugin_fallback,
                      t_claude_dir_same_version, t_claude_fresh_install_checked, t_claude_own_replace_rollback,
                      t_claude_plugin_rejected_newest,
-                     t_codex_plugin_refresh, t_bash_mattpocock_optin, t_bash_pstack, t_audit_accept_by_commit, t_uv_tool_normalized, t_scanners,
+                     t_codex_plugin_refresh, t_bash_mattpocock_optin, t_bash_pstack, t_audit_accept_by_commit, t_uv_tool_normalized, t_uv_tool_broken_reinstalls, t_scanners,
                      t_osv_scanner, t_gitleaks_pin, t_herdr, t_src_swap_and_dry_sha, t_playwright_keep_only,
                      t_playwright_profile_audit):
             for k in ENV_KEYS:
@@ -657,6 +657,7 @@ if a[:2] == ["tool", "dir"]:
 if a[:2] == ["tool", "install"]:
     spec = [x for x in a if "==" in x][0]
     name, ver = spec.split("==")
+    name = re.sub(r"\[.*\]$", "", name)       # an extra ("pkg[mcp]") names the same package
     binname = os.environ.get("FAKE_UV_BIN_" + re.sub(r"[^A-Za-z0-9]", "_", name), name)
     path = os.path.join(os.environ["FAKE_BIN"], binname)
     open(path, "w").write("#!/bin/sh\necho %s %s\n" % (binname, os.environ.get("FAKE_UV_PRINTS", ver)))
@@ -686,6 +687,19 @@ def t_uv_tool_normalized(work):
     os.remove(os.path.join(work, "log"))
     code, out = bash(run, env)
     assert "toolq 2.1 present" in out and "tool install" not in read(os.path.join(work, "log")), out
+
+
+def t_uv_tool_broken_reinstalls(work):
+    """uv_tool: a present newest version that fails its smoke test is reinstalled with the extra (graphify 0.9.118
+    printed its version, but every query crashed until the mcp extra brought anyio)."""
+    env, home, bindir = uv_env(work, 'TOOLQ_SOURCE="pypi toolq-agent stable"\n', {"toolq-agent": ["2.1.0"]})
+    env.update({"FAKE_UV_BIN_toolq_agent": "toolq", "FAKE_UV_PRINTS": "2.1.0"})
+    run = LIBS + 'audit_ok() { return 0; }; uv_tool toolq toolq-agent toolq "" "[mcp]"'
+    code, out = bash(run, env)
+    os.remove(os.path.join(work, "log"))
+    code, out = bash(run.replace("uv_tool toolq", "tool_works() { return 1; }; uv_tool toolq"), env)
+    assert "present but fails its smoke test" in out, out
+    assert "toolq-agent[mcp]==2.1.0" in read(os.path.join(work, "log")), read(os.path.join(work, "log"))
 
 
 def t_scanners(work):

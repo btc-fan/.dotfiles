@@ -1,0 +1,7 @@
+/Users/python-qa/.dotfiles-ai-fix-graphify-mcp-extra/ai/bin/ai-doctor --works graphify
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-enivqvh2/empty
+rc: 1
+--- transcript
+FAIL graphify: graphify query: ModuleNotFoundError: No module named 'anyio'
+
+--- git status --short after

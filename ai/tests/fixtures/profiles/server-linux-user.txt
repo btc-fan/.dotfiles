@@ -78,7 +78,7 @@ DRY RUN: commands are printed, nothing is changed.
   planned: serena 2.1.0 (newest stable, audited, wheels only)
   graphify: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 0.9.108
   [dry-run] agent-audit pypi graphifyy 0.9.108
-  [dry-run] env UV_LINK_MODE=copy uv tool install --force --no-build graphifyy==0.9.108
+  [dry-run] env UV_LINK_MODE=copy uv tool install --force --no-build graphifyy\[mcp\]==0.9.108
   [dry-run] record  uv:graphify undo: uv tool uninstall graphifyy
   planned: graphify 0.9.108 (newest stable, audited, wheels only)
   context7-mcp: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 4.7.0
