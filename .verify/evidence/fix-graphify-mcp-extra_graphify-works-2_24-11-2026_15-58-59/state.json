@@ -1,0 +1,19 @@
+{
+ "run": "fix-graphify-mcp-extra_graphify-works-2_24-11-2026_15-58-59",
+ "root": "/Users/python-qa/.dotfiles-ai-fix-graphify-mcp-extra",
+ "tmp": "/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-enivqvh2",
+ "fixtures": [
+  "empty"
+ ],
+ "guards": {
+  "/Users/python-qa/.claude/settings.json": "e005656135496005d1c7ba36957524a79b1518a3",
+  "/Users/python-qa/.claude/plugins/installed_plugins.json": "0ebcea0e2e61a9141a76ff73822ea16bd0313b30",
+  "/Users/python-qa/.codex/config.toml": "11ec6861e11559c042cbf167dab6dfdf07209c8d",
+  "/Users/python-qa/.codex/hooks.json": "7f198ac2a849ef3fde128dc8ff79e11a49e2c489",
+  "/Users/python-qa/.dotfiles-ai": "9068e515bff2feded0c5cc75f21c1bda2f5c297dce7999e3a3bf7431a82749df4d688f4fbee0a3ee",
+  "/Users/python-qa/.claude/skills": "0c3e7b578c6a76f8acee86ffb7b649a938ef8190",
+  "/Users/python-qa/.agents/skills": "7e9734a48151b34c82f2e7270c886b0494c37f00"
+ },
+ "drives": 3,
+ "agents": false
+}
