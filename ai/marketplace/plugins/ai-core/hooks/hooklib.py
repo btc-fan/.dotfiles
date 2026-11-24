@@ -2283,8 +2283,13 @@ def ask_first_prompt(d, prompt):
 # a reply, not an approval.
 # The whole prompt is OK words ("go", "yes do it", "go ahead please"): an OK word inside pasted output or a longer
 # request ("the build was approved", "ok check the logs") is not an approval.
-ASK_OK_RX = re.compile(r"^\W*((go|ahead|ok(ay)?|yes|yep|do|it|approved?|approve|proceed|please|now|da|fa-?l|да|"
-                       r"давай)\W*)+$", re.I)
+# After the first OK word, plan step picks also count ("go 1 2 3", "ok 1-5", "go all"). A separator (\W+) must come
+# before each next token, so the text splits in one way only: no slow backtracking on a long prompt (R-021).
+# shortcut: one OK opens every high-impact step of the turn, also steps the owner did not pick; upgrade when
+# plans get step IDs that the gate can check.
+_OK_WORD = r"(go|ahead|ok(ay)?|yes|yep|do|it|approved?|approve|proceed|please|now|da|fa-?l|да|давай)"
+_STEP_PICK = r"(\d+|all|and|both|toate|si|și|все|и)"
+ASK_OK_RX = re.compile(r"^\W*%s(\W+(%s|%s))*\W*$" % (_OK_WORD, _OK_WORD, _STEP_PICK), re.I)
 NO_ASK_RX = re.compile(r"(?<!\w)(don'?t|do\s+not|not|no|never|wait|hold\s+on|nu|нет|не|what|how|why|which|where)"
                        r"(?!\w)", re.I)
 ASKED_CHANGE_RX = re.compile(r"\b(prs?|pull\s+requests?|features?|fix\w*|bugs?|issues?|release|implement\w*|build|"

@@ -1,0 +1,9 @@
+router.py --agent claude UserPromptSubmit
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-4t8tqxtb/empty
+payload: {"prompt": "go 1 2 3", "session_id": "s1", "cwd": "/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-4t8tqxtb/empty", "hook_event_name": "UserPromptSubmit"}
+decision: allow
+rules fired: none
+router errors: none
+rc: 0
+
+--- output

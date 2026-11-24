@@ -2532,6 +2532,219 @@
    ]
   },
   {
+   "name": "ok: 'go 1 2 3' picks plan steps, it is an OK",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go 1 2 3"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: 'OK 1-5' picks plan steps, it is an OK",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "OK 1-5"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: 'ok 2' picks plan steps, it is an OK",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "ok 2"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: 'go all' picks plan steps, it is an OK",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go all"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: 'go, 1 and 3' picks plan steps, it is an OK",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go, 1 and 3"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: 'da 1 si 2' picks plan steps, it is an OK",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "da 1 si 2"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ok: 'давай все' picks plan steps, it is an OK",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "давай все"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "security: '1 2 3' is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "1 2 3"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "security: 'go but not 2' is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "go but not 2"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
+   "name": "security: 'all' is not an OK",
+   "expect": "deny",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "all"
+     }
+    },
+    {
+     "event": "PreToolUse",
+     "payload": {
+      "tool_name": "Bash",
+      "tool_input": {
+       "command": "systemctl restart web-api"
+      }
+     }
+    }
+   ],
+   "contains": "[ai gate ask-first]"
+  },
+  {
    "name": "security: the OK ends with the turn (Stop)",
    "expect": "deny",
    "steps": [
