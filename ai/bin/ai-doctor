@@ -8,6 +8,7 @@
   ai-doctor --project PATH   also the project knowledge checks for PATH (default: the cwd when it is a
                       git repo with code): Serena memories, sizes, staleness, secrets, graph, .ai/libs.md
   ai-doctor --project-only PATH   only those project checks (no machine checks; ai-eval install runs it)
+  ai-doctor --works TOOL   only the smoke test of TOOL (install.sh runs it; exit 1 when the tool is broken)
 
 Exit 1 when any check FAILs. WARN does not fail.
 Profile (ai/profiles, owner decision 2026-11-14): shown first. dev-mac FAILs when guarddog or osv-scanner from
@@ -73,6 +74,9 @@ def main(argv):
         check_handoff()
         check_copies()
         return finish()
+    if "--works" in argv:
+        i = argv.index("--works")
+        return works_main(argv[i + 1] if i + 1 < len(argv) else "")
     if "--project-only" in argv:
         i = argv.index("--project-only")
         check_project(argv[i + 1] if i + 1 < len(argv) else os.getcwd(), explicit=True)
@@ -106,6 +110,7 @@ def main(argv):
     check_skill_dups()
     check_rules_2026_11_16(live=not quick)
     check_uv_links()
+    check_tools_work()
     check_codex_policy()
     check_hermes()
     check_omc()
@@ -917,6 +922,42 @@ def check_uv_links():
                     linked += 1
         say("PASS" if not linked else "FAIL", "uv tool %s: files are copies, not hard links to a cache" % tool,
             "" if not linked else "%d linked files: re-run install.sh (reinstalls with UV_LINK_MODE=copy)" % linked)
+
+
+def check_tools_work():
+    """Each tool with a smoke test must do its real job, not only show a version (graphify 0.9.118 printed its
+    version but every query crashed: anyio had moved into the mcp extra)."""
+    for name, (what, fn) in sorted(WORKS.items()):
+        if shutil.which(name):
+            ok, detail = fn()
+            say("PASS" if ok else "FAIL", "%s works (%s)" % (name, what),
+                "" if ok else detail + "\nre-run install.sh: it reinstalls a tool that fails this test")
+
+
+def works_main(name):
+    """ai-doctor --works TOOL: exit 0 when TOOL passes its smoke test, or has none or is not installed."""
+    if name not in WORKS or not shutil.which(name):
+        return 0
+    ok, detail = WORKS[name][1]()
+    print(("PASS %s works" % name) if ok else ("FAIL %s: %s" % (name, detail)))
+    return 0 if ok else 1
+
+
+def works_graphify():
+    """Build a graph of a one-file repo, then query it: the same code paths an agent uses. No LLM backend."""
+    with tempfile.TemporaryDirectory() as tmp:
+        with open(os.path.join(tmp, "a.py"), "w") as fh:
+            fh.write("def smoke_hello():\n    return 1\n")
+        code, out = run(["env", "GRAPHIFY_BACKEND=none", "graphify", "update", "."], cwd=tmp)
+        if code != 0:
+            return False, "graphify update: " + out.strip()[-400:]
+        code, out = run(["env", "GRAPHIFY_BACKEND=none", "graphify", "query", "smoke_hello", "--budget", "100"], cwd=tmp)
+        if code != 0 or "smoke_hello" not in out:
+            return False, "graphify query: " + out.strip()[-400:]
+    return True, ""
+
+
+WORKS = {"graphify": ("build and query a one-file graph", works_graphify)}
 
 
 def check_serena_config():
