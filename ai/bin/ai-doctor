@@ -944,14 +944,14 @@ def works_main(name):
 
 
 def works_graphify():
-    """Build a graph of a one-file repo, then query it: the same code paths an agent uses."""
+    """Build a graph of a one-file repo, then query it: the same code paths an agent uses. No LLM backend."""
     with tempfile.TemporaryDirectory() as tmp:
         with open(os.path.join(tmp, "a.py"), "w") as fh:
             fh.write("def smoke_hello():\n    return 1\n")
-        code, out = run(["graphify", "update", "."], cwd=tmp)
+        code, out = run(["env", "GRAPHIFY_BACKEND=none", "graphify", "update", "."], cwd=tmp)
         if code != 0:
             return False, "graphify update: " + out.strip()[-400:]
-        code, out = run(["graphify", "query", "smoke_hello", "--budget", "100"], cwd=tmp)
+        code, out = run(["env", "GRAPHIFY_BACKEND=none", "graphify", "query", "smoke_hello", "--budget", "100"], cwd=tmp)
         if code != 0 or "smoke_hello" not in out:
             return False, "graphify query: " + out.strip()[-400:]
     return True, ""

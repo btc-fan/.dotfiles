@@ -634,7 +634,7 @@ tools_user() {
     if [ "$AI_SKIP_PACKAGES" = 1 ]; then skip "user tool installs (--skip-packages)"; return 0; fi
 
     uv_tool serena serena-agent serena "$SERENA_PYTHON"
-    # 0.9.118 moved anyio into the mcp extra, but `graphify query` still imports it
+    # 0.9.118 needs the mcp extra for `graphify query` (anyio); 0.9.119 does not. Keep it as a guard.
     uv_tool graphify graphifyy graphify "" "[mcp]"
     tools_context7
     [ "${PROFILE_GITLEAKS:-0}" = 1 ] && tools_gitleaks
