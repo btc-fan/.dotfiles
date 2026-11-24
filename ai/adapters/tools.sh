@@ -136,29 +136,40 @@ npm_local() {
 # uv tool install of an exact version, as the user (never root), wheels only (--no-build). Files are copied
 # (UV_LINK_MODE=copy), never hard-linked to the uv cache; a tool an older install linked is reinstalled.
 uv_pinned() {
-    # uv_pinned <pypi-name> <version> [python]
-    local name=$1 ver=$2 py=${3:-} re=()
+    # uv_pinned <pypi-name> <version> [python] [extra, e.g. "[mcp]"]
+    local name=$1 ver=$2 py=${3:-} extra=${4:-} re=()
     audit_ok pypi "$name" "$ver" || return 1
     uv_tool_linked "$name" && re=(--reinstall)
     [ -n "$py" ] && re+=(-p "$py")
-    uv_install_wheels_first "$name==$ver" ${re[@]+"${re[@]}"}
+    uv_install_wheels_first "$name$extra==$ver" ${re[@]+"${re[@]}"}
 }
 
-# uv_tool <tool id> <pypi name> <command> [python]: install or move a uv tool to the resolved version.
+# uv_tool <tool id> <pypi name> <command> [python] [extra]: install or move a uv tool to the resolved version.
+# A present tool that fails its smoke test (ai-doctor --works) is reinstalled, not kept.
 uv_tool() {
-    local tool=$1 name=$2 bin=$3 py=${4:-} have
+    local tool=$1 name=$2 bin=$3 py=${4:-} extra=${5:-} have
     resolve_tool "$tool" || return 0
     have=$(tool_version "$bin")
     if ! uv_tool_linked "$name" && r_keep "$have"; then
-        ver_eq "$have" "$R_VERSION" && info "$bin $have present (newest stable)"; return 0
+        if tool_works "$bin"; then
+            ver_eq "$have" "$R_VERSION" && info "$bin $have present (newest stable)"; return 0
+        fi
+        warn "$bin $have present but fails its smoke test (ai-doctor --works $bin): reinstalling"
     fi
-    if uv_pinned "$name" "$R_VERSION" "$py"; then
+    if uv_pinned "$name" "$R_VERSION" "$py" "$extra"; then
         aiconf record-cmd "uv:$bin" -- uv tool uninstall "$name"
         r_record
         ok "$bin ${have:+$have -> }$R_VERSION (newest stable, $(aud_word), wheels only)"
+        tool_works "$bin" || warn "$bin $R_VERSION installed but fails its smoke test: run ai-doctor --works $bin"
     else
         warn "$bin $R_VERSION not installed${have:+: $have kept}"
     fi
+}
+
+# tool_works <command>: the ai-doctor smoke test of that tool (exit 0 when it has none, or in a dry run).
+tool_works() {
+    [ "$AI_DRY_RUN" = 1 ] && return 0
+    python3 "$AI_HOME/ai/bin/ai-doctor" --works "$1" >/dev/null 2>&1
 }
 
 # uv tool install, wheels only. On macOS only: when a pinned dependency has no wheel for this macOS version
@@ -623,7 +634,8 @@ tools_user() {
     if [ "$AI_SKIP_PACKAGES" = 1 ]; then skip "user tool installs (--skip-packages)"; return 0; fi
 
     uv_tool serena serena-agent serena "$SERENA_PYTHON"
-    uv_tool graphify graphifyy graphify
+    # 0.9.118 moved anyio into the mcp extra, but `graphify query` still imports it
+    uv_tool graphify graphifyy graphify "" "[mcp]"
     tools_context7
     [ "${PROFILE_GITLEAKS:-0}" = 1 ] && tools_gitleaks
     tools_rtk_excludes

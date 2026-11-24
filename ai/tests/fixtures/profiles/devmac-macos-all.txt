@@ -114,7 +114,7 @@ undo --only ^cmd:bin:osv-scanner$: 1 entr(y/ies) reversed
   planned: serena 2.1.0 (newest stable, audit skipped, wheels only)
   graphify: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 0.9.108
   audit skipped: profile dev-mac (pypi graphifyy 0.9.108)
-  [dry-run] env UV_LINK_MODE=copy uv tool install --force --no-build graphifyy==0.9.108
+  [dry-run] env UV_LINK_MODE=copy uv tool install --force --no-build graphifyy\[mcp\]==0.9.108
   [dry-run] record  uv:graphify undo: uv tool uninstall graphifyy
   planned: graphify 0.9.108 (newest stable, audit skipped, wheels only)
   context7-mcp: newest stable not checked (offline; last resolved 2026-11-14T18:22:14Z): using the last resolved 4.7.0

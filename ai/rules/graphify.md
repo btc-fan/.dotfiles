@@ -33,7 +33,7 @@ README at v0.9.105 (verbatim): "A code-only corpus requires no API key: `graphif
 - Signal: a new line in `~/.cache/graphify-queries.log`.
 
 ## Setup checklist
-1. Install (per machine, install.sh): `uv tool install graphifyy==<newest stable>` (SPEC 23; audited first).
+1. Install (per machine, install.sh): `uv tool install "graphifyy[mcp]==<newest stable>"` (SPEC 23; audited first). The mcp extra brings anyio, which `graphify query` needs since 0.9.118. Check: `ai-doctor --works graphify` builds and queries a one-file graph.
 2. Env (agent env and `~/.config/ai/env`): `GRAPHIFY_BACKEND=none`, `GRAPHIFY_HOOK_STRICT=0`. The build command also sets `GRAPHIFY_BACKEND=none` inline.
 3. No optional extras (`mcp`, `watch`, `video`, cloud). Telemetry: none documented.
 4. Per project: `ai-adopt` (build + git hooks), unless `no-graph`.
