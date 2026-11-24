@@ -1,6 +1,6 @@
 # Rules that hold, version 3: one way for each phase, forced by checks
 
-Status: plan, not built. Date: 2026-11-24. Branch: `ai-fable`.
+Status: plan, not built. Date: 2026-11-24. Branch: `ai-fable`. Sections 10 and 11 come from a review on the same day.
 
 This file replaces the design of `docs/specs/rules-that-hold-v2.md`. Version 2 stays as a record.
 Version 2 had 5 blockers (it removed the owner's typed OK, and it used a global hooks path).
@@ -52,6 +52,7 @@ One fact about the skills: `grill-with-docs` is typed-only. No agent can start i
 3. **A check holds each thing that is true or false.** It runs at the commit: it repairs what a tool can repair, then it refuses. The same command runs in CI, and GitHub requires it. A refusal prints the exact next step. This is how the setup corrects the agent.
 
 The agent hook keeps only what git and GitHub cannot see: the owner's typed OK, a server command, a `gh` write, and a hook override in a command.
+A reply is also outside git. One Stop hook keeps 2 reply checks (owner decision O6).
 
 The owner types plain words. The owner types no check command. The agent runs the commands that the project already has: `make check-fast`, `make check`, and the new `make fix`.
 
@@ -72,7 +73,7 @@ flowchart LR
 
 | Flow | The owner says | The agent does | What forces it |
 |---|---|---|---|
-| Small change | "lets add ...", "I want ...", "fix it" | worktree and branch, failing test, code, `make check`, commit, push, PR | commit hook: no commit on main, repair, red check. CI: the same check |
+| Small change | "lets add ...", "I want ...", "fix it" | worktree and branch, failing test, code, `make check`, commit, push. A draft PR when the owner asked for a feature, a fix or a PR | commit hook: no commit on main, repair, red check. CI: the same check |
 | Bug | "... is not working", a screenshot | `diagnosing-bugs` for a hard one. A red test before the fix | commit hook: a `fix` commit needs a test and a ledger line |
 | Unclear or big idea | "idk yet", "lets think" | `grilling` and `domain-modeling` (glossary, decision records), then `to-spec`, `to-tickets` | text only. The PR size check warns when a big change has no spec |
 | Ticket work | `/implement` | one ticket in a fresh session, then the small-change flow | the same as the small change |
@@ -124,9 +125,12 @@ Each ticket is one worktree from `ai-fable`. Each ticket ends with the full suit
 | W5 agent hook | Keep 4 gates and the recorder of the owner's OK. Remove the router rows, the session-start text and the reminders. Close the here-document and brace-group holes. | Hook code under 2,000 lines. The red-team script: each plain form is blocked, and the 2 holes are closed. |
 | W6 scripts for fixed steps | `make fix`. A PR body script (headings, check output, session block). A cleanup script after a merge. | Each script has a test. A trial session opens a PR with no hand-written fixed part. |
 | W7 growth point | `checks/` in a project, called by `make check`. `retro` writes a check with a test, not a sentence. | One real retro gives one new check in a trial project. |
-| W8 proof | The 4 trial tasks as scenarios of `ai-eval`, for the installed setup and for version 3. Then one real project. | A report with cost, time, hook processes and flow result for both setups. |
+| W8 proof | The 4 trial tasks as scenarios of `ai-eval`, for the installed setup and for version 3. One scenario opens a PR in a project with a remote. Then one real project. | A report with cost, time, hook processes and flow result for both setups. |
+| W9 migration | The steps of section 11: version 5, the fixer for old blocks, the removal of retired settings, the hook that holds in a mixed state. | A fixture machine and a fixture project of version 4 become version 5. A second run changes nothing. The way back leaves no difference. |
 
-Order: W1 and W2 first. They make the walls. W3 and W6 have no dependency. W4 needs W1. W5 needs W1 and W4. W7 needs W6. W8 is last.
+Order: W1 and W2 first. They make the walls. W3 and W6 have no dependency. W4 needs W1. W5 needs W1 and W4. W7 needs W6. W9 needs W4 and W5. W8 is last.
+
+W4 also writes the map "no rule is lost" for the hooks and the per-tool files. Section 10 is its first version.
 
 ## 7. Decisions for the owner
 
@@ -137,6 +141,8 @@ Order: W1 and W2 first. They make the walls. W3 and W6 have no dependency. W4 ne
 | O3 | The 2 style plugins become one reply block of about 80 words? | The owner decides. The plugins cost about 5,000 tokens for each session. |
 | O4 | OMC: keep the agents, switch off the skill list and the per-call hooks? | Yes. The logs show agent use and almost no skill use. |
 | O5 | Serena on only where a project asks for it? | Yes. 7 calls in 60 days on one machine. |
+| O6 | Keep one Stop hook with 2 reply checks (the full PR URL, and the name of each high-impact step that ran)? | Yes. No git hook can read a reply. |
+| O7 | Keep the `nav-first` row, which denies a wide search one time and names graphify? | Yes. It is the cause of the graphify use (175 calls). W8 measures if it saves tokens. |
 
 ## 8. Limits of the evidence
 
@@ -149,5 +155,76 @@ Order: W1 and W2 first. They make the walls. W3 and W6 have no dependency. W4 ne
 ## 9. Not in this plan
 
 - No script that selects the next phase. No reference repository has one, and a red check does this job.
-- No change for Codex and OMX yet. The git hooks and CI hold for each agent. The agent gates come later.
+- No change to the hooks of Codex, OpenCode, OMX and Hermes yet. The git hooks and CI hold for each agent. The installer gives each agent the same rules text, so W4 changes their text too.
+- No change to the server profile (section 10, last row).
 - No block of an agent merge by a second account. The ruleset and the agent gate stay the 2 walls.
+
+## 10. Review: the rules that version 3 did not name
+
+The review read the whole rule set of the `ai` branch.
+It has 13 always-loaded files (2,767 words), 37 per-tool files (22,692 words), the routing file and 9 own skills.
+It found 31 rule families. Version 3 named a home for 1 family in full, for 19 in part and for 11 not at all.
+A rule that has no home in this table is not removed. This table gives each family its home.
+
+| Rule family | Today | Home in version 3 |
+|---|---|---|
+| Reply shape: 60 words, the state line, one next action, the "skipped" line | text and 2 plugins | the reply block of the rules file (O3) |
+| Simplified Technical English, no U+2014 | text, 2 nudges after a write | 2 text lines. The commit hook replaces U+2014 in staged text files. `pr-text` checks the PR body |
+| A reply names a PR with its full URL, and names each high-impact step that ran | 2 Stop checks | one Stop hook with these 2 checks (O6) |
+| Standing permission, the high-impact list, "prepare" and "audit" | text, gate `ask-first` | text, gate `ask-first`, the recorder of the typed OK |
+| Errors: one retry for a network error. A permission error and a blocked gate are final | text | one text line |
+| Personal files and `.env` files | text only | a settings entry denies an edit of `.env`. The commit hook refuses a staged `.env`. Text for personal files |
+| Secrets | gate at commit and push | commit hook, pre-push hook, push protection |
+| A failing test is a blocker. No test is skipped or weakened | text, a Stop check runs the fast check | the commit hook and CI run the check. The ratchet stays in `make check` |
+| Worktree before the first edit | gate on the edit tools. An edit through the shell avoids it | the commit hook refuses a commit on main, for each tool |
+| A draft PR only when the owner asked for a feature, a fix or a PR | text, a check in the `gh` gate | the `gh` gate keeps it |
+| PR body parts and the author-sessions block | gate `pr-rules`. The `Docs` line gets a warning only | the PR body script writes them. `pr-text` requires them, the `Docs` line too |
+| Ship before `gh pr ready` | gate | `pr-text` requires the evidence. The ship skill stays. The gate goes |
+| Verification skill | 2 Stop walls, a commit wall, a PR gate | the commit wall and the PR check stay. The 2 Stop walls go |
+| Done list and regression ledger | a block in each project, `ai-ledger --check` | the commit-msg hook for a fix, the ledger check in `make check` |
+| Typed-only skills (`to-spec`, `to-tickets`, `implement`, `retro` and others) | a skill card at session start | one text line: read the `SKILL.md` file and follow it |
+| Skill selection by prompt words, also Romanian and Russian | router rows | the skill descriptions. They hold these words already |
+| `writing-for-agents` before an edit of a rules file | gate | the CI word cap and the skill description. The gate goes |
+| Navigation order: Map, graphify, Serena, text search | text, `nav-first` denies one time | one text line. `nav-first` stays (O7) |
+| Library docs from context7, no web search for docs | text, a nudge | one text line |
+| RTK | a hook rewrites commands, 62 words of text | the hook stays. One text line |
+| Knowledge in the repository, no agent memory | a settings entry, a nudge after a commit | the settings entry. The cleanup script refreshes the graph and the library list |
+| Per-tool files | loaded on demand through a pointer | no change. The file of a removed gate goes with the gate |
+| Opt-in tools (SEO, blog, browser, UI) | project settings, "not enabled" nudges | project settings. The nudges go |
+| Release, prompting of other agents, upgrade review | skills | no change |
+| Server profile: install audit, no root, no destroy, the git guard | on only with the server profile | no change, not in this plan |
+
+A limit for servers: the git guard of the server profile switches off git hooks for agent calls. The commit hook of W1 does not hold there. CI and the ruleset are the walls there.
+
+Measured in the same review:
+
+| Fact | Number |
+|---|---|
+| PR bodies of this repository with each gated part (diagram, Evidence, Door, Blast Radius, sessions block) | 32 of 32 |
+| PR bodies with the `Docs` line, which has a warning only | 13 of 32 |
+| Reply length in 5 trial sessions of the installed setup (limit: 60 words) | 74 to 155 words. A next action in 5 of 5 |
+| Reply length in 4 lean trial sessions (the file had no reply block) | 49 to 65 words. No state line |
+| Calls of graphify, Serena, context7 and the edit tools in 9 trial sessions | 0. Each edit went through the shell |
+| Trial sessions that opened a PR | 0. The trial projects have no remote |
+
+## 11. Migration from the present setup
+
+The plan reuses the present tools: the version number in the routing file, `ai-update`, the adopt command and its fixers for old text.
+
+1. The routing file gets version 5. Today the adopt command writes the version into `.ai/base-version`, and no tool reads the value.
+2. `ai-doctor` fails when the marker of a project is older than the setup.
+3. Machine: `ai-update` pulls and installs. The installer removes each retired settings entry with the present undo command.
+4. Projects: `ai-update --projects` runs the adopt command in each project and opens one PR for each project.
+5. A new fixer removes an old generic block only when its text is unchanged. For a changed block it shows the difference and stops.
+6. `## Lessons` and `## Project rules` are owner text. No tool touches them.
+7. The hook folder of a repository is shared by its worktrees. The new hook runs `make fix` only when the target exists.
+8. The old project hook exits 0 when its tool is missing. The tool name stays on the machine until each project has the new hook.
+9. A project that uses Serena gets the Serena entry in its own settings before the machine default goes off.
+10. The way back: revert the PR on the setup branch, then run `ai-update`. For a project: revert its migration PR, then run the adopt command.
+
+Mixed states that W9 must test:
+
+- New machine, old project: the old blocks are text and do no harm. The old hook must not fail open (step 8).
+- Old machine, new project: the new hook finds no setup tool. It must still refuse a commit on main and run `make check-fast`.
+- A project with no remote: no CI and no ruleset are possible. `ai-doctor` says so. The commit hook is its only wall.
+
