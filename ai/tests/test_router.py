@@ -195,6 +195,8 @@ def check_fail_closed_inputs(work, build):
         ("empty payload", "claude", good, "PreToolUse", "", None),
         ("SessionStart, payload is a JSON list", "claude", good, "SessionStart", "[]", None),
         ("16 KB denied command", "claude", good, "PreToolUse", bash("git commit --no-verify -m " + "a-" * 8000), "deny"),
+        ("R-021: an OK prompt with many step ranges", "claude", good, "UserPromptSubmit",
+         json.dumps(dict(base, hook_event_name="UserPromptSubmit", prompt="go " + "1-1" * 13 + "x")), None),
     ]
 
     failures = []
