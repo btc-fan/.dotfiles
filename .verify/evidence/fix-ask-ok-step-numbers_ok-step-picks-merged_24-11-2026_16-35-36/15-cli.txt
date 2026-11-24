@@ -1,0 +1,7 @@
+/Users/python-qa/.dotfiles-ai-fix-ask-ok-step-numbers/ai/bin/ai-doctor --works graphify
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-ggbqwm9u/empty
+rc: 0
+--- transcript
+PASS graphify works
+
+--- git status --short after
