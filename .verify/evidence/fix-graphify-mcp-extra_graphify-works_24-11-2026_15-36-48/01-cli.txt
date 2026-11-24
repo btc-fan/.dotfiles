@@ -1,0 +1,7 @@
+/Users/python-qa/.dotfiles-ai-fix-graphify-mcp-extra/ai/bin/ai-doctor --works graphify
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-39j11zih/empty
+rc: 0
+--- transcript
+PASS graphify works
+
+--- git status --short after
