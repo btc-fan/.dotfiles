@@ -42,7 +42,7 @@ too (gate name = rule id), and for `winner-gate` and `nav-first`.
 ## Gates
 
 Every deny path asks `owner_skip` first, so the owner escape hatch works for every gate and stop rule. Gate names
-are the rule ids, plus `winner-gate`, `nav-first`, `verify-tool-exists`, `verify-tool-used` and `pr-url`.
+are the rule ids, plus `winner-gate`, `nav-first`, `verify-tool-exists`, `verify-tool-used`, `pr-url` and `reply-lint`.
 
 Gates catch honest mistakes. They are not a sandbox against an adversary: an agent that wants to bypass a
 gate can (for example, write a script file and run it). Escape hatch for a real exception, owner only:
@@ -103,6 +103,10 @@ deeper. Quoted words are never read as commands, so commit messages and echo tex
   7`. Text in code fences and inline code does not count. A bare `#7` is not read as a PR name. Known limits: a
   continuation stop (`stop_hook_active`) passes, so the check runs only when no other Stop wall blocked first.
   A `/pull/7` link to any repo counts for PR 7. Only the last message of the turn is read.
+- reply-lint (router `reply_lint_stop` on Stop; no routing.yaml row, as pr-url): the end of the turn is blocked
+  when the reply has an em dash outside code, or more than 60 + 30 words outside fenced code (the `State:` and
+  `Next:` lines do not count). No length check after a detail prompt or a typed `/skill` (`reply_detail` in the
+  session state). `AI_REPLY_WORDS` sets the limit; 0 turns the length check off. Details: `ai/rules/reply-lint.md`.
 - verify-tool-exists, verify-tool-used (verify-enforcement 02, 03; router `verify_stop` on Stop and SubagentStop;
   no routing.yaml rows, as winner-gate: two rows would push the L0 table past the cut): in an adopted repo (`.ai/enabled`), the end of a turn of the main agent or a subagent is blocked
   when app code changed in the turn and the proof is missing. The checkout is the git top level of the payload

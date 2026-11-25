@@ -35,7 +35,7 @@ sys.dont_write_bytecode = True      # no __pycache__ inside the (possibly read-o
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from hooklib import (FILE_GATES, GATES, GATE_PROBES, ai_home, append_jsonl, command_text, gate_skips,  # noqa: E402
                      iso_now, status_line, log_error,
-                     log_line, one_line, project_skills, verify_skill, skill_md,
+                     log_line, one_line, project_skills, verify_skill, skill_md, owner_config,
                      origin_slug, parse_command, redact, project_root, read_text,
                      state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
                      graph_status, git_history, git_out, short_skill, write_targets,
@@ -214,6 +214,7 @@ def on_user_prompt(ctx):
         return
     prompt = owner_text(prompt)
     remember_owner_ok(ctx, prompt)      # only the owner's typed lines can say merge or go, never pasted ones
+    remember_reply_detail(ctx, prompt)
     if not prompt.strip():
         return
     routing = ctx.routing
@@ -278,6 +279,18 @@ def remember_owner_ok(ctx, prompt):
             ctx.add_context("[ai router: ask-first] " + note)
     except Exception as exc:
         log_error("owner_ok", exc)
+
+
+def remember_reply_detail(ctx, prompt):
+    """reply-lint: the owner's latest prompt asks for detail or starts a typed skill, so the reply has no length check."""
+    try:
+        d = ctx.state.load()
+        detail = bool(prompt.lstrip().startswith("/") or REPLY_DETAIL.search(prompt))
+        if d.get("reply_detail") != detail:
+            d["reply_detail"] = detail
+            ctx.state.dirty = True
+    except Exception as exc:
+        log_error("reply_detail", exc)
 
 
 def end_turn_ok(ctx):
@@ -466,6 +479,7 @@ def on_stop(ctx):
     check_stop_rules(ctx)
     pr_url_stop(ctx)
     ask_first_stop(ctx)
+    reply_lint_stop(ctx)
     verify_stop(ctx)
     if not ctx.payload.get("stop_hook_active"):
         check_misses(ctx)
@@ -848,6 +862,58 @@ def ask_first_stop(ctx):
     ctx.stop_block.append("[ai router: ask-first] High-impact steps ran in this turn, but your reply does not name "
                           "them: %s. Name each one, what it changed and the undo. Then finish the turn."
                           % ", ".join(missing))
+    ctx.wall(ctx.stop_block[-1])
+
+
+# ---------------------------------------------------------------- reply-lint (rules-that-hold 26)
+# The owner's reply shape: at most 60 words (code blocks, the state line and the next-action line not counted) and
+# no em dash. Same form as pr-url: one block per chain, a continuation stop passes. AI_REPLY_WORDS (env or
+# ~/.config/ai/config.env) sets the limit; 0 turns the length check off.
+
+REPLY_WORDS = 60
+REPLY_SLACK = 30            # a block starts above limit + slack, so a reply near the limit is not sent back
+REPLY_DETAIL = re.compile(r"\b(?:explain|walk me through|details?|detailed|in depth|deep|deeper|full|fully|audit|"
+                          r"research|review|report|compare|plan|list|table|all|explic[a\u0103]|detaliat|detalii|"
+                          r"complet|\u043e\u0431\u044a\u044f\u0441\u043d\u0438|\u043f\u043e\u0434\u0440\u043e\u0431\u043d\u043e|"
+                          r"\u0434\u0435\u0442\u0430\u043b\u044c\u043d\u043e|\u043f\u043e\u043b\u043d\u043e\u0441\u0442\u044c\u044e)\b", re.I)
+FENCE = re.compile(r"```.*?(?:```|\Z)", re.S)
+STATE_NEXT_LINE = re.compile(r"^[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+)?(?:\*\*)?(?:State|Next):.*$", re.M | re.I)
+EM_DASH = "\u2014"
+
+
+def reply_words(reply):
+    """The words of the reply outside fenced code, without the state and next-action lines. A word holds a letter
+    or a digit, so table pipes and list marks do not count."""
+    text = STATE_NEXT_LINE.sub(" ", FENCE.sub(" ", reply))
+    return sum(1 for w in text.split() if any(c.isalnum() for c in w))
+
+
+def reply_word_limit():
+    try:
+        return int(owner_config("AI_REPLY_WORDS") or REPLY_WORDS)
+    except ValueError:
+        return REPLY_WORDS
+
+
+def reply_lint_stop(ctx):
+    reply = ctx.payload.get("last_assistant_message") or ""
+    if not reply or ctx.payload.get("stop_hook_active"):
+        return
+    why = []
+    dashes = CODE.sub(" ", reply).count(EM_DASH)
+    if dashes:
+        why.append("Your reply has %d em dash characters (U+2014) outside code. Use \"-\", \":\" or a new sentence."
+                   % dashes)
+    limit = reply_word_limit()
+    if limit > 0 and not ctx.state.load().get("reply_detail"):
+        words = reply_words(reply)
+        if words > limit + REPLY_SLACK:
+            why.append("Your reply has %d words; the limit is %d (code blocks, the state line and the next line do "
+                       "not count). Shorten the reply: answer first, fewer facts, full sentences. The owner can ask "
+                       "for detail." % (words, limit))
+    if not why or owner_skip(ctx, "reply-lint", ""):
+        return
+    ctx.stop_block.append("[ai router: reply-lint] %s Write the reply again. Then finish the turn." % " ".join(why))
     ctx.wall(ctx.stop_block[-1])
 
 

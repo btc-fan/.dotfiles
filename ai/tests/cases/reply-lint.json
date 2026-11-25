@@ -1,0 +1,346 @@
+{
+ "rule": "reply-lint",
+ "cases": [
+  {
+   "name": "59 words: allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "fix the bug"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word"
+     }
+    }
+   ]
+  },
+  {
+   "name": "95 words: blocked with the count and the limit",
+   "expect": "block",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "fix the bug"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word"
+     }
+    }
+   ],
+   "contains": [
+    "[ai router: reply-lint]",
+    "95 words; the limit is 60",
+    "Shorten the reply: answer first, fewer facts, full sentences",
+    "The owner can ask for detail"
+   ]
+  },
+  {
+   "name": "95 words after a detail prompt: allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "explain the bug in depth"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word"
+     }
+    }
+   ]
+  },
+  {
+   "name": "95 words after a Romanian detail prompt: allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "explica pe larg, detaliat"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word"
+     }
+    }
+   ]
+  },
+  {
+   "name": "95 words after a Russian detail prompt: allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "\u043e\u0431\u044a\u044f\u0441\u043d\u0438 \u043f\u043e\u0434\u0440\u043e\u0431\u043d\u043e"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word"
+     }
+    }
+   ]
+  },
+  {
+   "name": "95 words after a typed skill: allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "/code-review main"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word"
+     }
+    }
+   ]
+  },
+  {
+   "name": "a new prompt without detail words: the length check is on again",
+   "expect": "block",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "explain it"
+     }
+    },
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "fix it"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word"
+     }
+    }
+   ],
+   "contains": [
+    "95 words"
+   ]
+  },
+  {
+   "name": "95 words with 40 in a code block: allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "fix it"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word\n\n```\ncode code code code code code code code code code code code code code code code code code code code code code code code code code code code code code code code code code code code code code code code\n```\n"
+     }
+    }
+   ]
+  },
+  {
+   "name": "the state and next lines do not count",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "fix it"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "**State:** s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s\n\nword word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word\n\n- Next: n n n n n n n n n n n n n n n n n n n n n n n n n n n n n n"
+     }
+    }
+   ]
+  },
+  {
+   "name": "a table counts",
+   "expect": "block",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "fix it"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word\n\n| a | b |\n|---|---|\n| w0 x | y z |\n| w1 x | y z |\n| w2 x | y z |\n| w3 x | y z |\n| w4 x | y z |\n| w5 x | y z |\n| w6 x | y z |\n| w7 x | y z |\n| w8 x | y z |\n| w9 x | y z |\n| w10 x | y z |\n| w11 x | y z |"
+     }
+    }
+   ],
+   "contains": [
+    "100 words"
+   ]
+  },
+  {
+   "name": "an em dash outside code: blocked",
+   "expect": "block",
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Done \u2014 the test passes."
+     }
+    }
+   ],
+   "contains": [
+    "[ai router: reply-lint]",
+    "1 em dash characters (U+2014)",
+    "or a new sentence."
+   ]
+  },
+  {
+   "name": "an em dash inside a code block: allowed",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Done.\n\n```\necho a \u2014 b\n```\n"
+     }
+    }
+   ]
+  },
+  {
+   "name": "em dash and length: one combined block",
+   "expect": "block",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "fix it"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \u2014"
+     }
+    }
+   ],
+   "contains": [
+    "1 em dash characters", "or a new sentence. Your reply has 95 words"
+   ]
+  },
+  {
+   "name": "a continuation stop passes (no loop)",
+   "expect": "allow",
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "fix it"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": true,
+      "last_assistant_message": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \u2014"
+     }
+    }
+   ]
+  },
+  {
+   "name": "AI_REPLY_WORDS=0 turns the length check off",
+   "expect": "allow",
+   "env": {
+    "AI_REPLY_WORDS": "0"
+   },
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "fix it"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word"
+     }
+    }
+   ]
+  },
+  {
+   "name": "AI_REPLY_WORDS=20 sets the limit",
+   "expect": "block",
+   "env": {
+    "AI_REPLY_WORDS": "20"
+   },
+   "steps": [
+    {
+     "event": "UserPromptSubmit",
+     "payload": {
+      "prompt": "fix it"
+     }
+    },
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word"
+     }
+    }
+   ],
+   "contains": [
+    "55 words; the limit is 20"
+   ]
+  },
+  {
+   "name": "the owner skip lets it through",
+   "expect": "allow",
+   "gate_skip": "reply-lint {{SOON}} owner said so",
+   "steps": [
+    {
+     "event": "Stop",
+     "payload": {
+      "stop_hook_active": false,
+      "last_assistant_message": "Done \u2014 ok."
+     }
+    }
+   ]
+  }
+ ]
+}
