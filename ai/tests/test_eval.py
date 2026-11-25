@@ -310,6 +310,24 @@ def t_copy_fixture_skips_socket(work):
     assert not os.path.exists(os.path.join(dst, ".git", "fsmonitor--daemon.ipc")), "the socket is skipped"
 
 
+def t_fixture_git_starts_no_maintenance(work):
+    """Regression R-021: a fixture commit started a detached git maintenance, and copy_fixture crashed when its
+    .git/objects/maintenance.lock vanished during the copy. A later commit (ai-adopt makes one) must not start it."""
+    ev = load()
+    repo = os.path.join(work, "maint-src")
+    write(os.path.join(repo, "a.txt"), "a\n")
+    trace = os.path.join(work, "maint-trace")
+    os.environ["GIT_TRACE"] = trace
+    try:
+        ev.git_commit(repo)
+        later = run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false",
+                     "-C", repo, "commit", "-q", "--allow-empty", "-m", "later"], None)
+    finally:
+        del os.environ["GIT_TRACE"]
+    assert later.returncode == 0, later.stdout
+    assert "maintenance run" not in read(trace), [ln for ln in read(trace).splitlines() if "maintenance" in ln]
+
+
 def t_failed_run_is_error(work):
     """Regression (hard baseline, 2026-11-16): Codex hit its usage limit, exited 1 with no tool call, and 24 runs
     were scored as misses. A run that fails before any tool call is an error, out of the score."""
@@ -608,7 +626,8 @@ def t_gate_scenarios_valid(work):
     assert "count" in on["steps"][-1]["check"]
 
 
-TESTS_LIST = [t_fixtures, t_app_libraries, t_fixture_project_copy, t_copy_fixture_skips_socket, t_snapshot_skips_ignored, t_score_stream, t_router_seen,
+TESTS_LIST = [t_fixtures, t_app_libraries, t_fixture_project_copy, t_copy_fixture_skips_socket, t_fixture_git_starts_no_maintenance,
+              t_snapshot_skips_ignored, t_score_stream, t_router_seen,
               t_child_env, t_cases_valid, t_behaviour_dry, t_install_fake_bins, t_failed_run_is_error,
               t_scenario_fake_agent, t_scenario_checkout, t_scenario_dry, t_scenario_checks, t_scenario_summary,
               t_gate_scenarios_valid]
