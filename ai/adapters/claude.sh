@@ -842,6 +842,7 @@ CLAUDE_PATH_DIRS="~/.local/bin/** ~/bin/** ~/.npm-global/bin/** ~/.cargo/bin/** 
 # Agents never edit the files that carry the house rules and their own permissions.
 claude_deny_rules() {
     local f
+    context_diet_on && printf '%s\n' $CLAUDE_DIET_DENY
     [ "${PROFILE_GUARDS:-1}" = 1 ] || return 0      # dev-mac: no deny rules (owner 2026-11-15: full autonomy)
     set -f   # $CLAUDE_PATH_DIRS below is split on spaces, never globbed
     # Files that carry house rules, permissions, hooks, plugin code, shell start-up, Serena config and the
@@ -889,7 +890,7 @@ claude_permissions() {
     if [ "${PROFILE_GUARDS:-1}" = 1 ]; then
         ok "Claude permissions merged into $f: allow read-only tools, ask graphify install/hook, deny rule/config edits and secrets.env"
     else
-        ok "Claude permissions merged into $f: allow lists only; no ask or deny rules (profile $AI_PROFILE)"
+        ok "Claude permissions merged into $f: allow lists only; no ask or deny guards (profile $AI_PROFILE)"
     fi
 }
 
@@ -1113,4 +1114,27 @@ claude_env() {
     # One knowledge store (owner 2026-11-16): the repo (Map, GLOSSARY.md, docs/). Claude auto memory is off.
     aiconf json-set "$CLAUDE_DIR/settings.json" autoMemoryEnabled false
     ok "Claude add-ons: OMC auto-update off, Ponytail defaultMode full, auto memory off"
+    claude_context_diet
+}
+
+# ---------------------------------------------------------------- context diet (ticket rules-that-hold 27)
+# A new session started with about 57,000 tokens; the diet brings it to about 42,400 (measured, see the ticket).
+# One switch: PROFILE_CONTEXT_DIET in ai/profiles/<name>.env. Parts: claude.ai connectors off
+# (claudeai_connectors_off), the skill listing cut to 80 characters a description, and the built-in tools below
+# denied by bare name, which removes each tool from the session (claude_deny_rules, synced with the other rules).
+# The deny names had no call in 60 days of session logs on two machines.
+CLAUDE_DIET_DENY="DesignSync NotebookEdit RemoteTrigger ReportFindings Workflow ListMcpResourcesTool ReadMcpResourceTool ReadMcpResourceDirTool"
+# 80: the smallest measured limit that still shows the first 80 characters of every description.
+CLAUDE_DIET_DESC_CHARS=80
+
+context_diet_on() { [ "${PROFILE_CONTEXT_DIET:-0}" = 1 ]; }
+
+claude_context_diet() {
+    if context_diet_on; then
+        aiconf json-set "$CLAUDE_DIR/settings.json" skillListingMaxDescChars "$CLAUDE_DIET_DESC_CHARS"
+        ok "Claude context diet: skill descriptions cut to $CLAUDE_DIET_DESC_CHARS characters, unused built-in tools denied (connectors: claudeai_connectors_off)"
+    else
+        # Switched off after an install: our recorded value goes (the deny names go with the permissions sync).
+        aiconf undo --only '^json:.*/settings\.json:skillListingMaxDescChars$' >/dev/null
+    fi
 }

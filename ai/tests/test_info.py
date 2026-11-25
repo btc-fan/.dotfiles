@@ -25,7 +25,8 @@ def main():
     try:
         home, fake, repo = setup(work)
         for test in (t_full, t_short, t_project_state, t_off_here, t_outside_repo, t_no_secrets_fast, t_devmac,
-                     t_numbers_fixture_logs, t_numbers_temp_rows_left_out, t_numbers_no_logs, t_numbers_json_schema):
+                     t_numbers_fixture_logs, t_numbers_temp_rows_left_out, t_numbers_no_logs, t_numbers_json_schema,
+                     t_numbers_live):
             try:
                 test(home, fake, repo)
                 print("ok   " + test.__name__)
@@ -179,6 +180,32 @@ def t_numbers_json_schema(home, fake, repo):
     with open(os.path.join(home, "..", "routing-server.json")) as fh:
         nudges = len([r for r in json.load(fh)["rules"] if r.get("strength") == "nudge"])
     assert data["reminders"]["reminder_rules"] == nudges, data
+
+
+def t_numbers_live(home, fake, repo):
+    """Ticket rules-that-hold 27: --live runs one claude -p session in the project and prints its start tokens (all
+    input tokens) and cost; without --live no model call is made."""
+    live = os.path.join(home, "..", "bin-live")
+    calls = os.path.join(home, "..", "live-calls.txt")
+    write(os.path.join(live, "claude"), "#!/bin/sh\n[ \"$1\" = -p ] || { echo '2.1.5 (Claude Code)'; exit 0; }\n"
+          "pwd >> '%s'; echo \"$*\" >> '%s'\n"
+          "echo '{\"type\":\"result\",\"total_cost_usd\":0.0123,\"usage\":{\"input_tokens\":40,"
+          "\"cache_creation_input_tokens\":2000,\"cache_read_input_tokens\":40342,\"output_tokens\":3}}'\n"
+          % (calls, calls), 0o755)
+    path = live + os.pathsep + fake
+    res = numbers(home, path, repo)
+    assert res.returncode == 0 and not os.path.exists(calls), "no --live, no model call:\n" + res.stdout
+    assert "Live session" not in res.stdout, res.stdout
+    res = numbers(home, path, repo, "--live")
+    out = squash(res.stdout)
+    assert res.returncode == 0, res.stdout
+    assert squash("start tokens (measured)  42382") in out and squash("cost  0.0123 USD") in out, res.stdout
+    with open(calls) as fh:
+        lines = fh.read().splitlines()
+    assert len(lines) == 2 and os.path.realpath(lines[0]) == os.path.realpath(repo), lines
+    assert lines[1].startswith("-p Reply with the word OK only.") and "--output-format json" in lines[1], lines
+    data = json.loads(numbers(home, path, repo, "--live", "--json").stdout)
+    assert data["live"] == {"start_tokens": 42382, "cost_usd": 0.0123}, data["live"]
 
 
 # ---------------------------------------------------------------- helpers
