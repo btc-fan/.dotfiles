@@ -1,0 +1,19 @@
+{
+ "run": "fix-pstack-link-flap_pstack-links-once-head_25-11-2026_12-52-41",
+ "root": "/Users/python-qa/.dotfiles-ai-fix-pstack-link-flap",
+ "tmp": "/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-8mmnb3rv",
+ "fixtures": [
+  "dotfiles-worktrees"
+ ],
+ "guards": {
+  "/Users/python-qa/.claude/settings.json": "e005656135496005d1c7ba36957524a79b1518a3",
+  "/Users/python-qa/.claude/plugins/installed_plugins.json": "0ebcea0e2e61a9141a76ff73822ea16bd0313b30",
+  "/Users/python-qa/.codex/config.toml": "b5e193d95083974f675d1754194c8a352c2537eb",
+  "/Users/python-qa/.codex/hooks.json": "7f198ac2a849ef3fde128dc8ff79e11a49e2c489",
+  "/Users/python-qa/.dotfiles-ai": "05ad335853374b0aaeeee20b9e83ce293af7c922ce7999e3a3bf7431a82749df4d688f4fbee0a3ee",
+  "/Users/python-qa/.claude/skills": "0c3e7b578c6a76f8acee86ffb7b649a938ef8190",
+  "/Users/python-qa/.agents/skills": "7e9734a48151b34c82f2e7270c886b0494c37f00"
+ },
+ "drives": 1,
+ "agents": false
+}
