@@ -603,6 +603,10 @@ def t_bash_pstack(work):
     env, home, _ = bash_env(work, 'PSTACK_SOURCE="git %s stable"\n' % up)
     old = os.path.join(home, ".local", "share", "ai", "plugins", "pstack-verification")
     write(os.path.join(old, ".commit"), "an-old-download\n")
+    # Linux root layer: the folder is root-owned, so the removal goes through run_root.
+    code, out = bash(LIBS + 'root_layer() { return 0; }; plugin_src_dir() { echo "%s"; }; run_root() { echo "ROOT $*"; }; '
+                            'pstack_check' % old, env)
+    assert "ROOT rm -rf %s" % old in out, out
     code, out = bash(LIBS + 'AI_SKIP_PACKAGES=0; pstack_check', env)
     assert code == 0 and "moved upstream" in out and "repo copy stays in use" in out, out
     assert not os.path.exists(old), "the old automatic download is removed: " + out

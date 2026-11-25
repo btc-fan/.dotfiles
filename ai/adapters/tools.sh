@@ -377,7 +377,10 @@ pstack_check() {
     local vend old
     old=$(plugin_src_dir pstack-verification)
     if [ -d "$old" ]; then
-        run rm -rf "$old" && ok "pstack: removed the old automatic download $old (the repo copy in ai/skills is used)"
+        # The Linux root layer keeps plugin sources in a root-owned folder (src_swap).
+        if root_layer; then run_root rm -rf "$old"; else run rm -rf "$old"; fi \
+            && ok "pstack: removed the old automatic download $old (the repo copy in ai/skills is used)" \
+            || warn "pstack: could not remove the old download $old: remove it by hand"
     fi
     vend=$(pstack_vendor_commit)
     resolve_tool pstack || return 1
