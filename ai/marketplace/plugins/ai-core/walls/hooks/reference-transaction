@@ -1,0 +1,60 @@
+#!/bin/sh
+# ai-walls reference-transaction hook (rules-that-hold 25). `ai-wall install` writes it into the hooks folder.
+# Git runs it for each ref update, also under --no-verify, update-ref, commit-tree, cherry-pick and a fast-forward.
+# In agent mode (AI_AGENT=1) it aborts a move of a protected branch in the state "prepared".
+# The owner's own shell has no AI_AGENT, so the owner is never stopped.
+
+input=$(cat)
+
+chain() {
+    # An earlier reference-transaction hook of the repository runs after ours, with the same input.
+    [ -x "$0.chained" ] || exit 0
+    printf '%s\n' "$input" | "$0.chained" "$@"
+    exit $?
+}
+
+[ "$AI_AGENT" = 1 ] && [ "$1" = prepared ] || chain "$@"
+case "$input" in *refs/heads/*) ;; *) chain "$@" ;; esac
+
+all_zero() {
+    case "$1" in *[!0]*) return 1 ;; esac
+    return 0
+}
+
+merge_ok() {
+    # The owner's typed merge OK of this session, as the merge-approval gate reads it.
+    [ -n "$AI_SESSION" ] || return 1
+    safe=$(printf '%s' "$AI_SESSION" | tr -c 'A-Za-z0-9_.-' '_' | cut -c1-120)
+    file="${AI_STATE_DIR:-$HOME/.local/state/ai}/sessions/$safe.json"
+    grep -q '"merge_ok": *true' "$file" 2>/dev/null
+}
+
+protected=" main master $(git config --get-all ai.protected 2>/dev/null | tr '\n' ' ') "
+reason=""
+while read -r old new ref; do
+    case "$ref" in refs/heads/*) branch=${ref#refs/heads/} ;; *) continue ;; esac
+    case "$protected" in *" $branch "*|*" $ref "*) ;; *) continue ;; esac
+    if all_zero "$new"; then
+        reason="deletion of the protected branch $branch"
+        break
+    fi
+    # update-ref and branch -f give zeros as the old value too, so the old value is read from the ref itself.
+    # A new ref passes, and so does a rewrite to the same commit (git stash, reset --hard HEAD).
+    current=$(git rev-parse -q --verify "$ref")
+    [ -z "$current" ] || [ "$current" = "$new" ] && continue
+    upstream=$(git for-each-ref --format='%(upstream)' "$ref" 2>/dev/null)
+    [ -n "$upstream" ] || upstream="refs/remotes/origin/$branch"
+    git merge-base --is-ancestor "$new" "$upstream" 2>/dev/null && continue
+    merge_ok && continue
+    reason="a move of the protected branch $branch to $(printf '%.10s' "$new"): it is not on $upstream, and this session has no merge OK from the owner"
+    break
+done <<EOF
+$input
+EOF
+
+if [ -n "$reason" ]; then
+    echo "[ai wall] refused: $reason. Agents work on a branch in its own worktree." >&2
+    echo "[ai wall] next step, which keeps your changes: __AI_WALL__ rescue <slug>" >&2
+    exit 1
+fi
+chain "$@"

@@ -50,6 +50,7 @@ No ticket deletes a test file before the owner gives decision D1. Until then a t
 | 22 | The owner guide: use it, extend it, try it on a project, recover | Docs | S | 15, 16, 20, 21 | None |
 | 23 | The whole branch is proven, and the numbers are compared with the baseline | Final proof | M | 01 to 22 | Try 1 project |
 | 24 | A project or an agent cannot switch the core off | Optional | S | 23 | D9, sudo |
+| 25 | The git rules hold at exec and by state, not by command text (done) | New walls | M | None | None |
 
 ```mermaid
 flowchart LR
