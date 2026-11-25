@@ -590,58 +590,37 @@ def t_bash_mattpocock_optin(work):
 
 
 def t_bash_pstack(work):
-    """pstack_src: an upstream commit other than the vendored one is cloned (no tags: HEAD), audited, adapted
-    (.agents/skills paths, LICENSE kept) and pstack_link points the skill links at it; the vendored commit itself
-    installs nothing (the ai/skills copy is current); audit findings keep the repo copy."""
+    """pstack_check (owner 2026-11-25: repo copy only): a new upstream commit gives a warning and downloads
+    nothing; the vendored commit gives an info line; an old automatic download is removed. link_skills points
+    the skill links at ai/skills, also when they pointed at the old download, and a second run changes nothing."""
     up = os.path.join(work, "up", "plugins")
     os.makedirs(up)
     git("init", "-q", "-b", "main", up)
     write(os.path.join(up, "pstack", "LICENSE"), "MIT License\nCopyright (c) 2026 Lauren Tan\n")
-    for n in ("create-verification-skill", "maintain-verification-skill"):
-        write(os.path.join(up, "pstack", "skills", n, "SKILL.md"),
-              '---\nname: %s\ndescription: "Write .cursor/skills/verify-<app>/ files."\n---\n\n# %s\n'
-              'Use `.cursor/skills/verify-<app>/SKILL.md`.\n'      # the sentence the adapter replaces (ticket 01)
-              'A repo can have several; pick the primary one and note the rest.\n' % (n, n))
     git("add", "-A", cwd=up)
     git("commit", "-q", "-m", "one", cwd=up)
     sha = git("rev-parse", "HEAD", cwd=up)
     env, home, _ = bash_env(work, 'PSTACK_SOURCE="git %s stable"\n' % up)
-    dest = os.path.join(home, ".local", "share", "ai", "plugins", "pstack-verification")
-    code, out = bash(LIBS + 'AI_SKIP_PACKAGES=0; audit_ok() { return 1; }; pstack_src || true', env)
-    assert not os.path.exists(dest), "audit findings: nothing installed: " + out
-    code, out = bash(LIBS + 'AI_SKIP_PACKAGES=0; audit_ok() { return 0; }; pstack_src', env)
-    assert code == 0 and "moved upstream" in out, out
-    text = read(os.path.join(dest, "create-verification-skill", "SKILL.md"))
-    assert ".agents/skills/verify-<app>/SKILL.md" in text and ".cursor/skills" not in text, text
-    assert "Lauren Tan" in read(os.path.join(dest, "create-verification-skill", "LICENSE")), "MIT notice kept"
-    assert read(os.path.join(dest, ".commit")).strip() == sha
+    old = os.path.join(home, ".local", "share", "ai", "plugins", "pstack-verification")
+    write(os.path.join(old, ".commit"), "an-old-download\n")
+    # Linux root layer: the folder is root-owned, so the removal goes through run_root.
+    code, out = bash(LIBS + 'root_layer() { return 0; }; plugin_src_dir() { echo "%s"; }; run_root() { echo "ROOT $*"; }; '
+                            'pstack_check' % old, env)
+    assert "ROOT rm -rf %s" % old in out, out
+    code, out = bash(LIBS + 'AI_SKIP_PACKAGES=0; pstack_check', env)
+    assert code == 0 and "moved upstream" in out and "repo copy stays in use" in out, out
+    assert not os.path.exists(old), "the old automatic download is removed: " + out
+    code, out = bash(LIBS + 'AI_SKIP_PACKAGES=0; pstack_vendor_commit() { echo %s; }; pstack_check' % sha, env)
+    assert "the repo copy (ai/skills" in out and "moved upstream" not in out, out
     target = os.path.join(home, "skills")
     os.makedirs(target)
-    code, out = bash(LIBS + 'pstack_link "%s"' % target, env)
-    assert os.readlink(os.path.join(target, "maintain-verification-skill")) == os.path.join(
-        dest, "maintain-verification-skill"), out
-    # R-022: an install runs link_skills, then pstack_link. Each link is set once, to the newer copy.
+    os.symlink(os.path.join(old, "create-verification-skill"), os.path.join(target, "create-verification-skill"))
     for run in (1, 2):
-        code, out = bash(LIBS + 'link_skills "%s"; pstack_link "%s"' % (target, target), env)
-        flips = [l for l in out.splitlines() if "verification-skill" in l and "ai/skills/" in l]
-        assert not flips, "run %d: a link to the repo copy, then back: %s" % (run, out)
-        assert os.readlink(os.path.join(target, "create-verification-skill")) == os.path.join(
-            dest, "create-verification-skill"), out
+        code, out = bash(LIBS + 'link_skills "%s"' % target, env)
+        for n in ("create-verification-skill", "maintain-verification-skill"):
+            assert os.readlink(os.path.join(target, n)) == os.path.join(REPO, "ai", "skills", n), out
     changed = [l for l in out.splitlines() if "verification-skill" in l and l.strip().startswith("link")]
-    assert not changed, "run 2 changes no pstack link: " + out
-    # The repo copy catches up (vendored commit = the pstack copy): link_skills puts back the repo link.
-    code, out = bash(LIBS + 'pstack_vendor_commit() { echo %s; }; link_skills "%s"; pstack_link "%s"'
-                     % (sha, target, target), env)
-    assert os.readlink(os.path.join(target, "create-verification-skill")) == os.path.join(
-        REPO, "ai", "skills", "create-verification-skill"), out
-    code, out = bash(LIBS + 'AI_SKIP_PACKAGES=0; pstack_src', env)
-    assert "(newest; repo copy at" in out, out
-    code, out = bash(LIBS + 'AI_SKIP_PACKAGES=0; pstack_vendor_commit() { echo %s; }; pstack_src' % sha, env)
-    assert "the repo copy (ai/skills" in out, out
-    shutil.rmtree(target)
-    os.makedirs(target)
-    code, out = bash(LIBS + 'pstack_vendor_commit() { echo %s; }; pstack_link "%s"' % (sha, target), env)
-    assert os.listdir(target) == [], "vendored commit: the ai/skills links stay"
+    assert not changed, "run 2 changes no link: " + out
 
 
 def t_audit_accept_by_commit(work):

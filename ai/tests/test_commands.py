@@ -23,7 +23,7 @@ def main():
     work = tempfile.mkdtemp(prefix="ai-cmd-tests-")
     try:
         for test in (t_hook_files, t_no_em_dash, t_render_cap, t_pr_resume, t_notify, t_agent_audit,
-                     t_ai_start, t_router_speed, t_ai_sync, t_ai_sync_links_skills, t_ai_sync_keeps_pstack, t_ai_sync_claude_plugin_copy, t_merged_branches_note, t_sync_hooks, t_dev_worktree_no_sync, t_hermes_plugin, t_playwright,
+                     t_ai_start, t_router_speed, t_ai_sync, t_ai_sync_links_skills, t_ai_sync_pstack_repo_copy, t_ai_sync_claude_plugin_copy, t_merged_branches_note, t_sync_hooks, t_dev_worktree_no_sync, t_hermes_plugin, t_playwright,
                      t_state_mode, t_skill_scanner_reject, t_winners_table, t_ai_friction):
             try:
                 test(work)
@@ -467,24 +467,24 @@ def t_ai_sync_links_skills(work):
     assert not os.path.exists(os.path.join(bare, ".claude", "skills")), "no skill folder without install"
 
 
-def t_ai_sync_keeps_pstack(work):
-    """R-008: a newer audited pstack copy of the verification skills keeps its links after a pull (install.sh
-    order: link_skills, then pstack_link). ai-sync pointed them back at the repo copy."""
+def t_ai_sync_pstack_repo_copy(work):
+    """Owner 2026-11-25: only the repo copy of the pstack verification skills is used. A machine whose links
+    point at an old automatic download gets them back on ai/skills after a pull. (Before: R-008 kept them there.)"""
     home = os.path.join(work, "sync-pstack-home")
     src = os.path.join(home, ".local", "share", "ai", "plugins", "pstack-verification")
-    for n in ("create-verification-skill", "maintain-verification-skill"):
-        os.makedirs(os.path.join(src, n))
-        open(os.path.join(src, n, "SKILL.md"), "w").write("---\nname: %s\n---\n" % n)
+    os.makedirs(os.path.join(src, "create-verification-skill"))
+    open(os.path.join(src, "create-verification-skill", "SKILL.md"), "w").write("---\nname: x\n---\n")
     open(os.path.join(src, ".commit"), "w").write("newer-audited-commit\n")
     for d in (os.path.join(home, ".claude", "skills"), os.path.join(home, ".agents", "skills")):
         os.makedirs(d)
+        os.symlink(os.path.join(src, "create-verification-skill"), os.path.join(d, "create-verification-skill"))
     installed_link(home)
     res = run(["bash", os.path.join(BIN, "ai-sync")], env={"HOME": home})
     assert res.returncode == 0, res.stdout
     for d in (".claude", ".agents"):
         link = os.path.join(home, d, "skills", "create-verification-skill")
-        want = os.path.join(src, "create-verification-skill")
-        assert os.path.islink(link) and os.readlink(link) == want, "%s: %s" % (d, os.readlink(link))
+        want = os.path.realpath(os.path.join(REPO, "ai", "skills", "create-verification-skill"))
+        assert os.path.islink(link) and os.path.realpath(link) == want, "%s: %s" % (d, os.readlink(link))
 
 
 def t_ai_sync_claude_plugin_copy(work):
