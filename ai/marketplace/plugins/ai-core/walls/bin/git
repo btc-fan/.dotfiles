@@ -1,0 +1,5 @@
+#!/bin/sh
+# Launcher of the ai-core walls wrapper (../shim.py). A real file, not a symlink, so a plugin copy carries it.
+py=/usr/bin/python3
+[ -x "$py" ] || py=python3
+exec "$py" -S "${0%/*}/../shim.py" git "$@"

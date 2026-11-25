@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""ai-wall: install the protected-branch hook, and rescue work from a protected branch (rules-that-hold 25).
+
+Usage:
+  ai-wall install [--dir <repo>]   write the reference-transaction hook into the hooks folder git uses for <repo>
+                                   (default: the current folder). An earlier hook of the repo is kept and chained.
+                                   A second run gives the same result.
+  ai-wall rescue <slug>            on a protected branch with uncommitted work: make the worktree ../<repo>-<slug> on
+                                   the new branch <slug>, move the staged, unstaged and untracked changes there, and
+                                   leave this checkout clean. Local commits that are not on the remote branch are
+                                   named, never rewritten.
+Exit: 0 done, 1 refused or failed, 2 wrong usage.
+"""
+import os
+import re
+import subprocess
+import sys
+
+WALLS = os.path.dirname(os.path.realpath(__file__))
+HOOK_SRC = os.path.join(WALLS, "hooks", "reference-transaction")
+HOOK = "reference-transaction"
+MARK = "ai-walls reference-transaction hook"
+
+
+def main(argv):
+    if argv[:1] == ["install"]:
+        rest = argv[1:]
+        if rest[:1] == ["--dir"] and len(rest) == 2:
+            return install(rest[1])
+        if not rest:
+            return install(os.getcwd())
+    if argv[:1] == ["rescue"] and len(argv) == 2 and re.match(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$", argv[1]):
+        return rescue(os.getcwd(), argv[1])
+    sys.stderr.write(__doc__)
+    return 2
+
+
+# ---------------------------------------------------------------- install
+
+def install(repo):
+    hooks = git(repo, "rev-parse", "--git-path", "hooks")
+    if hooks is None:
+        return fail("%s is not a git repository" % repo)
+    hooks = os.path.join(repo, hooks)
+    os.makedirs(hooks, exist_ok=True)
+    target = os.path.join(hooks, HOOK)
+    if os.path.exists(target) and MARK not in read(target):
+        if os.path.exists(target + ".chained"):
+            return fail("%s is not ours and %s.chained exists: merge them by hand" % (target, target))
+        os.rename(target, target + ".chained")
+    text = read(HOOK_SRC).replace("__AI_WALL__", os.path.realpath(__file__))
+    with open(target, "w") as fh:
+        fh.write(text)
+    os.chmod(target, 0o755)
+    print("ai-wall: %s installed%s" % (target, " (chained: %s.chained)" % HOOK
+                                       if os.path.exists(target + ".chained") else ""))
+    return 0
+
+
+# ---------------------------------------------------------------- rescue
+
+def rescue(cwd, slug):
+    top = git(cwd, "rev-parse", "--show-toplevel")
+    branch = git(cwd, "symbolic-ref", "--short", "-q", "HEAD")
+    if not top or not branch:
+        return fail("not on a branch of a git checkout")
+    protected = {"main", "master"} | set((git(cwd, "config", "--get-all", "ai.protected") or "").split())
+    if branch not in protected:
+        return fail("%s is not a protected branch; keep working here" % branch)
+    path = os.path.join(os.path.dirname(top), "%s-%s" % (os.path.basename(top), slug.replace("/", "-")))
+    if os.path.exists(path):
+        return fail("%s exists already: pick another slug" % path)
+
+    dirty = bool(git(top, "status", "--porcelain"))
+    if dirty and git(top, "stash", "push", "--include-untracked", "-m", "ai-wall rescue " + slug) is None:
+        return fail("git stash failed; nothing was moved")
+    if git(top, "worktree", "add", "-q", "-b", slug, path, "HEAD") is None:
+        if dirty:
+            git(top, "stash", "pop", "--index")
+        return fail("git worktree add %s failed; the changes are back in %s" % (path, top))
+    if dirty and git(path, "stash", "pop", "--index") is None:
+        return fail("the changes stay in git stash (stash@{0}): run git stash pop --index in %s" % path)
+
+    print("ai-wall: your work is on the branch %s in %s" % (slug, path))
+    print("ai-wall: %s is clean. Continue in the new folder: cd %s" % (top, path))
+    local = local_commits(top, branch)
+    if local:
+        print("ai-wall: %s has %d local commit(s) that are not on its remote branch; they are on %s too:"
+              % (branch, len(local), slug))
+        for line in local:
+            print("  " + line)
+        print("ai-wall: history was not rewritten. To drop them from %s, the owner runs in %s: "
+              "git reset --keep %s" % (branch, top, upstream(top, branch)))
+    return 0
+
+
+def local_commits(top, branch):
+    out = git(top, "log", "--oneline", "%s..%s" % (upstream(top, branch), branch))
+    return out.splitlines() if out else []
+
+
+def upstream(top, branch):
+    return git(top, "for-each-ref", "--format=%(upstream:short)", "refs/heads/" + branch) or "origin/" + branch
+
+
+# ---------------------------------------------------------------- helpers
+
+def git(cwd, *args):
+    """Stripped stdout of a git call, or None when it fails (its error goes to stderr)."""
+    res = subprocess.run(["git"] + list(args), cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if res.returncode != 0:
+        sys.stderr.write(res.stderr.decode("utf-8", "replace"))
+        return None
+    return res.stdout.decode("utf-8", "replace").strip()
+
+
+def read(path):
+    with open(path) as fh:
+        return fh.read()
+
+
+def fail(text):
+    sys.stderr.write("ai-wall: %s\n" % text)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

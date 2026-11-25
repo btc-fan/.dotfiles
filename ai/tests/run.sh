@@ -4,7 +4,8 @@
 # the box MCP server, the newest-stable resolver and update paths, the owner decisions of 2026-11-14
 # (drops, off-by-default plugins, Serena take over, Homebrew rtk, OMX node path, last30days),
 # Tier 1 (checks, stop check, ledger, ratchet), the ship/merge/release flow with scenario and bypass tests,
-# the eval harness (ai-eval: fixtures, install level on fake binaries, stream scorer, behaviour --dry).
+# the eval harness (ai-eval: fixtures, install level on fake binaries, stream scorer, behaviour --dry),
+# the walls at exec (git and gh wrapper, reference-transaction hook, ai-wall: an outcome red team).
 # Usage: bash ai/tests/run.sh [-v] [-k <name part>]
 # AI_TESTS_NO_AGENT=1 (CI) leaves out the test files that need a logged-in agent, and names them.
 set -euo pipefail
@@ -34,6 +35,7 @@ if [ $# -eq 0 ] || [ "$1" = "-v" ]; then
     python3 "$here/test_eval.py" || rc=1
     python3 "$here/test_skills.py" || rc=1
     python3 "$here/test_verify.py" || rc=1
+    python3 "$here/test_walls.py" || rc=1
     python3 "$here/../bin/ai-libs" --dir "$here/../.." --check || rc=1    # the Libraries section matches the lockfiles
     if [ "${AI_TESTS_NO_AGENT:-}" != 1 ]; then
         for t in $agent_tests; do python3 "$here/$t" || rc=1; done

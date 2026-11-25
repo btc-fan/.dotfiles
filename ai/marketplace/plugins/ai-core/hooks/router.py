@@ -28,6 +28,7 @@ Agent = --agent, else Codex when the payload has turn_id / tool_use_id.
 import json
 import os
 import re
+import shlex
 import sys
 import time
 
@@ -39,8 +40,8 @@ from hooklib import (FILE_GATES, GATES, GATE_PROBES, ai_home, append_jsonl, comm
                      origin_slug, parse_command, redact, project_root, read_text,
                      state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
                      graph_status, git_history, git_out, short_skill, write_targets,
-                     owner_merge_ok, ask_first_prompt, ask_first_unnamed, nav_note,
-                     probe_pr,
+                     owner_merge_ok, owner_config, ask_first_prompt, ask_first_unnamed, nav_note,
+                     probe_pr, record_ask_passes, take_ask_pass,
                      session_line, log_wall, verify_proof, verify_steps, app_code_state, head_at, git_quick)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -177,6 +178,8 @@ def on_session_start(ctx):
     home = session_in_home(ctx)
     if home:
         parts.append("[ai router: home-folder] STOP. " + HOME_MSG % home)
+    if ctx.agent == "claude":
+        walls_env(ctx)
     # One fact line (rules-that-hold 13). The rule table is not sent: the root rules file holds it, and Claude
     # loads that file again from disk after a compaction or a clear.
     status = status_line(ctx.root, [r["id"] for r in routing.get("rules", []) if r.get("scope") == "opt-in"])
@@ -201,6 +204,41 @@ def on_session_start(ctx):
         parts.append(SESSION_MSG % line)
     if parts:
         ctx.add_context("\n\n".join(parts))
+
+
+# rules-that-hold 25: Claude Code runs the file named by CLAUDE_ENV_FILE before each Bash command. This block puts
+# the git and gh wrapper (walls/) first on PATH and marks agent mode, so a check sees the real argv at exec,
+# however the command text nests it.
+WALLS_BIN = os.path.join(os.path.dirname(HOOK_DIR), "walls", "bin")
+WALLS_MARK = "# ai-core walls (rules-that-hold 25)"
+
+
+def walls_env(ctx):
+    path = os.environ.get("CLAUDE_ENV_FILE")
+    if not path or not walls_on():
+        return
+    try:
+        if WALLS_MARK in (read_text(path) or ""):
+            return          # the session start fires again on resume and compact
+        with open(path, "a") as fh:
+            fh.write("\n%s\nexport AI_AGENT=1\nexport AI_SESSION=%s\nexport PATH=%s:\"$PATH\"\n"
+                     % (WALLS_MARK, shlex.quote(ctx.session), shlex.quote(WALLS_BIN)))
+    except OSError as exc:
+        log_error("walls_env", exc)
+
+
+def walls_on():
+    """The owner switch AI_WALLS=0 (environment or ~/.config/ai/config.env) turns the walls off. Else the profile
+    decides: PROFILE_WALLS=1. Any error: off, so a broken setup never blocks git."""
+    if owner_config("AI_WALLS") == "0":
+        return False
+    try:
+        sys.path.insert(0, os.path.join(ai_home(), "ai", "lib"))
+        import ai_profile
+        name, _from = ai_profile.resolve()
+        return ai_profile.load(name).get("PROFILE_WALLS") == "1"
+    except Exception:
+        return False
 
 
 def on_user_prompt(ctx):
@@ -595,6 +633,11 @@ class Ctx(object):
             self.state.add_pending(rule["id"], rule["proof"], self.payload.get("transcript_path"))
 
     def finish(self):
+        if self.event == "PreToolUse" and self.decision == "ask" and self.agent == "claude":
+            try:
+                record_ask_passes(self.state, self.stages)
+            except Exception as exc:
+                log_error("ask pass", exc)
         if self._state is not None:
             try:
                 self._state.save()
