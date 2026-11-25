@@ -1,6 +1,6 @@
 # Rules that hold, version 3: one way for each phase, forced by checks
 
-Status: plan, not built. Date: 2026-11-24. Branch: `ai-fable`. Sections 10 and 11 come from a review on the same day.
+Status: plan. Section 12 lists the parts that are built. Date: 2026-11-25. Branch: `ai-fable`. Sections 10 and 11 come from a review on 2026-11-24.
 
 This file replaces the design of `docs/specs/rules-that-hold-v2.md`. Version 2 stays as a record.
 Version 2 had 5 blockers (it removed the owner's typed OK, and it used a global hooks path).
@@ -143,6 +143,7 @@ W4 also writes the map "no rule is lost" for the hooks and the per-tool files. S
 | O5 | Serena on only where a project asks for it? | Yes. 7 calls in 60 days on one machine. |
 | O6 | Keep one Stop hook with 2 reply checks (the full PR URL, and the name of each high-impact step that ran)? | Yes. No git hook can read a reply. |
 | O7 | Keep the `nav-first` row, which denies a wide search one time and names graphify? | Yes. It is the cause of the graphify use (175 calls). W8 measures if it saves tokens. |
+| O8 | Remove the parser rows for `git` and `gh` when the wrapper of section 12 is proven in daily use? | Yes, after W8. The wrapper held 152 of 152 forms. |
 
 ## 8. Limits of the evidence
 
@@ -227,4 +228,39 @@ Mixed states that W9 must test:
 - New machine, old project: the old blocks are text and do no harm. The old hook must not fail open (step 8).
 - Old machine, new project: the new hook finds no setup tool. It must still refuse a commit on main and run `make check-fast`.
 - A project with no remote: no CI and no ruleset are possible. `ai-doctor` says so. The commit hook is its only wall.
+
+## 12. Built on 2026-11-25: walls at exec and by state
+
+An experiment gave a new principle: check the real call and the result, not the text of a command.
+A session-start hook can put a folder first on the `PATH` of each shell command of the agent.
+A wrapper for `git` and `gh` in that folder gets the real arguments after the shell did its work.
+No nested form can hide a call from it. A subagent gets the same wrapper (tested in a real session).
+
+| Ticket | What it does | Proof |
+|---|---|---|
+| 25 walls at exec | The wrapper refuses each hook skip. It sends a commit, a push, a merge and a `gh` write through the present gates. The `reference-transaction` hook lets a protected branch move only as a fast-forward to merged work, or with the owner's merge OK. `ai-wall rescue <slug>` moves uncommitted work to a new worktree | 152 of 152 attack payloads hold, judged by outcome. 20 of 20 friendly payloads pass. The wrapper adds 26 ms to `git status` |
+| 26 reply check | The Stop hook sends a reply back one time: more than 90 words when the owner did not ask for detail, or a U+2014 character | 17 test cases |
+| 27 context diet | Connectors off, skill descriptions cut to 80 characters, 8 unused built-in tools denied | Session start: 57,110 to 42,382 tokens. No skill description is lost |
+| Fix R-021 | The fixture repository of `ai-eval` starts no background maintenance | The cause is proven from the CI log |
+
+Before this ticket, 125 of 184 red-team forms passed the command parser.
+In one real session the walls refused 4 of 5 forced commands. The fifth showed that a move of `main` back to an older commit passed. That hole is closed, with 7 new payloads.
+
+Five forms stay open by design. Each one is a deliberate act, not a mistake, and the GitHub ruleset covers the push:
+
+- The full path of the real `git` with `-c core.hooksPath=/dev/null`.
+- `AI_AGENT=0` before a command.
+- Deletion of the hook file.
+- `git fetch . <branch>:refs/remotes/origin/main` before a move of `main`.
+- `git rebase --exec`, where git runs its own `git`.
+
+Changes to the tickets of section 6:
+
+- W1: the hook template also installs the `reference-transaction` hook. The adopt command does not install it yet.
+- W5: the wrapper is the wall for `git` and `gh`. The parser rows for `git` and `gh` can go after W8 proves the wrapper in daily use (owner decision O8).
+- W3: the measured floor with these settings is 42,382 tokens. The target of 25,000 needs O3, O4, O5 and W4.
+
+Not built yet: the wrapper for Codex, the commit hook that repairs, the CI default, the 500-word file, the PR body script and the migration.
+
+One fact for the owner: git 2.54 and later can define hooks in the machine config, so no project needs a hook file. This machine has git 2.50.1. Homebrew offers 2.56.1.
 
