@@ -707,6 +707,7 @@ link_skills() {
     for s in "$AI_HOME"/ai/skills/*/; do
         [ -f "$s/SKILL.md" ] || continue
         n=$(basename "$s")
+        pstack_serves "$n" && continue
         if [ -n "$served" ] && [ -f "$served/$n/SKILL.md" ]; then
             if [ -L "$dir/$n" ] && [ "$(readlink "$dir/$n")" = "${s%/}" ]; then
                 run rm -f "$dir/$n" && ok "skill $n: the plugin copy serves it, link $dir/$n removed"

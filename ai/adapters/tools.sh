@@ -416,13 +416,21 @@ pstack_src() {
     warn "pstack verification skills moved upstream: ${vend:0:7} -> ${R_SHA:0:7} (audited, adapted, in $dest). Review the diff, then refresh ai/rules/vendor/pstack-verification and ai/skills (python3 ai/lib/pstack_adapt.py)"
 }
 
-# The newer audited copy wins over the repo copy (link_skills links ai/skills first; this runs after it).
+# pstack_serves <skill>: true when the newer audited copy has this skill. link_skills then skips it, so each
+# install sets the link once, in pstack_link (R-022).
+pstack_serves() {
+    local src
+    case " $PSTACK_SKILLS " in *" $1 "*) ;; *) return 1 ;; esac
+    src=$(plugin_src_dir pstack-verification)
+    [ -f "$src/.commit" ] && [ "$(cat "$src/.commit")" != "$(pstack_vendor_commit)" ] && [ -f "$src/$1/SKILL.md" ]
+}
+
+# The newer audited copy wins over the repo copy (link_skills skips the names it serves).
 pstack_link() {
     local dir=$1 src n
     src=$(plugin_src_dir pstack-verification)
-    [ -f "$src/.commit" ] && [ "$(cat "$src/.commit")" != "$(pstack_vendor_commit)" ] || return 0
     for n in $PSTACK_SKILLS; do
-        [ -f "$src/$n/SKILL.md" ] || continue
+        pstack_serves "$n" || continue
         if [ -d "$dir/$n" ] && [ ! -L "$dir/$n" ]; then warn "$dir/$n is a real folder (not ours): not linked"; continue; fi
         aiconf link "$dir/$n" "$src/$n"
     done

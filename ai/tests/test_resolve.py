@@ -620,6 +620,13 @@ def t_bash_pstack(work):
     code, out = bash(LIBS + 'pstack_link "%s"' % target, env)
     assert os.readlink(os.path.join(target, "maintain-verification-skill")) == os.path.join(
         dest, "maintain-verification-skill"), out
+    # R-022: an install runs link_skills, then pstack_link. Each link is set once, to the newer copy.
+    for run in (1, 2):
+        code, out = bash(LIBS + 'link_skills "%s"; pstack_link "%s"' % (target, target), env)
+        flips = [l for l in out.splitlines() if "verification-skill" in l and "ai/skills/" in l]
+        assert not flips, "run %d: a link to the repo copy, then back: %s" % (run, out)
+        assert os.readlink(os.path.join(target, "create-verification-skill")) == os.path.join(
+            dest, "create-verification-skill"), out
     code, out = bash(LIBS + 'AI_SKIP_PACKAGES=0; pstack_src', env)
     assert "(newest; repo copy at" in out, out
     code, out = bash(LIBS + 'AI_SKIP_PACKAGES=0; pstack_vendor_commit() { echo %s; }; pstack_src' % sha, env)
