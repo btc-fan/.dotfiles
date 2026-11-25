@@ -909,6 +909,7 @@ def copy_project(project, dest):
 
 def git_init(repo):
     git(repo, "init", "-q")
+    git(repo, "config", "maintenance.auto", "false")     # later commits (ai-adopt, scenario steps) too
 
 
 def git_commit(repo):
@@ -920,6 +921,8 @@ def git_commit(repo):
 def git(repo, *args):
     cmd = ["git", "-c", "init.defaultBranch=main", "-c", "user.name=ai-eval", "-c", "user.email=ai-eval@example.invalid",
            "-c", "commit.gpgsign=false", "-c", "core.hooksPath=" + os.devnull,
+           # a detached maintenance takes .git/objects/maintenance.lock, which vanishes while copy_fixture copies
+           "-c", "maintenance.auto=false",
            "-c", "core.excludesFile=" + os.devnull, "-C", repo] + list(args)    # a global ignore may hide .claude/
     return subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, text=True).stdout
