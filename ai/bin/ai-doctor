@@ -11,6 +11,8 @@
   ai-doctor --numbers [--json] [--project PATH]   no checks, exit 0: the fixed cost of a new session (words of the
                       rules files, session-start text, hook commands, descriptions) and 7 days of gate denies and
                       reminder fires and misses (ticket rules-that-hold 01)
+  ai-doctor --numbers --live   also one real claude -p session in the project: its start tokens and cost
+                      (costs one small model call; ticket rules-that-hold 27)
 
 Exit 1 when any check FAILs. WARN does not fail.
 Profile (ai/profiles, owner decision 2026-11-14): shown first. dev-mac FAILs when guarddog or osv-scanner from
@@ -437,6 +439,8 @@ def numbers_report(argv):
     proj = argv[argv.index("--project") + 1] if "--project" in argv and argv.index("--project") + 1 < len(argv) \
         else os.getcwd()
     data = numbers_data(proj)
+    if "--live" in argv:
+        data["live"] = numbers_live(proj)
     if "--json" in argv:
         print(json.dumps(data, indent=2, sort_keys=True))
     else:
@@ -466,6 +470,27 @@ def numbers_data(proj):
 
 def NM(reason):
     return "not measured: " + reason
+
+
+LIVE_PROMPT = "Reply with the word OK only."
+
+
+def numbers_live(proj):
+    """One real headless session in the project. Start tokens = all input tokens of its one turn (new, cache write and
+    cache read): the text a session carries before the first prompt, plus the short prompt."""
+    if not shutil.which("claude"):
+        return {"start_tokens": NM("claude not on PATH"), "cost_usd": NM("claude not on PATH")}
+    try:
+        res = subprocess.run(["claude", "-p", LIVE_PROMPT, "--model", "haiku", "--output-format", "json"], cwd=proj,
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=300)
+        out = json.loads(res.stdout.decode("utf-8", "replace"))
+        usage = out["usage"]
+        start = sum(usage.get(k) or 0 for k in ("input_tokens", "cache_creation_input_tokens",
+                                                 "cache_read_input_tokens"))
+        return {"start_tokens": start, "cost_usd": out.get("total_cost_usd", NM("no total_cost_usd"))}
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        why = NM("claude -p gave no usage (%s)" % type(exc).__name__)
+        return {"start_tokens": why, "cost_usd": why}
 
 
 def numbers_rules_files(root):
@@ -759,6 +784,12 @@ def print_numbers(data):
     lo = data["left_out_temp_rows"]
     print("\nrows from temp folders left out  %d (fired %d, misses %d, walls %d, gates.log %d)" % (
         lo["total"], lo["fired"], lo["misses"], lo["walls"], lo["gates.log"]))
+
+    if "live" in data:
+        lv = data["live"]
+        print("\n7. Live session (one real claude -p call, model haiku)")
+        row("start tokens (measured)", lv["start_tokens"])
+        row("cost", "%.4f USD" % lv["cost_usd"] if isinstance(lv["cost_usd"], (int, float)) else lv["cost_usd"])
 
 
 def check_validate():

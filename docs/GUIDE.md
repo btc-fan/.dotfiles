@@ -583,6 +583,9 @@ Profile `dev-mac` switches (file `ai/profiles/dev-mac.env`):
 | PROFILE_GUARDS | 0 | No ask/deny permission rules, no Stop check, no-sudo and no-destroy rows off |
 | PROFILE_OPENCODE, PROFILE_BOX, PROFILE_LAST30DAYS | 0 | Those tools are not installed |
 | PROFILE_GITLEAKS | 1 | gitleaks is installed at the pinned version (`GITLEAKS_HOLD` in `ai/pins.env`) for the secret-scan gate |
+| PROFILE_CONTEXT_DIET | 1 | Claude context diet: a smaller start context for each session (next paragraph) |
+
+**Context diet.** On `dev-mac`, the installer makes the start context of a Claude session smaller. It sets `"disableClaudeAiConnectors": true` and `"skillListingMaxDescChars": 80` in `~/.claude/settings.json`. It also adds 8 built-in tools with no calls to `permissions.deny`, which removes them from each session. A session then starts with about 42,400 tokens, not 57,100. `PROFILE_CONTEXT_DIET=0` turns the block off. `ai-doctor --numbers --live` measures the start tokens with one real session. Measurements: `docs/tickets/rules-that-hold/done/27-context-diet.md`.
 
 Useful flags:
 - `--skip-scan <tool,...|all>`: skip the scanner for these tools (only matters on a profile with scanners).

@@ -39,7 +39,7 @@ def main():
                      t_serena_take, t_rtk_brew, t_rtk_no_brew, t_omx_node_fix, t_last30days, t_doctor,
                      t_omc_companion, t_drop_failures, t_rtk_brew_mismatch, t_codex_restore_quoted,
                      t_yaml_top_set_block_list, t_skill_dups, t_omx_nvm_fix, t_rejected_sha_cached, t_omc_keep, t_nvm_node_path, t_skip_scan,
-                     t_serena_always_load, t_omc_keywords_off, t_omc_context_guard):
+                     t_serena_always_load, t_omc_keywords_off, t_omc_context_guard, t_context_diet):
             for k, v in saved.items():
                 if v is None:
                     os.environ.pop(k, None)
@@ -388,6 +388,45 @@ def t_skill_dups(work):
     pins = read(os.path.join(AI_DIR, "pins.env"))
     assert "mattpocock-skills@claude-plugins-official" in [ln for ln in pins.splitlines()
                                                            if ln.startswith("AI_DROP_CLAUDE_PLUGINS=")][0], pins
+
+
+def t_context_diet(work):
+    """Ticket rules-that-hold 27: the diet block writes connectors off, the description limit and the deny names; an
+    owner deny entry survives; a rerun changes nothing; undo removes only our entries; PROFILE_CONTEXT_DIET=0 writes
+    nothing and, after an install, takes the limit and the deny names away again."""
+    env, home, bindir = claude_env(work)
+    f = os.path.join(home, ".claude", "settings.json")
+    owner = ["NotebookEdit", "Bash(rm -rf *)"]
+    set_settings(home, permissions={"deny": list(owner)}, model="x")
+    block = 'AI_PROFILE=dev-mac; PROFILE_GUARDS=0; PROFILE_CONTEXT_DIET=%s; claude_permissions; claude_context_diet; ' \
+            'claude_connectors_env "$CLAUDE_DIR/settings.json" aiconf'
+    code, out = bash(LIBS + block % 1, env)
+    assert code == 0, out
+    first = read(f)
+    data = json.loads(first)
+    names = bash(LIBS + 'echo $CLAUDE_DIET_DENY', env)[1].split()
+    assert "DesignSync" in names and "CronCreate" not in names, names
+    assert data["disableClaudeAiConnectors"] is True and data["skillListingMaxDescChars"] == 80, data
+    assert data["permissions"]["deny"] == owner + [n for n in names if n not in owner], data
+    state = entries(home)
+    code, out = bash(LIBS + block % 1, env)
+    assert code == 0 and read(f) == first and entries(home) == state, "a rerun changes nothing:\n" + out
+    code, out = run_undo(env, home)
+    assert code == 0, out
+    data = jload(f)
+    assert data["permissions"]["deny"] == owner and data["model"] == "x", data
+    assert "skillListingMaxDescChars" not in data and "disableClaudeAiConnectors" not in data, data
+
+    code, out = bash(LIBS + block % 0, env)
+    assert code == 0, out
+    data = jload(f)
+    assert data["permissions"]["deny"] == owner, data
+    assert "skillListingMaxDescChars" not in data and "disableClaudeAiConnectors" not in data, data
+    bash(LIBS + block % 1, env)
+    code, out = bash(LIBS + block % 0, env)
+    assert code == 0, out
+    data = jload(f)
+    assert data["permissions"]["deny"] == owner and "skillListingMaxDescChars" not in data, data
 
 
 def t_serena_take(work):

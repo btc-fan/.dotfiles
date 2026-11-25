@@ -411,13 +411,14 @@ base_env_user() {
 
 # claude.ai account connectors (Gmail, Calendar, Drive...) in Claude Code: off on Linux servers, where
 # unattended agents run (an agent must not reach the owner's mail). Keep them: install with
-# AI_CLAUDEAI_CONNECTORS=keep. macOS: left as Claude's default unless AI_CLAUDEAI_CONNECTORS=off.
+# AI_CLAUDEAI_CONNECTORS=keep. macOS: left as Claude's default unless AI_CLAUDEAI_CONNECTORS=off or the
+# profile has the context diet (PROFILE_CONTEXT_DIET=1: the connectors cost about 6,300 start tokens).
 claudeai_connectors_off() {
     case "${AI_CLAUDEAI_CONNECTORS:-}" in
         keep) return 1 ;;
         off) return 0 ;;
     esac
-    [ "$AI_OS" = linux ]
+    [ "${PROFILE_CONTEXT_DIET:-0}" = 1 ] || [ "$AI_OS" = linux ]
 }
 
 # claude_connectors_env <settings file> <aiconf|aiconf_root>

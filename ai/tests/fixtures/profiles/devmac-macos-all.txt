@@ -292,8 +292,9 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
   [dry-run] set     ~/.claude/settings.json env/OPENCODE_DISABLE_MODELS_FETCH = "1"
   [dry-run] set     ~/.claude/settings.json env/OPENCODE_DISABLE_LSP_DOWNLOAD = "1"
   [dry-run] set     ~/.claude/settings.json env/MCP_TIMEOUT = "60000"
+  [dry-run] set     ~/.claude/settings.json disableClaudeAiConnectors = true
   planned: Claude: env switches in ~/.claude/settings.json (merge): hooks, MCP servers and -p runs see them
-  planned: Claude permissions merged into ~/.claude/settings.json: allow lists only; no ask or deny rules (profile dev-mac)
+  planned: Claude permissions merged into ~/.claude/settings.json: allow lists only; no ask or deny guards (profile dev-mac)
   [dry-run] set     ~/.claude/settings.json env/UV_CACHE_DIR = "~/.cache/ai-sandbox/uv"
   [dry-run] set     ~/.codex/config.toml [root] check_for_update_on_startup = false
   [dry-run] set     ~/.codex/config.toml [root] project_doc_max_bytes = 65536
@@ -330,6 +331,8 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
   [dry-run] set     ~/.config/ponytail/config.json defaultMode = "full"
   [dry-run] set     ~/.claude/settings.json autoMemoryEnabled = false
   planned: Claude add-ons: OMC auto-update off, Ponytail defaultMode full, auto memory off
+  [dry-run] set     ~/.claude/settings.json skillListingMaxDescChars = 80
+  planned: Claude context diet: skill descriptions cut to 80 characters, unused built-in tools denied (connectors: claudeai_connectors_off)
 
 [13/14] git hooks: ai-sync after each pull
   [dry-run] $REPO/ai/bin/ai-sync --install-hook $REPO
@@ -344,7 +347,7 @@ undo --only ^cmd:codex-mcp:box$: 0 entr(y/ies) reversed
 
 ==== summary ====
 
-done (37)
+done (38)
   - (planned) brew install curl
   - (planned) sources resolved (ai/pins.env)
   - (planned) links
@@ -377,10 +380,11 @@ done (37)
   - (planned) Codex: managed block in ~/.codex/AGENTS.md (OMX blocks kept)
   - (planned) git: global excludes ignore the sandbox placeholders in project roots (~/.config/git/ignore)
   - (planned) Claude: env switches in ~/.claude/settings.json (merge): hooks, MCP servers and -p runs see them
-  - (planned) Claude permissions merged into ~/.claude/settings.json: allow lists only; no ask or deny rules (profile dev-mac)
+  - (planned) Claude permissions merged into ~/.claude/settings.json: allow lists only; no ask or deny guards (profile dev-mac)
   - (planned) Codex: update check, analytics, feedback off; project_doc_max_bytes 65536; env switches, GIT_GUARD_AGENT and git fsmonitor off in shell_environment_policy.set
   - (planned) herdr: version and manifest checks off (never run 'herdr update')
   - (planned) Claude add-ons: OMC auto-update off, Ponytail defaultMode full, auto memory off
+  - (planned) Claude context diet: skill descriptions cut to 80 characters, unused built-in tools denied (connectors: claudeai_connectors_off)
   - (planned) git hooks post-merge + post-rewrite run ai-sync after a pull
 
 skipped (3)
