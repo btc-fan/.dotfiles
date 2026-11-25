@@ -110,14 +110,11 @@ sync_claude_plugin_copy() {
 # Only changes are printed: a pull shows no line for a link that is already current.
 sync_skill_links() {
     {
-        # The install.sh order: a newer audited pstack copy wins over the repo copy (R-008).
         if [ -d "$CLAUDE_DIR/skills" ]; then
             link_skills "$CLAUDE_DIR/skills" "$(PLUGIN_DIR)/skills"
-            pstack_link "$CLAUDE_DIR/skills"
         fi
         if [ -d "$HOME/.agents/skills" ]; then
             link_skills "$HOME/.agents/skills"
-            pstack_link "$HOME/.agents/skills"
         fi
         true
     } 2>&1 | { grep -v '^ *same ' || true; } \

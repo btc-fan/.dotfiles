@@ -629,7 +629,8 @@ restore where something existing is removed; dry-run safe.
   vendor copy in `ai/rules/vendor/pstack-verification/`, our copy in `ai/skills/` made by `ai/lib/pstack_adapt.py`
   (the project path `.cursor/skills` -> `.agents/skills`, an attribution note, RO/RU triggers, no em dash; since
   verify-enforcement 01 also: no typed-only flag, "cover every surface", the appended section Our additions).
-  `PSTACK_SOURCE` follows the newest upstream commit (audited, same transform, `pstack_link` prefers it).
+  Only this repo copy is used. `PSTACK_SOURCE` is checked: a new upstream commit gives a warning, and the change
+  comes through a dotfiles PR (owner 2026-11-25).
 - Project verify skill `.agents/skills/verify-<app>/` with a committed link `.claude/skills/verify-<app>`. Done order
   (tier mvp, long; optional in try): check-fast green, then verify-<app> on the changed feature (launch, doctor,
   every entry point of its feature file, evidence kept), only then e2e tests for the proven journey, then the PR

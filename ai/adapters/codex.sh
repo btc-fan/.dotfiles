@@ -105,7 +105,6 @@ codex_plugins() {
 codex_skills() {
     link_skills "$HOME/.agents/skills"
     mattpocock_link "$HOME/.agents/skills"
-    pstack_link "$HOME/.agents/skills"
     ok "Codex/opencode: shared skills and the 5 mattpocock skills linked into ~/.agents/skills"
 }
 

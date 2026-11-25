@@ -16,9 +16,9 @@ The adapted copy changes only what must change here (SPEC 26):
   - U+2014 becomes " - ";
   - verify-enforcement 01: the typed-only flag `disable-model-invocation: true` goes (the AI runs both skills),
     "pick the primary one and note the rest" becomes "cover every surface" (an upstream without that sentence
-    fails here, so the installer keeps the repo copy), and ai/lib/pstack_additions/<name>.md is appended as the
+    fails here, so a refresh needs a new rule), and ai/lib/pstack_additions/<name>.md is appended as the
     last section, "## Our additions".
-The installer (tools.sh pstack_src) runs the same transform on a newer upstream commit, after its audit.
+Only the repo copy is used: a newer upstream commit comes in through a dotfiles PR that runs this script.
 """
 import os
 import re

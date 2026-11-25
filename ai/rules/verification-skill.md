@@ -153,10 +153,10 @@ passes the hooks, and the hooks never judge if the drive was good; code review a
 
 ## Setup checklist
 - Install: `install.sh` links `ai/skills/create-verification-skill` and `ai/skills/maintain-verification-skill`
-  into `~/.claude/skills` and `~/.agents/skills` (like every own skill). `PSTACK_SOURCE` in `ai/pins.env`: when
-  upstream moves, `pstack_src` clones, checks for symlinks, adapts (`ai/lib/pstack_adapt.py`), runs `agent-audit
-  dir`, installs into the plugin source dir and `pstack_link` points the links there; the run warns that the
-  vendor copy is behind (review the diff, refresh `ai/rules/vendor/pstack-verification` and `ai/skills`).
+  into `~/.claude/skills` and `~/.agents/skills` (like every own skill). Only this repo copy is used (owner 2026-11-25).
+  `PSTACK_SOURCE` in `ai/pins.env`: when upstream moves, `pstack_check` warns and downloads nothing. To take the
+  change, open a dotfiles PR: refresh `ai/rules/vendor/pstack-verification`, then run `ai/lib/pstack_adapt.py`.
+  An old automatic download in `<plugin src>/pstack-verification` is removed by the next install.
   Hermes: not wired (UNVERIFIED for Hermes).
 - Keys, telemetry, network: none (the generated project skill may start the app locally).
 - Per project: nothing for the owner. The agent runs `create-verification-skill` at the first feature task,
@@ -164,7 +164,7 @@ passes the hooks, and the hooks never judge if the drive was good; code review a
   which also drops an old bare `.verify/` line). The `.gitignore` block shares `.claude/skills/verify-*`.
 - Verify: `ls ~/.claude/skills/create-verification-skill/SKILL.md ~/.agents/skills/maintain-verification-skill/SKILL.md`;
   `ai-doctor --project <repo>` shows the verify skill line.
-- Cleanup: remove the two links; delete `<plugin src>/pstack-verification`; per project delete
+- Cleanup: remove the two links; per project delete
   `.agents/skills/verify-<app>/` and the `.claude` link.
 
 ## Evidence cleanup (verify-evidence-in-git)

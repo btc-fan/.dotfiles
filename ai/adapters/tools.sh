@@ -366,74 +366,26 @@ mattpocock_src() {
 }
 
 # pstack verification skills (SPEC 26, ai/rules/verification-skill.md): create-verification-skill and
-# maintain-verification-skill from github.com/cursor/plugins (folder pstack/, MIT). The repo ships an adapted copy in
-# ai/skills/ (linked like every own skill) made from the vendor copy at a known commit. When the newest commit
-# upstream differs, this copies the two folders, audits them, applies the same transform (ai/lib/pstack_adapt.py)
-# into <plugin src>/pstack-verification, and pstack_link points the skill links there. The vendor copy is then
-# behind: the run says so (review the diff, refresh ai/rules/vendor/pstack-verification and ai/skills).
-PSTACK_SKILLS="create-verification-skill maintain-verification-skill"
-
+# maintain-verification-skill from github.com/cursor/plugins (folder pstack/, MIT). Every machine uses only the
+# adapted copy in ai/skills/ (linked like every own skill). An upstream change comes only through a dotfiles PR
+# that the owner reads (owner 2026-11-25): the install reports a new upstream commit and downloads nothing.
 pstack_vendor_commit() {
     sed -n 's/^commit: //p' "$AI_HOME/ai/rules/vendor/pstack-verification/SOURCE.md" 2>/dev/null
 }
 
-pstack_src() {
-    local dest tmp n have repo vend
-    dest=$(plugin_src_dir pstack-verification)
-    have=$(cat "$dest/.commit" 2>/dev/null || true)
+pstack_check() {
+    local vend old
+    old=$(plugin_src_dir pstack-verification)
+    if [ -d "$old" ]; then
+        run rm -rf "$old" && ok "pstack: removed the old automatic download $old (the repo copy in ai/skills is used)"
+    fi
     vend=$(pstack_vendor_commit)
     resolve_tool pstack || return 1
-    repo=${R_SOURCE#git }
+    if [ "$R_STATUS" = cached ]; then info "pstack verification skills: newest not checked (offline)"; return 0; fi
     if [ "$R_SHA" = "$vend" ]; then
         info "pstack verification skills: the repo copy (ai/skills, commit ${vend:0:7}) is the newest"; return 0
     fi
-    if [ -n "$have" ] && [ "$have" = "$R_SHA" ]; then
-        info "pstack verification skills at $dest are at ${R_SHA:0:7} (newest; repo copy at ${vend:0:7})"; return 0
-    fi
-    if [ "$R_STATUS" = cached ]; then info "pstack verification skills: newest not checked (offline), kept"; return 0; fi
-    [ "$AI_SKIP_PACKAGES" = 1 ] && { skip "pstack verification skills (--skip-packages)"; return 1; }
-    if [ "$AI_DRY_RUN" = 1 ]; then
-        info "[dry-run] git clone $repo; checkout ${R_SHA:0:12}; adapt $PSTACK_SKILLS; agent-audit dir; copy to $dest"
-        return 0
-    fi
-    tmp=$(mktemp -d "${TMPDIR:-/tmp}/ai-pstack.XXXXXX")
-    git clone -q "$repo" "$tmp/src" || { warn "clone of $repo failed"; rm -rf "$tmp"; return 1; }
-    git -C "$tmp/src" -c advice.detachedHead=false checkout -q "$R_SHA" \
-        || { warn "pstack: commit not found"; rm -rf "$tmp"; return 1; }
-    for n in $PSTACK_SKILLS; do
-        [ -f "$tmp/src/pstack/skills/$n/SKILL.md" ] || { warn "pstack: skills/$n missing at ${R_SHA:0:7}: repo copy kept"; rm -rf "$tmp"; return 1; }
-        if [ -n "$(find "$tmp/src/pstack/skills/$n" -type l -print -quit)" ]; then
-            warn "pstack: skills/$n contains a symlink: repo copy kept"; rm -rf "$tmp"; return 1
-        fi
-    done
-    python3 "$AI_HOME/ai/lib/pstack_adapt.py" "$tmp/src/pstack" "$tmp/out" "$R_SHA" >/dev/null \
-        || { warn "pstack: adapt failed (upstream layout changed?): repo copy kept"; rm -rf "$tmp"; return 1; }
-    printf '%s\n' "$R_SHA" > "$tmp/out/.commit"
-    audit_ok dir "$tmp/out" "$R_SHA" pstack || { rm -rf "$tmp"; return 1; }
-    src_swap "$tmp/out" "$dest" "plugin-src:pstack-verification"
-    rm -rf "$tmp"
-    r_record
-    warn "pstack verification skills moved upstream: ${vend:0:7} -> ${R_SHA:0:7} (audited, adapted, in $dest). Review the diff, then refresh ai/rules/vendor/pstack-verification and ai/skills (python3 ai/lib/pstack_adapt.py)"
-}
-
-# pstack_serves <skill>: true when the newer audited copy has this skill. link_skills then skips it, so each
-# install sets the link once, in pstack_link (R-022).
-pstack_serves() {
-    local src
-    case " $PSTACK_SKILLS " in *" $1 "*) ;; *) return 1 ;; esac
-    src=$(plugin_src_dir pstack-verification)
-    [ -f "$src/.commit" ] && [ "$(cat "$src/.commit")" != "$(pstack_vendor_commit)" ] && [ -f "$src/$1/SKILL.md" ]
-}
-
-# The newer audited copy wins over the repo copy (link_skills skips the names it serves).
-pstack_link() {
-    local dir=$1 src n
-    src=$(plugin_src_dir pstack-verification)
-    for n in $PSTACK_SKILLS; do
-        pstack_serves "$n" || continue
-        if [ -d "$dir/$n" ] && [ ! -L "$dir/$n" ]; then warn "$dir/$n is a real folder (not ours): not linked"; continue; fi
-        aiconf link "$dir/$n" "$src/$n"
-    done
+    warn "pstack verification skills moved upstream: ${vend:0:7} -> ${R_SHA:0:7}. The repo copy stays in use. To take the change: a dotfiles PR that refreshes ai/rules/vendor/pstack-verification and ai/skills (python3 ai/lib/pstack_adapt.py)"
 }
 
 # One route per agent: ~/.agents/skills/<name> (Codex, opencode) and ~/.claude/skills/<name> (Claude), links.
@@ -683,7 +635,7 @@ tools_system() {
     plugin_clone claude-seo claude-seo || true
     plugin_clone claude-blog claude-blog || true
     mattpocock_src || true
-    pstack_src || true
+    pstack_check || true
     return 0
 }
 
