@@ -1,0 +1,49 @@
+git merge --no-ff feat-installed (HOME=/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync)
+worktree: installed (/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai)
+hook: # ai-sync-hook v2: refresh copied AI rules after pull (installed by ai-sync --install-hook).
+rc: 0
+HOME changed: yes
+  .agents/skills/create-verification-skill: -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.local/share/ai/plugins/pstack-verification/create-verification-skill
+  .agents/skills/maintain-verification-skill: -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.local/share/ai/plugins/pstack-verification/maintain-verification-skill
+  .agents/skills/promote-skill: -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/promote-skill
+  .agents/skills/prompting-claude-and-codex: -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/prompting-claude-and-codex
+  .agents/skills/release: -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/release
+  .agents/skills/setup-rollout: -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/setup-rollout
+  .agents/skills/ship: -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/ship
+  .agents/skills/skills-guide: -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/skills-guide
+  .agents/skills/upgrade-review: -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/upgrade-review
+  .claude/skills/create-verification-skill: -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.local/share/ai/plugins/pstack-verification/create-verification-skill
+  .claude/skills/maintain-verification-skill: -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.local/share/ai/plugins/pstack-verification/maintain-verification-skill
+  .claude/skills/promote-skill: -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/promote-skill
+  .claude/skills/release: -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/release
+  .claude/skills/setup-rollout: -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/setup-rollout
+  .claude/skills/ship: -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/ship
+  .claude/skills/skills-guide: -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/skills-guide
+  .claude/skills/upgrade-review: -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/upgrade-review
+  .codex/AGENTS.md: c4f8fcadeaa6
+  .local/state/ai/managed-keys.json: 8d0c1c181b79
+--- output
+Merge made by the 'ort' strategy.
+ feat-installed.txt | 1 +
+ 1 file changed, 1 insertion(+)
+ create mode 100644 feat-installed.txt
+  link    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.claude/skills/promote-skill -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/promote-skill
+  link    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.claude/skills/release -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/release
+  link    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.claude/skills/setup-rollout -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/setup-rollout
+  link    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.claude/skills/ship -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/ship
+  link    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.claude/skills/skills-guide -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/skills-guide
+  link    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.claude/skills/upgrade-review -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/upgrade-review
+  link    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.claude/skills/create-verification-skill -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.local/share/ai/plugins/pstack-verification/create-verification-skill
+  link    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.claude/skills/maintain-verification-skill -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.local/share/ai/plugins/pstack-verification/maintain-verification-skill
+  link    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.agents/skills/promote-skill -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/promote-skill
+  link    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.agents/skills/prompting-claude-and-codex -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/prompting-claude-and-codex
+  link    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.agents/skills/release -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/release
+  link    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.agents/skills/setup-rollout -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/setup-rollout
+  link    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.agents/skills/ship -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/ship
+  link    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.agents/skills/skills-guide -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/skills-guide
+  link    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.agents/skills/upgrade-review -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.dotfiles-ai/ai/skills/upgrade-review
+  link    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.agents/skills/create-verification-skill -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.local/share/ai/plugins/pstack-verification/create-verification-skill
+  link    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.agents/skills/maintain-verification-skill -> /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.local/share/ai/plugins/pstack-verification/maintain-verification-skill
+  block   /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.codex/AGENTS.md AI:core v1 (20521 bytes)
+  skip    /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.codex/config.toml no hooks of ours need a trust entry
+  done: Codex: hook entries for ai-core, rtk, graphify, Ponytail, i-have-adhd (or their switched-off plugin copies) in /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-flja09vd/home-sync/.codex/config.toml

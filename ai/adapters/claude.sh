@@ -702,11 +702,13 @@ link_skills() {
     # link_skills <target dir> [<plugin skills dir>]: every ai/skills/<name>/SKILL.md becomes <target>/<name> (a
     # link), except a name the plugin skills dir also ships: the plugin serves it, so our earlier link goes (one
     # copy per session; owner QA 2026-11-15: prompting-claude-and-codex loaded twice in Claude).
+    # A name that a newer pstack copy serves is also skipped. The caller must run pstack_link next (R-022).
     local dir=$1 served=${2:-} s n
     [ -d "$AI_HOME/ai/skills" ] || return 0
     for s in "$AI_HOME"/ai/skills/*/; do
         [ -f "$s/SKILL.md" ] || continue
         n=$(basename "$s")
+        pstack_serves "$n" && continue
         if [ -n "$served" ] && [ -f "$served/$n/SKILL.md" ]; then
             if [ -L "$dir/$n" ] && [ "$(readlink "$dir/$n")" = "${s%/}" ]; then
                 run rm -f "$dir/$n" && ok "skill $n: the plugin copy serves it, link $dir/$n removed"
