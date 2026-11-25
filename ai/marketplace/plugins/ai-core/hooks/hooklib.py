@@ -1660,6 +1660,44 @@ def gh_api_writes(args):
     return any(a.partition("=")[0] in GH_FIELD_FLAGS for a in args)
 
 
+# ---------------------------------------------------------------- ask passes (rules-that-hold 25)
+# The walls wrapper asks the gates again at exec, where it cannot ask the owner. A command that the PreToolUse hook
+# asked about, and the owner approved, gets one pass per git or gh stage: the hash of its words, valid ASK_PASS_S.
+
+ASK_PASS_S = 120
+
+
+def ask_pass_hash(words):
+    """The normal form of one simple command: its words joined by shlex.join, so quoting does not matter."""
+    import hashlib
+    import shlex
+    return hashlib.sha256(shlex.join(words).encode("utf-8")).hexdigest()
+
+
+def record_ask_passes(state, stages):
+    d = state.load()
+    now = time.time()
+    passes = [p for p in d.get("ask_passes", []) if now - p.get("ts", 0) <= ASK_PASS_S]
+    passes += [{"hash": ask_pass_hash([st.exe] + st.args), "ts": now} for st in stages if st.exe in ("git", "gh")]
+    d["ask_passes"] = passes
+    state.dirty = True
+
+
+def take_ask_pass(state, words):
+    """True when the state holds a fresh pass for these words; the pass is removed (it is used one time)."""
+    d = state.load()
+    now, h, found, keep = time.time(), ask_pass_hash(words), False, []
+    for p in d.get("ask_passes", []):
+        fresh = 0 <= now - p.get("ts", 0) <= ASK_PASS_S
+        if not found and fresh and p.get("hash") == h:
+            found = True
+        elif fresh:
+            keep.append(p)
+    d["ask_passes"] = keep
+    state.dirty = True
+    return found
+
+
 def probe_gh(stages, cmd=""):
     return any(st.exe == "gh" for st in stages)
 

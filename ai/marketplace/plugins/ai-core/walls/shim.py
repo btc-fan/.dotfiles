@@ -43,7 +43,7 @@ def check_git(real, args):
     sub, rest, problem = resolve_alias(real, globals_, cwd, sub, rest)
     if problem:
         return problem
-    problem = no_verify_skip(sub, rest) or config_skip(real, globals_, cwd, sub, rest)
+    problem = no_verify_skip(sub, rest) or remote_ref_skip(sub, rest) or config_skip(real, globals_, cwd, sub, rest)
     if problem:
         return problem
     if sub not in READS:
@@ -51,14 +51,14 @@ def check_git(real, args):
         if problem:
             return problem
     if sub in GATED:
-        return ask_gates(cwd, ["git", sub] + rest)
+        return ask_gates(cwd, ["git", sub] + rest, ["git"] + args)
     return None
 
 
 def check_gh(args):
     if gh_read(args):
         return None
-    return ask_gates(os.getcwd(), ["gh"] + args)
+    return ask_gates(os.getcwd(), ["gh"] + args, ["gh"] + args)
 
 
 # ---------------------------------------------------------------- the real tool
@@ -200,6 +200,31 @@ def no_verify_skip(sub, rest):
     return None
 
 
+# ---------------------------------------------------------------- remote-tracking refs
+
+def remote_ref_skip(sub, rest):
+    """git update-ref on refs/remotes/: a forged remote-tracking ref would make the hook take a move of a protected
+    branch for a pull. fetch and push still update these refs."""
+    if sub != "update-ref":
+        return None
+    if "--stdin" in rest:
+        return ("git update-ref --stdin reads its refs from standard input, which the wrapper cannot see. Agents run "
+                "git update-ref with the ref on the command line.")
+    words, i = [], 0
+    while i < len(rest):
+        if rest[i] == "-m":
+            i += 2
+            continue
+        if not rest[i].startswith("-") or rest[i] == "--":
+            words.append(rest[i])
+        i += 1
+    words = [w for w in words if w != "--"]
+    if words and words[0].startswith("refs/remotes/"):
+        return ("git update-ref %s writes a remote-tracking ref by hand. Only git fetch and git push update it."
+                % words[0])
+    return None
+
+
 # ---------------------------------------------------------------- core.hooksPath
 
 def config_skip(real, globals_, cwd, sub, rest):
@@ -244,8 +269,13 @@ def hooks_inside(real, globals_, cwd, value):
 
 # ---------------------------------------------------------------- the gates
 
-def ask_gates(cwd, words):
-    """The PreToolUse gates on one simple command. A deny or an ask is a refusal: the wrapper cannot ask the owner.
+ASK_MSG = ("The wrapper cannot ask the owner: run this command as a plain Bash command, not inside another command, "
+           "so the owner can be asked.")
+
+
+def ask_gates(cwd, words, raw):
+    """The PreToolUse gates on one simple command (words). A deny is a refusal. An ask passes only with a fresh
+    one-time pass that the PreToolUse hook recorded for the same command (raw argv) after it asked the owner.
     The no-verify gate is left out: it reads command text, and the argv check above is the exact form of it."""
     import shlex
     try:
@@ -261,9 +291,18 @@ def ask_gates(cwd, words):
         router.on_pre_tool(ctx)
         if ctx._state is not None and ctx._state.lock_fh:
             ctx._state.lock_fh.close()      # release the session lock; the wrapper saves no nudge state
+        if ctx.decision == "ask":
+            state = router.SessionState(ctx.session)
+            try:
+                if router.take_ask_pass(state, raw):
+                    return None
+            finally:
+                state.save()
     except Exception as exc:
         return "the gates did not load (%s: %s), so this command was not run." % (type(exc).__name__, exc)
-    if ctx.decision in ("deny", "ask"):
+    if ctx.decision == "ask":
+        return "\n".join(ctx.reasons + [ASK_MSG])
+    if ctx.decision == "deny":
         return "\n".join(ctx.reasons)
     return None
 

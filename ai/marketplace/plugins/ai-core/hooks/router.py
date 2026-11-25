@@ -41,7 +41,7 @@ from hooklib import (FILE_GATES, GATES, GATE_PROBES, ai_home, append_jsonl, comm
                      state_path, with_defaults, graph_git_calls, start_graph_refresh, typed_skills_note,
                      graph_status, git_history, git_out, short_skill, write_targets,
                      owner_merge_ok, owner_config, ask_first_prompt, ask_first_unnamed, nav_note,
-                     probe_pr,
+                     probe_pr, record_ask_passes, take_ask_pass,
                      session_line, log_wall, verify_proof, verify_steps, app_code_state, head_at, git_quick)
 
 HOOK_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -619,6 +619,11 @@ class Ctx(object):
             self.state.add_pending(rule["id"], rule["proof"], self.payload.get("transcript_path"))
 
     def finish(self):
+        if self.event == "PreToolUse" and self.decision == "ask" and self.agent == "claude":
+            try:
+                record_ask_passes(self.state, self.stages)
+            except Exception as exc:
+                log_error("ask pass", exc)
         if self._state is not None:
             try:
                 self._state.save()

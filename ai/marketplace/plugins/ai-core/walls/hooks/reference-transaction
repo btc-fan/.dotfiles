@@ -44,9 +44,11 @@ while read -r old new ref; do
     [ -z "$current" ] || [ "$current" = "$new" ] && continue
     upstream=$(git for-each-ref --format='%(upstream)' "$ref" 2>/dev/null)
     [ -n "$upstream" ] || upstream="refs/remotes/origin/$branch"
-    git merge-base --is-ancestor "$new" "$upstream" 2>/dev/null && continue
+    # A fast-forward to merged work (a pull) passes. A rewind to an older commit does not.
+    git merge-base --is-ancestor "$current" "$new" 2>/dev/null \
+        && git merge-base --is-ancestor "$new" "$upstream" 2>/dev/null && continue
     merge_ok && continue
-    reason="a move of the protected branch $branch to $(printf '%.10s' "$new"): it is not on $upstream, and this session has no merge OK from the owner"
+    reason="a move of the protected branch $branch to $(printf '%.10s' "$new"): it is not a fast-forward to work on $upstream, and this session has no merge OK from the owner"
     break
 done <<EOF
 $input

@@ -38,7 +38,7 @@ def main():
     work = tempfile.mkdtemp(prefix="ai-walls-tests-")
     try:
         box = Sandbox(work)
-        for test in (t_red_team, t_friendly, t_open_class, t_install, t_install_chain, t_install_worktree,
+        for test in (t_red_team, t_friendly, t_open_class, t_ask_pass, t_install, t_install_chain, t_install_worktree,
                      t_rescue, t_session_start, t_speed):
             try:
                 test(box, os.path.join(work, test.__name__))
@@ -98,6 +98,8 @@ def argv_forms(argv):
     return forms
 
 
+PY_CALL = "python3 -c \"import subprocess, sys; sys.exit(subprocess.call(%s))\""
+
 # Hook skips and config tricks, each as its own shell text: (name, branch, staged change, text).
 SKIPS = [
     ("--no-verif", "feature", True, "git commit --no-verif -qam x"),
@@ -133,6 +135,22 @@ SKIPS = [
     ("branch -D main", "feature", False, "git branch -D main"),
     ("branch -m main", "main", False, "git branch -m main old"),
     ("gh api merge", "feature", False, "gh api -X PUT repos/o/r/pulls/1/merge"),
+    ("rewind update-ref", "main", False, "git update-ref refs/heads/main HEAD~1"),
+    ("rewind reset --hard", "main", False, "git reset -q --hard HEAD~1"),
+    ("rewind reset --keep", "main", False, "git reset -q --keep HEAD~1"),
+    ("rewind branch -f", "feature", False, "git branch -f main main~1"),
+    ("rewind update-ref / python subprocess", "main", False,
+     PY_CALL % "['git', 'update-ref', 'refs/heads/main', 'HEAD~1']"),
+    ("rewind reset --hard / python subprocess", "main", False, PY_CALL % "['git', 'reset', '-q', '--hard', 'HEAD~1']"),
+    ("rewind branch -f / python subprocess", "feature", False,
+     PY_CALL % "['git', 'branch', '-f', 'main', 'main~1']"),
+    ("remote-tracking ref moved first", "feature", False,
+     "git update-ref refs/remotes/origin/main feature; git update-ref refs/heads/main feature"),
+    ("remote-tracking ref deleted first", "feature", False,
+     "git update-ref -d refs/remotes/origin/main; git update-ref refs/heads/main feature"),
+    ("remote-tracking ref through --stdin", "feature", False,
+     "echo 'update refs/remotes/origin/main feature' | git update-ref --stdin; "
+     "git update-ref refs/heads/main feature"),
 ]
 
 
@@ -200,7 +218,7 @@ def t_friendly(box, work):
          "HEAD && git branch --list && git log --grep=--no-verify -1", lambda r: True),
         ("gh pr view", "feature", False, "gh pr view 1", lambda r: "pr view 1" in r.gh),
         ("core.hooksPath inside the repo", "feature", False, "git config core.hooksPath .githooks", lambda r: True),
-        ("reset --keep main back to its remote", "main", False, "git reset -q --keep HEAD~1", moved("main")),
+        ("fetch", "main", False, "git fetch -q origin", lambda r: True),
         ("new branch from main", "main", False, "git checkout -q -b topic", lambda r: True),
     ]
     setups = {"pull fast-forwards main": "push-origin-main",
@@ -228,8 +246,8 @@ def t_open_class(box, work):
          "%s -c core.hooksPath=/dev/null commit -qam x" % real_git),
         ("inline AI_AGENT=0", "main", True, "AI_AGENT=0 git commit -qam x"),
         ("deletion of the hook file", "main", True, "rm .git/hooks/reference-transaction; git commit -qam x"),
-        ("remote-tracking ref moved first", "feature", False,
-         "git update-ref refs/remotes/origin/main feature && git update-ref refs/heads/main feature"),
+        ("remote-tracking ref moved first by git fetch from the repo itself", "feature", False,
+         "git fetch -q . feature:refs/remotes/origin/main && git update-ref refs/heads/main feature"),
         ("git rebase --exec runs the git of the exec path", "feature", False,
          "git rebase -q --exec 'git push -q origin HEAD:main' HEAD~1"),
     ]
@@ -237,6 +255,66 @@ def t_open_class(box, work):
         print("  %s: %s: %s" % (OPEN_LABEL, r.name, "breach" if r.breach() else "held"))
         assert r.breach(), "%s is held now: move it out of the open class" % r.name
     print("  open class: %d payloads" % len(cases))
+
+
+# ---------------------------------------------------------------- one-time pass after an ask
+
+def t_ask_pass(box, work):
+    """An ask that the owner approved in the PreToolUse prompt passes the wrapper one time, for the same command,
+    within 120 s. A command the hook did not see gets no pass. A deny never passes."""
+    repo = box.new_repo(work)
+    log = os.path.join(work, "gh.log")
+    create = 'gh issue create --title x --body "a b"'
+
+    def pre_tool(session, command):
+        payload = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "session_id": session,
+                              "cwd": repo, "tool_input": {"command": command}})
+        env = dict(box.env)
+        env.pop("AI_AGENT")
+        res = subprocess.run([sys.executable, ROUTER, "--agent", "claude", "PreToolUse"], input=payload,
+                             env=env, stdout=subprocess.PIPE, universal_newlines=True, timeout=60)
+        return res.stdout
+
+    def wrapped(session, text):
+        env = dict(box.env, AI_SESSION=session, GH_LOG=log)
+        res = subprocess.run(["bash", "-c", text], cwd=repo, env=env, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
+        return res.returncode, res.stderr
+
+    def calls():
+        return read(log).count("issue create") if os.path.exists(log) else 0
+
+    # Other quoting and a cd before it: the pass is per simple gh stage, in the shlex.join form.
+    assert '"ask"' in pre_tool("pass-a", "cd . && gh issue create --title 'x' --body 'a b'"), \
+        "the hook did not ask for gh issue create"
+    code, err = wrapped("pass-a", create)
+    assert code == 0 and calls() == 1, "an approved ask did not pass: " + err
+    code, err = wrapped("pass-a", create)
+    assert code == 1 and calls() == 1, "a pass was used two times"
+    assert "plain Bash command" in err, err
+
+    code, err = wrapped("pass-b", "bash -c " + shlex.quote(create))
+    assert code == 1 and calls() == 1 and "plain Bash command" in err, "a nested ask with no pass ran"
+
+    pre_tool("pass-c", create)
+    path = os.path.join(box.env["AI_STATE_DIR"], "sessions", "pass-c.json")
+    data = json.loads(read(path))
+    for p in data["ask_passes"]:
+        p["ts"] -= 121
+    write(path, json.dumps(data))
+    code, _err = wrapped("pass-c", create)
+    assert code == 1 and calls() == 1, "a pass older than 120 s was used"
+
+    out = pre_tool("pass-d", "gh pr merge 1 --squash")
+    assert '"deny"' in out, "the hook did not deny gh pr merge"
+    sys.path.insert(0, os.path.dirname(ROUTER))
+    import hooklib
+    path = os.path.join(box.env["AI_STATE_DIR"], "sessions", "pass-d.json")
+    data = json.loads(read(path)) if os.path.exists(path) else {}
+    data["ask_passes"] = [{"hash": hooklib.ask_pass_hash(["gh", "pr", "merge", "1", "--squash"]), "ts": time.time()}]
+    write(path, json.dumps(data))
+    code, _err = wrapped("pass-d", "gh pr merge 1 --squash")
+    assert code == 1 and "pr merge" not in (read(log) if os.path.exists(log) else ""), "a deny was passed"
 
 
 # ---------------------------------------------------------------- ai-wall install and rescue
