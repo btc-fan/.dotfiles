@@ -15,7 +15,7 @@ Allowed places:
   docs/           everything (adr, specs, tickets, research, maps, agents, releases, security, REGRESSIONS.md)
   design-system/  ui-ux-pro-max MASTER.md and page overrides
   tool folders    .claude/ .agents/ .codex/ .github/ .omc/skills/ (skills, commands, templates)
-  .verify/evidence/  verify-<app> run folders (summary.md), committed by the ship skill
+  evidence        .verify/evidence/ (verify-<app> run folders that the ship skill commits; --md skips them)
   extra           one glob per line in .ai/docs-allow (committed; add a line only with the owner's OK)
 Only files git sees are checked (tracked, or new and not ignored).
 
@@ -31,7 +31,8 @@ import sys
 ROOT_OK = {"README.md", "AGENTS.md", "CLAUDE.md", "GLOSSARY.md", "CODING_STANDARDS.md", "CHANGELOG.md",
            "CONTRIBUTING.md", "SECURITY.md", "LICENSE.md", "CODE_OF_CONDUCT.md"}
 ANY_DIR_OK = {"README.md", "AGENTS.md", "CLAUDE.md", "CHANGELOG.md"}
-TREES_OK = ("docs/", "design-system/", ".claude/", ".agents/", ".codex/", ".github/", ".omc/skills/", ".verify/evidence/")
+EVIDENCE = ".verify/evidence/"
+TREES_OK = ("docs/", "design-system/", ".claude/", ".agents/", ".codex/", ".github/", ".omc/skills/", EVIDENCE)
 SKIP_TREES = ("node_modules/", "vendor/", ".venv/", "venv/", "dist/", "build/", "graphify-out/", ".serena/")
 ALLOW_REL = os.path.join(".ai", "docs-allow")
 RESEARCH_KEYS = ("date:", "sources:", "status:")
@@ -50,7 +51,9 @@ def main(argv):
         return write_baseline(root, stray)
     for f in research_without_header(root, files):
         print("ai-docs-check: WARN %s: add Date:, Sources: and Status: lines at the top" % f)
-    problems = md_problems(root, [f for f in files if is_md(f)]) if "--md" in argv else []
+    # Evidence is captured output, so --md does not lint it (an em dash in a log, a link to an ignored screenshot).
+    linted = [f for f in files if is_md(f) and not f.startswith(EVIDENCE)]
+    problems = md_problems(root, linted) if "--md" in argv else []
     for p in problems:
         print("ai-docs-check: " + p)
     if not stray:
