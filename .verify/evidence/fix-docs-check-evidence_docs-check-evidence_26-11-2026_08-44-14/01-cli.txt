@@ -1,0 +1,10 @@
+/Users/python-qa/.dotfiles-ai-fix-docs-check-evidence/ai/bin/ai-docs-check --md
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-211dypxq/docs-only
+rc: 1
+--- transcript
+ai-docs-check: stray Markdown NOTES.md
+ai-docs-check: 1 file(s) outside the allowed places. Move each under docs/<kind>/ (adr, specs, tickets, research, maps, releases, security), merge it into an existing doc, or delete it. Only with the owner's OK: add its path to .ai/docs-allow.
+
+--- git status --short after
+?? .verify/
+?? NOTES.md
