@@ -137,7 +137,8 @@ def t_docs_check_places(work):
     repo, env = new_repo(work, "docs", {
         "README.md": "x", "AGENTS.md": "x", "GLOSSARY.md": "x", "docs/adr/0001-x.md": "x", "docs/anything.md": "x",
         "design-system/app/MASTER.md": "x", "src/README.md": "x", ".claude/commands/deploy.md": "x",
-        ".github/pull_request_template.md": "x", "app.py": "x = 1\n"})
+        ".github/pull_request_template.md": "x", "app.py": "x = 1\n",
+        ".verify/evidence/feat_run_25-11-2026_10-00-00/summary.md": "x"})  # R-023: committed verify evidence
     res = run([sys.executable, os.path.join(BIN, "ai-docs-check"), "--dir", repo], env=env)
     assert res.returncode == 0, res.text
     write(os.path.join(repo, "NOTES.md"), "agent notes\n")
