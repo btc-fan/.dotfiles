@@ -1,0 +1,8 @@
+/Users/python-qa/.dotfiles-ai-fix-docs-check-evidence/ai/bin/ai-docs-check --md
+cwd: /private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-211dypxq/docs-only
+rc: 0
+--- transcript
+ai-docs-check: Markdown placement ok (3 files)
+
+--- git status --short after
+?? .verify/

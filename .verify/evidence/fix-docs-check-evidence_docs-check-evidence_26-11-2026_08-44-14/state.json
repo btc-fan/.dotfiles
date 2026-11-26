@@ -1,0 +1,19 @@
+{
+ "run": "fix-docs-check-evidence_docs-check-evidence_26-11-2026_08-44-14",
+ "root": "/Users/python-qa/.dotfiles-ai-fix-docs-check-evidence",
+ "tmp": "/private/var/folders/hd/_t6cbw8x1gs634wrdxhg5qlw0000gn/T/verify-ai-setup-211dypxq",
+ "fixtures": [
+  "docs-only"
+ ],
+ "guards": {
+  "/Users/python-qa/.claude/settings.json": "e005656135496005d1c7ba36957524a79b1518a3",
+  "/Users/python-qa/.claude/plugins/installed_plugins.json": "0ebcea0e2e61a9141a76ff73822ea16bd0313b30",
+  "/Users/python-qa/.codex/config.toml": "b5e193d95083974f675d1754194c8a352c2537eb",
+  "/Users/python-qa/.codex/hooks.json": "7f198ac2a849ef3fde128dc8ff79e11a49e2c489",
+  "/Users/python-qa/.dotfiles-ai": "03927374731772b7b96d047b8c6efa3c962932cdce7999e3a3bf7431a82749df4d688f4fbee0a3ee",
+  "/Users/python-qa/.claude/skills": "9a602859495d0f6ef76667e872bb4815e2d89edb",
+  "/Users/python-qa/.agents/skills": "b2e424993cdfc6237c9d8b8b7194d1fda5fe6ba5"
+ },
+ "drives": 2,
+ "agents": false
+}

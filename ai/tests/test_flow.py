@@ -137,7 +137,8 @@ def t_docs_check_places(work):
     repo, env = new_repo(work, "docs", {
         "README.md": "x", "AGENTS.md": "x", "GLOSSARY.md": "x", "docs/adr/0001-x.md": "x", "docs/anything.md": "x",
         "design-system/app/MASTER.md": "x", "src/README.md": "x", ".claude/commands/deploy.md": "x",
-        ".github/pull_request_template.md": "x", "app.py": "x = 1\n"})
+        ".github/pull_request_template.md": "x", "app.py": "x = 1\n",
+        ".verify/evidence/feat_run_25-11-2026_10-00-00/summary.md": "x"})  # R-023: committed verify evidence
     res = run([sys.executable, os.path.join(BIN, "ai-docs-check"), "--dir", repo], env=env)
     assert res.returncode == 0, res.text
     write(os.path.join(repo, "NOTES.md"), "agent notes\n")
@@ -187,6 +188,10 @@ def t_docs_check_md(work):
     res = run(dc + ["--md"], env=env)
     assert res.returncode == 1 and "docs/guide.md:3: em dash (U+2014)" in res.text, res.text
     write(os.path.join(repo, "docs", "guide.md"), "# Guide\n\nStep 1: read.\n\n[back](../README.md)\n")
+    res = run(dc + ["--md"], env=env)
+    assert res.returncode == 0, res.text
+    # R-023: verify evidence is captured output: --md skips it (an em dash in a log, a link to an ignored screenshot)
+    write(os.path.join(repo, ".verify", "evidence", "run1", "summary.md"), "# Run\n\nok \u2014 done ![shot](shot.png)\n")
     res = run(dc + ["--md"], env=env)
     assert res.returncode == 0, res.text
 
