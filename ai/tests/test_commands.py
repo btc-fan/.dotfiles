@@ -734,7 +734,7 @@ def t_playwright(work):
     assert res.returncode == 1 and "not installed" in res.stdout, res.stdout
     for ver, name in (("0.0.9", "old"), ("0.0.85", "new")):
         fake = os.path.join(home, ".local", "share", "ai", "npm", "playwright-mcp-" + ver, "node_modules", ".bin",
-                            "mcp-server-playwright")
+                            "playwright-mcp")
         os.makedirs(os.path.dirname(fake))
         write_exec(fake, "#!/bin/sh\necho fake-playwright-%s \"$@\"\n" % name)
     res = run(["bash", wrapper, "--headless", "--isolated"], env={"HOME": home})

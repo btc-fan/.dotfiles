@@ -884,7 +884,7 @@ def t_playwright_keep_only(work):
     home = os.path.join(work, "home")
     for v in ("0.0.85", "0.0.90"):
         stub(os.path.join(home, ".local", "share", "ai", "npm", "playwright-mcp-" + v, "node_modules", ".bin",
-                          "mcp-server-playwright"), "#!/bin/sh\necho pw-%s\n" % v)
+                          "playwright-mcp"), "#!/bin/sh\necho pw-%s\n" % v)
     setup(work, 'PLAYWRIGHT_MCP_SOURCE="npm @playwright/mcp stable"\nPLAYWRIGHT_MCP_HOLD=0.0.85\n',
           http={NPM + "@playwright%2Fmcp/0.0.85": {"version": "0.0.85", "dist": {"integrity": "sha512-pw"}}})
     old = os.environ.get("HOME")

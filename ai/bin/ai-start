@@ -1594,7 +1594,7 @@ def playwright_dir(ver):
 
 
 def playwright_ok(ver):
-    return os.access(os.path.join(playwright_dir(ver), "node_modules", ".bin", "mcp-server-playwright"), os.X_OK)
+    return os.access(os.path.join(playwright_dir(ver), "node_modules", ".bin", "playwright-mcp"), os.X_OK)
 
 
 def playwright_installed():
